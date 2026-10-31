@@ -9,8 +9,8 @@
     // requestSession is made before imports so it retains the click's user activation.
     const overlay=document.createElement('div');
     overlay.className='xr-overlay';
-    overlay.innerHTML=`<div class="xr-top"><span id="xr-status">در حال جستجوی کف...</span><button id="xr-close">خروج ×</button></div>
-      <div class="xr-bottom"><div class="xr-steps">۱. گوشی را به سمت کف بگیرید و کمی حرکت دهید. ۲. کف را تأیید کنید. ۳. دو نقطه A و B را ثبت کنید.</div>
+    overlay.innerHTML=`<div class="xr-top"><button id="xr-menu">منوی کیچیار</button><span id="xr-status">در حال جستجوی کف...</span><button id="xr-close">خروج ×</button></div><section class="xr-menu-sheet" id="xr-menu-sheet" hidden><strong>KITCHYAR · AR</strong><p>ثبت و ذخیره طرح از همین محیط انجام می‌شود؛ خروج، پروژه را پاک نمی‌کند.</p><button id="xr-reset-floor">اسکن مجدد کف</button><button id="xr-menu-exit">خروج از AR</button></section>
+      <div class="xr-bottom"><div class="xr-scan-readiness" id="xr-scan-readiness"><div><strong>آمادگی شناسایی کف</strong><span id="xr-scan-percent">۰٪</span></div><progress id="xr-scan-progress" max="5" value="0"></progress><small>۵ نمونه معتبر در نقاط مختلف کف؛ این درصد پیشرفت داخلی اسکن است، نه درصد ARCore.</small></div><div class="xr-steps">۱. دوربین را آرام روی نقاط مختلف کف حرکت دهید. ۲. بعد از پنج نمونه معتبر کف را تأیید کنید. ۳. A/B را اندازه بگیرید.</div>
       <div class="xr-buttons"><button id="xr-confirm" disabled>تأیید کف</button><button id="xr-a" disabled>ثبت A</button><button id="xr-b" disabled>ثبت B</button></div>
       <label>فاصله واقعی A تا B (متر) <input id="xr-distance" type="number" min=".1" max="20" step=".01" value="${model.calibration?.baselineMeters||1}"></label>
       <div class="xr-buttons"><button id="xr-apply" disabled>تصحیح مقیاس AR</button><button id="xr-left" disabled>چرخش −۵°</button><button id="xr-right" disabled>چرخش +۵°</button></div>
@@ -26,7 +26,7 @@
       });
     }catch(error){overlay.remove();throw Error('شروع AR ممکن نشد: '+error.message);}
     let renderer,hitSource,reference,viewer,cleaned=false,currentHit=null,floorConfirmed=false;
-    let anchor=null,pointA=null,pointB=null,displayScale=1,startPoint=null;
+    let anchor=null,pointA=null,pointB=null,displayScale=1,startPoint=null,scanSamples=[],lastScanAt=0,scanMarkers=[];
     const status=overlay.querySelector('#xr-status'),btn=n=>overlay.querySelector('#xr-'+n);
     const updateStatus=s=>{if(status.textContent!==s)status.textContent=s;};
     function clean(){
@@ -36,6 +36,9 @@
     }
     session.addEventListener('end',clean,{once:true});
     btn('close').onclick=()=>session.end();
+    btn('menu').onclick=()=>{const sheet=btn('menu-sheet');sheet.hidden=!sheet.hidden;};
+    btn('menu-exit').onclick=()=>session.end();
+    btn('reset-floor').onclick=()=>{scanSamples=[];lastScanAt=0;floorConfirmed=false;anchor=null;pointA=null;pointB=null;startPoint=null;displayScale=1;btn('confirm').disabled=true;btn('menu-sheet').hidden=true;btn('scan-readiness').hidden=false;rootGroup.visible=false;syncScan();updateStatus('اسکن مجدد: گوشی را روی نقاط مختلف کف حرکت دهید.');};
     try{
       const THREE=await import(CDN);
       const scene=new THREE.Scene();
@@ -58,6 +61,14 @@
       const ring=new THREE.Mesh(new THREE.RingGeometry(.11,.15,36),
         new THREE.MeshBasicMaterial({color:0x4fba89,side:THREE.DoubleSide,transparent:true,opacity:.85}));
       ring.rotation.x=-Math.PI/2;scene.add(ring);ring.visible=false;
+      const sampleGeo=new THREE.SphereGeometry(.028,10,8);
+      const sampleMat=new THREE.MeshBasicMaterial({color:'#ffcc79',depthTest:false});
+      function syncScan(){
+        while(scanMarkers.length){const m=scanMarkers.pop();scene.remove(m);}
+        for(const p of scanSamples){const m=new THREE.Mesh(sampleGeo,sampleMat);m.position.set(p.x,p.y+.025,p.z);scene.add(m);scanMarkers.push(m);}
+        btn('scan-progress').value=scanSamples.length;
+        btn('scan-percent').textContent=Math.round(scanSamples.length/5*100)+'٪';
+      }
       const colors={wall:'#d6dfd0',base:'#8faaa0',wallCabinet:'#a7bda6'};
       function material(color,opacity=1){
         return new THREE.MeshStandardMaterial({color,roughness:.8,transparent:opacity<1,opacity,side:THREE.DoubleSide});
@@ -117,10 +128,13 @@
       };
       btn('confirm').onclick=()=>{
         const p=posePoint();if(!p)return;
-        anchor=p;rootGroup.position.copy(p);rootGroup.rotation.y=(model.calibration?.rotation||0)*Math.PI/180;
+        if(scanSamples.length<5)return notify('برای تثبیت کف، پنج نقطه معتبر ثبت کنید.');
+        anchor=p;anchor.y=scanSamples.reduce((v,q)=>v+q.y,0)/scanSamples.length;
+        rootGroup.position.copy(anchor);rootGroup.rotation.y=(model.calibration?.rotation||0)*Math.PI/180;
         rootGroup.visible=true;floorConfirmed=true;
         ['a','b','left','right','start-point','end-point'].forEach(k=>btn(k).disabled=false);
-        updateStatus('کف تثبیت شد · مقیاس اولیه ۱:۱');
+        scanSamples=[];syncScan();btn('scan-readiness').hidden=true;
+        updateStatus('کف با ۵ نمونه تأیید شد · مقیاس اولیه ۱:۱');
       };
       btn('a').onclick=()=>{
         pointA=posePoint();pointB=null;btn('apply').disabled=true;
@@ -192,11 +206,28 @@
         const hits=frame.getHitTestResults(hitSource);
         if(hits.length){
           const pose=hits[0].getPose(reference);
-          currentHit=pose?{position:new THREE.Vector3(pose.transform.position.x,pose.transform.position.y,pose.transform.position.z)}:null;
+          const point=pose?new THREE.Vector3(pose.transform.position.x,pose.transform.position.y,pose.transform.position.z):null;
+          const orientation=pose?.transform.orientation;
+          const normal=orientation?new THREE.Vector3(0,1,0).applyQuaternion(new THREE.Quaternion(orientation.x,orientation.y,orientation.z,orientation.w)):null;
+          const cameraY=viewerPose.transform.position.y;
+          const height=point?cameraY-point.y:0;
+          const horizontal=normal&&Math.abs(normal.y)>.91;
+          // Reject most table/countertop hits by requiring the surface to be below the camera.
+          const plausible=!!point&&horizontal&&height>.55&&height<2.5;
+          currentHit=plausible?{position:point}:null;
           if(currentHit){
-            ring.position.copy(currentHit.position);ring.position.y+=.007;ring.visible=true;
-            btn('confirm').disabled=false;
-            if(!floorConfirmed)updateStatus('سطح افقی پیدا شد · کف را بررسی و تأیید کنید.');
+            ring.position.copy(point);ring.position.y+=.007;ring.visible=true;
+            if(!floorConfirmed&&time-lastScanAt>320){
+              const compatible=scanSamples.every(p=>Math.abs(p.y-point.y)<.11);
+              const distinct=scanSamples.every(p=>Math.hypot(p.x-point.x,p.z-point.z)>.16);
+              if(!compatible&&scanSamples.length>=2){scanSamples=[];syncScan();}
+              if(distinct&&scanSamples.length<5){scanSamples.push(point.clone());lastScanAt=time;syncScan();}
+            }
+            btn('confirm').disabled=!floorConfirmed&&scanSamples.length<5;
+            if(!floorConfirmed)updateStatus('نمونه معتبر کف: '+scanSamples.length+' از ۵ · گوشی را روی کف حرکت دهید.');
+          }else{
+            ring.visible=false;btn('confirm').disabled=true;
+            if(!floorConfirmed)updateStatus('سطح معتبر پیدا نشد؛ دوربین را پایین‌تر بگیرید.');
           }
         }else{currentHit=null;ring.visible=false;btn('confirm').disabled=true;
           if(!floorConfirmed)updateStatus('سطحی پیدا نشد؛ گوشی را آرام حرکت دهید.');}
