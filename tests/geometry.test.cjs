@@ -902,3 +902,41 @@ test('drawing one long tall cabinet run creates multiple valid full-height colum
  assert.ok(towers.every(c=>G.lengthOf(c)>=.45&&G.lengthOf(c)<=.90+1e-5&&c.height>=1.8));
  assert.ok(towers.every(c=>c.cornerGroup===towers[0].cornerGroup));
 });
+test('countertop edge, waterfall, raised bar, seat overhang and curves remain semantic and cutout-safe',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:6,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:2.2,z:0}).items;
+ items=G.placeCabinet(items,{x:2.2,z:0},{x:4.2,z:0}).items;
+ const [first,second]=items.filter(c=>c.kind==='cabinet');
+ items=G.placeEquipment(items,{x:1,z:.33},'sink').items;
+ const before=G.countertopCutouts(items,first).map(c=>({...c}));
+ const source=structuredClone(items);
+ const settings={edge:'round',waterfall:'both',overhang:.3,raisedHeight:.15,cornerRadius:.10,curve:.08};
+ items=G.styleCountertop(items,first.id,settings,{scope:'connected'}).items;
+ assert.equal(items.find(c=>c.id===first.id).countertopDesign.edge,'round');
+ assert.equal(items.find(c=>c.id===second.id).countertopDesign.waterfall,'both');
+ assert.deepEqual(G.countertopCutouts(items,items.find(c=>c.id===first.id)),before);
+ assert.equal(source.find(c=>c.id===first.id).countertopDesign,undefined);
+ items=G.styleCountertop(items,second.id,{edge:'thick',overhang:.45},{scope:'single'}).items;
+ assert.equal(items.find(c=>c.id===first.id).countertopDesign.edge,'round');
+ assert.equal(items.find(c=>c.id===second.id).countertopDesign.edge,'thick');
+ assert.throws(()=>G.styleCountertop(items,first.id,{curve:5}),/معتبر نیست/);
+});
+test('specialized kitchen spaces are parameterized, removable, and reject equipment conflicts',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:2,z:0}).items;
+ const c=items.find(o=>o.kind==='cabinet');
+ for(const kind of ['coffee','display','appliance','shelves','bar','seating']){
+  const changed=G.styleCabinetSpecialty(items,c.id,{type:kind,width:.65,height:.56,shelves:3,
+   door:kind==='display'?'glass':'open',materialId:'oak',offsetT:.5});
+  assert.equal(changed.items.find(x=>x.id===c.id).specialty.type,kind);
+  assert.equal(changed.items.find(x=>x.id===c.id).specialty.shelves,3);
+ }
+ items=G.styleCabinetSpecialty(items,c.id,{type:'coffee',width:.65,height:.56,shelves:2,door:'open',materialId:'oak',offsetT:.5}).items;
+ items=G.styleCabinetSpecialty(items,c.id,{type:'none'}).items;
+ assert.equal(items.find(x=>x.id===c.id).specialty,undefined);
+ assert.throws(()=>G.styleCabinetSpecialty(items,c.id,{type:'coffee',width:4,height:.56,shelves:2,door:'open',materialId:'oak'}),/سازگار نیست/);
+ items=G.placeEquipment(items,{x:1,z:.32},'dishwasher').items;
+ assert.throws(()=>G.styleCabinetSpecialty(items,c.id,{type:'coffee',width:.65,height:.56,shelves:2,door:'open',materialId:'oak',offsetT:.5}),/تداخل/);
+});

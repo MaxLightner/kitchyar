@@ -3,7 +3,7 @@
  * Source: MaxLightner/archyar main (private), 89283efb, 2026-10-31.
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
-import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=appearance30';
+import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=surface31';
 export const SNAP_RADIUS=.50;
 const uid=()=>globalThis.crypto?.randomUUID?.()||'node-'+Math.random().toString(36).slice(2);
 const dist=(ax,az,bx,bz)=>Math.hypot(bx-ax,bz-az);
@@ -339,6 +339,50 @@ export const CABINET_DECOR_OPTIONS=Object.freeze({
  pilaster:['none','slim','classic'],trim:['none','vertical','horizontal','both']
 });
 export function resolvedCabinetDecor(c){return {...DEFAULT_CABINET_DECOR,...c?.decor};}
+export const DEFAULT_COUNTERTOP_DESIGN=Object.freeze({
+ edge:'square',waterfall:'none',overhang:0,raisedHeight:0,cornerRadius:0,curve:0
+});
+export const COUNTERTOP_EDGES=Object.freeze(['square','round','bevel','thick']);
+export const COUNTERTOP_WATERFALLS=Object.freeze(['none','start','end','both']);
+export function resolvedCountertopDesign(c){return {...DEFAULT_COUNTERTOP_DESIGN,...c?.countertopDesign};}
+export function styleCountertop(source,cabinetId,options,{scope='single'}={}){
+ const items=copy(source),host=byId(items,cabinetId);
+ if(host?.kind!=='cabinet'||host.subtype!=='base')throw Error('برای تنظیم صفحه، کابینت زمینی انتخاب کن.');
+ if(!['single','connected'].includes(scope))throw Error('محدوده تنظیم صفحه معتبر نیست.');
+ const design={...resolvedCountertopDesign(host),...options};
+ if(!COUNTERTOP_EDGES.includes(design.edge)||!COUNTERTOP_WATERFALLS.includes(design.waterfall))
+  throw Error('نوع لبه یا صفحه آبشاری معتبر نیست.');
+ for(const [key,max] of [['overhang',.5],['raisedHeight',.25],['cornerRadius',.18],['curve',.16]]){
+  design[key]=Number(design[key]);
+  if(!Number.isFinite(design[key])||design[key]<0||design[key]>max)
+   throw Error('اندازه پیش‌آمدگی، ارتفاع یا انحنای صفحه معتبر نیست.');
+ }
+ const ids=scope==='connected'?connectedCabinetIds(items,host.id):new Set([host.id]);
+ for(const c of items.filter(c=>c.kind==='cabinet'&&c.subtype==='base'&&ids.has(c.id)))
+  c.countertopDesign={...design};
+ return {items,selectedId:cabinetId};
+}
+export const SPECIALTY_TYPES=Object.freeze(['none','coffee','display','appliance','shelves','bar','seating']);
+export const SPECIALTY_DOORS=Object.freeze(['open','glass','solid']);
+export function styleCabinetSpecialty(source,cabinetId,options){
+ const items=copy(source),c=byId(items,cabinetId);
+ if(c?.kind!=='cabinet'||c.subtype==='bridge')throw Error('برای فضای تخصصی یک کابینت انتخاب کن.');
+ if(!SPECIALTY_TYPES.includes(options?.type))throw Error('نوع فضای تخصصی نامعتبر است.');
+ if(options.type==='none'){delete c.specialty;return {items,selectedId:cabinetId};}
+ const width=Number(options.width),height=Number(options.height),shelves=Number(options.shelves),offsetT=Number(options.offsetT??.5);
+ if(!Number.isFinite(width)||width<.25||width>lengthOf(c)-.02||
+  !Number.isFinite(height)||height<.24||height>c.height-.03||
+  !Number.isInteger(shelves)||shelves<0||shelves>6||
+  !Number.isFinite(offsetT)||offsetT-width/(2*lengthOf(c))<0||offsetT+width/(2*lengthOf(c))>1||
+  !SPECIALTY_DOORS.includes(options.door)||!MATERIALS.front.some(m=>m.id===options.materialId))
+  throw Error('ابعاد یا مدل فضای تخصصی با کابینت سازگار نیست.');
+ if(options.type==='seating'&&c.subtype!=='base')throw Error('نشیمن فقط به کابینت زمینی متصل می‌شود.');
+ const occupied=items.some(e=>e.kind==='equipment'&&e.hostId===c.id&&
+  Math.abs((e.offsetT??.5)-offsetT)*lengthOf(c)<(e.width+width)/2+.025);
+ if(occupied)throw Error('محل فضای تخصصی با تجهیزات نصب‌شده تداخل دارد.');
+ c.specialty={type:options.type,width,height,shelves,offsetT,door:options.door,materialId:options.materialId};
+ return {items,selectedId:cabinetId};
+}
 export function styleCabinetDecor(source,cabinetId,choices,{scope='single'}={}){
  const items=copy(source),host=byId(items,cabinetId);
  if(host?.kind!=='cabinet'||host.subtype==='bridge')throw Error('ابتدا کابینتی برای تزئین انتخاب کن.');

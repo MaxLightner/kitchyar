@@ -390,6 +390,16 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .cabinet-decor-panel .primary{padding:10px;min-height:42px}
 .equipment-facade-panel small{font-size:15px;color:#6b776e;line-height:1.6}
 @media(max-width:440px){.cabinet-decor-fields{grid-template-columns:1fr}}
+.design-details,.tile-layout-panel{border-top:1px solid #d5dfd6;padding:10px 0;display:grid;gap:10px}
+.design-details summary{cursor:pointer;font-size:16px;font-weight:600;color:#355744;list-style-position:inside}
+.design-details[open]{padding-bottom:12px}
+.design-details .design-fields,.tile-layout-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.design-fields label,.tile-layout-fields label{display:grid;gap:5px;min-width:0;font-size:15px}
+.design-fields input,.design-fields select,.tile-layout-fields input,.tile-layout-fields select{min-width:0;width:100%;border:1px solid #bdcabd;border-radius:8px;padding:8px;min-height:42px;background:#fff;font-size:15px;color:#35493c}
+.design-details button,.tile-layout-panel button{min-height:42px;padding:9px}
+.design-details small,.tile-layout-panel small{font-size:15px;color:#6c756d;line-height:1.6}
+.tile-layout-panel{margin-top:8px}.tile-layout-panel strong{font-size:16px;color:#355744}
+@media(max-width:440px){.design-details .design-fields,.tile-layout-fields{grid-template-columns:1fr}}
 @media(max-width:730px){
  .object-editor{top:150px;max-height:calc(100svh - 310px)}
  .dialog{padding:16px}

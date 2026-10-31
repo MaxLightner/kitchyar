@@ -90,10 +90,31 @@ test('facade editor offers preview, selectable doors and centimetre grips in bot
 test('base kitchen envelope has countertop and recessed plinth from initial placement',()=>{
  const floor=read('floor-ar.js'),plan=read('plan-view.js');
  assert.match(floor,/countertopCutouts\(this\.items,c\)/);
- assert.match(floor,/slices\(y0\+c\.height,y0\+c\.height\+\.035,cuts,stone/);
+ assert.match(floor,/for\(const cut of cuts\)/);
+ assert.match(floor,/new THREE\.ExtrudeGeometry\(shape/);
  assert.match(plan,/countertop-cutout/);
  assert.match(floor,/const toe=new THREE\.Mesh/);
  assert.match(plan,/countertop-plan/);
+});
+test('ceramic layouts generate clipped batched geometry in six patterns without tile image atlases',async()=>{
+ const {TILE_PATTERNS,buildTileGeometry,validateTileLayout}=await import('../apps/preview/tile-layout.js');
+ assert.equal(TILE_PATTERNS.length,6);
+ for(const pattern of TILE_PATTERNS){
+  const batch=buildTileGeometry(1.8,.62,{pattern,width:.20,height:.10,grout:.003,groutColor:'#ded8cd'});
+  assert.ok(batch.count>10,pattern);
+  assert.ok(batch.indices.length>=batch.count*3,pattern);
+  assert.ok(batch.positions.every(Number.isFinite)&&batch.uvs.every(Number.isFinite));
+  for(let i=0;i<batch.positions.length;i+=3){
+   assert.ok(batch.positions[i]>=-.90001&&batch.positions[i]<=.90001,pattern+' x clipped');
+   assert.ok(batch.positions[i+1]>=-.31001&&batch.positions[i+1]<=.31001,pattern+' y clipped');
+  }
+ }
+ assert.throws(()=>validateTileLayout({pattern:'invalid'}),/نامعتبر/);
+ assert.throws(()=>validateTileLayout({grout:.2}),/نامعتبر/);
+ const floor=read('floor-ar.js'),app=read('app.js');
+ assert.match(floor,/buildTileGeometry\(span,endY-baseTop,this\.tileLayout\)/);
+ assert.match(app,/data-action="apply-tile-layout"/);
+ assert.match(app,/tileLayout:currentTileLayout\(\)/);
 });
 test('new facade styles keep all explicit text at 13 px or larger',()=>{
  const css=read('styles.css');

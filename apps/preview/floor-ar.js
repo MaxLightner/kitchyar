@@ -3,9 +3,10 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor} from './geometry.js?v=appearance30';
-import {neighborGaps} from './edit-handles.js?v=appearance30';
-import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=appearance30';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=surface31';
+import {neighborGaps} from './edit-handles.js?v=surface31';
+import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=surface31';
+import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=surface31';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -15,7 +16,7 @@ export class FloorAR {
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
    this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;this.calibrationOffset=null;this.savedCalibration=null;this.calibrationVisible=true;
    this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10,taskLighting:true,taskIntensity:1.8};
-   this.materialSettings={...DEFAULT_MATERIALS};this.textureCache=new Map();
+   this.materialSettings={...DEFAULT_MATERIALS};this.tileLayout={...DEFAULT_TILE_LAYOUT};this.textureCache=new Map();
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
@@ -655,6 +656,11 @@ export class FloorAR {
   if(JSON.stringify(next)===JSON.stringify(this.materialSettings))return;
   this.materialSettings=next;this.rebuildObjects();
  }
+ setTileLayout(config={}){
+  const next=validateTileLayout(config);
+  if(JSON.stringify(next)===JSON.stringify(this.tileLayout))return;
+  this.tileLayout=next;this.rebuildObjects();
+ }
  surfaceTexture(category,id,width,height,grainDirection='auto'){
   const info=materialFor(category,id);if(!info?.file)return null;
   const path=assetUrl(info.file);
@@ -1135,8 +1141,55 @@ export class FloorAR {
     const nx=-uz*side,nz=ux*side,cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2;
     if(c.subtype==='base'){
      const stone=this.surfaceMaterial('counter',this.materialSettings.counter,len,c.depth);
-     // Mesh each remaining stone rectangle; no top faces exist over cutouts.
-     slices(y0+c.height,y0+c.height+.035,cuts,stone,.0175);
+     const design=resolvedCountertopDesign(c),side=c.side||1,top=y0+c.height;
+     const x0=-len/2-.0175,x1=len/2+.0175,
+      z0=-c.depth/2-.0175-(side<0?design.overhang:0),
+      z1=c.depth/2+.0175+(side>0?design.overhang:0),
+      r=Math.min(design.cornerRadius,(x1-x0)/4,(z1-z0)/4);
+     const shape=new THREE.Shape();
+     shape.moveTo(x0+r,z0);
+     if(side<0&&design.curve>.001)shape.quadraticCurveTo((x0+x1)/2,z0-design.curve,x1-r,z0);
+     else shape.lineTo(x1-r,z0);
+     shape.quadraticCurveTo(x1,z0,x1,z0+r);shape.lineTo(x1,z1-r);
+     shape.quadraticCurveTo(x1,z1,x1-r,z1);
+     if(side>0&&design.curve>.001)shape.quadraticCurveTo((x0+x1)/2,z1+design.curve,x0+r,z1);
+     else shape.lineTo(x0+r,z1);
+     shape.quadraticCurveTo(x0,z1,x0,z1-r);shape.lineTo(x0,z0+r);
+     shape.quadraticCurveTo(x0,z0,x0+r,z0);
+     for(const cut of cuts){
+      const a=cut.x-cut.width/2,b=cut.x+cut.width/2,
+       low=cut.z-cut.depth/2,high=cut.z+cut.depth/2;
+      const hole=new THREE.Path();
+      hole.moveTo(a,low);hole.lineTo(a,high);hole.lineTo(b,high);hole.lineTo(b,low);hole.closePath();
+      shape.holes.push(hole);
+     }
+     const thickness=design.edge==='thick'?.075:.035;
+     const rounded=design.edge==='round',bevel=rounded||design.edge==='bevel';
+     const geo=new THREE.ExtrudeGeometry(shape,{depth:thickness,steps:1,
+      bevelEnabled:bevel,bevelSize:rounded?.008:.005,bevelThickness:rounded?.008:.004,
+      bevelSegments:rounded?3:1,curveSegments:8});
+     const uv=geo.getAttribute('uv'),textureScale=stone.userData?.textureScale||.4;
+     if(uv)for(let index=0;index<uv.count;index++)uv.setXY(index,uv.getX(index)/textureScale,uv.getY(index)/textureScale);
+     const slab=new THREE.Mesh(geo,stone.clone()),slabGroup=new THREE.Group();
+     slab.rotation.x=Math.PI/2;slab.castShadow=true;slab.receiveShadow=true;
+     slab.userData.objectId=c.id;slabGroup.userData.objectId=c.id;
+     slabGroup.position.set(cx,top+.035,cz);slabGroup.rotation.y=-angle;
+     slabGroup.add(slab);this.objectGroup.add(slabGroup);
+     if(design.waterfall!=='none')for(const end of [-1,1]){
+      if(design.waterfall!=='both'&&design.waterfall!==(end<0?'start':'end'))continue;
+      const point=end<0?{x:c.x1,z:c.z1}:{x:c.x2,z:c.z2};
+      const hidden=this.items.some(other=>other.kind==='cabinet'&&other.id!==c.id&&other.subtype==='base'&&
+       Math.abs(other.elevation-y0)<.02&&[[other.x1,other.z1],[other.x2,other.z2]].some(p=>Math.hypot(p[0]-point.x,p[1]-point.z)<.055));
+      if(hidden)continue;
+      addDetail(.034,top+.035-Math.max(0,y0-.04),z1-z0,end*(len/2+.017),
+       (top+.035+Math.max(0,y0-.04))/2,(z0+z1)/2,stone);
+     }
+     if(design.raisedHeight>.005){
+      const rear=side>0?z0+.13:z1-.13;
+      addDetail(len+.02,.028,.26,0,top+.035+design.raisedHeight,rear,stone);
+      addDetail(len+.02,design.raisedHeight,.028,0,top+.035+design.raisedHeight/2,
+       rear+(side>0?.13:-.13),stone);
+     }
      stone.dispose();
     }
     const toe=new THREE.Mesh(new THREE.BoxGeometry(len,.085,.09),
@@ -1178,6 +1231,61 @@ export class FloorAR {
      }
     }
    }
+   if(c.specialty?.type&&c.specialty.type!=='none'&&c.subtype!=='bridge'){
+    const s=c.specialty,sw=Math.min(s.width,len-.025),sh=Math.min(s.height,c.height-.035),
+     sx=((s.offsetT??.5)-.5)*len,centreY=y0+c.height/2,
+     face=frontZ+(c.side||1)*.042;
+    const specialtyMat=this.surfaceMaterial('front',s.materialId,sw,sh);
+    const inner=material(0x454d47,{roughness:.84}),shelf=material(0xd4d0c7,{roughness:.61});
+    if(s.type==='seating'){
+     addDetail(sw,.06,.48,sx,y0+c.height+.066,frontZ+(c.side||1)*.24,specialtyMat);
+     for(const x of [sx-sw/2+.08,sx+sw/2-.08])
+      addDetail(.045,Math.min(.55,c.height),.045,x,y0+c.height-Math.min(.55,c.height)/2,
+       frontZ+(c.side||1)*.41,specialtyMat);
+    }else{
+     // A parametric presentation niche: dark back, reveal/frame, adjustable
+     // shelves and procedural contents, independent from manufacturing units.
+     addDetail(sw,sh,.019,sx,centreY,face,inner);
+     for(const x of [sx-sw/2+.015,sx+sw/2-.015])
+      addDetail(.025,sh,.030,x,centreY,face+(c.side||1)*.022,specialtyMat);
+     for(const y of [centreY-sh/2+.014,centreY+sh/2-.014])
+      addDetail(sw,.028,.033,sx,y,face+(c.side||1)*.022,specialtyMat);
+     const shelfCount=Math.min(6,Math.max(0,s.shelves||0));
+     for(let j=1;j<=shelfCount;j++){
+      const y=centreY-sh/2+sh*j/(shelfCount+1);
+      addDetail(sw-.055,.018,.18,sx,y,face+(c.side||1)*.10,shelf);
+     }
+     if(s.type==='coffee'||s.type==='appliance'){
+      const lower=centreY-sh/2+.12;
+      const machine=material(s.type==='coffee'?0x323a3b:0x59656a,{metalness:.32,roughness:.31});
+      addDetail(Math.min(.34,sw*.65),.20,.16,sx,lower,face+(c.side||1)*.15,machine);
+      addDetail(Math.min(.26,sw*.55),.115,.012,sx,lower+.012,face+(c.side||1)*.244,inner);
+      if(s.type==='coffee')addDetail(.075,.065,.075,sx+.14,lower-.085,face+(c.side||1)*.26,shelf);
+      machine.dispose();
+     }
+     if(s.type==='bar'){
+      const bottle=material(0x527068,{metalness:.12,roughness:.18});
+      for(let j=-2;j<=2;j++){
+       const mesh=new THREE.Mesh(new THREE.CylinderGeometry(.025,.035,.21,10),bottle.clone());
+       mesh.position.set(cx+ux*(sx+j*Math.min(.075,sw/7))+nx*(face+(c.side||1)*.12),
+        centreY-sh/2+.135,cz+uz*(sx+j*Math.min(.075,sw/7))+nz*(face+(c.side||1)*.12));
+       mesh.castShadow=true;mesh.userData.objectId=c.id;this.objectGroup.add(mesh);
+      }
+      bottle.dispose();
+     }
+     if(s.door==='glass'){
+      const glassPanel=new THREE.Mesh(new THREE.BoxGeometry(sw-.046,sh-.045,.009),
+       new THREE.MeshPhysicalMaterial({color:0xc9e6e4,transparent:true,opacity:.30,roughness:.09,
+        metalness:.03,depthWrite:false,side:THREE.DoubleSide}));
+      glassPanel.position.set(cx+ux*sx+nx*(face+(c.side||1)*.032),centreY,
+       cz+uz*sx+nz*(face+(c.side||1)*.032));
+      glassPanel.rotation.y=-angle;glassPanel.userData.objectId=c.id;this.objectGroup.add(glassPanel);
+     }else if(s.door==='solid'){
+      addDetail(sw-.045,sh-.043,.021,sx,centreY,face+(c.side||1)*.054,specialtyMat);
+     }
+    }
+    specialtyMat.dispose();inner.dispose();shelf.dispose();
+   }
    bodyMat.dispose();frontMat.dispose();if(fill!==cabinetSelected)fill.dispose();
   }
   // Automatic backsplash: attached to the host wall, from worktop to the
@@ -1202,8 +1310,17 @@ export class FloorAR {
     const span=e-s;if(span<.05)continue;
     const t=(s+e)/2,offset=w.thickness/2+.014;
     const tile=this.surfaceMaterial('backsplash',this.materialSettings.backsplash,span,endY-baseTop);
-    const mesh=new THREE.Mesh(this.applySurfaceUV(new THREE.BoxGeometry(span,endY-baseTop,.013),tile,span,endY-baseTop,.013),tile);
-    mesh.position.set(w.x1+ux*t+nx*offset,(baseTop+endY)/2,w.z1+uz*t+nz*offset);
+    const grout=new THREE.Mesh(new THREE.PlaneGeometry(span,endY-baseTop),
+     new THREE.MeshStandardMaterial({color:this.tileLayout.groutColor,roughness:.91,side:THREE.DoubleSide}));
+    grout.position.set(w.x1+ux*t+nx*offset,(baseTop+endY)/2,w.z1+uz*t+nz*offset);
+    grout.rotation.y=-angle;grout.receiveShadow=true;grout.userData.objectId=c.id;
+    this.objectGroup.add(grout);
+    const layout=buildTileGeometry(span,endY-baseTop,this.tileLayout),geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.Float32BufferAttribute(layout.positions,3));
+    geo.setAttribute('uv',new THREE.Float32BufferAttribute(layout.uvs,2));
+    geo.setIndex(layout.indices);geo.computeVertexNormals();tile.side=THREE.DoubleSide;
+    const mesh=new THREE.Mesh(geo,tile);
+    mesh.position.set(w.x1+ux*t+nx*(offset+.006),(baseTop+endY)/2,w.z1+uz*t+nz*(offset+.006));
     mesh.rotation.y=-angle;mesh.receiveShadow=true;mesh.userData.objectId=c.id;
     this.objectGroup.add(mesh);
    }
