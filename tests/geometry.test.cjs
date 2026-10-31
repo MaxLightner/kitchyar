@@ -142,7 +142,7 @@ test('renderer has real ray-tested AO, directional shadows, reflection probe and
  assert.match(floor,/this\.whiteFloor\.visible=true/);
  assert.match(floor,/this\.shadowFloor\.visible=true/);
  assert.match(floor,/this\.previewGroup=new THREE\.Group/);
- assert.match(floor,/upper\?\.38:-\.38/);
+ assert.match(floor,/upper\?1\/3:-1\/3/);
 });
 test('UI font sizes are at least 15px and drawing buttons share side controls',()=>{
  const css=source('styles.css'),app=source('app.js');
