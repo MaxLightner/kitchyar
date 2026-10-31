@@ -1,6 +1,6 @@
-import {FloorAR} from './floor-ar.js?v=render9';
-import * as Geo from './geometry.js?v=render9';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render9';
+import {FloorAR} from './floor-ar.js?v=render10';
+import * as Geo from './geometry.js?v=render10';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render10';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -124,7 +124,8 @@ function drawTools(){
  const sheet=document.getElementById('tool-sheet');if(!sheet)return;
  sheet.hidden=!activeTool;if(!activeTool)return;
  const tools=activeTool==='architecture'?[['wall','دیوار'],['window','پنجره ثابت'],['door','در']]:
-  activeTool==='cabinets'?[['base','کابینت زمینی'],['upper','کابینت هوایی']]:[];
+  activeTool==='cabinets'?[['base','کابینت زمینی'],['upper','کابینت هوایی']]:
+  activeTool==='equipment'?[['fridge','یخچال'],['stove','اجاق گاز'],['sink','سینک']]:[];
  if(!tools.length){sheet.innerHTML='<span>ابزارهای این بخش در مرحله بعد اضافه می‌شوند.</span><button data-action="hide-tools">بستن</button>';return;}
  const wallTools=activeTool==='architecture';
  sheet.innerHTML='<div class="tool-choices">'+tools.map(([id,label])=>
