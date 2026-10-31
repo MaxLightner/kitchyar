@@ -168,9 +168,20 @@
       return {x:(xx+zz)/2,z:(zz-xx)/2};
     }
     function snap(p) {
-      const candidates=items.filter(i=>i.kind==='wall'||i.kind==='cabinetRun')
-        .flatMap(i=>[{x:i.x1,z:i.z1},{x:i.x2,z:i.z2}]);
-      return candidates.find(c=>Math.hypot(c.x-p.x,c.z-p.z)<.17)||
+      const segments=items.filter(i=>i.kind==='wall'||i.kind==='cabinetRun');
+      const candidates=segments.flatMap(i=>[{x:i.x1,z:i.z1},{x:i.x2,z:i.z2}]);
+      let found=null,distance=.18;
+      for(const c of candidates){
+        const d=Math.hypot(c.x-p.x,c.z-p.z);
+        if(d<distance){found=c;distance=d;}
+      }
+      if(!found)for(const segment of segments.filter(i=>i.kind==='wall')){
+        const vx=segment.x2-segment.x1,vz=segment.z2-segment.z1,den=vx*vx+vz*vz;
+        const t=Math.max(0,Math.min(1,((p.x-segment.x1)*vx+(p.z-segment.z1)*vz)/(den||1)));
+        const c={x:segment.x1+vx*t,z:segment.z1+vz*t},d=Math.hypot(c.x-p.x,c.z-p.z);
+        if(d<distance){found=c;distance=d;}
+      }
+      return found?{x:Math.round(found.x*1000)/1000,z:Math.round(found.z*1000)/1000}:
         {x:Math.round(p.x*100)/100,z:Math.round(p.z*100)/100};
     }
     function deltaAlong(item,p,q,normal=false,w=canvas.clientWidth,h=canvas.clientHeight) {
