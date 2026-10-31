@@ -39,7 +39,7 @@
     btn('close').onclick=()=>session.end();
     btn('menu').onclick=()=>{const sheet=btn('menu-sheet');sheet.hidden=!sheet.hidden;};
     btn('menu-exit').onclick=()=>session.end();
-    btn('reset-floor').onclick=()=>{scanSamples=[];lastScanAt=0;floorConfirmed=false;anchor=null;pointA=null;pointB=null;startPoint=null;displayScale=1;btn('confirm').disabled=true;btn('menu-sheet').hidden=true;btn('scan-readiness').hidden=false;rootGroup.visible=false;syncScan();updateStatus('اسکن مجدد: گوشی را روی نقاط مختلف کف حرکت دهید.');};
+    btn('reset-floor').onclick=()=>{scanSamples=[];lastScanAt=0;floorConfirmed=false;anchor=null;pointA=null;pointB=null;startPoint=null;displayScale=1;btn('confirm').disabled=true;btn('menu-sheet').hidden=true;btn('scan-readiness').hidden=false;rootGroup.visible=false;['a','b','left','right','start-point','end-point','apply'].forEach(k=>btn(k).disabled=true);syncScan();updateStatus('اسکن مجدد: گوشی را روی نقاط مختلف کف حرکت دهید.');};
     try{
       const THREE=await import(CDN);
       const scene=new THREE.Scene();
