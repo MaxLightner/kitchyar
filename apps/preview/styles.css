@@ -200,3 +200,20 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
  .dock button{min-width:61px}
  .aim-marker small{max-width:135px}
 }
+
+/* A–B directional ruler remains legible during floor calibration. */
+.ab-title{display:block;color:#f5ffed;font-size:16px;text-align:center;line-height:1.6}
+#ab-status{display:block;font-size:15px;color:#e7f1df;line-height:1.6;text-align:center}
+#calibration{max-height:min(38svh,340px);overflow:auto;scrollbar-width:thin}
+#calibration .point-row{display:grid;grid-template-columns:1fr 1fr}
+#calibration .point-row button{min-width:0;white-space:normal;min-height:54px;padding:8px;line-height:1.5;font-size:15px}
+.equipment-help{margin:0;font-size:15px;color:#605f56;line-height:1.7;text-align:center}
+.aim-marker{top:66.6667svh}
+.aim-marker.upper{top:33.3333svh}
+@media(max-width:730px){
+ #calibration .point-row{grid-template-columns:1fr}
+ #calibration .point-row button{min-height:43px;padding:6px}
+ .scan-confirm{max-width:calc(100vw - 155px)}
+ .aim-marker{top:66.6667svh}
+ .aim-marker.upper{top:33.3333svh}
+}

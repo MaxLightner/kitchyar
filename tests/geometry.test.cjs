@@ -80,7 +80,10 @@ test('hosted upper cabinets use wall-relative position and respect openings',asy
  items=G.placeCabinet(items,{x:.2,z:0},{x:1.8,z:0},{kind:'upper'}).items;
  assert.equal(items.filter(x=>x.kind==='cabinet').length,2);
  assert.ok(items.at(-1).elevation>items.at(-2).elevation);
- assert.throws(()=>G.placeCabinet(items,{x:2.3,z:0},{x:3.5,z:0},{kind:'upper'}),/پنجره|تداخل/);
+ const stop=G.placeCabinet(items,{x:1.8,z:0},{x:3.5,z:0},{kind:'upper'});
+ assert.equal(stop.stoppedAtOpening,true);
+ assert.ok(stop.end.x<2.4&&stop.end.x>2.3,'upper cabinet ends at the window edge');
+ assert.throws(()=>G.placeCabinet(items,{x:2.8,z:0},{x:3.5,z:0},{kind:'upper'}),/شروع/);
  const c=items.at(-2),oldZ=c.z1;
  items=G.moveEndpoint(items,host,true,0,.3).items;
  assert.notEqual(items.find(x=>x.id===c.id).z1,oldZ);
@@ -149,4 +152,53 @@ test('UI font sizes are at least 15px and drawing buttons share side controls',(
   assert.match(app,new RegExp('data-action="'+action+'"'));
  assert.match(app,/id="draw-controls"/);
  assert.match(app,/data-render="sunAzimuth"/);
+});
+
+test('refrigerator, sink and stove provide selectable parametric equipment',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ assert.throws(()=>G.placeEquipment(items,{x:1,z:0},'sink'),/کابینت زمینی/);
+ items=G.placeCabinet(items,{x:.2,z:0},{x:3,z:0},{kind:'base'}).items;
+ items=G.placeEquipment(items,{x:.9,z:.32},'sink').items;
+ items=G.placeEquipment(items,{x:2.1,z:.32},'stove').items;
+ items=G.placeEquipment(items,{x:-1.5,z:1.4},'fridge').items;
+ assert.deepEqual(items.filter(x=>x.kind==='equipment').map(x=>x.subtype),['sink','stove','fridge']);
+ assert.ok(items.find(x=>x.subtype==='sink').hostId,'sink is attached to base cabinet');
+ assert.throws(()=>G.placeEquipment(items,{x:.9,z:.32},'stove'),/تجهیزات دارد/);
+ const fridge=items.find(x=>x.subtype==='fridge');
+ items=G.editEquipment(items,fridge.id,{height:2.1}).items;
+ assert.equal(items.find(x=>x.id===fridge.id).height,2.1);
+ const wallId=items.find(x=>x.kind==='wall').id;
+ items=G.removeObject(items,wallId).items;
+ assert.equal(items.filter(x=>x.kind==='equipment').length,1,'hosted equipment cascades on wall removal');
+ assert.equal(items[0].subtype,'fridge');
+});
+test('precise XR screen-space rays and Chido-style AB grid direction',()=>{
+ const ar=source('floor-ar.js');
+ assert.match(ar,/screenRay\(pose,upper=false/);
+ assert.match(ar,/view\.projectionMatrix/);
+ assert.match(ar,/upper\?1\/3:-1\/3/);
+ assert.match(ar,/this\.current=this\.floorRayHit\(pose\)/);
+ assert.doesNotMatch(ar,/floorCandidates\(lower,this\.space,viewer\)/);
+ assert.match(ar,/this\.net\.rotation\.z=-this\.gridYaw/);
+ assert.match(ar,/this\.markA=point/);
+ assert.match(ar,/this\.markB=point/);
+});
+test('equipment tools and pre-placement previews are visible and selectable',()=>{
+ const app=source('app.js'),plan=source('plan-view.js');
+ for(const id of ['fridge','stove','sink'])assert.match(app,new RegExp("'"+id+"'"));
+ assert.match(app,/Geo\.placeEquipment/);
+ assert.match(app,/Geo\.editEquipment/);
+ assert.match(app,/floor\?\.pickObject/);
+ assert.match(plan,/equipmentCorners/);
+ assert.match(plan,/class="live-preview"/);
+});
+
+test('moving wall endpoint never jumps back to its own start snap node',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:2,z:0}).items;
+ const resolved=G.resolvePoint(items,{x:2,z:0},2.3,.015,{pointSnap:true,angleSnap:false});
+ assert.ok(Math.abs(resolved.x-2.3)<1e-8,'wall target stays under the reticle');
+ items=G.placeWall(items,{x:2,z:0},{x:2.3,z:.015}).items;
+ assert.equal(items.filter(x=>x.kind==='wall').length,2);
 });

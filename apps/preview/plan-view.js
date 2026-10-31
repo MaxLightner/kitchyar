@@ -1,4 +1,4 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint} from './geometry.js?v=render6';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition} from './geometry.js?v=render9';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null}={}){
@@ -34,6 +34,16 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   }else out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
    '" stroke="#ab9382" stroke-width="'+f(c.depth)+'" opacity=".65"/>';
  }
+ for(const e of items.filter(x=>x.kind==='equipment')){
+  const corners=equipmentCorners(e.x,e.z,e.width,e.depth,e.rotation||0);
+  out+='<g data-item-id="'+safe(e.id)+'" opacity=".94"><polygon points="'+corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
+   '" fill="'+(e.subtype==='fridge'?'#cbd2d3':e.subtype==='stove'?'#45484a':'#9bc7c6')+
+   '" stroke="'+(e.id===selectedId?'#329e7f':'#5c7373')+'" stroke-width=".028"/>';
+  if(e.subtype==='stove'){
+   for(const offset of [-.15,.15])for(const dz of [-.12,.12])out+='<circle cx="'+f(e.x+offset)+'" cy="'+f(e.z+dz)+'" r=".075" stroke="#dbe3df" fill="none" stroke-width=".018"/>';
+  }else if(e.subtype==='sink')out+='<rect x="'+f(e.x-e.width*.36)+'" y="'+f(e.z-e.depth*.32)+'" width="'+f(e.width*.72)+'" height="'+f(e.depth*.64)+'" rx=".055" fill="#4d8585" stroke="#e3f4f0" stroke-width=".03"/>';
+  out+='</g>';
+ }
  const selection=items.find(x=>x.id===selectedId);
  if(selection&&['wall','cabinet'].includes(selection.kind)&&!mini){
   for(const [side,x,z] of [['start',selection.x1,selection.z1],['end',selection.x2,selection.z2]]){
@@ -63,10 +73,29 @@ export function planPoint(svg,event){
 }
 
 /* Full-footprint SVG ghost rendered before either point is committed. */
+export function equipmentCorners(x,z,width,depth,rotation=0){
+ const c=Math.cos(rotation),s=Math.sin(rotation);
+ return [[-width/2,-depth/2],[width/2,-depth/2],[width/2,depth/2],[-width/2,depth/2]]
+  .map(([u,v])=>({x:x+u*c-v*s,z:z+u*s+v*c}));
+}
 export function renderPreview(items,drawing,hover){
  if(!drawing||!hover)return '';
  const tool=drawing.tool,start=drawing.start;
  const wallMode=tool==='wall',openingMode=tool==='window'||tool==='door';
+ if(['fridge','stove','sink'].includes(tool)){
+  const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0;
+  if(tool!=='fridge'){
+   const ranked=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base').map(c=>{
+    const len=lengthOf(c),q=projectOnWall(c,hover.x,hover.z);
+    return {c,q,dist:q.distance};
+   }).sort((a,b)=>a.dist-b.dist);
+   const near=ranked[0];
+   if(!near||near.dist>near.c.depth/2+.2)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".10" fill="#c35a4b"/></g>';
+   p={x:near.q.x,z:near.q.z};angle=Math.atan2(near.c.z2-near.c.z1,near.c.x2-near.c.x1);
+  }
+  return '<g class="live-preview" pointer-events="none"><polygon points="'+equipmentCorners(p.x,p.z,spec.width,spec.depth,angle).map(q=>f(q.x)+','+f(q.z)).join(' ')+
+   '" fill="#8cd2c8" fill-opacity=".64" stroke="#d0873a" stroke-width=".04" stroke-dasharray=".06,.04"/></g>';
+ }
  const width=wallMode?.12:openingMode?.12:tool==='upper'?.35:.60;
  let corners=null;
  const rect=(a,b,depth,offset=0)=>{
@@ -89,7 +118,8 @@ export function renderPreview(items,drawing,hover){
      {x:host.x1+ux*Math.min(len-.1,centre+half),z:host.z1+uz*Math.min(len-.1,centre+half)},width);
    }else{
     const a=start?projectOnWall(host,start.x,start.z).t:Math.max(0,projectOnWall(host,hover.x,hover.z).t-1/len);
-    const b=start?projectOnWall(host,hover.x,hover.z).t:Math.min(1,a+1/len);
+    let b=start?projectOnWall(host,hover.x,hover.z).t:Math.min(1,a+1/len);
+    if(tool==='upper')try{b=limitCabinetEnd(items,host,a,b,{kind:'upper'});}catch{b=a;}
     if(Math.abs(b-a)*len>.02){
      const cabinet={startT:Math.min(a,b),endT:Math.max(a,b),depth:width,side:start?.side||1};
      corners=cabinetFootprint(cabinet,host).corners;

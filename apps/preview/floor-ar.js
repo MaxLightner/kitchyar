@@ -3,6 +3,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
+import {limitCabinetEnd,EQUIPMENT_SPECS} from './geometry.js?v=render9';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -10,14 +11,15 @@ export class FloorAR {
   Object.assign(this,{root,update,exit,session:null,renderer:null,locked:false,current:null,origin:null});
   this.scanner=new FloorScanner();this.rig=new AnchorStabilizer();this.sources=[];this.anchors=[];
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
-   this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;
+   this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;
    this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10};
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
    progress:Math.min(100,Math.round(this.scanner.observations.length/3*100)),
    valid:this.scanner.validHits,inliers:this.scanner.inlierHits,raw:this.scanner.rawHits,
-   anchors:this.anchors.length,depth:this.renderer?.xr?.hasDepthSensing?.()||false,...extra});
+   anchors:this.anchors.length,depth:this.renderer?.xr?.hasDepthSensing?.()||false,
+   direction:this.points?.a&&this.points?.b?Math.round(this.gridYaw*180/Math.PI):null,...extra});
  }
  async start(){
   if(this.session)return;
@@ -73,8 +75,16 @@ export class FloorAR {
     m.visible=false;m.renderOrder=10;this.crosses.add(m);return m;
    });
    this.ruler=new THREE.Group();this.floorGroup.add(this.ruler);
-   const point=(color)=>new THREE.Mesh(new THREE.SphereGeometry(.04,12,10),new THREE.MeshBasicMaterial({color,depthTest:false}));
-   this.markA=point(0xe0a763);this.markB=point(0x5bbba7);
+   const point=(color,name)=>{const mesh=new THREE.Mesh(new THREE.SphereGeometry(.075,20,16),
+    new THREE.MeshBasicMaterial({color,depthTest:false}));mesh.renderOrder=12;
+    const canvas=document.createElement('canvas');canvas.width=128;canvas.height=80;
+    const ctx=canvas.getContext('2d');ctx.fillStyle='#fff9ee';ctx.beginPath();ctx.roundRect(2,2,124,76,12);ctx.fill();
+    ctx.fillStyle='#2d4436';ctx.font='bold 54px Tahoma';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(name,64,41);
+    const label=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),depthTest:false}));
+    label.position.y=.16;label.scale.set(.26,.16,1);label.renderOrder=13;mesh.add(label);
+    return mesh;};
+   this.markA=point(0xe5a45b,'A');this.markB=point(0x57b7aa,'B');
    this.ruler.add(this.markA,this.markB);
    this.rulerLine=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0xffbc62,depthTest:false}));
    this.ruler.add(this.rulerLine);
@@ -93,7 +103,7 @@ export class FloorAR {
   for(const a of this.anchors)try{a.anchor.delete();}catch{}this.anchors=[];
   this.hitSource?.cancel();
   for(const s of this.sources)try{s.cancel();}catch{}this.sources=[];
-  this.net.visible=false;this.whiteFloor.visible=false;this.shadowFloor.visible=false;
+  this.net.visible=false;this.net.rotation.z=0;this.gridYaw=0;this.whiteFloor.visible=false;this.shadowFloor.visible=false;
   this.previewGroup.visible=false;this.ruler.visible=false;this.marks.forEach(m=>m.visible=false);
   const viewer=await this.session.requestReferenceSpace('viewer');
   this.lowerHitSource?.cancel?.();this.lowerHitSource=null;
@@ -125,12 +135,16 @@ export class FloorAR {
   this.whiteFloor.visible=true;this.shadowFloor.visible=true;
   this.marks.forEach(m=>m.visible=false);
   this.candidates=[this.origin.clone(),...this.scanner.observations.map(p=>p.clone())];
-  this.report('کف تثبیت شد. اکنون نقاط A و B را ثبت کن.',{progress:100});
+  this.points={a:new THREE.Vector3(-.5,0,.65),b:new THREE.Vector3(.5,0,.65)};
+  this.drawRuler();
+  this.report('کف تثبیت شد. A یا B را با نشانگر جابه‌جا کن؛ شبکه هم‌جهت می‌شود.',{progress:100});
   return true;
  }
  capture(which){
   if(!this.locked||!this.current)return false;
-  this.points[which]=this.current.clone();if(which==='a')this.points.b=null;
+  this.floorGroup.updateWorldMatrix(true,false);
+  this.points[which]=this.floorGroup.worldToLocal(this.current.clone());
+  this.points[which].y=0;
   this.drawRuler();
   this.report(which==='a'?'نقطه A ثبت شد؛ حالا B را ثبت کن.':'نقطه B ثبت شد؛ فاصله واقعی را وارد کن.',
    {distance:this.points.a&&this.points.b?this.points.a.distanceTo(this.points.b):null});
@@ -150,16 +164,20 @@ export class FloorAR {
   const a=this.points.a,b=this.points.b;
   this.ruler.visible=!!(a||b);
   this.markA.visible=!!a;this.markB.visible=!!b;
-  if(a)this.markA.position.copy(a).sub(this.origin);
-  if(b)this.markB.position.copy(b).sub(this.origin);
+  if(a)this.markA.position.copy(a);
+  if(b)this.markB.position.copy(b);
+  if(a&&b){
+   this.gridYaw=Math.atan2(b.z-a.z,b.x-a.x);
+   this.net.rotation.z=-this.gridYaw;
+  }
   this.rulerLine.visible=!!(a&&b);
   if(a&&b){
    this.rulerLine.geometry.dispose();
-   this.rulerLine.geometry=new THREE.BufferGeometry().setFromPoints([a.clone().sub(this.origin),b.clone().sub(this.origin)]);
+   this.rulerLine.geometry=new THREE.BufferGeometry().setFromPoints([a.clone().add(new THREE.Vector3(0,.045,0)),b.clone().add(new THREE.Vector3(0,.045,0))]);
    const length=a.distanceTo(b),steps=Math.min(200,Math.floor(length/.1));
    const direction=b.clone().sub(a).normalize(),normal=new THREE.Vector3(-direction.z,0,direction.x),ticks=[];
    for(let i=0;i<=steps;i++){
-    const center=a.clone().addScaledVector(direction,i*.1).sub(this.origin),half=(i%5===0?.07:.035);
+    const center=a.clone().addScaledVector(direction,i*.1),half=(i%5===0?.07:.035);
     ticks.push(center.clone().addScaledVector(normal,-half),center.clone().addScaledVector(normal,half));
    }
    this.rulerTicks.geometry.dispose();this.rulerTicks.geometry=new THREE.BufferGeometry().setFromPoints(ticks);
@@ -190,10 +208,11 @@ export class FloorAR {
      this.net.material.uniforms.pulse.value=1;
     }
    }else{
-    const lower=this.lowerHitSource?frame.getHitTestResults(this.lowerHitSource):center;
-    this.current=floorCandidates(lower,this.space,viewer)
-      .find(h=>Math.abs(h.point.y-this.origin.y)<.055)?.point||
-      floorCandidates(center,this.space,viewer).find(h=>Math.abs(h.point.y-this.origin.y)<.055)?.point||null;
+    this.updateAnchors(frame,time,center,viewer);
+    this.lastPose=pose;
+    // Pixel-locked 2/3-screen aiming ray. NEVER fall back to the centre hit-test,
+    // which caused the wall endpoint to jump as the camera moved.
+    this.current=this.floorRayHit(pose);
     this.targetLocal=null;
     const kind=this.drawing?.kind;
     if(kind&&['upper','base','window','door'].includes(kind)){
@@ -201,7 +220,6 @@ export class FloorAR {
      if(wallHit)this.targetLocal=wallHit;
      else if(kind==='upper')this.current=null;
     }
-    this.updateAnchors(frame,time,center,viewer);
     this.updatePreview();
    }
   }
@@ -252,12 +270,29 @@ export class FloorAR {
   }
   this.lastTime=time;
  }
+ /* Exact viewport NDC = x:0 and y:-1/3 (lower third) or +1/3 (upper third).
+    Inverse XR projection, not a hardcoded device-specific ray slope. */
+ screenRay(pose,upper=false,x=0,y=null){
+  const view=pose?.views?.[0];if(!view)return null;
+  const inverse=new THREE.Matrix4().fromArray(view.projectionMatrix).invert();
+  const local=new THREE.Vector3(x,y??(upper?1/3:-1/3),-1).applyMatrix4(inverse).normalize();
+  const q=view.transform.orientation,p=view.transform.position;
+  const direction=local.applyQuaternion(new THREE.Quaternion(q.x,q.y,q.z,q.w)).normalize();
+  return new THREE.Ray(new THREE.Vector3(p.x,p.y,p.z),direction);
+ }
+ floorRayHit(pose){
+  if(!this.locked||!this.floorGroup)return null;
+  const ray=this.screenRay(pose,false);if(!ray||ray.direction.y>=-.0001)return null;
+  this.floorGroup.updateWorldMatrix(true,false);
+  const floorY=this.floorGroup.getWorldPosition(new THREE.Vector3()).y;
+  const distance=(floorY-ray.origin.y)/ray.direction.y;
+  if(distance<.05||distance>12)return null;
+  return ray.at(distance,new THREE.Vector3());
+ }
  raycastWall(pose,upper){
   if(!this.objectGroup||!this.floorGroup)return null;
-  const q=pose.transform.orientation,p=pose.transform.position;
-  const direction=new THREE.Vector3(0,upper?.38:-.38,-1).normalize()
-   .applyQuaternion(new THREE.Quaternion(q.x,q.y,q.z,q.w));
-  const raycaster=new THREE.Raycaster(new THREE.Vector3(p.x,p.y,p.z),direction,.05,12);
+  const ray=this.screenRay(pose,upper);if(!ray)return null;
+  const raycaster=new THREE.Raycaster(ray.origin,ray.direction,.05,12);
   this.floorGroup.updateWorldMatrix(true,true);
   const walls=[];
   this.objectGroup.traverse(n=>{if(n.isMesh&&n.userData.wall)walls.push(n);});
@@ -265,6 +300,17 @@ export class FloorAR {
   if(!hit)return null;
   const local=this.floorGroup.worldToLocal(hit.point.clone());
   return {x:local.x,z:local.z};
+ }
+ pickObject(clientX,clientY){
+  if(!this.locked||!this.lastPose||!this.objectGroup)return null;
+  const rect=this.renderer.domElement.getBoundingClientRect();
+  const x=(clientX-rect.left)/rect.width*2-1,y=1-(clientY-rect.top)/rect.height*2;
+  const ray=this.screenRay(this.lastPose,false,x,y);if(!ray)return null;
+  const caster=new THREE.Raycaster(ray.origin,ray.direction,.05,12);
+  this.objectGroup.updateWorldMatrix(true,true);
+  const hit=caster.intersectObjects(this.objectGroup.children,true);
+  return hit.find(h=>h.object.userData.objectId||h.object.parent?.userData.objectId)?.object.userData.objectId||
+   hit.find(h=>h.object.parent?.userData.objectId)?.object.parent.userData.objectId||null;
  }
  pick(){
   if(!this.locked||!this.floorGroup)return null;
@@ -299,6 +345,26 @@ export class FloorAR {
   const p=this.pick();if(!p){group.visible=false;return;}
   const kind=this.drawing.kind,a=this.drawing.start;
   let from=a||p,to=p,width,level=0,height,colour;
+  if(EQUIPMENT_SPECS[kind]){
+   const spec=EQUIPMENT_SPECS[kind];let at=p,rotation=0,level=0;
+   if(kind!=='fridge'){
+    const nearest=this.items.filter(x=>x.kind==='cabinet'&&x.subtype==='base')
+     .map(c=>{const len=Math.hypot(c.x2-c.x1,c.z2-c.z1);
+      const t=THREE.MathUtils.clamp(((p.x-c.x1)*(c.x2-c.x1)+(p.z-c.z1)*(c.z2-c.z1))/(len*len),0,1);
+      const x=c.x1+t*(c.x2-c.x1),z=c.z1+t*(c.z2-c.z1);
+      return {c,x,z,d:Math.hypot(x-p.x,z-p.z)};}).sort((a,b)=>a.d-b.d)[0];
+    if(!nearest||nearest.d>nearest.c.depth/2+.2||Math.hypot(nearest.c.x2-nearest.c.x1,nearest.c.z2-nearest.c.z1)<spec.width+.04){
+     group.visible=false;return;
+    }
+    at={x:nearest.x,z:nearest.z};rotation=Math.atan2(nearest.c.z2-nearest.c.z1,nearest.c.x2-nearest.c.x1);
+    level=nearest.c.elevation+nearest.c.height;
+   }
+   const ghost=new THREE.Mesh(new THREE.BoxGeometry(spec.width,spec.height,spec.depth),
+    new THREE.MeshPhysicalMaterial({color:kind==='fridge'?0xd9e3e2:kind==='stove'?0x657276:0x79b2b1,
+     transparent:true,opacity:.50,depthWrite:false,roughness:.35}));
+   ghost.position.set(at.x,level+spec.height/2,at.z);ghost.rotation.y=-rotation;
+   ghost.renderOrder=20;group.add(ghost);group.visible=true;return;
+  }
   if(kind==='wall'){if(!a)to={x:p.x+1.1,z:p.z};width=.12;height=2.8;colour=0x67cba7;}
   else{
    const host=a?.hostId?this.items.find(w=>w.id===a.hostId):
@@ -322,6 +388,10 @@ export class FloorAR {
    }else{
     from=a?project(a):project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
     to=project(p);
+    if(kind==='upper')try{
+     const t=limitCabinetEnd(this.items,host,from.t,to.t,{kind:'upper'});
+     to=project({x:host.x1+t*(host.x2-host.x1),z:host.z1+t*(host.z2-host.z1)});
+    }catch{group.visible=false;return;}
     if(!a&&Math.hypot(to.x-from.x,to.z-from.z)<.3){
      from=project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
     }
@@ -339,7 +409,17 @@ export class FloorAR {
   const ghost=new THREE.Mesh(new THREE.BoxGeometry(length,height,width),mat);
   ghost.position.set((from.x+to.x)/2,level+height/2,(from.z+to.z)/2);
   ghost.rotation.y=-Math.atan2(dz,dx);ghost.renderOrder=20;ghost.userData.preview=true;
-  group.add(ghost);group.visible=true;
+  group.add(ghost);
+  if(kind==='wall'){
+   // Precise endpoint/corner pins: the live end remains directly under the
+   // screen reticle and no centred hit-test is ever substituted.
+   for(const pos of [from,to]){
+    const pin=new THREE.Mesh(new THREE.SphereGeometry(.062,12,10),
+     new THREE.MeshBasicMaterial({color:pos===to?0xffb85c:0x67d4ac,depthTest:false}));
+    pin.position.set(pos.x,.08,pos.z);pin.renderOrder=22;group.add(pin);
+   }
+  }
+  group.visible=true;
  }
  rebuildObjects(){
   if(!this.objectGroup)return;
@@ -407,6 +487,39 @@ export class FloorAR {
    const angle=Math.atan2(c.z2-c.z1,c.x2-c.x1),y0=c.elevation??.1;
    box(c,0,len,y0,y0+c.height,c.depth,angle,(c.x1+c.x2)/2,(c.z1+c.z2)/2,
     c.id===this.selectedId?cabinetSelected:c.subtype==='upper'?upper:base);
+  }
+  for(const o of this.items.filter(x=>x.kind==='equipment')){
+   const root=new THREE.Group();root.position.set(o.x,o.elevation||0,o.z);root.rotation.y=-(o.rotation||0);
+   root.userData.objectId=o.id;this.objectGroup.add(root);
+   const steel=material(o.id===this.selectedId?0x70bbaa:0xc6cfce,{metalness:.48,roughness:.28});
+   const dark=material(0x343c3e,{metalness:.34,roughness:.35});
+   const silver=material(0x8fa6a8,{metalness:.56,roughness:.22});
+   const add=(geometry,mat,x,y,z,rotationX=0)=>{
+    const mesh=new THREE.Mesh(geometry,mat.clone());mesh.position.set(x,y,z);mesh.rotation.x=rotationX;
+    mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.objectId=o.id;root.add(mesh);return mesh;
+   };
+   if(o.subtype==='fridge'){
+    add(new THREE.BoxGeometry(o.width,o.height,o.depth),steel,0,o.height/2,0);
+    add(new THREE.BoxGeometry(o.width*.94,o.height*.94,.027),steel,0,o.height/2,o.depth/2+.018);
+    add(new THREE.BoxGeometry(o.width*.92,.014,.025),dark,0,o.height*.43,o.depth/2+.040);
+    add(new THREE.CylinderGeometry(.009,.009,.35,8),silver,o.width*.38,o.height*.72,o.depth/2+.057);
+   }else if(o.subtype==='stove'){
+    add(new THREE.BoxGeometry(o.width,o.height*.65,o.depth),dark,0,o.height*.35,0);
+    add(new THREE.BoxGeometry(o.width*.96,.009,o.depth*.94),steel,0,o.height*.72,0);
+    for(const x of [-.145,.145])for(const z of [-.115,.115]){
+     const burner=add(new THREE.TorusGeometry(.075,.009,8,20),silver,x,o.height*.82,z,-Math.PI/2);
+     burner.castShadow=false;
+    }
+    for(const x of [-.18,-.06,.06,.18])add(new THREE.CylinderGeometry(.018,.018,.02,10),dark,x,o.height*.79,o.depth*.44);
+   }else if(o.subtype==='sink'){
+    add(new THREE.BoxGeometry(o.width,.028,o.depth),silver,0,.014,0);
+    add(new THREE.BoxGeometry(o.width*.72,.016,o.depth*.65),dark,0,.028,0);
+    add(new THREE.BoxGeometry(o.width*.65,.012,o.depth*.58),steel,0,.034,0);
+    add(new THREE.CylinderGeometry(.014,.014,.19,12),silver,0,.115,-o.depth*.35);
+    const arc=add(new THREE.TorusGeometry(.085,.014,8,18,Math.PI),silver,0,.21,-o.depth*.35);
+    arc.rotation.z=Math.PI/2;
+   }
+   for(const m of [steel,dark,silver])m.dispose();
   }
   for(const m of [plaster,selected,frame,glass,wood,base,upper,cabinetSelected])m.dispose();
   this.applyRaycastAO();

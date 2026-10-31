@@ -60,7 +60,10 @@ export function snap(items,x,z,tolerance=SNAP_RADIUS){
 export function resolvePoint(items,start,x,z,{pointSnap=true,angleSnap=true,gridSnap=false,tolerance=SNAP_RADIUS}={}){
  if(pointSnap){
   const s=snap(items,x,z,tolerance);
-  if(s.type!=='free')return {...s,label:s.type==='endpoint'?'انتهای دیوار':'اتصال میانی',pointLocked:true,angleLocked:false};
+  // Never magnetize the moving end back onto its own starting vertex:
+  // the old half-metre snap zone caused a sudden jump when the user moved away.
+  const self=s.type==='endpoint'&&start&&dist(s.x,s.z,start.x,start.z)<.025;
+  if(s.type!=='free'&&!self)return {...s,label:s.type==='endpoint'?'انتهای دیوار':'اتصال میانی',pointLocked:true,angleLocked:false};
  }
  if(start&&angleSnap){
   const dx=x-start.x,dz=z-start.z,d=Math.hypot(dx,dz);
@@ -171,7 +174,9 @@ export function placeWall(source,start,end,{thickness=.12,height=2.8,tolerance=S
  const items=copy(source);normalize(items);
  const sa=snap(items,start.x,start.z,tolerance);
  const na=nodeFor(items,sa);
- const sb=snap(items,end.x,end.z,tolerance);
+ let sb=snap(items,end.x,end.z,tolerance);
+ if(sb.type==='endpoint'&&dist(sb.x,sb.z,start.x,start.z)<.025&&dist(end.x,end.z,start.x,start.z)>.10)
+  sb={x:end.x,z:end.z,type:'free'};
  const nb=nodeFor(items,sb);
  const a=sa.type==='free'?start:sa,b=sb.type==='free'?end:sb;
  checkWall(a,b,thickness,height);
@@ -194,6 +199,27 @@ export function cabinetFootprint(c,w){
  const point=(along,out)=>({x:w.x1+ux*along+nx*out,z:w.z1+uz*along+nz*out});
  return {corners:[point(a,face),point(b,face),point(b,face+depth),point(a,face+depth)],
   start:point(a,face+depth/2),end:point(b,face+depth/2),angle:Math.atan2(uz,ux),centre:point((a+b)/2,face+depth/2)};
+}
+export const EQUIPMENT_SPECS=Object.freeze({
+ fridge:{name:'یخچال',width:.82,depth:.72,height:1.90,elevation:0},
+ stove:{name:'اجاق گاز',width:.60,depth:.55,height:.10,elevation:.86},
+ sink:{name:'سینک',width:.60,depth:.54,height:.12,elevation:.86}
+});
+export function equipmentPosition(o,items){
+ if(o.subtype==='fridge'||!o.hostId)return {x:o.x,z:o.z,rotation:o.rotation||0,elevation:0};
+ const c=byId(items,o.hostId);if(!c||c.kind!=='cabinet')return null;
+ const dx=c.x2-c.x1,dz=c.z2-c.z1,len=Math.hypot(dx,dz);
+ if(len<.3)return null;
+ const t=o.offsetT??.5,v=o.depthT??0;
+ return {x:c.x1+dx*t-dz/len*v,z:c.z1+dz*t+dx/len*v,
+  rotation:Math.atan2(dz,dx),elevation:(c.elevation||0)+c.height};
+}
+function syncEquipment(items){
+ for(const e of items.filter(o=>o.kind==='equipment'&&o.subtype!=='fridge')){
+  const p=equipmentPosition(e,items);
+  if(!p)throw Error('تجهیزات باید روی کابینت زمینی معتبر نصب شوند.');
+  e.x=p.x;e.z=p.z;e.rotation=p.rotation;e.elevation=p.elevation;
+ }
 }
 function syncCabinet(items,c){
  const w=byId(items,c.hostId);
@@ -237,6 +263,63 @@ function validateCabinets(items,w){
   }
   syncCabinet(items,c);
  }
+ syncEquipment(items);
+}
+/* Stop the run at the first opening edge; no cabinet silently crosses a window. */
+export function limitCabinetEnd(items,w,startT,targetT,{kind='upper',height=.72,elevation=1.55}={}){
+ if(kind!=='upper')return targetT;
+ const len=lengthOf(w),dir=Math.sign(targetT-startT);
+ if(!dir)return targetT;
+ let result=targetT;
+ for(const o of items)if(o.kind==='opening'&&o.hostId===w.id&&
+   Math.min(elevation+height,o.sill+o.height)-Math.max(elevation,o.sill)>.015){
+  const l=o.hostT-o.width/(2*len),r=o.hostT+o.width/(2*len),gap=.006/len;
+  if(startT>l-gap&&startT<r+gap)throw Error('شروع کابینت هوایی نمی‌تواند روی پنجره یا در باشد.');
+  if(dir>0&&startT<=l-gap&&result>l-gap)result=l-gap;
+  if(dir<0&&startT>=r+gap&&result<r+gap)result=r+gap;
+ }
+ return Math.max(0,Math.min(1,result));
+}
+export function placeEquipment(source,point,subtype){
+ const spec=EQUIPMENT_SPECS[subtype],items=copy(source);
+ if(!spec||!finite(point?.x,point?.z))throw Error('محل تجهیزات معتبر نیست.');
+ const obj={id:uid(),kind:'equipment',subtype,name:spec.name,width:spec.width,
+  depth:spec.depth,height:spec.height,elevation:spec.elevation,x:point.x,z:point.z,rotation:0};
+ if(subtype==='fridge'){
+  for(const w of items.filter(wall)){
+   const r={corners:[{x:obj.x-spec.width/2,z:obj.z-spec.depth/2},{x:obj.x+spec.width/2,z:obj.z-spec.depth/2},
+    {x:obj.x+spec.width/2,z:obj.z+spec.depth/2},{x:obj.x-spec.width/2,z:obj.z+spec.depth/2}]};
+   if(polygonOverlap(r.corners,wallFootprint(w)))throw Error('یخچال نباید داخل دیوار قرار بگیرد.');
+  }
+ }else{
+  const bases=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base');
+  const ranked=bases.map(c=>{
+   const len=lengthOf(c),t=Math.max(0,Math.min(1,((point.x-c.x1)*(c.x2-c.x1)+(point.z-c.z1)*(c.z2-c.z1))/(len*len)));
+   const x=c.x1+t*(c.x2-c.x1),z=c.z1+t*(c.z2-c.z1);
+   return {c,t,d:Math.hypot(point.x-x,point.z-z)};
+  }).filter(r=>r.d<=r.c.depth/2+.20&&lengthOf(r.c)>=spec.width+.04).sort((a,b)=>a.d-b.d);
+  const best=ranked[0];if(!best)throw Error('برای نصب سینک و گاز، کابینت زمینی با طول کافی لازم است.');
+  const len=lengthOf(best.c),margin=(spec.width/2+.02)/len;
+  obj.hostId=best.c.id;obj.offsetT=Math.max(margin,Math.min(1-margin,best.t));obj.depthT=0;
+  const pos=equipmentPosition(obj,items);Object.assign(obj,pos);
+  for(const other of items.filter(o=>o.kind==='equipment'&&o.hostId===obj.hostId))
+   if(Math.abs(other.offsetT-obj.offsetT)*len<(other.width+obj.width)/2+.02)
+    throw Error('این قسمت کابینت قبلاً تجهیزات دارد.');
+ }
+ items.push(obj);return {items,selectedId:obj.id};
+}
+export function editEquipment(source,id,{width,depth,height}={}){
+ const items=copy(source),e=byId(items,id);
+ if(!e||e.kind!=='equipment')throw Error('تجهیزات انتخاب نشده‌اند.');
+ e.width=Number(width??e.width);e.depth=Number(depth??e.depth);e.height=Number(height??e.height);
+ if(!finite(e.width,e.depth,e.height)||e.width<.3||e.width>2||e.depth<.2||e.depth>1.3||e.height<.04||e.height>2.7)
+  throw Error('ابعاد تجهیزات نامعتبر است.');
+ if(e.hostId){
+  const host=byId(items,e.hostId);
+  if(!host||e.width>lengthOf(host)-.04)throw Error('عرض تجهیزات از طول کابینت بیشتر است.');
+  syncEquipment(items);
+ }
+ return {items,selectedId:id};
 }
 export function placeCabinet(source,start,end,{kind='base',depth,height,elevation,side}={}){
  const items=copy(source);
@@ -245,15 +328,16 @@ export function placeCabinet(source,start,end,{kind='base',depth,height,elevatio
  if(!wall(found))throw Error('ابتدا دیوار بساز؛ کابینت فقط روی دیوار میزبان نصب می‌شود.');
  const w=found,len=lengthOf(w),a=projectOnWall(w,start.x,start.z),b=projectOnWall(w,end.x,end.z);
  if(b.distance>.65)throw Error('پایان کابینت باید روی همان دیوار میزبان باشد.');
- let from=Math.min(a.t,b.t),to=Math.max(a.t,b.t);
- if((to-from)*len<.30)throw Error('طول کابینت باید حداقل ۳۰ سانتی‌متر باشد.');
  const upper=kind==='upper',d=Number(depth??(upper?.35:.60)),h=Number(height??(upper?.72:.78)),e=Number(elevation??(upper?1.55:.08));
+ const capped=limitCabinetEnd(items,w,a.t,b.t,{kind,height:h,elevation:e});
+ let from=Math.min(a.t,capped),to=Math.max(a.t,capped);
+ if((to-from)*len<.30)throw Error('طول کابینت باید حداقل ۳۰ سانتی‌متر باشد.');
  const cross=(start.x-w.x1)*(w.z2-w.z1)-(start.z-w.z1)*(w.x2-w.x1);
  const chosen=side??start.side??(Math.abs(cross)<.01?1:(cross>0?-1:1));
  const obj={id:uid(),kind:'cabinet',subtype:kind,name:upper?'کابینت هوایی':'کابینت زمینی',
   hostId:w.id,startT:from,endT:to,side:chosen,depth:d,height:h,elevation:e};
  items.push(obj);validateCabinets(items,w);
- return {items,selectedId:obj.id,end:{x:b.x,z:b.z,hostId:w.id,side:chosen}};
+ return {items,selectedId:obj.id,end:{x:w.x1+(w.x2-w.x1)*capped,z:w.z1+(w.z2-w.z1)*capped,hostId:w.id,side:chosen},stoppedAtOpening:upper&&Math.abs(capped-b.t)>.0001};
 }
 export function placeOpening(source,hostId,x,z,{style='fixed',width,height,sill}={}){
  const items=copy(source),w=byId(items,hostId);
@@ -313,7 +397,9 @@ export function editWall(source,id,{length,thickness,height}){
 export function removeObject(source,id){
  const target=source.find(x=>x.id===id);
  if(!target)throw Error('آبجکت پیدا نشد.');
- return {items:copy(source).filter(o=>o.id!==id&&o.hostId!==id),selectedId:null};
+ const deleted=new Set([id]);let changed=true;
+ while(changed){changed=false;for(const o of source)if(o.hostId&&deleted.has(o.hostId)&&!deleted.has(o.id)){deleted.add(o.id);changed=true;}}
+ return {items:copy(source).filter(o=>!deleted.has(o.id)),selectedId:null};
 }
 
 export function editCabinet(source,id,{length,depth,height,elevation}){
