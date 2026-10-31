@@ -30,5 +30,5 @@ test('editor starts with AR and provides a calibration after floor confirmation'
 test('retains explicit fallback with no fake successful tracking',()=>{
  const source=read('app.js');
  assert.match(source,/این نما در مرحله بعد فعال خواهد شد/);
- assert.match(source,/document\.getElementById\('scan-status'\)\.textContent=error\.message/);
+ assert.match(source,/این دستگاه یا مرورگر از AR پشتیبانی نمی‌کند/);
 });
