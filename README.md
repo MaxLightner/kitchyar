@@ -19,6 +19,8 @@ npm run preview
 
 Then open `http://127.0.0.1:4173/`.
 
+The GitHub Pages workflow publishes only `apps/preview` at `https://maxlightner.github.io/kitchyar/` **once Pages is enabled** for the repository. Private-repository Pages availability depends on the GitHub account plan; keep the repository private unless the owner explicitly approves publishing its source. The workflow alone cannot grant Pages entitlement.
+
 The private repository's CI attempts an Android APK build. In an Android SDK environment, run `gradle -p apps/android assembleDebug` using Gradle 8.10.2 / Java 17. The SDK and a real ARCore device are **not available** in this workspace, so a local APK/device verification is not claimed.
 
 ## Architecture rules
