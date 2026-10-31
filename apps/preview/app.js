@@ -1,9 +1,12 @@
-import {FloorAR} from './floor-ar.js?v=cabinet32';
-import * as Geo from './geometry.js?v=cabinet32';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=cabinet32';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=cabinet32';
-import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=cabinet32';
-import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=cabinet32';
+import {FloorAR} from './floor-ar.js?v=report33';
+import * as Geo from './geometry.js?v=report33';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=report33';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=report33';
+import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=report33';
+import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=report33';
+import {buildCutReport} from './report-data.js?v=report33';
+import {renderCutReport} from './report-view.js?v=report33';
+import {downloadCutReportXlsx} from './report-xlsx.js?v=report33';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -12,7 +15,7 @@ let projects=[],floor=null,desktopPreview=null,mode='ar',activeTool=null,activeI
 let selection=null,drawing=null,hover=null,pendingUpperEdit=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null,planCalibrationDrag=null;
 let paintScope='single',paintPart='panel';
 let movingEquipmentId=null;
-let sessionProjectId=null,parkedEditor=null,calibrationCollapsed=false;
+let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
 const settings={thickness:.12,height:2.8,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.72,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8};
 const renderSettings=()=>({...defaultRender,...currentProject()?.scene?.render});
@@ -30,7 +33,7 @@ function touch(id){const p=projects.find(x=>x.id===id);if(p){p.updatedAt=new Dat
 function tell(message){clearTimeout(toastTimer);toastNode.textContent=message;toastNode.classList.add('show');toastTimer=setTimeout(()=>toastNode.classList.remove('show'),3400);}
 function go(hash,autoAR=false){
  history.pushState({},'',hash);render();
- if(autoAR)beginAR();
+ if(autoAR&&(!floor?.session||sessionProjectId!==hash.slice(9)))beginAR();
 }
 function closeDesktopPreview(){desktopPreview?.stopPreview();desktopPreview=null;}
 function closeFloor(){closeDesktopPreview();const old=floor;floor=null;sessionProjectId=null;
@@ -55,8 +58,13 @@ function welcome(){
 function projectPage(){
  const sorted=[...projects].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
  app.innerHTML='<div class="page"><header class="page-header"><button class="back" data-action="home">← خانه</button><strong>KITCHYAR</strong><span>۲ / پروژه‌ها</span></header><main class="projects"><div class="page-heading"><span>YOUR WORKSPACE</span><h1>پروژه‌های من</h1><p>هر پروژه، یک فضای مستقل با ذخیره‌سازی محلی.</p></div><div class="project-grid"><button class="new-card" data-action="new"><span>＋</span><strong>پروژه جدید</strong><small>شروع با شناسایی کف در AR</small></button>'+
- sorted.map(p=>'<article class="project-card"><div class="project-art"><div class="room-icon"><i></i><i></i></div></div><div class="project-detail"><h2>'+esc(p.name)+'</h2><p>ویرایش: '+date(p.updatedAt)+'</p><div class="project-actions"><button class="primary" data-action="open" data-id="'+esc(p.id)+'">ورود به ویرایشگر AR</button><button data-action="more" data-id="'+esc(p.id)+'" aria-label="گزینه‌های پروژه">⋯</button></div></div></article>').join('')+
+ sorted.map(p=>'<article class="project-card"><div class="project-art"><div class="room-icon"><i></i><i></i></div></div><div class="project-detail"><h2>'+esc(p.name)+'</h2><p>ویرایش: '+date(p.updatedAt)+'</p><div class="project-actions"><button class="primary" data-action="open" data-id="'+esc(p.id)+'">ورود به ویرایشگر AR</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش ساخت</button><button data-action="more" data-id="'+esc(p.id)+'" aria-label="گزینه‌های پروژه">⋯</button></div></div></article>').join('')+
  '</div></main></div>';
+}
+function reportPage(id){
+ const project=projects.find(p=>p.id===id);
+ if(!project){go('#/projects');return;}
+ app.innerHTML=renderCutReport(buildCutReport(project));
 }
 const categories=[
  ['architecture','معماری','▤'],['cabinets','کابینت','▣'],['equipment','تجهیزات','▥'],
@@ -66,7 +74,7 @@ function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
  activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
- '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
+ '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
  '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><label class="check-row">نور خطی زیر کابینت هوایی<input data-render="taskLighting" type="checkbox" '+(renderSettings().taskLighting?'checked':'')+'></label><label>شدت نور کابینت<input data-render="taskIntensity" type="range" min="0" max="4" step=".1" value="'+renderSettings().taskIntensity+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
  '<section class="scan-card" id="scan-card"><button class="scan-restart" data-action="rescan">شروع / اسکن دوبارهٔ کف ↻</button><div class="scan-head"><strong id="scan-stage">در انتظار اسکن کف</strong><span id="scan-pct">۰٪</span></div><progress id="scan-progress" max="100" value="0"></progress><small>آمادگی بر اساس برخوردهای معتبر و نمونه‌های مستقل است؛ درصد ARCore نیست.</small><div class="scan-info"><span id="scan-hits">برخورد معتبر: ۰</span><span id="anchor-count">Anchor: ۰ / ۵</span></div></section>'+
@@ -79,18 +87,20 @@ function editorPage(id){
 }
 function render(){
  const hash=location.hash||'#/welcome',target=hash.startsWith('#/editor/')?hash.slice(9):null;
+ const reportId=hash.startsWith('#/report/')?hash.slice(9):null;
  if(target&&floor?.session&&sessionProjectId===target){
   if(parkedEditor){parkedEditor.classList.remove('session-parked');app.replaceChildren(parkedEditor);parkedEditor=null;}
-  mode='ar';document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode==='ar'));
+  mode=parkedMode;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));
   document.getElementById('editor-root')?.classList.add('ar-live');
-  document.getElementById('scan-status').hidden=false;
+  document.getElementById('scan-status').hidden=mode!=='ar';
   updateCalibrationPanel();showScene();return;
  }
  if(!target&&floor?.session&&sessionProjectId===activeId){
   const root=document.getElementById('editor-root');
-  if(root){parkedEditor=root;document.body.appendChild(root);root.classList.add('session-parked');}
+  if(root){parkedEditor=root;parkedMode=mode;document.body.appendChild(root);root.classList.add('session-parked');}
  }else if(floor||desktopPreview)closeFloor();
  if(target)editorPage(target);
+ else if(reportId)reportPage(reportId);
  else if(hash==='#/projects')projectPage();
  else welcome();
 }
@@ -883,6 +893,17 @@ document.addEventListener('click',async e=>{
   if(action==='projects')return go('#/projects');
   if(action==='new')return createProject();
   if(action==='open')return go('#/editor/'+id,true);
+  if(action==='open-report')return go('#/report/'+(id||activeId));
+  if(action==='return-editor')return go('#/editor/'+id,true);
+  if(action==='report-print'){window.print();return;}
+  if(action==='report-xlsx'){
+   const project=projects.find(p=>location.hash==='#/report/'+p.id);
+   if(!project)throw Error('پروژهٔ گزارش پیدا نشد.');
+   downloadCutReportXlsx(buildCutReport(project));return;
+  }
+  if(action==='report-scroll'){
+   document.getElementById(button.dataset.target)?.scrollIntoView({behavior:'smooth',block:'start'});return;
+  }
   if(action==='more')return projectMenu(id);
   if(action==='close-dialog'){dialogs.innerHTML='';pendingUpperEdit=null;return;}
   if(action==='open-style-gallery')return openStyleGallery();

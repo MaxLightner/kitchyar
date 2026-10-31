@@ -44,6 +44,7 @@ button{border:1px solid var(--line);border-radius:12px;padding:12px 16px;backgro
 .dialog{width:min(380px,100%);background:var(--paper);border-radius:18px;padding:22px;display:flex;flex-direction:column;gap:11px;box-shadow:0 30px 80px #1118}
 .dialog h2{margin:0 0 10px;font-size:20px}.dialog p{line-height:1.9}.dialog input{padding:12px;border:1px solid var(--line);border-radius:9px}.danger{background:#ab5246;color:white;border-color:#ab5246}
 .editor-root{position:fixed;inset:0;background:#e9eee6;overflow:hidden;color:#314233}
+.editor-root.session-parked{display:none!important}
 .editor-scene{position:absolute;inset:0;background:radial-gradient(ellipse at center,#f8f9f5,#e6eae3);overflow:hidden}
 .scene-grid{position:absolute;inset:0;background-image:linear-gradient(#7a938317 1px,transparent 1px),linear-gradient(90deg,#7a938317 1px,transparent 1px);background-size:42px 42px;transform:perspective(650px) rotateX(53deg) scale(1.7);transform-origin:50% 58%;opacity:.72}
 .scene-message{position:absolute;top:30%;left:50%;transform:translateX(-50%);text-align:center;max-width:340px;color:#677e70;pointer-events:auto}
@@ -357,6 +358,48 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .front-opening-panel{display:grid;gap:7px;margin:10px 0;padding:10px;border:1px solid #c9ddd0;border-radius:10px;background:#eff7ef}
 .front-opening-panel button{min-height:44px;font-size:15px}
 .front-opening-panel small{font-size:15px;color:#496453;line-height:1.6}
+
+/* Independent fabrication report, opened from a project or from AR/2D/3D. */
+.project-actions{flex-wrap:wrap}.project-actions [data-action="open-report"]{background:#ecf1eb;color:#385847;border-color:#b7cab8;min-width:99px}
+.report-page{min-height:100svh;background:#eaece8;color:#2f4238}
+.report-toolbar{position:sticky;top:0;z-index:15;display:flex;align-items:center;gap:12px;padding:12px max(18px,calc((100vw - 1220px)/2));background:#f9faf6f5;border-bottom:1px solid #d2dbd3;box-shadow:0 5px 20px #2743320d}
+.report-toolbar>button{white-space:nowrap}.report-toolbar-title{display:flex;flex-direction:column;gap:2px;min-width:0;margin-inline-end:auto}
+.report-toolbar-title strong{font-size:19px}.report-toolbar-title span{font-size:15px;color:#687d6d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.report-toolbar-actions{display:flex;align-items:center;gap:8px}.report-toolbar-actions button{padding:10px 14px;white-space:nowrap}
+.report-download{background:#e3eee7;color:#31563f;border-color:#b6cdbb;font-weight:700}
+.report-document{width:min(1220px,calc(100% - 32px));margin:28px auto 56px;padding:clamp(20px,3vw,42px);background:white;border:1px solid #e0e6df;border-radius:22px;box-shadow:0 25px 80px #1c392014}
+.report-title>span{font:700 15px Arial,sans-serif;letter-spacing:.13em;color:#4e8166}.report-title h1{font-size:clamp(22px,3vw,31px);margin:9px 0;color:#264936}.report-title p{margin:0 0 25px;color:#728275}
+.report-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:22px}
+.report-stat{padding:14px;border-radius:13px;background:#edf4ee;display:flex;flex-direction:column;gap:6px;min-width:0}
+.report-stat small{font-size:15px;color:#62806b}.report-stat strong{font-size:20px;color:#254934}
+.report-warning{background:#fff7e9;border:1px solid #efdfb7;border-radius:12px;padding:13px 17px;margin:20px 0;color:#725c33}
+.report-warning strong{font-size:16px}.report-warning p{margin:6px 0 0;font-size:15px;line-height:1.8}
+.report-nav{display:flex;flex-wrap:wrap;gap:7px;margin:23px 0 6px}.report-nav button{border-radius:9px;padding:8px 14px;background:#f2f6f2;border:1px solid #d2dfd4;color:#42634d}
+.report-section{border-top:1px solid #dbe3da;margin-top:32px;padding-top:24px;scroll-margin-top:95px}
+.report-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}.report-section-heading h2{font-size:21px;margin:0}.report-section-heading>span{color:#6a8071;font-size:15px}
+.report-section h3{font-size:17px;margin:24px 0 10px}
+.report-drawing{margin:14px 0 20px;border:1px solid #d8e4da;border-radius:13px;padding:15px 18px;break-inside:avoid;page-break-inside:avoid}
+.report-drawing-head{display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:15px}.report-drawing-head strong{font-size:17px}.report-drawing-head span{color:#708474;direction:ltr}
+.report-svg{display:block;max-width:100%;max-height:330px;margin:12px auto 0}.report-svg-code{font:700 16px Arial,sans-serif;fill:#345d4a;direction:ltr}.report-svg-dim{font:15px Tahoma,Arial,sans-serif;fill:#526a59}
+.report-table-wrap{max-width:100%;overflow-x:auto;margin-top:15px;border:1px solid #d5e0d6;border-radius:11px}
+.report-table{width:100%;border-collapse:collapse;white-space:nowrap;min-width:max-content;font-size:15px;text-align:right}.report-table th,.report-table td{padding:11px 13px;border-bottom:1px solid #e8eee8}
+.report-table th{background:#355b46;color:white;font-size:15px;font-weight:700}.report-table tbody tr:nth-child(even){background:#f6f9f6}.report-table tbody tr:last-child td{border-bottom:0}
+.report-notes{line-height:2;padding-inline-start:25px;color:#54685a}.report-notes li{margin:7px 0}.report-empty{padding:20px;background:#f6f8f5;border-radius:10px;color:#718071}
+.report-footer{border-top:1px solid #dce5dc;margin-top:35px;padding-top:20px;display:flex;justify-content:space-between;color:#738376;font-size:15px}
+@media(max-width:730px){.report-toolbar{flex-wrap:wrap;padding:9px 12px}.report-toolbar-title{flex:1}.report-toolbar-actions{width:100%;justify-content:space-between;gap:5px}.report-toolbar-actions button{font-size:15px;flex:1;padding:9px 6px}.report-document{width:calc(100% - 16px);padding:15px;margin:12px auto 28px}.report-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.report-stat strong{font-size:18px}.report-drawing{padding:7px}.report-section-heading h2{font-size:18px}.mode-switch button{padding-inline:6px}.project-actions [data-action="open-report"]{flex:1}}
+@media print{
+ @page{size:A4 landscape;margin:12mm}
+ html,body{background:white!important;color:#24382d!important}
+ .report-page{background:white!important;min-height:0}.report-toolbar,.report-nav,#toast{display:none!important}
+ .report-document{width:100%;margin:0;padding:0;box-shadow:none;border:0;border-radius:0}
+ .report-title h1{font-size:25px}.report-summary{grid-template-columns:repeat(6,minmax(0,1fr))}
+ .report-stat{padding:8px}.report-stat small{font-size:15px}.report-stat strong{font-size:15px}
+ .report-section{margin-top:16px;padding-top:15px}.report-drawing{padding:8px 14px;margin:8px 0;break-inside:avoid}
+ .report-svg{max-height:205px}.report-table-wrap{overflow:visible;border-radius:0}
+ .report-table{min-width:0;white-space:normal;width:100%;font-size:15px}.report-table th,.report-table td{padding:5px 6px;font-size:15px}
+ .report-table thead{display:table-header-group}.report-table tr{break-inside:avoid}.report-warning{padding:8px 12px}
+ .report-title,.report-stat,.report-table th,.report-drawing{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
 
 /* Smart kitchen planning, panel controls and real cut-sheet drawings. */
 .object-editor{max-height:calc(100svh - 345px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}

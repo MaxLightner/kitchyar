@@ -1,6 +1,6 @@
 # Kitchyar — AR-first kitchen editor
 
-Three screens: Welcome → Projects → Editor. Editor opens in AR, using the pinned Chido FloorScanner, multi-ray surface detection, stabilizing anchors and A/B calibration.
+Welcome → Projects → Editor, plus a standalone fabrication report accessible directly from each project and beside AR/3D/2D in the editor header. Editor opens in AR, using the pinned Chido FloorScanner, multi-ray surface detection, stabilizing anchors and A/B calibration.
 
 ## Architecture tools (2026-10-31)
 
@@ -14,7 +14,15 @@ The browser geometry module apps/preview/geometry.js ports the relevant semantic
 - Persistent 10 cm AR floor grid after floor confirmation.
 - All UI font sizes are at least 13 CSS pixels, including mobile.
 
-The active UI and navigation remain the earlier three-screen structure. Editor defaults to AR. To test without an AR device, use the 2D editor or the desktop 3D orbital preview. AR places points with the centre hit-test crosshair after the floor is locked.
+Editor defaults to AR. To test without an AR device, use the 2D editor or the desktop 3D orbital preview. AR places points with the centre hit-test crosshair after the floor is locked.
+
+## Standalone cutting report
+
+- From **Projects → گزارش ساخت** or the editor's **گزارش** header tab, open `#/report/<project-id>` without requiring camera, AR tracking or the editor view.
+- The report derives semantic facade dimensions from each door/drawer width, height, gap, material, grain and hinge, with numbered elevation diagrams and material summaries.
+- Adjacent base-cabinet countertop stretches on the same wall are grouped for a schematic plan, showing estimated span/depth and the real sink/hob aperture locations derived from the project model. Separate angled runs retain explicit seam warnings.
+- **چاپ / PDF** uses an A4-landscape print stylesheet (choose Save as PDF in the browser print dialog). **دریافت Excel** creates a real offline `.xlsx` file with six sheets and numeric millimetre measurements without third-party runtime dependencies.
+- Reports always recalculate from the current saved project. They remain **schematic**: sheet thickness, edge banding, hinge drilling, manufacturing tolerances, and countertop joinery are not yet specified and must be verified before CNC/cutting.
 
 ## Surface library, kitchen styles, and editable equipment
 

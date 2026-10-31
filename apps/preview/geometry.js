@@ -3,7 +3,7 @@
  * Source: MaxLightner/archyar main (private), 89283efb, 2026-10-31.
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
-import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=cabinet32';
+import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=report33';
 export const SNAP_RADIUS=.50;
 const uid=()=>globalThis.crypto?.randomUUID?.()||'node-'+Math.random().toString(36).slice(2);
 const dist=(ax,az,bx,bz)=>Math.hypot(bx-ax,bz-az);

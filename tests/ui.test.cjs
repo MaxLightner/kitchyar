@@ -2,11 +2,12 @@ const test=require('node:test');const assert=require('node:assert/strict');
 const fs=require('node:fs');const path=require('node:path');
 const root=path.join(__dirname,'../apps/preview');
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
-test('only the three requested screens are routed',()=>{
+test('welcome, project list, editor and independent fabrication report are routed',()=>{
  const source=read('app.js');
  assert.match(source,/function welcome\(/);
  assert.match(source,/function projectPage\(/);
  assert.match(source,/function editorPage\(/);
+ assert.match(source,/function reportPage\(/);
  assert.match(source,/mode='ar'/);
  assert.match(source,/go\('#\/editor\/'\+id,true\)/);
 });
