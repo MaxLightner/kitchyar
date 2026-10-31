@@ -27,6 +27,7 @@
     }catch(error){overlay.remove();throw Error('شروع AR ممکن نشد: '+error.message);}
     let renderer,hitSource,reference,viewer,cleaned=false,currentHit=null,floorConfirmed=false;
     let anchor=null,pointA=null,pointB=null,displayScale=1,startPoint=null,scanSamples=[],lastScanAt=0,scanMarkers=[];
+    let syncScan=()=>{};
     const status=overlay.querySelector('#xr-status'),btn=n=>overlay.querySelector('#xr-'+n);
     const updateStatus=s=>{if(status.textContent!==s)status.textContent=s;};
     function clean(){
@@ -63,7 +64,7 @@
       ring.rotation.x=-Math.PI/2;scene.add(ring);ring.visible=false;
       const sampleGeo=new THREE.SphereGeometry(.028,10,8);
       const sampleMat=new THREE.MeshBasicMaterial({color:'#ffcc79',depthTest:false});
-      function syncScan(){
+      syncScan=function(){
         while(scanMarkers.length){const m=scanMarkers.pop();scene.remove(m);}
         for(const p of scanSamples){const m=new THREE.Mesh(sampleGeo,sampleMat);m.position.set(p.x,p.y+.025,p.z);scene.add(m);scanMarkers.push(m);}
         btn('scan-progress').value=scanSamples.length;
