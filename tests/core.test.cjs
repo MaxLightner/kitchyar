@@ -100,3 +100,33 @@ test('invalid import never changes project list', () => {
   assert.throws(()=>repo.importProject('{not json'));
   assert.equal(repo.list().length,1);
 });
+
+
+test('crossing walls split into four connected metric segments', () => {
+  const horizontal=core.createWall({x:-2,z:0},{x:2,z:0});
+  const vertical=core.createWall({x:0,z:-2},{x:0,z:2});
+  const connected=core.connectWall([horizontal],vertical);
+  assert.equal(connected.items.filter(i=>i.kind==='wall').length,4);
+  assert.equal(core.validateScene(core.normalizeScene({items:connected.items})),true);
+  const intersections=connected.items.filter(i=>i.kind==='wall')
+    .flatMap(w=>[[w.x1,w.z1],[w.x2,w.z2]]).filter(p=>p[0]===0&&p[1]===0);
+  assert.equal(intersections.length,4);
+});
+test('T junction preserves a hosted window and remaps its wall after splitting', () => {
+  const first=core.createWall({x:0,z:0},{x:4,z:0});
+  const window=core.createOpening(first,'window',3);
+  const branch=core.createWall({x:2,z:0},{x:2,z:3});
+  const result=core.connectWall([first,window],branch);
+  const host=result.items.find(i=>i.id===result.items.find(o=>o.kind==='opening').wallId);
+  const opening=result.items.find(i=>i.kind==='opening');
+  assert.equal(core.length(host),2);
+  assert.equal(opening.offset,1);
+  assert.equal(core.validateScene(core.normalizeScene({items:result.items})),true);
+});
+test('moving one wall node drags the shared endpoint of its neighbor', () => {
+  const a=core.createWall({x:0,z:0},{x:2,z:0});
+  const b=core.createWall({x:2,z:0},{x:2,z:2});
+  core.propagateWallNodes([a,b],a,{x2:3,z2:1});
+  assert.equal(b.x1,3);assert.equal(b.z1,1);
+  assert.equal(b.x2,2);assert.equal(b.z2,2);
+});
