@@ -653,6 +653,8 @@ test('a built-in oven stays directly under the hob in the same cabinet, in eithe
   assert.equal(oven.hostId,hob.hostId);
   assert.ok(Math.abs(oven.x-hob.x)<.025,'stove does not jump to adjacent cabinet');
   assert.equal(oven.builtIn,true);
+  const manual=G.planFronts(items,items.find(c=>c.id===hob.hostId),'drawers3');
+  assert.equal(manual.filter(f=>f.startT<=hob.offsetT&&f.endT>=hob.offsetT).length,0,'manual layout cannot cover oven');
   const smart=G.planSmartKitchen(items).items;
   assert.equal(smart.filter(f=>f.kind==='front'&&f.hostId===hob.hostId&&
    f.startT<=hob.offsetT&&f.endT>=hob.offsetT).length,0,'oven aperture remains uncovered');

@@ -359,8 +359,9 @@ export function frontPose(front,c){
    dimensions remain semantic, independent of future internal cabinet units. */
 function layoutBays(items,c,preset){
  const len=lengthOf(c),fixtures=[];
- if(preset==='smart'){
+ if(preset==='smart'||items.some(e=>e.kind==='equipment'&&['sink','oven'].includes(e.subtype)&&e.hostId===c.id)){
   for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove','oven'].includes(o.subtype))){
+   if(preset!=='smart'&&!['sink','oven'].includes(e.subtype))continue;
    let centre=null;
    if(c.subtype==='base'&&e.hostId===c.id)centre=(e.offsetT??.5)*len;
    if(c.subtype==='upper'&&e.subtype!=='oven'){
