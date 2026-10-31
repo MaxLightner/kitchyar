@@ -23,12 +23,30 @@ test('editor starts with AR and provides a calibration after floor confirmation'
  assert.match(source,/class="mode-switch"/);
  assert.match(source,/data-mode="ar"/);
  assert.match(source,/data-action="confirm-floor"/);
- assert.match(source,/data-action="point-a"/);
- assert.match(source,/data-action="point-b"/);
+ assert.match(read('plan-view.js'),/data-calibration/);
+ assert.match(read('floor-ar.js'),/pickCalibrationHandle/);
+ assert.match(source,/data-action="rescan"/);
  assert.match(source,/data-action="apply-distance"/);
 });
 test('retains explicit fallback with no fake successful tracking',()=>{
  const source=read('app.js');
  assert.match(source,/نمای سه‌بعدی دسکتاپ در مرحله بعد فعال می‌شود/);
  assert.match(source,/این دستگاه یا مرورگر از AR پشتیبانی نمی‌کند/);
+});
+
+test('exactly two bottom drawing actions are exposed for every tool',()=>{
+ const source=read('app.js');
+ const controls=source.match(/class="draw-controls"[^\n]+/g)||[];
+ assert.equal(controls.length,1);
+ assert.match(controls[0],/data-action="confirm-drawing"/);
+ assert.match(controls[0],/data-action="cancel-drawing"/);
+ assert.doesNotMatch(controls[0],/data-action="(?:start-drawing|end-drawing|finish-drawing)"/);
+ assert.match(source,/\['fridge','stove','sink'\]/);
+});
+test('cabinet selection offers editable dimensions and an elevation drawing',()=>{
+ const source=read('app.js');
+ assert.match(source,/renderCabinetElevation\(items,selected\)/);
+ assert.match(source,/data-edit=/);
+ assert.match(source,/upperHeight/);
+ assert.match(read('edit-handles.js'),/renderCabinetElevation/);
 });
