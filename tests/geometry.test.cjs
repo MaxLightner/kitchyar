@@ -164,7 +164,7 @@ test('refrigerator, sink and stove provide selectable parametric equipment',asyn
  items=G.placeEquipment(items,{x:.9,z:.32},'sink').items;
  items=G.placeEquipment(items,{x:2.1,z:.32},'stove').items;
  items=G.placeEquipment(items,{x:-1.5,z:1.4},'fridge').items;
- assert.deepEqual(items.filter(x=>x.kind==='equipment').map(x=>x.subtype),['sink','stove','fridge']);
+ assert.deepEqual(items.filter(x=>x.kind==='equipment').map(x=>x.subtype),['sink','stove','hood','fridge']);
  assert.ok(items.find(x=>x.subtype==='sink').hostId,'sink is attached to base cabinet');
  assert.throws(()=>G.placeEquipment(items,{x:.9,z:.32},'stove'),/تجهیزات دارد/);
  const fridge=items.find(x=>x.subtype==='fridge');
@@ -289,7 +289,7 @@ test('sink-to-stove gap is at least 45 cm measured from object edges',async()=>{
  items=G.placeEquipment(items,{x:3,z:.3},'stove').items;
  const sink=items.find(x=>x.subtype==='sink'),stove=items.find(x=>x.subtype==='stove');
  assert.equal(sink.rotation,stove.rotation);
- assert.equal(items.filter(x=>x.kind==='equipment').length,2);
+ assert.equal(items.filter(x=>x.kind==='equipment').length,3);
  const wrongModel=()=>G.editEquipment(items,sink.id,{model:'not-a-model'});
  assert.throws(wrongModel,/مدل تجهیزات نامعتبر/);
  items=G.editEquipment(items,sink.id,{model:'double'}).items;
@@ -301,7 +301,8 @@ test('fridge integrates into a cabinet run, keeping both side cabinets',async()=
  items=G.placeCabinet(items,{x:.2,z:0},{x:2,z:0},{kind:'base'}).items;
  const integrated=G.placeEquipment(items,{x:1,z:.40},'fridge');
  assert.equal(integrated.items.find(x=>x.subtype==='fridge').builtIn,true);
- assert.equal(integrated.items.filter(x=>x.kind==='cabinet'&&x.subtype==='base').length,2);
+ assert.ok(integrated.items.filter(x=>x.kind==='cabinet'&&x.subtype==='base').every(c=>G.lengthOf(c)>=.45),
+  'no undersized side cabinet may survive fridge insertion');
  const done=G.placeEquipment(items,{x:3,z:.8},'fridge');
  const fridge=done.items.find(x=>x.subtype==='fridge');
  assert.ok(fridge.z>.4 && fridge.z<.5,'free fridge still snaps to the wall');
@@ -404,4 +405,79 @@ test('cabinet strokes close small corner gaps, and ignore tiny stray segments',a
  const cabinet=done.items.find(o=>o.kind==='cabinet');
  assert.ok(cabinet.endT*G.lengthOf(items[0])>2.83);
  assert.throws(()=>G.placeCabinetRoute(items,G.snapCabinetPoint(items,2.49,0),G.snapCabinetPoint(items,2.78,0),{kind:'base'}),/مسیر کابینت کوتاه/);
+});
+
+test('continuous XR session is preserved between AR/2D and project overview',()=>{
+ const app=source('app.js'),floor=source('floor-ar.js');
+ assert.match(app,/sessionProjectId===target/);
+ assert.match(app,/parkedEditor/);
+ assert.doesNotMatch(app,/else \{closeFloor\(\);document\.getElementById\('scan-status'\)/);
+ assert.match(floor,/cameraSideForWall\(w\)/);
+ assert.match(app,/floor\.cameraSideForWall\(w\)/);
+});
+test('AR window manipulation projects touch deltas onto wall and displays elevation',()=>{
+ const app=source('app.js'),floor=source('floor-ar.js');
+ assert.match(floor,/dragScreenHandlePoint\(clientX,clientY,drag\)/);
+ assert.match(floor,/this\.cameraSideForWall\(w\)\*\(w\.thickness\/2\+\.06\)/);
+ assert.match(app,/floor\?\.dragScreenHandlePoint/);
+ assert.match(app,/mode==='ar'&&selected\?\.kind==='opening'/);
+ assert.match(app,/floor\?\.setEditPreview\(items,selection/);
+});
+test('floor calibration collapses and reopens both calibration panel and A/B grips',()=>{
+ const app=source('app.js'),floor=source('floor-ar.js'),plan=source('plan-view.js');
+ assert.match(app,/data-action="toggle-calibration"/);
+ assert.match(app,/calibrationCollapsed=true;updateCalibrationPanel/);
+ assert.match(floor,/setCalibrationVisible\(visible\)/);
+ assert.match(plan,/showCalibration=true/);
+});
+test('built-in appliances carve a cabinet bay; stove always creates a separately editable hood',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:8,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:7.8,z:0},{kind:'base'}).items;
+ items=G.placeEquipment(items,{x:1,z:.34},'stove').items;
+ const stove=items.find(o=>o.subtype==='stove'),hood=items.find(o=>o.subtype==='hood');
+ assert.equal(hood.linkedStoveId,stove.id);
+ items=G.editEquipment(items,hood.id,{model:'angled'}).items;
+ assert.equal(items.find(o=>o.id===hood.id).model,'angled');
+ items=G.placeEquipment(items,{x:3,z:.34},'dishwasher').items;
+ assert.equal(items.find(o=>o.subtype==='dishwasher').builtIn,true);
+ items=G.placeEquipment(items,{x:5,z:.34},'washer').items;
+ assert.equal(items.find(o=>o.subtype==='washer').builtIn,true);
+ items=G.placeEquipment(items,{x:6.5,z:.34},'oven').items;
+ assert.equal(items.find(o=>o.subtype==='oven').builtIn,true);
+ assert.ok(items.filter(o=>o.kind==='cabinet').every(c=>G.lengthOf(c)>=.45));
+ items=G.removeObject(items,stove.id).items;
+ assert.equal(items.some(o=>o.subtype==='hood'),false);
+});
+test('fridge capacity and side-by-side model change physical dimensions',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeEquipment([],{x:1,z:2},'fridge').items;
+ const id=items[0].id,before=items[0].width;
+ items=G.editEquipment(items,id,{model:'side',fridgeFeet:30}).items;
+ assert.equal(items[0].fridgeFeet,30);
+ assert.ok(items[0].width>before);
+ assert.ok(items[0].depth>.72);
+ assert.equal(items[0].model,'side');
+});
+test('no cabinet segment shorter than 45cm, including resizing',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ const H=await import('../apps/preview/edit-handles.js');
+ let items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+ assert.throws(()=>G.placeCabinet(items,{x:.2,z:0},{x:.55,z:0},{kind:'base'}),/۴۵ سانتی‌متر/);
+ items=G.placeCabinet(items,{x:.2,z:0},{x:1.2,z:0},{kind:'base'}).items;
+ const cabinet=items.find(o=>o.kind==='cabinet');
+ const changed=H.resizeFromHandle(items,cabinet.id,'end',{along:.3}).items.find(o=>o.id===cabinet.id);
+ assert.ok(G.lengthOf(changed)>=.45);
+});
+
+test('built-in refrigerator stays 70cm clear of a connected corner wall',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
+ items=G.placeWall(items,{x:0,z:0},{x:0,z:4}).items;
+ items=G.placeCabinet(items,{x:.15,z:0,side:1},{x:3.85,z:0}).items;
+ const result=G.placeEquipment(items,{x:.25,z:.40},'fridge');
+ const fridge=result.items.find(o=>o.subtype==='fridge');
+ assert.ok(fridge.builtIn);
+ assert.ok(fridge.x-fridge.width/2-.055/2>=.70-1e-6);
+ assert.ok(result.items.filter(o=>o.kind==='cabinet').every(c=>G.lengthOf(c)>=.45));
 });

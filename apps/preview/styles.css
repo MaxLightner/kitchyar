@@ -286,3 +286,13 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .editor-scene,.editor-scene .plan-host,.editor-scene .plan-svg,#elevation-view{touch-action:none;overscroll-behavior:contain}
 .plan-svg .ab-touch,.plan-svg .resize-handle,#elevation-view .elevation-handle{cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
 .plan-svg .ab-touch:active,.plan-svg .resize-handle:active,#elevation-view .elevation-handle:active{cursor:grabbing}
+
+/* Persistent XR session, compact floor calibration and in-AR wall elevation. */
+.session-parked{position:fixed!important;left:-200vw!important;top:0!important;width:100vw!important;height:100svh!important;pointer-events:none!important;opacity:0!important;z-index:-1!important}
+.calibration-toggle{position:absolute;z-index:7;bottom:121px;left:50%;transform:translateX(-50%);padding:9px 14px;min-height:38px;background:#edf8ef;color:#285b45;border:1px solid #99cbb2;border-radius:10px;box-shadow:0 5px 18px #183b2a35;font-size:15px;font-weight:700;white-space:nowrap}
+.calibration-toggle[hidden]{display:none}
+.scan-confirm{bottom:169px}
+.scan-confirm #calibration[hidden]{display:none}
+.editor-root.ar-live .elevation-panel{background:#faf9f1f5;border:2px solid #8abda8;box-shadow:0 10px 32px #102b2459}
+.editor-root.ar-live #elevation-view .elevation-handle{stroke-width:3;filter:drop-shadow(0 0 4px #ffffff)}
+@media(max-width:730px){.editor-root.ar-live .elevation-panel{top:119px;right:8px;max-height:37svh;overflow:auto;width:min(305px,calc(100vw - 16px))}.calibration-toggle{bottom:116px}.scan-confirm{bottom:161px}}

@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint} from './geometry.js?v=render17';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint} from './geometry.js?v=render18';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -49,7 +49,7 @@ export function resizeFromHandle(items,id,side,position){
    if(!['start','end'].includes(side))throw Error('دستگیره کابینت معتبر نیست.');
   const len=lengthOf(host),old=side==='start'?object.endT*len:object.startT*len;
   let along=snapCm(position.along);
-  along=side==='start'?Math.max(0,Math.min(old-.30,along)):Math.min(len,Math.max(old+.30,along));
+  along=side==='start'?Math.max(0,Math.min(old-.45,along)):Math.min(len,Math.max(old+.45,along));
   return moveCabinetEndpoint(items,id,side==='start',
    host.x1+(host.x2-host.x1)*along/len,host.z1+(host.z2-host.z1)*along/len);
  }

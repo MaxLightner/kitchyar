@@ -1,8 +1,8 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render17';
-import {renderPlanMeasurements} from './edit-handles.js?v=render17';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render18';
+import {renderPlanMeasurements} from './edit-handles.js?v=render18';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
-export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null}={}){
+export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true}={}){
  const walls=items.filter(x=>x.kind==='wall'),cabinets=items.filter(x=>x.kind==='cabinet');
  const gridId=mini?'mini-grid-k':'main-grid-k';
  const cal=calibration?.a&&calibration?.b?calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}};
@@ -44,10 +44,15 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
  for(const e of items.filter(x=>x.kind==='equipment')){
   const corners=equipmentCorners(e.x,e.z,e.width,e.depth,e.rotation||0);
   out+='<g data-item-id="'+safe(e.id)+'" opacity=".96"><polygon points="'+corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
-   '" fill="'+(e.subtype==='fridge'?'#cbd2d3':e.subtype==='stove'?'#424a4a':'#bdc9ca')+
+   '" fill="'+(e.subtype==='fridge'?'#cbd2d3':e.subtype==='stove'?'#424a4a':e.subtype==='hood'?'#a8b2ac':e.subtype==='oven'?'#464b4c':'#bdc9ca')+
    '" stroke="'+(e.id===selectedId?'#329e7f':'#5c7373')+'" stroke-width=".028"/>'+
    '<g transform="translate('+f(e.x)+' '+f(e.z)+') rotate('+f((e.rotation||0)*180/Math.PI)+')">';
-  if(e.subtype==='stove'){
+  if(['dishwasher','washer','oven'].includes(e.subtype)){
+   if(e.subtype==='oven')out+='<rect x="'+f(-e.width*.42)+'" y="'+f(-e.depth*.39)+'" width="'+f(e.width*.84)+'" height="'+f(e.depth*.78)+'" rx=".035" fill="#34494b" stroke="#e5e8e2" stroke-width=".02"/>';
+   else out+='<circle cx="0" cy="0" r="'+f(e.width*.28)+'" fill="none" stroke="#6a878b" stroke-width=".025"/>';
+  }else if(e.subtype==='hood'){
+   out+='<rect x="'+f(-e.width*.42)+'" y="'+f(-e.depth*.37)+'" width="'+f(e.width*.84)+'" height="'+f(e.depth*.74)+'" fill="none" stroke="#68797a" stroke-width=".025"/>';
+  }else if(e.subtype==='stove'){
    const induction=e.induction||e.model==='induction',count=e.model==='gas2'?2:e.model==='gas3'?3:e.model==='gas5'?5:4;
    const x=e.width*.255,z=e.depth*.225,ring=induction?'#85c5bf':'#dbe3df';
    const burners=count===2?[[-x,0],[x,0]]:count===3?[[-x,-z],[x,-z],[0,z]]:
@@ -79,7 +84,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   out+='<line class="opening-hit" data-item-id="'+safe(o.id)+'" x1="'+f(w.x1+(w.x2-w.x1)*a)+'" y1="'+f(w.z1+(w.z2-w.z1)*a)+
    '" x2="'+f(w.x1+(w.x2-w.x1)*b)+'" y2="'+f(w.z1+(w.z2-w.z1)*b)+'" stroke="transparent" stroke-width=".22" pointer-events="stroke"/>';
  }
- if(!mini&&!drawing){
+ if(!mini&&!drawing&&showCalibration){
    out+='<g class="ab-calibration" aria-label="جهت شبکه A و B">'+
     '<line x1="'+f(cal.a.x)+'" y1="'+f(cal.a.z)+'" x2="'+f(cal.b.x)+'" y2="'+f(cal.b.z)+'" stroke="#d39d54" stroke-width=".027" stroke-dasharray=".075,.035" pointer-events="none"/>';
    for(const which of ['a','b']){const p=cal[which],color=which==='a'?'#e4a75d':'#4cafa3';
@@ -132,12 +137,12 @@ export function renderPreview(items,drawing,hover){
  if(!drawing||!hover)return '';
  const tool=drawing.tool,start=drawing.start;
  const wallMode=tool==='wall',openingMode=tool==='window'||tool==='door';
- if(['fridge','stove','sink'].includes(tool)){
+ if(['fridge','stove','sink','dishwasher','washer','oven'].includes(tool)){
   const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0,valid=true;
   let installed=null;
-  try{const result=placeEquipment(items,hover,tool);installed=result.items.at(-1);}catch{valid=false;}
+  try{const result=placeEquipment(items,hover,tool);installed=result.items.find(o=>o.id===result.selectedId);}catch{valid=false;}
   if(tool==='fridge'){const snap=installed||snapFridgePoint(items,hover,spec.width,spec.depth);if(snap){p=snap;angle=snap.rotation;}}
-  if(tool!=='fridge'){
+  if(tool!=='fridge'&&!installed){
    const ranked=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base').map(c=>{
     const len=lengthOf(c),q=projectOnWall(c,hover.x,hover.z);
     return {c,q,dist:q.distance};
@@ -146,7 +151,8 @@ export function renderPreview(items,drawing,hover){
    if(!near||near.dist>near.c.depth/2+.2)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r="'+f(visibleRadius)+'" fill="#c35a4b"/></g>';
    p={x:near.q.x,z:near.q.z};angle=Math.atan2(near.c.z2-near.c.z1,near.c.x2-near.c.x1)+(near.c.side===-1?Math.PI:0);
   }
-  return '<g class="live-preview" pointer-events="none"><polygon points="'+equipmentCorners(p.x,p.z,spec.width,spec.depth,angle).map(q=>f(q.x)+','+f(q.z)).join(' ')+
+  if(installed){p=installed;angle=installed.rotation||0;}
+  return '<g class="live-preview" pointer-events="none"><polygon points="'+equipmentCorners(p.x,p.z,installed?.width||spec.width,installed?.depth||spec.depth,angle).map(q=>f(q.x)+','+f(q.z)).join(' ')+
    '" fill="'+(valid?'#8cd2c8':'#d9a09c')+'" fill-opacity=".64" stroke="'+(valid?'#d0873a':'#bd413d')+'" stroke-width=".04" stroke-dasharray=".06,.04"/></g>';
  }
  if((tool==='base'||tool==='upper')&&start){
