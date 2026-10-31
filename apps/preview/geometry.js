@@ -99,6 +99,15 @@ export function snapCabinetPoint(items,x,z,tolerance=.8){
   if(distance<d&&Math.hypot(hit.x-px,hit.z-pz)<.28){best={x:px,z:pz,hostId:w.id,t,corner:true};d=distance;}
  }
  if(best)return best;
+ // Cabinet seams snap to neighboring cabinet edges as well as wall corners.
+ for(const c of items.filter(o=>o.kind==='cabinet'&&o.hostId===hit.wall.id)){
+  for(const t of [c.startT,c.endT]){
+   const px=hit.wall.x1+(hit.wall.x2-hit.wall.x1)*t,pz=hit.wall.z1+(hit.wall.z2-hit.wall.z1)*t;
+   const distance=Math.hypot(px-x,pz-z);
+   if(distance<.18&&distance<d){best={x:px,z:pz,hostId:hit.wall.id,t,corner:false,edgeSnap:true};d=distance;}
+  }
+ }
+ if(best)return best;
  return {x:hit.x,z:hit.z,hostId:hit.wall.id,t:hit.t,corner:false};
 }
 /* Discover a shortest contiguous wall route: a single cabinet gesture may turn at corners. */
@@ -316,10 +325,14 @@ export const MIN_CABINET_LENGTH=.45;
 /* Facade-first design: semantic door/drawer rectangles precede internal carcass units.
    All coordinates are fractions of the host cabinet; rendering is derived from them. */
 export const FRONT_PRESETS=Object.freeze({
- doors:{label:'درب هوشمند',type:'door'},
- drawers3:{label:'سه کشو',type:'drawer',rows:3},
- drawers4:{label:'چهار کشو',type:'drawer',rows:4},
- mixed:{label:'کشوی بالا + درب پایین',type:'mixed'}
+ smart:{label:'هوشمند کل آشپزخانه',type:'smart'},
+ doors:{label:'درب لولایی',type:'door'},
+ drawers2:{label:'دو کشوی هم‌اندازه',type:'drawer',rows:2},
+ drawers3:{label:'سه کشوی هم‌اندازه',type:'drawer',rows:3},
+ drawers4:{label:'چهار کشوی هم‌اندازه',type:'drawer',rows:4},
+ graduated:{label:'سه کشوی پلکانی',type:'drawer',rows:3,graduated:true},
+ mixed:{label:'کشوی بالا + دو درب پایین',type:'mixed',drawerOnTop:true},
+ mixedLower:{label:'دو درب بالا + کشوی پایین',type:'mixed',drawerOnTop:false}
 });
 export function nearestCabinet(items,point,tolerance=.24){
  if(!finite(point?.x,point?.z))return null;
@@ -342,41 +355,117 @@ export function frontPose(front,c){
   angle:Math.atan2(uz,ux),side,width:Math.max(.10,(front.endT-front.startT)*len-.006),
   height:Math.max(.08,(front.topT-front.bottomT)*c.height-.006),thickness:.019};
 }
+/* Split facade bays around fixture widths before choosing doors and drawers. All
+   dimensions remain semantic, independent of future internal cabinet units. */
+function layoutBays(items,c,preset){
+ const len=lengthOf(c),fixtures=[];
+ if(preset==='smart'){
+  for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove'].includes(o.subtype))){
+   let centre=null;
+   if(c.subtype==='base'&&e.hostId===c.id)centre=(e.offsetT??.5)*len;
+   if(c.subtype==='upper'){
+    const base=byId(items,e.hostId);
+    if(base?.kind==='cabinet'&&base.hostId===c.hostId&&base.side===c.side){
+     const px=e.x,pz=e.z,dx=c.x2-c.x1,dz=c.z2-c.z1;
+     centre=((px-c.x1)*dx+(pz-c.z1)*dz)/len;
+    }
+   }
+   if(centre===null||centre<-.1||centre>len+.1)continue;
+   fixtures.push({a:Math.max(0,centre-e.width/2-.02),b:Math.min(len,centre+e.width/2+.02),type:e.subtype,e});
+  }
+  fixtures.sort((a,b)=>a.a-b.a);
+  for(let i=fixtures.length-1;i>0;i--)if(fixtures[i].a<fixtures[i-1].b-.01){
+   // Preserve a valid contiguous bay even if the objects were installed very close.
+   fixtures[i-1].b=Math.max(fixtures[i-1].b,fixtures[i].b);
+   fixtures.splice(i,1);
+  }
+ }
+ const addGap=(result,a,b)=>{
+  const size=b-a;if(size<.001)return;
+  const count=Math.max(1,Math.ceil(size/.88));
+  // Prefer a single slightly wide bay over an unusable sub-45cm drawer.
+  const n=count>1&&size/count<MIN_CABINET_LENGTH?count-1:count;
+  for(let j=0;j<n;j++)result.push({a:a+size*j/n,b:a+size*(j+1)/n,type:'free'});
+ };
+ if(!fixtures.length){const result=[];addGap(result,0,len);return result;}
+ if(fixtures[0].a<MIN_CABINET_LENGTH)fixtures[0].a=0;
+ if(len-fixtures.at(-1).b<MIN_CABINET_LENGTH)fixtures.at(-1).b=len;
+ for(let i=1;i<fixtures.length;i++){
+  const gap=fixtures[i].a-fixtures[i-1].b;
+  if(gap>0&&gap<MIN_CABINET_LENGTH){fixtures[i-1].b+=gap/2;fixtures[i].a-=gap/2;}
+ }
+ const result=[];let cursor=0;
+ for(const fixture of fixtures){addGap(result,cursor,fixture.a);result.push(fixture);cursor=fixture.b;}
+ addGap(result,cursor,len);
+ return result;
+}
 export function planFronts(items,c,preset='doors'){
  const config=FRONT_PRESETS[preset];
  if(!config||c?.kind!=='cabinet')throw Error('برای نصب نما باید کابینت و طرح معتبر انتخاب شود.');
- if(c.subtype==='upper'&&preset!=='doors')throw Error('کشو فقط روی کابینت زمینی نصب می‌شود.');
- const length=lengthOf(c);
- let bays=Math.max(1,Math.ceil(length/.83));
- while(bays>1&&length/bays<MIN_CABINET_LENGTH)bays--;
+ if(['upper','over-fridge'].includes(c.subtype)&&!['doors','smart'].includes(preset))throw Error('کشو فقط روی کابینت زمینی نصب می‌شود.');
+ if(c.subtype==='bridge')return [];
+ const length=lengthOf(c),bays=layoutBays(items,c,preset),result=[];
  const make=(kind,bay,part,left,right,bottom,top,hinge='none')=>({
   id:uid(),kind:'front',subtype:kind,name:kind==='door'?'درب کابینت':'کشوی کابینت',
   hostId:c.id,preset,bay,part,startT:left,endT:right,bottomT:bottom,topT:top,
   hinge,finish:'cream',style:'flat',handleStyle:'bar',gap:.003
  });
- const result=[];
- for(let i=0;i<bays;i++){
-  const a=i/bays,b=(i+1)/bays,span=(b-a)*length;
-  const fixture=items.some(e=>e.kind==='equipment'&&['sink','stove'].includes(e.subtype)&&
-   e.hostId===c.id&&e.offsetT>=a-1e-6&&e.offsetT<=b+1e-6);
-  const layout=fixture&&preset!=='doors'?'doors':preset;
-  const doors=(low,high)=>{
-   const leaves=span>.62?2:1;
+ for(let i=0;i<bays.length;i++){
+  const {a:metresA,b:metresB,type}=bays[i],a=metresA/length,b=metresB/length,span=metresB-metresA;
+  const sink=type==='sink',stove=type==='stove';
+  const oven=stove&&items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&
+   Math.hypot(e.x-bays[i].e.x,e.z-bays[i].e.z)<.55);
+  if(oven)continue; // Leave a real opening for the oven face.
+  const layout=sink&&c.subtype==='base'?'sinkDoors':preset!=='smart'?preset:
+   (c.subtype==='upper'&&sink?'lift':
+    c.subtype!=='base'?'doors':
+    sink?'sinkDoors':stove?'graduated':span<.55?'doors':
+    span>.9?'drawers3':'mixed');
+  let part=0;
+  const doors=(low,high,forcePair=false,topHinge=false)=>{
+   const leaves=topHinge?1:forcePair||span>.62?2:1;
    for(let j=0;j<leaves;j++){
     const left=a+(b-a)*j/leaves,right=a+(b-a)*(j+1)/leaves;
-    result.push(make('door',i,j,left,right,low,high,j===0?'left':'right'));
+    result.push(make('door',i,part++,left,right,low,high,topHinge?'top':j===0?'left':'right'));
    }
   };
-  if(layout==='doors')doors(0,1);
-  else if(layout==='mixed'){
-   doors(0,.72);
-   result.push(make('drawer',i,2,a,b,.72,1));
+  if(layout==='lift')doors(0,1,false,true);
+  else if(layout==='doors'||layout==='sinkDoors')doors(0,1,sink||layout==='sinkDoors');
+  else if(layout==='mixed'||layout==='mixedLower'){
+   const drawerTop=layout==='mixed',split=drawerTop?.72:.28;
+   doors(drawerTop?0:split,drawerTop?split:1,true);
+   result.push(make('drawer',i,part++,a,b,drawerTop?split:0,drawerTop?1:split));
   }else{
-   const rows=FRONT_PRESETS[layout].rows;
-   for(let j=0;j<rows;j++)result.push(make('drawer',i,j,a,b,j/rows,(j+1)/rows));
+   const rows=FRONT_PRESETS[layout]?.rows||3;
+   const weights=layout==='graduated'?[.46,.33,.21]:Array(rows).fill(1/rows);
+   let low=0;
+   for(let j=0;j<rows;j++){
+    const high=j===rows-1?1:low+weights[j];
+    result.push(make('drawer',i,j,a,b,low,high));low=high;
+   }
   }
  }
  return result;
+}
+export function planSmartKitchen(source){
+ const items=copy(source);
+ const cabinetry=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge');
+ if(!cabinetry.length)throw Error('برای طراحی هوشمند ابتدا کابینت‌ها را نصب کن.');
+ // Only tiny, reversible equipment corrections are allowed. Try the closest
+ // 5 cm module center (at most 2.5 cm), preserving every collision constraint.
+ for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove'].includes(o.subtype))){
+  const host=byId(items,e.hostId);if(!host)continue;
+  const len=lengthOf(host),old=e.offsetT;
+  const target=Math.round(old*len*20)/20/len;
+  const margin=(e.width/2+.02)/len;
+  if(Math.abs(target-old)*len>.025||target<margin||target>1-margin)continue;
+  e.offsetT=target;
+  try{syncEquipment(items);validateEquipmentSpacing(items);}
+  catch{e.offsetT=old;syncEquipment(items);}
+ }
+ for(const c of cabinetry)reflowFronts(items,c,'smart');
+ for(const c of cabinetry)validateFronts(items,c);
+ return {items,selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
 }
 function reflowFronts(items,c,preset=c?.frontPreset){
  if(!FRONT_PRESETS[preset])return;
@@ -424,7 +513,7 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
   for(const neighbor of neighbors)neighbor.bottomT=next;
   f.topT=next;
  }
- if(hinge!==undefined){if(f.subtype!=='door'||!['left','right'].includes(hinge))throw Error('جهت لولا نامعتبر است.');f.hinge=hinge;}
+ if(hinge!==undefined){if(f.subtype!=='door'||!['left','right','top'].includes(hinge))throw Error('جهت لولا نامعتبر است.');f.hinge=hinge;}
  if(finish!==undefined){if(!['cream','wood','graphite'].includes(finish))throw Error('رنگ درب نامعتبر است.');f.finish=finish;}
  if(style!==undefined){if(!['flat','frame'].includes(style))throw Error('سبک درب نامعتبر است.');f.style=style;}
  if(handleStyle!==undefined){if(!['bar','knob','hidden'].includes(handleStyle))throw Error('دستگیره نامعتبر است.');f.handleStyle=handleStyle;}
@@ -520,7 +609,8 @@ function validateCabinets(items,w){
   if(!finite(c.startT,c.endT,c.depth,c.height,c.elevation)||c.startT*len<-.00001||c.endT*len>len+.00001||
     (c.endT-c.startT)*len<MIN_CABINET_LENGTH-.00001||c.depth<.2||c.depth>1.2||c.height<.25||c.elevation<0||c.elevation+c.height>w.height+.001)
    throw Error('ابعاد کابینت با دیوار میزبان ناسازگار است.');
-  for(const other of cab)if(other!==c&&other.subtype===c.subtype&&other.side===c.side&&
+  for(const other of cab)if(other!==c&&other.side===c.side&&
+   Math.min(c.elevation+c.height,other.elevation+other.height)-Math.max(c.elevation,other.elevation)>.015&&
    Math.min(c.endT,other.endT)*len-Math.max(c.startT,other.startT)*len>.015)
     throw Error('کابینت‌های هم‌سطح روی یک دیوار تداخل دارند.');
   for(const o of openings)if(Math.min(c.endT*len,o.hostT*len+o.width/2)-
@@ -680,7 +770,12 @@ export function placeEquipment(source,point,subtype){
  if(subtype==='stove')items.push({id:uid(),kind:'equipment',subtype:'hood',name:'هود',
   model:'slim',linkedStoveId:obj.id,width:Math.max(.60,obj.width),depth:.45,height:.32,
   elevation:1.55,x:obj.x,z:obj.z,rotation:obj.rotation});
- syncEquipment(items);validateEquipmentSpacing(items);return {items,selectedId:obj.id};
+ syncEquipment(items);validateEquipmentSpacing(items);
+ if(subtype==='fridge')try{
+  const result=addOverFridgeCabinet(items,obj.id,{depth:.60});
+  return {items:result.items,selectedId:obj.id};
+ }catch{ /* A freestanding fridge remains valid when an overhead unit cannot fit. */ }
+ return {items,selectedId:obj.id};
 }
 export function editEquipment(source,id,{width,depth,height,model,induction,sinkSize,fridgeFeet}={}){
  const items=copy(source),e=byId(items,id);
@@ -852,7 +947,92 @@ export function moveCabinetEndpoint(source,id,start,x,z){
  if(!c||c.kind!=='cabinet'||!wall(w)||!finite(x,z))throw Error('کابینت روی دیوار معتبر انتخاب نشده است.');
  const projected=projectOnWall(w,x,z);
  if(projected.distance>.65)throw Error('دستگیره کابینت باید روی همان دیوار بماند.');
- if(start)c.startT=projected.t;else c.endT=projected.t;
+ let t=projected.t;
+ const boundary=[0,1,...items.filter(o=>o.kind==='cabinet'&&o.id!==c.id&&o.hostId===w.id&&o.side===c.side)
+  .flatMap(o=>[o.startT,o.endT])].sort((a,b)=>Math.abs(a-t)-Math.abs(b-t))[0];
+ if(Math.abs(boundary-t)*lengthOf(w)<.15)t=boundary;
+ if(start)c.startT=t;else c.endT=t;
  if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
  validateCabinets(items,w);return {items,selectedId:id};
+}
+
+/* Real parametric rectangular cutouts: available both to the 3D slab mesher
+   and the fabrication/plan view; sizes are snapped to 1 cm. */
+export function countertopCutouts(items,c){
+ if(c?.kind!=='cabinet'||c.subtype!=='base')return [];
+ const len=lengthOf(c);
+ return items.filter(e=>e.kind==='equipment'&&['sink','stove'].includes(e.subtype)&&e.hostId===c.id)
+  .map(e=>{
+   const width=Math.round(Math.min(e.width-.05,len-.04)*100)/100;
+   const depth=Math.round(Math.min(e.depth-.045,c.depth-.05)*100)/100;
+   const middle=((e.offsetT??.5)-.5)*len;
+   return {id:e.id,type:e.subtype,model:e.model,x:middle,z:0,width,depth,
+    left:Math.round((middle+len/2-width/2)*100)/100,
+    right:Math.round((len/2-middle-width/2)*100)/100,
+    cutDepth:e.subtype==='sink'?.24:.085};
+  });
+}
+/* A cupboard above a refrigerator has its own facade and depth choice. */
+export function addOverFridgeCabinet(source,fridgeId,{depth=.60}={}){
+ const items=copy(source),e=byId(items,fridgeId);
+ if(e?.subtype!=='fridge')throw Error('ابتدا یخچال را انتخاب کن.');
+ const existing=items.find(c=>c.kind==='cabinet'&&c.overFridgeId===fridgeId);
+ if(existing){existing.depth=Number(depth);validateCabinets(items,byId(items,existing.hostId));
+  return {items,selectedId:existing.id};}
+ const host=byId(items,e.surround?.wallId)||nearestWall(items,e.x,e.z,1)?.wall;
+ if(!wall(host))throw Error('یخچال باید نزدیک دیوار باشد تا کابینت بالای آن نصب شود.');
+ const len=lengthOf(host),pos=projectOnWall(host,e.x,e.z),width=Math.max(MIN_CABINET_LENGTH,e.width+.10);
+ const a=pos.t-width/(2*len),b=pos.t+width/(2*len),elevation=e.height+.035;
+ const height=Math.min(.50,host.height-elevation-.04);
+ if(a<0||b>1||height<.25)throw Error('بالای یخچال فضای کافی روی این دیوار نیست.');
+ const cross=(e.x-host.x1)*(host.z2-host.z1)-(e.z-host.z1)*(host.x2-host.x1);
+ const side=e.surround?.side??(cross>0?-1:1);
+ const c={id:uid(),kind:'cabinet',subtype:'over-fridge',name:'کابینت بالای یخچال',
+  hostId:host.id,overFridgeId:fridgeId,side,startT:a,endT:b,depth:Number(depth),
+  height,elevation,cornerGroup:null};
+ items.push(c);validateCabinets(items,host);reflowFronts(items,c,'doors');
+ return {items,selectedId:c.id};
+}
+/* Link the countertop to the wall unit with a selectable open vertical shelf.
+   The column fills only the free height between the two installed runs. */
+export function addVerticalBridge(source,upperId,{edge='end',depthMode='base',width=.45}={}){
+ const items=copy(source),upper=byId(items,upperId);
+ if(upper?.kind!=='cabinet'||upper.subtype!=='upper')throw Error('کابینت هوایی را انتخاب کن.');
+ const owner=byId(items,upper.hostId),len=lengthOf(owner);
+ const anchor=edge==='start'?upper.startT:upper.endT,span=Number(width)/len;
+ const a=edge==='start'?anchor:anchor-span,b=edge==='start'?anchor+span:anchor;
+ if(a<0||b>1||Number(width)<MIN_CABINET_LENGTH)throw Error('برای قفسه عمودی حداقل ۴۵ سانتی‌متر فضا لازم است.');
+ const base=items.find(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===upper.hostId&&
+  c.side===upper.side&&c.startT<=a+.01&&c.endT>=b-.01);
+ if(!base)throw Error('زیر این لبه باید کابینت زمینی هم‌راستا نصب شده باشد.');
+ const elevation=base.elevation+base.height+.04,height=upper.elevation-elevation-.04;
+ if(height<.25)throw Error('بین کابینت زمینی و هوایی ارتفاع کافی برای قفسه نیست.');
+ const c={id:uid(),kind:'cabinet',subtype:'bridge',name:'قفسه رابط عمودی',
+  hostId:owner.id,side:upper.side,startT:a,endT:b,
+  depth:depthMode==='upper'?upper.depth:base.depth,elevation,height,
+  bridgeMode:depthMode,cornerGroup:null};
+ items.push(c);validateCabinets(items,owner);
+ return {items,selectedId:c.id};
+}
+export function applyAllUpperHeights(source,{height,elevation}={}){
+ const items=copy(source),uppers=items.filter(c=>c.kind==='cabinet'&&c.subtype==='upper');
+ if(!uppers.length)throw Error('کابینت هوایی وجود ندارد.');
+ for(const c of uppers){if(height!==undefined)c.height=Number(height);
+  if(elevation!==undefined)c.elevation=Number(elevation);
+  if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
+ }
+ // Refit previously installed vertical shelving to the new lower edge.
+ for(const bridge of items.filter(c=>c.kind==='cabinet'&&c.subtype==='bridge')){
+  const matching=uppers.find(c=>c.hostId===bridge.hostId&&c.side===bridge.side&&
+   c.startT<=bridge.startT+.01&&c.endT>=bridge.endT-.01);
+  if(!matching)continue;
+  const base=items.find(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===bridge.hostId&&
+   c.side===bridge.side&&c.startT<=bridge.startT+.01&&c.endT>=bridge.endT-.01);
+  if(!base)continue;
+  bridge.elevation=base.elevation+base.height+.04;
+  bridge.height=matching.elevation-bridge.elevation-.04;
+  if(bridge.height<.25)throw Error('ارتفاع جدید برای قفسه رابط کافی نیست.');
+ }
+ for(const id of new Set(uppers.map(c=>c.hostId)))validateCabinets(items,byId(items,id));
+ return {items,selectedId:uppers[0].id};
 }

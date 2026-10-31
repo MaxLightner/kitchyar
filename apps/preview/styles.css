@@ -318,3 +318,19 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .preview-elevation-flag{font:700 15px Tahoma,Arial,sans-serif;color:#866237;background:#fff1d8;border-radius:8px;padding:5px 9px;margin-bottom:6px}
 
 .front-elevation-scroll{direction:ltr}
+
+/* Smart kitchen planning, panel controls and real cut-sheet drawings. */
+.object-editor{max-height:calc(100svh - 345px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.object-extras{border-top:1px solid #d9d1c6;padding:10px 0;display:grid;gap:8px;font-size:15px}
+.object-extras p{margin:2px 0;color:#566157;line-height:1.5}
+.object-extras button,.cut-sheet-button{padding:10px;min-height:42px;font-size:15px}
+.cut-sheet-button{width:100%;margin:7px 0 12px;background:#eaf2eb;border-color:#b9ccbc}
+.cut-dialog{width:min(820px,100%);max-height:88svh;overflow-y:auto}
+.cut-sheet-svg{display:block;width:100%;height:auto;background:#f8f6ef;border:1px solid #d9d6cd;border-radius:8px}
+.cut-details{padding-inline-start:24px;font-size:15px;line-height:1.9}
+.dialog-actions{display:flex;gap:8px;flex-wrap:wrap}
+.dialog-actions button{flex:1 1 125px;min-width:0}
+@media(max-width:730px){
+ .object-editor{top:150px;max-height:calc(100svh - 310px)}
+ .dialog{padding:16px}
+}

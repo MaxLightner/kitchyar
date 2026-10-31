@@ -3,8 +3,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose} from './geometry.js?v=render23';
-import {neighborGaps} from './edit-handles.js?v=render23';
+import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=render24';
+import {neighborGaps} from './edit-handles.js?v=render24';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -640,7 +640,12 @@ export class FloorAR {
    return snapCabinetPoint(this.items,point.x,point.z,.85)||point;
   return point;
  }
- setItems(items,selectedId=null){this.items=structuredClone(items||[]);this.selectedId=selectedId;this.rebuildObjects();}
+ setItems(items,selectedId=null){
+  const signature=JSON.stringify(items||[]);
+  if(signature===this.itemsSignature&&selectedId===this.selectedId)return;
+  this.itemsSignature=signature;this.items=structuredClone(items||[]);
+  this.selectedId=selectedId;this.previewVersion=(this.previewVersion||0)+1;this.rebuildObjects();
+ }
  setLighting(options={}){
   const before=this.renderSettings||{},next={...before,...options};
   const changed=next.aoStrength!==before.aoStrength||next.reflection!==before.reflection||
@@ -661,10 +666,16 @@ export class FloorAR {
  updatePreview(){
   if(!this.previewGroup)return;
   const group=this.previewGroup;
-  while(group.children.length){const c=group.children[0];group.remove(c);c.geometry?.dispose();c.material?.dispose();}
-  if(!this.drawing){group.visible=false;return;}
+  if(!this.drawing){group.visible=false;this.frontPreviewKey=null;return;}
   const p=this.pick();if(!p){group.visible=false;return;}
   const kind=this.drawing.kind,a=this.drawing.start;
+  if(kind.startsWith('front-')){
+   const c=this.items.find(o=>o.id===this.drawing.hostId&&o.kind==='cabinet')||nearestCabinet(this.items,p)?.cabinet;
+   const key=kind+':'+(kind==='front-smart'?'all':c?.id)+':'+this.previewVersion;
+   if(key===this.frontPreviewKey){group.visible=true;return;}
+   this.frontPreviewKey=key;
+  }else this.frontPreviewKey=null;
+  while(group.children.length){const c=group.children[0];group.remove(c);c.geometry?.dispose();c.material?.dispose();}
   let from=a||p,to=p,width,level=0,height,colour;
   if((kind==='base'||kind==='upper')&&a){
    const snapped=snapCabinetPoint(this.items,p.x,p.z,.85);
@@ -697,10 +708,12 @@ export class FloorAR {
   if(kind.startsWith('front-')){
    const host=this.items.find(c=>c.id===this.drawing.hostId&&c.kind==='cabinet')||
     nearestCabinet(this.items,p)?.cabinet;
-   if(!host){group.visible=false;return;}
-   let panels=[];try{panels=planFronts(this.items,host,kind.slice(6));}catch{group.visible=false;return;}
+   if(!host&&kind!=='front-smart'){group.visible=false;return;}
+   let panels=[];try{panels=kind==='front-smart'?planSmartKitchen(this.items).items.filter(o=>o.kind==='front'):
+    planFronts(this.items,host,kind.slice(6));}catch{group.visible=false;return;}
    for(const panel of panels){
-    const pose=frontPose(panel,host);if(!pose)continue;
+    const owner=kind==='front-smart'?this.items.find(o=>o.id===panel.hostId):host;
+    const pose=frontPose(panel,owner);if(!pose)continue;
     const mesh=new THREE.Mesh(new THREE.BoxGeometry(pose.width,pose.height,.028),
      new THREE.MeshPhysicalMaterial({color:panel.subtype==='drawer'?0xe6bc7b:0x6dcbaa,
       opacity:.58,transparent:true,depthWrite:false,roughness:.34,side:THREE.DoubleSide}));
@@ -853,18 +866,59 @@ export class FloorAR {
   for(const c of this.items.filter(x=>x.kind==='cabinet')){
    const len=Math.hypot(c.x2-c.x1,c.z2-c.z1);if(len<.3)continue;
    const angle=Math.atan2(c.z2-c.z1,c.x2-c.x1),y0=c.elevation??.1;
-   box(c,0,len,y0,y0+c.height,c.depth,angle,(c.x1+c.x2)/2,(c.z1+c.z2)/2,
-    c.id===this.selectedId?cabinetSelected:c.subtype==='upper'?upper:base);
+   const cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2,ux=Math.cos(angle),uz=Math.sin(angle),nx=-uz,nz=ux;
+   const fill=c.id===this.selectedId?cabinetSelected:['upper','over-fridge'].includes(c.subtype)?upper:base;
+   // Subtract axis-aligned sink/hob holes from each depth layer of the carcass.
+   const cuts=countertopCutouts(this.items,c);
+   const subtract=(area,holes)=>{
+    let rects=[area];
+    for(const h of holes){const next=[];
+     for(const r of rects){
+      const x1=Math.max(r.x1,h.x-h.width/2),x2=Math.min(r.x2,h.x+h.width/2);
+      const z1=Math.max(r.z1,h.z-h.depth/2),z2=Math.min(r.z2,h.z+h.depth/2);
+      if(x2<=x1||z2<=z1){next.push(r);continue;}
+      if(x1-r.x1>.001)next.push({x1:r.x1,x2:x1,z1:r.z1,z2:r.z2});
+      if(r.x2-x2>.001)next.push({x1:x2,x2:r.x2,z1:r.z1,z2:r.z2});
+      if(z1-r.z1>.001)next.push({x1,x2,z1:r.z1,z2:z1});
+      if(r.z2-z2>.001)next.push({x1,x2,z1:z2,z2:r.z2});
+     }
+     rects=next;
+    }
+    return rects;
+   };
+   const slices=(fromY,toY,holes,mat,margin=0)=>{
+    const area={x1:-len/2-margin,x2:len/2+margin,z1:-c.depth/2-margin,z2:c.depth/2+margin};
+    for(const r of subtract(area,holes)){
+     const x=(r.x1+r.x2)/2,z=(r.z1+r.z2)/2;
+     box(c,0,r.x2-r.x1,fromY,toY,r.z2-r.z1,angle,cx+ux*x+nx*z,cz+uz*x+nz*z,mat);
+    }
+   };
+   if(c.subtype==='bridge'){
+    // Open shelving: no opaque filler between worktop and upper cabinet.
+    const edge=.025;
+    for(const x of [-len/2+edge/2,len/2-edge/2]){
+     box(c,0,edge,y0,y0+c.height,c.depth,angle,cx+ux*x,cz+uz*x,fill);
+    }
+    for(const t of [.01,.32,.65,.98]){
+     box(c,0,len,y0+c.height*t,y0+c.height*t+.025,c.depth,angle,cx,cz,fill);
+    }
+   }else if(cuts.length){
+    const depths=[0,...new Set(cuts.map(h=>h.cutDepth).sort((a,b)=>a-b))],deepest=depths.at(-1);
+    box(c,0,len,y0,y0+c.height-deepest,c.depth,angle,cx,cz,fill);
+    for(let k=0;k<depths.length-1;k++){
+     const top=depths[k],bottom=depths[k+1];
+     slices(y0+c.height-bottom,y0+c.height-top,cuts.filter(h=>h.cutDepth>top+.001),fill);
+    }
+   }else box(c,0,len,y0,y0+c.height,c.depth,angle,cx,cz,fill);
    if(c.subtype==='base'){
     // At first placement, every base envelope has a stone worktop and recessed plinth.
     const ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len,side=c.side||1;
     const nx=-uz*side,nz=ux*side,cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2;
-    const top=new THREE.Mesh(new THREE.BoxGeometry(len+.035,.035,c.depth+.04),
-     new THREE.MeshPhysicalMaterial({color:0xf1eae0,roughness:.27,metalness:.04,
-      clearcoat:.18,envMap:this.reflectionRT?.texture,envMapIntensity:.10}));
-    top.position.set(cx,y0+c.height+.0175,cz);top.rotation.y=-angle;
-    top.castShadow=true;top.receiveShadow=true;top.userData.objectId=c.id;top.userData.cabinet=true;
-    this.objectGroup.add(top);
+    const stone=new THREE.MeshPhysicalMaterial({color:0xf1eae0,roughness:.27,metalness:.04,
+     clearcoat:.18,envMap:this.reflectionRT?.texture,envMapIntensity:.10});
+    // Mesh each remaining stone rectangle; no top faces exist over cutouts.
+    slices(y0+c.height,y0+c.height+.035,cuts,stone,.0175);
+    stone.dispose();
     const toe=new THREE.Mesh(new THREE.BoxGeometry(len,.085,.09),
      material(0x776d62,{metalness:.03,roughness:.68}));
     toe.position.set(cx+nx*(c.depth/2-.064),Math.max(.042,y0-.035),cz+nz*(c.depth/2-.064));
@@ -894,21 +948,24 @@ export class FloorAR {
    }
    if(panel.handleStyle!=='hidden'){
     const metal=material(0x8c9493,{metalness:.64,roughness:.25});
-    const isDrawer=panel.subtype==='drawer';
+    const isDrawer=panel.subtype==='drawer',horizontal=panel.hinge==='top';
     const handle=new THREE.Mesh(new THREE.CylinderGeometry(.009,.009,
-     isDrawer?Math.min(.28,pose.width*.48):Math.min(.24,pose.height*.53),10),metal);
-    if(isDrawer)handle.rotation.z=Math.PI/2;
-    handle.position.set(isDrawer?0:panel.hinge==='left'?pose.width/2-.055:-pose.width/2+.055,
-     isDrawer?pose.height*.19:0,visibleZ+.015*(pose.side||1));
+     isDrawer||horizontal?Math.min(.28,pose.width*.48):Math.min(.24,pose.height*.53),10),metal);
+    if(isDrawer||horizontal)handle.rotation.z=Math.PI/2;
+    handle.position.set(isDrawer||horizontal?0:panel.hinge==='left'?pose.width/2-.055:-pose.width/2+.055,
+     horizontal?-pose.height/2+.055:isDrawer?pose.height*.19:0,visibleZ+.015*(pose.side||1));
     handle.userData.objectId=panel.id;handle.castShadow=true;root.add(handle);
    }
   }
   if(this.renderSettings.taskLighting){
-   for(const c of this.items.filter(x=>x.kind==='cabinet'&&x.subtype==='upper').slice(0,6)){
+   const lightRuns=this.items.filter(x=>x.kind==='cabinet'&&x.subtype==='upper');
+   for(const c of lightRuns){
     const x=(c.x1+c.x2)/2,z=(c.z1+c.z2)/2;
-    const lamp=new THREE.PointLight(0xffebc5,this.renderSettings.taskIntensity??1.8,3,2);
-    lamp.position.set(x,Math.max(.3,c.elevation-.07),z);lamp.castShadow=false;
-    this.objectGroup.add(lamp);
+    if(lightRuns.indexOf(c)<4){
+     const lamp=new THREE.PointLight(0xffebc5,this.renderSettings.taskIntensity??1.8,3,2);
+     lamp.position.set(x,Math.max(.3,c.elevation-.07),z);lamp.castShadow=false;
+     this.objectGroup.add(lamp);
+    }
     const line=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.2,Math.hypot(c.x2-c.x1,c.z2-c.z1)*.85),.012,.025),
      new THREE.MeshBasicMaterial({color:0xffecc8,transparent:true,opacity:.94}));
     line.position.set(x,c.elevation-.017,z);line.rotation.y=-Math.atan2(c.z2-c.z1,c.x2-c.x1);
@@ -1039,17 +1096,28 @@ export class FloorAR {
     Computed only when geometry or AO strength changes, never per XR frame. */
  applyRaycastAO(){
   if(!this.objectGroup)return;
-  this.floorGroup?.updateWorldMatrix(true,true);
-  const meshes=[];
-  this.objectGroup.traverse(n=>{if(n.isMesh&&n.geometry?.attributes?.normal)meshes.push(n);});
-  const cast=meshes.filter(m=>!m.material.transparent),ray=new THREE.Raycaster();
-  const up=new THREE.Vector3(),normal=new THREE.Vector3(),tangent=new THREE.Vector3(),bitangent=new THREE.Vector3();
-  const axes=[[0,0],[.74,0],[-.74,0],[0,.74],[0,-.74],[.48,.48],[-.48,-.48]];
   const strength=THREE.MathUtils.clamp(this.renderSettings?.aoStrength??.65,0,1);
-  for(const mesh of cast){
-   const geo=mesh.geometry,position=geo.getAttribute('position'),normals=geo.getAttribute('normal');
+  if(strength<.025)return;
+  this.objectGroup.updateWorldMatrix(true,true);
+  // Spatial pruning keeps occlusion linear in local neighbors instead of
+  // raycasting every handle and every vertex against the entire kitchen.
+  const cast=[];
+  this.objectGroup.traverse(n=>{
+   if(!n.isMesh||!n.geometry?.attributes?.normal||n.material?.transparent)return;
+   n.geometry.computeBoundingSphere();
+   const center=n.geometry.boundingSphere.center.clone().applyMatrix4(n.matrixWorld);
+   const radius=n.geometry.boundingSphere.radius*n.getWorldScale(new THREE.Vector3()).length()/Math.sqrt(3);
+   cast.push({mesh:n,center,radius});
+  });
+  const ray=new THREE.Raycaster(),normal=new THREE.Vector3(),tangent=new THREE.Vector3(),bitangent=new THREE.Vector3();
+  const axes=[[0,0],[.68,0],[-.68,0],[0,.68],[0,-.68]];
+  for(const subject of cast){
+   const mesh=subject.mesh,geo=mesh.geometry,position=geo.getAttribute('position'),normals=geo.getAttribute('normal');
+   if(position.count>1200)continue; // Never bake AO on detailed imported equipment.
+   const nearby=cast.filter(q=>q!==subject&&q.center.distanceTo(subject.center)<q.radius+subject.radius+.78)
+    .map(q=>q.mesh);
+   if(!nearby.length)continue;
    const colours=[];
-   const nearby=cast.filter(other=>other!==mesh);
    for(let i=0;i<position.count;i++){
     const world=new THREE.Vector3().fromBufferAttribute(position,i).applyMatrix4(mesh.matrixWorld);
     normal.fromBufferAttribute(normals,i).transformDirection(mesh.matrixWorld).normalize();

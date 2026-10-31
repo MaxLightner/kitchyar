@@ -89,7 +89,9 @@ test('facade editor offers preview, selectable doors and centimetre grips in bot
 });
 test('base kitchen envelope has countertop and recessed plinth from initial placement',()=>{
  const floor=read('floor-ar.js'),plan=read('plan-view.js');
- assert.match(floor,/new THREE\.BoxGeometry\(len\+\.035,\.035,c\.depth\+\.04\)/);
+ assert.match(floor,/countertopCutouts\(this\.items,c\)/);
+ assert.match(floor,/slices\(y0\+c\.height,y0\+c\.height\+\.035,cuts,stone/);
+ assert.match(plan,/countertop-cutout/);
  assert.match(floor,/const toe=new THREE\.Mesh/);
  assert.match(plan,/countertop-plan/);
 });

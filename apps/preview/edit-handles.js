@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=render23';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=render24';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -202,14 +202,15 @@ export function renderFrontElevation(items,cabinet,selectedId=null,drag=null){
  for(const o of panels){
   const x=sx(o.startT)+1,y=sy(o.topT)+1,w=(o.endT-o.startT)*len*scale-2,h=(o.topT-o.bottomT)*cabinet.height*scale-2,
    selected=o.id===selectedId,color=colors[o.finish]||colors.cream;
-  const knobX=o.subtype==='drawer'?x+w/2:o.hinge==='left'?x+w-13:x+13;
+  const horizontal=o.hinge==='top';
+  const knobX=o.subtype==='drawer'||horizontal?x+w/2:o.hinge==='left'?x+w-13:x+13;
   graphic+='<g class="front-panel-elevation" data-item-id="'+esc(o.id)+'" tabindex="0" role="button" aria-label="'+(o.subtype==='drawer'?'کشو':'درب')+' '+n((o.endT-o.startT)*len)+' متر">'+
    '<rect x="'+n(x)+'" y="'+n(y)+'" width="'+n(w)+'" height="'+n(h)+'" rx="1.4" fill="'+color+'" stroke="'+(selected?'#168b6a':'#7e7b73')+'" stroke-width="'+(selected?'2.6':'.9')+'"/>'+
    (o.style==='frame'?'<rect x="'+n(x+5)+'" y="'+n(y+5)+'" width="'+n(Math.max(1,w-10))+'" height="'+n(Math.max(1,h-10))+'" rx="1" fill="none" stroke="#847e72" stroke-width="1.2"/>':'')+
    (o.handleStyle==='hidden'?'':o.handleStyle==='knob'?
-    '<circle cx="'+n(knobX)+'" cy="'+n(y+h*.52)+'" r="3.5" fill="#777b7a"/>':
-    '<rect x="'+n(knobX-(o.subtype==='drawer'?Math.min(18,w*.24):2))+'" y="'+n(y+(o.subtype==='drawer'?Math.min(13,h*.22):h*.30))+
-    '" width="'+n(o.subtype==='drawer'?Math.min(36,w*.48):4)+'" height="'+n(o.subtype==='drawer'?4:Math.min(29,h*.40))+'" rx="2" fill="#737e7e"/>')+
+    '<circle cx="'+n(knobX)+'" cy="'+n(horizontal?y+h-11:y+h*.52)+'" r="3.5" fill="#777b7a"/>':
+    '<rect x="'+n(knobX-(o.subtype==='drawer'||horizontal?Math.min(18,w*.24):2))+'" y="'+n(y+(horizontal?h-10:o.subtype==='drawer'?Math.min(13,h*.22):h*.30))+
+    '" width="'+n(o.subtype==='drawer'||horizontal?Math.min(36,w*.48):4)+'" height="'+n(o.subtype==='drawer'||horizontal?4:Math.min(29,h*.40))+'" rx="2" fill="#737e7e"/>')+
    '<title>'+esc(o.name)+' · '+n((o.endT-o.startT)*len)+' × '+n((o.topT-o.bottomT)*cabinet.height)+' متر</title></g>';
   graphic+=handle(o,'right',x+w,y+h/2,'#36bd92')+handle(o,'top',x+w/2,y,'#e5a955');
   if(w>43&&h>42)graphic+='<text x="'+n(x+w/2)+'" y="'+n(y+h-9)+'" text-anchor="middle" class="front-elevation-dimension" pointer-events="none">'+n((o.endT-o.startT)*len)+'m</text>';

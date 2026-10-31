@@ -1,5 +1,5 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose} from './geometry.js?v=render23';
-import {renderPlanMeasurements} from './edit-handles.js?v=render23';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=render24';
+import {renderPlanMeasurements} from './edit-handles.js?v=render24';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true}={}){
@@ -41,6 +41,14 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    if(c.subtype==='base'){
     out+='<polygon class="countertop-plan" data-item-id="'+safe(c.id)+'" points="'+fp.corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
      '" fill="#eae0ce" fill-opacity=".84" stroke="#c5af8b" stroke-width=".035"/>';
+    for(const cut of countertopCutouts(items,c)){
+     const len=lengthOf(c),ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len;
+     const nx=-uz,nz=ux;
+     const pts=[[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sz])=>({
+      x:(c.x1+c.x2)/2+ux*(cut.x+sx*cut.width/2)+nx*sz*cut.depth/2,
+      z:(c.z1+c.z2)/2+uz*(cut.x+sx*cut.width/2)+nz*sz*cut.depth/2}));
+     out+='<polygon class="countertop-cutout" data-item-id="'+safe(cut.id)+'" points="'+pts.map(q=>f(q.x)+','+f(q.z)).join(' ')+'" fill="#444f50" fill-opacity=".94" stroke="#d8ece6" stroke-width=".025"/>';
+    }
     out+='<line x1="'+f(fp.corners[2].x)+'" y1="'+f(fp.corners[2].z)+'" x2="'+f(fp.corners[3].x)+'" y2="'+f(fp.corners[3].z)+'" stroke="#806e55" stroke-width=".055" opacity=".66" pointer-events="none"/>';
    }
   }else out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
@@ -158,10 +166,11 @@ export function renderPreview(items,drawing,hover){
  const wallMode=tool==='wall',openingMode=tool==='window'||tool==='door';
  if(tool?.startsWith('front-')){
   const c=items.find(o=>o.id===drawing.hostId&&o.kind==='cabinet')||nearestCabinet(items,hover)?.cabinet;
-  if(!c)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".10" fill="#c75e55"/></g>';
-  let proposed=[];try{proposed=planFronts(items,c,tool.slice(6));}catch{return '';}
+  if(!c&&tool!=='front-smart')return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".10" fill="#c75e55"/></g>';
+  let proposed=[];try{proposed=tool==='front-smart'?planSmartKitchen(items).items.filter(o=>o.kind==='front'):planFronts(items,c,tool.slice(6));}catch{return '';}
   const lines=proposed.map(o=>{
-   const p=frontPose(o,c),ux=Math.cos(p.angle),uz=Math.sin(p.angle),nx=-uz*p.side,nz=ux*p.side;
+   const host=tool==='front-smart'?items.find(q=>q.id===o.hostId):c;
+   const p=frontPose(o,host),ux=Math.cos(p.angle),uz=Math.sin(p.angle),nx=-uz*p.side,nz=ux*p.side;
    const half=p.width/2,depth=.055,points=[
     [p.x-ux*half-nx*depth/2,p.z-uz*half-nz*depth/2],
     [p.x+ux*half-nx*depth/2,p.z+uz*half-nz*depth/2],

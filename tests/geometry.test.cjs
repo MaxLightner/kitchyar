@@ -541,3 +541,102 @@ test('cabinet upper front accepts doors but does not accept drawers',async()=>{
  assert.ok(G.placeFrontLayout(items,c.id,'doors').items.some(o=>o.kind==='front'));
  assert.throws(()=>G.placeFrontLayout(items,c.id,'drawers3'),/زمینی/);
 });
+
+test('smart kitchen plans two sink doors, graduated hob drawers and overhead lift-up',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:4.9,z:0}).items;
+ const base=items.find(o=>o.subtype==='base');
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:4.9,z:0},{kind:'upper'}).items;
+ const upper=items.find(o=>o.subtype==='upper');
+ items=G.placeEquipment(items,{x:1.23,z:.35},'sink').items;
+ items=G.placeEquipment(items,{x:3.5,z:.35},'stove').items;
+ const result=G.planSmartKitchen(items),fronts=result.items.filter(o=>o.kind==='front');
+ const sink=result.items.find(e=>e.subtype==='sink'),stove=result.items.find(e=>e.subtype==='stove');
+ const belowSink=fronts.filter(f=>f.hostId===base.id&&f.startT<=sink.offsetT&&f.endT>=sink.offsetT);
+ assert.equal(belowSink.length,2,'sink requires two swing leaves');
+ assert.ok(belowSink.every(f=>f.subtype==='door'));
+ const belowHob=fronts.filter(f=>f.hostId===base.id&&f.startT<=stove.offsetT&&f.endT>=stove.offsetT);
+ assert.equal(belowHob.length,3);
+ assert.ok(belowHob.every(f=>f.subtype==='drawer'));
+ const heights=belowHob.map(f=>f.topT-f.bottomT);
+ assert.ok(heights[0]>heights[1]&&heights[1]>heights[2],'bottom drawer deepest');
+ assert.ok(fronts.some(f=>f.hostId===upper.id&&f.hinge==='top'),'over-sink unit lifts horizontally');
+ assert.ok(Math.abs(sink.x-1.23)<=.0251,'smart modular alignment moves equipment only slightly');
+ assert.ok(items.every(o=>o.kind!=='front'),'preview/planner leaves source untouched');
+});
+test('facade presets include two/three/four equal drawers and inverted drawer-plus-doors',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:1,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:.9,z:0}).items;
+ const c=items.find(o=>o.kind==='cabinet');
+ for(const [preset,rows] of [['drawers2',2],['drawers3',3],['drawers4',4]]){
+  const fronts=G.planFronts(items,c,preset);
+  assert.equal(fronts.length,rows);
+  assert.ok(fronts.every(f=>f.subtype==='drawer'&&Math.abs((f.topT-f.bottomT)-1/rows)<1e-6));
+ }
+ const grad=G.planFronts(items,c,'graduated');
+ assert.ok(grad[0].topT-grad[0].bottomT>grad[1].topT-grad[1].bottomT);
+ const low=G.planFronts(items,c,'mixedLower');
+ assert.equal(low[0].subtype,'door');assert.equal(low.at(-1).subtype,'drawer');
+ assert.equal(low.at(-1).bottomT,0);
+ const top=G.planFronts(items,c,'mixed');
+ assert.equal(top.at(-1).topT,1);
+});
+test('sink and hob make actual centimetre-defined worktop cutouts',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:4.9,z:0}).items;
+ const c=items.find(o=>o.kind==='cabinet');
+ items=G.placeEquipment(items,{x:1.1,z:.35},'sink').items;
+ items=G.placeEquipment(items,{x:3.5,z:.35},'stove').items;
+ const cuts=G.countertopCutouts(items,c);
+ assert.equal(cuts.length,2);
+ for(const h of cuts){
+  assert.ok(h.width>0&&h.depth>0&&h.cutDepth>0);
+  assert.ok(Math.abs(Math.round(h.width*100)-h.width*100)<1e-8);
+  assert.ok(h.left>=0&&h.right>=0);
+ }
+ assert.equal(G.countertopCutouts(items,{...c,subtype:'upper'}).length,0);
+});
+test('refrigerator gets an overhead cupboard that can adopt its own depth',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:4.9,z:0}).items;
+ items=G.placeEquipment(items,{x:2,z:.4},'fridge').items;
+ const fridge=items.find(o=>o.subtype==='fridge');
+ const overhead=items.find(o=>o.subtype==='over-fridge');
+ assert.ok(overhead,'overhead cabinet automatically added when wall has room');
+ assert.equal(overhead.depth,.60);
+ assert.ok(items.some(f=>f.kind==='front'&&f.hostId===overhead.id));
+ const changed=G.addOverFridgeCabinet(items,fridge.id,{depth:fridge.depth});
+ assert.equal(changed.items.find(o=>o.id===overhead.id).depth,fridge.depth);
+ assert.equal(changed.items.filter(o=>o.subtype==='over-fridge').length,1);
+});
+test('vertical shelf bridges base/upper and tracks bulk upper height changes',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:4.9,z:0}).items;
+ const base=items.find(o=>o.subtype==='base');
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:4.9,z:0},{kind:'upper'}).items;
+ const upper=items.find(o=>o.subtype==='upper');
+ items=G.addVerticalBridge(items,upper.id,{edge:'end',depthMode:'base'}).items;
+ const bridge=items.find(o=>o.subtype==='bridge');
+ assert.ok(bridge);
+ assert.equal(bridge.depth,base.depth);
+ const modified=G.applyAllUpperHeights(items,{elevation:1.70,height:.60}).items;
+ assert.equal(modified.find(o=>o.id===upper.id).elevation,1.70);
+ assert.ok(modified.find(o=>o.id===bridge.id).height>bridge.height);
+});
+test('cabinet pointer snaps to neighboring cabinet edges without gaps',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:1.5,z:0}).items;
+ const first=items.find(o=>o.kind==='cabinet');
+ items=G.placeCabinet(items,{x:1.6,z:0,side:1},{x:3,z:0}).items;
+ const second=items.find(o=>o.kind==='cabinet'&&o.id!==first.id);
+ const snapped=G.snapCabinetPoint(items,1.56,0,.8);
+ assert.ok(Math.abs(snapped.x-1.6)<1e-6&&snapped.edgeSnap);
+ const moved=G.moveCabinetEndpoint(items,first.id,false,1.56,0).items;
+ assert.ok(Math.abs(moved.find(o=>o.id===first.id).endT-second.startT)<1e-6);
+});
