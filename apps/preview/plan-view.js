@@ -1,5 +1,5 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition} from './geometry.js?v=render11';
-import {renderPlanMeasurements} from './edit-handles.js?v=render11';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render14';
+import {renderPlanMeasurements} from './edit-handles.js?v=render14';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null}={}){
@@ -41,8 +41,20 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    '" fill="'+(e.subtype==='fridge'?'#cbd2d3':e.subtype==='stove'?'#45484a':'#9bc7c6')+
    '" stroke="'+(e.id===selectedId?'#329e7f':'#5c7373')+'" stroke-width=".028"/>';
   if(e.subtype==='stove'){
-   for(const offset of [-.15,.15])for(const dz of [-.12,.12])out+='<circle cx="'+f(e.x+offset)+'" cy="'+f(e.z+dz)+'" r=".075" stroke="#dbe3df" fill="none" stroke-width=".018"/>';
-  }else if(e.subtype==='sink')out+='<rect x="'+f(e.x-e.width*.36)+'" y="'+f(e.z-e.depth*.32)+'" width="'+f(e.width*.72)+'" height="'+f(e.depth*.64)+'" rx=".055" fill="#4d8585" stroke="#e3f4f0" stroke-width=".03"/>';
+   const burner=e.model==='induction'?'#85c5bf':'#dbe3df';
+   for(const offset of [-.15,.15])for(const dz of [-.12,.12])out+='<circle cx="'+f(e.x+offset)+'" cy="'+f(e.z+dz)+'" r=".075" stroke="'+burner+'" fill="none" stroke-width=".018"/>';
+   if(e.model==='gas5')out+='<circle cx="'+f(e.x)+'" cy="'+f(e.z)+'" r=".09" stroke="'+burner+'" fill="none" stroke-width=".018"/>';
+  }else if(e.subtype==='sink'){
+   const double=e.model==='double',left=e.x-e.width*.36,top=e.z-e.depth*.32;
+   if(double)for(const i of [0,1])out+='<rect x="'+f(left+i*e.width*.36)+'" y="'+f(top)+'" width="'+f(e.width*.34)+'" height="'+f(e.depth*.64)+'" rx=".04" fill="#4d8585" stroke="#e3f4f0" stroke-width=".022"/>';
+   else{
+    out+='<rect x="'+f(left)+'" y="'+f(top)+'" width="'+f(e.width*(e.model==='drainer'?.48:.72))+'" height="'+f(e.depth*.64)+'" rx=".055" fill="#4d8585" stroke="#e3f4f0" stroke-width=".03"/>';
+    if(e.model==='drainer')for(const i of [0,1,2])out+='<line x1="'+f(e.x+e.width*(.19+i*.065))+'" x2="'+f(e.x+e.width*(.19+i*.065))+'" y1="'+f(top)+'" y2="'+f(top+e.depth*.64)+'" stroke="#e3f4f0" stroke-width=".018"/>';
+   }
+  }else if(e.subtype==='fridge'){
+   if(e.model==='side')out+='<line x1="'+f(e.x)+'" x2="'+f(e.x)+'" y1="'+f(e.z-e.depth*.47)+'" y2="'+f(e.z+e.depth*.47)+'" stroke="#637a7c" stroke-width=".03"/>';
+   if(e.model==='combination')out+='<line x1="'+f(e.x-e.width*.47)+'" x2="'+f(e.x+e.width*.47)+'" y1="'+f(e.z+e.depth*.1)+'" y2="'+f(e.z+e.depth*.1)+'" stroke="#637a7c" stroke-width=".03"/>';
+  }
   out+='</g>';
  }
  if(!mini)for(const o of items.filter(x=>x.kind==='opening')){
@@ -91,7 +103,9 @@ export function renderPreview(items,drawing,hover){
  const tool=drawing.tool,start=drawing.start;
  const wallMode=tool==='wall',openingMode=tool==='window'||tool==='door';
  if(['fridge','stove','sink'].includes(tool)){
-  const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0;
+  const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0,valid=true;
+  try{placeEquipment(items,hover,tool);}catch{valid=false;}
+  if(tool==='fridge'){const snap=snapFridgePoint(items,hover,spec.width,spec.depth);if(snap){p=snap;angle=snap.rotation;}}
   if(tool!=='fridge'){
    const ranked=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base').map(c=>{
     const len=lengthOf(c),q=projectOnWall(c,hover.x,hover.z);
@@ -99,10 +113,34 @@ export function renderPreview(items,drawing,hover){
    }).sort((a,b)=>a.dist-b.dist);
    const near=ranked[0];
    if(!near||near.dist>near.c.depth/2+.2)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".10" fill="#c35a4b"/></g>';
-   p={x:near.q.x,z:near.q.z};angle=Math.atan2(near.c.z2-near.c.z1,near.c.x2-near.c.x1);
+   p={x:near.q.x,z:near.q.z};angle=Math.atan2(near.c.z2-near.c.z1,near.c.x2-near.c.x1)+(near.c.side===-1?Math.PI:0);
   }
   return '<g class="live-preview" pointer-events="none"><polygon points="'+equipmentCorners(p.x,p.z,spec.width,spec.depth,angle).map(q=>f(q.x)+','+f(q.z)).join(' ')+
-   '" fill="#8cd2c8" fill-opacity=".64" stroke="#d0873a" stroke-width=".04" stroke-dasharray=".06,.04"/></g>';
+   '" fill="'+(valid?'#8cd2c8':'#d9a09c')+'" fill-opacity=".64" stroke="'+(valid?'#d0873a':'#bd413d')+'" stroke-width=".04" stroke-dasharray=".06,.04"/></g>';
+ }
+ if((tool==='base'||tool==='upper')&&start){
+  const target=snapCabinetPoint(items,hover.x,hover.z,.8);
+  const route=target?cabinetPath(items,start,target):null;
+  if(!route)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".12" fill="#b85b4e"/></g>';
+  let drawings='',marker=target;
+  for(let i=0;i<route.segments.length;i++){
+   const seg=route.segments[i],w=items.find(o=>o.id===seg.wallId);
+   if(!w)continue;
+   const len=lengthOf(w),dir=Math.sign(seg.endT-seg.startT);if(!dir)continue;
+   let a=seg.startT+(i>0?dir*cabinetTurnTrim(items.find(o=>o.id===route.segments[i-1].wallId),w)/len:0),
+    b=seg.endT-(i<route.segments.length-1?dir*cabinetTurnTrim(w,items.find(o=>o.id===route.segments[i+1].wallId))/len:0);
+   let stopped=false;
+   if(tool==='upper')try{const old=b;b=limitCabinetEnd(items,w,a,b,{kind:'upper'});stopped=Math.abs(old-b)>.0001;}catch{b=a;stopped=true;}
+   if(Math.abs(b-a)*len<.03){if(stopped)break;continue;}
+   const c={startT:Math.min(a,b),endT:Math.max(a,b),depth:tool==='upper'?.35:.6,side:seg.side};
+   const fp=cabinetFootprint(c,w);
+   drawings+='<polygon points="'+fp.corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
+    '" fill="'+(tool==='upper'?'#f1dcb2':'#88c4a8')+
+    '" fill-opacity=".64" stroke="#d0873a" stroke-width=".035" stroke-dasharray=".08,.04"/>';
+   if(stopped){marker={x:w.x1+(w.x2-w.x1)*b,z:w.z1+(w.z2-w.z1)*b};break;}
+  }
+  return drawings?'<g class="live-preview" pointer-events="none">'+drawings+
+   '<circle cx="'+f(marker.x)+'" cy="'+f(marker.z)+'" r=".075" fill="#f0ac50" stroke="white" stroke-width=".02"/></g>':'';
  }
  const width=wallMode?.12:openingMode?.12:tool==='upper'?.35:.60;
  let corners=null;

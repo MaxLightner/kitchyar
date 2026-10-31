@@ -89,6 +89,77 @@ export function nearestWall(items,x,z,tolerance=.6){
   .filter(s=>s.distance<=tolerance).sort((a,b)=>a.distance-b.distance);
  return ranked[0]||null;
 }
+/* Snap cabinet reticle to its host centreline and exact connected corner nodes. */
+export function snapCabinetPoint(items,x,z,tolerance=.8){
+ if(!finite(x,z))return null;
+ const hit=nearestWall(items,x,z,tolerance);if(!hit)return null;
+ let best=null,d=.22;
+ for(const w of items.filter(wall))for(const [t,px,pz] of [[0,w.x1,w.z1],[1,w.x2,w.z2]]){
+  const distance=Math.hypot(x-px,z-pz);
+  if(distance<d&&Math.hypot(hit.x-px,hit.z-pz)<.28){best={x:px,z:pz,hostId:w.id,t,corner:true};d=distance;}
+ }
+ if(best)return best;
+ return {x:hit.x,z:hit.z,hostId:hit.wall.id,t:hit.t,corner:false};
+}
+/* Discover a shortest contiguous wall route: a single cabinet gesture may turn at corners. */
+export function cabinetPath(items,start,target){
+ const walls=items.filter(wall),origin=walls.find(w=>w.id===start?.hostId);
+ const goal=target?.hostId?walls.find(w=>w.id===target.hostId):nearestWall(items,target?.x,target?.z,.8)?.wall;
+ if(!origin||!goal)return null;
+ const from=projectOnWall(origin,start.x,start.z).t,to=projectOnWall(goal,target.x,target.z).t;
+ const joined=(a,ta,b,tb)=>{
+  const aid=ta===0?a.startNodeId:a.endNodeId,bid=tb===0?b.startNodeId:b.endNodeId;
+  return !!aid&&aid===bid||Math.hypot((ta===0?a.x1:a.x2)-(tb===0?b.x1:b.x2),
+    (ta===0?a.z1:a.z2)-(tb===0?b.z1:b.z2))<.025;
+ };
+ let best=null;
+ const visit=(w,entry,path,cost,seen)=>{
+  if(w.id===goal.id){
+   const candidate=[...path,{wallId:w.id,startT:entry,endT:to}],total=cost+Math.abs(to-entry)*lengthOf(w);
+   if(!best||total<best.cost)best={segments:candidate,cost:total};
+   return;
+  }
+  if(path.length>10||best&&cost>best.cost)return;
+  for(const exit of [0,1]){
+   const travel=Math.abs(exit-entry)*lengthOf(w);
+    for(const next of walls){
+    if(next.id===w.id||seen.has(next.id))continue;
+    for(const arrive of [0,1])if(joined(w,exit,next,arrive)){
+     visit(next,arrive,[...path,{wallId:w.id,startT:entry,endT:exit}],
+      cost+travel,new Set([...seen,next.id]));
+    }
+   }
+  }
+ };
+ visit(origin,from,[],0,new Set([origin.id]));
+ if(!best)return null;
+ const first=best.segments.find(s=>Math.abs(s.endT-s.startT)>.001);
+ const travelSide=(start.side||1)*(first&&first.endT<first.startT?-1:1);
+ best.segments=best.segments.map(s=>({...s,side:travelSide*(s.endT<s.startT?-1:1)}));
+ return best;
+}
+export function cabinetTurnTrim(a,b){return Math.max(.14,(a?.thickness||.12)/2+.05,(b?.thickness||.12)/2+.05);}
+export function placeCabinetRoute(source,start,target,opts={}){
+ const route=cabinetPath(source,start,target);
+ if(!route)throw Error('مسیر کابینت باید روی دیوارهای متصل باشد.');
+ let items=copy(source),lastId=null,lastEnd=null,stoppedAtOpening=false;
+ const group=opts.groupId||uid();
+ for(let i=0;i<route.segments.length;i++){
+  const seg=route.segments[i],w=byId(items,seg.wallId),len=lengthOf(w),dir=Math.sign(seg.endT-seg.startT);
+  if(!dir)continue;
+  let a=seg.startT,b=seg.endT;
+  if(i>0)a+=dir*cabinetTurnTrim(byId(items,route.segments[i-1].wallId),w)/len;
+  if(i<route.segments.length-1)b-=dir*cabinetTurnTrim(w,byId(items,route.segments[i+1].wallId))/len;
+  if(Math.abs(b-a)*len<.30)continue;
+  const pt=t=>({x:w.x1+(w.x2-w.x1)*t,z:w.z1+(w.z2-w.z1)*t});
+  const result=placeCabinet(items,{...pt(a),hostId:w.id,side:seg.side},pt(b),
+   {...opts,side:seg.side,cornerGroup:group});
+  items=result.items;lastId=result.selectedId;lastEnd=result.end;
+  if(result.stoppedAtOpening){stoppedAtOpening=true;break;}
+ }
+ if(!lastId)throw Error('مسیر کابینت کوتاه است؛ حداقل ۳۰ سانتی‌متر روی دیوار حرکت کن.');
+ return {items,selectedId:lastId,end:lastEnd,stoppedAtOpening,groupId:group};
+}
 export function validateHostOpenings(items,w){
  const ops=items.filter(o=>o.kind==='opening'&&o.hostId===w.id),len=lengthOf(w);
  for(const op of ops){
@@ -200,6 +271,11 @@ export function cabinetFootprint(c,w){
  return {corners:[point(a,face),point(b,face),point(b,face+depth),point(a,face+depth)],
   start:point(a,face+depth/2),end:point(b,face+depth/2),angle:Math.atan2(uz,ux),centre:point((a+b)/2,face+depth/2)};
 }
+export const EQUIPMENT_MODELS=Object.freeze({
+ fridge:[{id:'single',label:'تک‌درب'},{id:'side',label:'سایدبای‌ساید'},{id:'combination',label:'فریزر پایین'}],
+ stove:[{id:'gas4',label:'گاز ۴ شعله'},{id:'gas5',label:'گاز ۵ شعله'},{id:'induction',label:'صفحه القایی'}],
+ sink:[{id:'single',label:'تک‌لگن'},{id:'double',label:'دولگن'},{id:'drainer',label:'لگن و آبچکان'}]
+});
 export const EQUIPMENT_SPECS=Object.freeze({
  fridge:{name:'یخچال',width:.82,depth:.72,height:1.90,elevation:0},
  stove:{name:'اجاق گاز',width:.60,depth:.55,height:.10,elevation:.86},
@@ -212,7 +288,32 @@ export function equipmentPosition(o,items){
  if(len<.3)return null;
  const t=o.offsetT??.5,v=o.depthT??0;
  return {x:c.x1+dx*t-dz/len*v,z:c.z1+dz*t+dx/len*v,
-  rotation:Math.atan2(dz,dx),elevation:(c.elevation||0)+c.height};
+  rotation:Math.atan2(dz,dx)+(c.side===-1?Math.PI:0),elevation:(c.elevation||0)+c.height};
+}
+
+export function equipmentFootprint(o){
+ const a=o.rotation||0,c=Math.cos(a),s=Math.sin(a),w=o.width/2,d=o.depth/2;
+ return [[-w,-d],[w,-d],[w,d],[-w,d]].map(([x,z])=>({x:o.x+x*c-z*s,z:o.z+x*s+z*c}));
+}
+function pointSegmentDistance(p,a,b){
+ const dx=b.x-a.x,dz=b.z-a.z,len=dx*dx+dz*dz;
+ const t=len?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.z-a.z)*dz)/len)):0;
+ return Math.hypot(p.x-a.x-dx*t,p.z-a.z-dz*t);
+}
+function polygonGap(a,b){
+ if(polygonOverlap(a,b,0))return 0;
+ let minimum=Infinity;
+ for(const [v,other] of [[a,b],[b,a]])for(const p of v)
+  for(let i=0;i<other.length;i++)minimum=Math.min(minimum,pointSegmentDistance(p,other[i],other[(i+1)%other.length]));
+ return minimum;
+}
+export function validateEquipmentSpacing(items){
+ const fixtures=items.filter(e=>e.kind==='equipment'&&['sink','stove'].includes(e.subtype));
+ for(let i=0;i<fixtures.length;i++)for(let j=i+1;j<fixtures.length;j++){
+  const a=fixtures[i],b=fixtures[j];if(a.subtype===b.subtype)continue;
+  if(polygonGap(equipmentFootprint(a),equipmentFootprint(b))<.45-1e-6)
+   throw Error('فاصله لبه گاز تا لبه سینک باید حداقل ۴۵ سانتی‌متر باشد.');
+ }
 }
 function syncEquipment(items){
  for(const e of items.filter(o=>o.kind==='equipment'&&o.subtype!=='fridge')){
@@ -220,6 +321,7 @@ function syncEquipment(items){
   if(!p)throw Error('تجهیزات باید روی کابینت زمینی معتبر نصب شوند.');
   e.x=p.x;e.z=p.z;e.rotation=p.rotation;e.elevation=p.elevation;
  }
+ validateEquipmentSpacing(items);
 }
 function syncCabinet(items,c){
  const w=byId(items,c.hostId);
@@ -257,7 +359,8 @@ function validateCabinets(items,w){
    throw Error('کابینت به دیوار مجاور برخورد می‌کند؛ فاصله از گوشه را بیشتر کن.');
   for(const other of items)if(other.kind==='cabinet'&&other.id!==c.id&&other.hostId!==c.hostId){
    const owner=byId(items,other.hostId);
-   if(wall(owner)&&Math.min(c.elevation+c.height,other.elevation+other.height)-
+   if(wall(owner)&&!(c.cornerGroup&&c.cornerGroup===other.cornerGroup)&&
+    Math.min(c.elevation+c.height,other.elevation+other.height)-
       Math.max(c.elevation,other.elevation)>.02&&polygonOverlap(fp.corners,cabinetFootprint(other,owner).corners))
     throw Error('کابینت با کابینت دیوار مجاور تداخل دارد.');
   }
@@ -280,17 +383,35 @@ export function limitCabinetEnd(items,w,startT,targetT,{kind='upper',height=.72,
  }
  return Math.max(0,Math.min(1,result));
 }
+export function snapFridgePoint(items,point,width=.82,depth=.72){
+ if(!finite(point?.x,point?.z))return null;
+ const near=nearestWall(items,point.x,point.z,.95);
+ if(!near)return {x:point.x,z:point.z,rotation:0};
+ const w=near.wall,len=lengthOf(w),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
+ const sign=(point.x-near.x)*(-uz)+(point.z-near.z)*ux>=0?1:-1;
+ const offset=w.thickness/2+depth/2+.02;
+ return {x:near.x-uz*offset*sign,z:near.z+ux*offset*sign,
+  rotation:Math.atan2(uz,ux)+(sign<0?Math.PI:0)};
+}
 export function placeEquipment(source,point,subtype){
  const spec=EQUIPMENT_SPECS[subtype],items=copy(source);
  if(!spec||!finite(point?.x,point?.z))throw Error('محل تجهیزات معتبر نیست.');
  const obj={id:uid(),kind:'equipment',subtype,name:spec.name,width:spec.width,
-  depth:spec.depth,height:spec.height,elevation:spec.elevation,x:point.x,z:point.z,rotation:0};
+  depth:spec.depth,height:spec.height,elevation:spec.elevation,x:point.x,z:point.z,rotation:0,
+  model:EQUIPMENT_MODELS[subtype][0].id};
  if(subtype==='fridge'){
+  Object.assign(obj,snapFridgePoint(items,point,obj.width,obj.depth));
   for(const w of items.filter(wall)){
-   const r={corners:[{x:obj.x-spec.width/2,z:obj.z-spec.depth/2},{x:obj.x+spec.width/2,z:obj.z-spec.depth/2},
-    {x:obj.x+spec.width/2,z:obj.z+spec.depth/2},{x:obj.x-spec.width/2,z:obj.z+spec.depth/2}]};
-   if(polygonOverlap(r.corners,wallFootprint(w)))throw Error('یخچال نباید داخل دیوار قرار بگیرد.');
+   if(polygonOverlap(equipmentFootprint(obj),wallFootprint(w)))throw Error('یخچال نباید داخل دیوار قرار بگیرد.');
   }
+  for(const c of items.filter(o=>o.kind==='cabinet')){
+   const host=byId(items,c.hostId);
+   if(host&&polygonOverlap(equipmentFootprint(obj),cabinetFootprint(c,host).corners))
+    throw Error('یخچال با کابینت برخورد دارد؛ روی کفِ آزاد قرار بده.');
+  }
+  for(const e of items.filter(o=>o.kind==='equipment'))
+   if(polygonOverlap(equipmentFootprint(obj),equipmentFootprint(e)))
+    throw Error('یخچال با تجهیزات دیگر برخورد دارد.');
  }else{
   const bases=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base');
   const ranked=bases.map(c=>{
@@ -306,12 +427,13 @@ export function placeEquipment(source,point,subtype){
    if(Math.abs(other.offsetT-obj.offsetT)*len<(other.width+obj.width)/2+.02)
     throw Error('این قسمت کابینت قبلاً تجهیزات دارد.');
  }
- items.push(obj);return {items,selectedId:obj.id};
+ items.push(obj);validateEquipmentSpacing(items);return {items,selectedId:obj.id};
 }
-export function editEquipment(source,id,{width,depth,height}={}){
+export function editEquipment(source,id,{width,depth,height,model}={}){
  const items=copy(source),e=byId(items,id);
  if(!e||e.kind!=='equipment')throw Error('تجهیزات انتخاب نشده‌اند.');
  e.width=Number(width??e.width);e.depth=Number(depth??e.depth);e.height=Number(height??e.height);
+ if(model!==undefined){if(!EQUIPMENT_MODELS[e.subtype]?.some(m=>m.id===model))throw Error('مدل تجهیزات نامعتبر است.');e.model=model;}
  if(!finite(e.width,e.depth,e.height)||e.width<.3||e.width>2||e.depth<.2||e.depth>1.3||e.height<.04||e.height>2.7)
   throw Error('ابعاد تجهیزات نامعتبر است.');
  if(e.hostId){
@@ -319,9 +441,10 @@ export function editEquipment(source,id,{width,depth,height}={}){
   if(!host||e.width>lengthOf(host)-.04)throw Error('عرض تجهیزات از طول کابینت بیشتر است.');
   syncEquipment(items);
  }
+ validateEquipmentSpacing(items);
  return {items,selectedId:id};
 }
-export function placeCabinet(source,start,end,{kind='base',depth,height,elevation,side}={}){
+export function placeCabinet(source,start,end,{kind='base',depth,height,elevation,side,cornerGroup}={}){
  const items=copy(source);
  if(!finite(start?.x,start?.z,end?.x,end?.z))throw Error('نقطه شروع یا پایان کابینت نامعتبر است.');
  const found=byId(items,start.hostId)||nearestWall(items,start.x,start.z,.58)?.wall;
@@ -335,7 +458,7 @@ export function placeCabinet(source,start,end,{kind='base',depth,height,elevatio
  const cross=(start.x-w.x1)*(w.z2-w.z1)-(start.z-w.z1)*(w.x2-w.x1);
  const chosen=side??start.side??(Math.abs(cross)<.01?1:(cross>0?-1:1));
  const obj={id:uid(),kind:'cabinet',subtype:kind,name:upper?'کابینت هوایی':'کابینت زمینی',
-  hostId:w.id,startT:from,endT:to,side:chosen,depth:d,height:h,elevation:e};
+  hostId:w.id,startT:from,endT:to,side:chosen,depth:d,height:h,elevation:e,cornerGroup:cornerGroup||null};
  items.push(obj);validateCabinets(items,w);
  return {items,selectedId:obj.id,end:{x:w.x1+(w.x2-w.x1)*capped,z:w.z1+(w.z2-w.z1)*capped,hostId:w.id,side:chosen},stoppedAtOpening:upper&&Math.abs(capped-b.t)>.0001};
 }

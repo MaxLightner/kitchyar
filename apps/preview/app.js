@@ -1,13 +1,13 @@
-import {FloorAR} from './floor-ar.js?v=render11';
-import * as Geo from './geometry.js?v=render11';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render11';
-import {resizeFromHandle,handlePosition,renderElevation} from './edit-handles.js?v=render11';
+import {FloorAR} from './floor-ar.js?v=render14';
+import * as Geo from './geometry.js?v=render14';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render14';
+import {resizeFromHandle,handlePosition,renderElevation} from './edit-handles.js?v=render14';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=value=>new Date(value).toLocaleDateString('fa-IR',{year:'numeric',month:'short',day:'numeric'});
 let projects=[],floor=null,mode='ar',activeTool=null,activeId=null,toastTimer=null,loadError=null;
-let selection=null,drawing=null,hover=null,undoStack=[],redoStack=[],dragHandle=null;
+let selection=null,drawing=null,hover=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null;
 const settings={thickness:.12,height:2.8,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10};
 const renderSettings=()=>({...defaultRender,...currentProject()?.scene?.render});
@@ -48,16 +48,16 @@ const categories=[
 ];
 function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
- activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;undoStack=[];redoStack=[];
+ activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;undoStack=[];redoStack=[];
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">اسکن مجدد ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
  '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
  '<section class="scan-card" id="scan-card"><div class="scan-head"><strong id="scan-stage">در انتظار اسکن کف</strong><span id="scan-pct">۰٪</span></div><progress id="scan-progress" max="100" value="0"></progress><small>آمادگی بر اساس برخوردهای معتبر و نمونه‌های مستقل است؛ درصد ARCore نیست.</small><div class="scan-info"><span id="scan-hits">برخورد معتبر: ۰</span><span id="anchor-count">Anchor: ۰ / ۵</span></div></section>'+
  '<div class="scan-confirm"><button class="primary" id="confirm-floor" data-action="confirm-floor" disabled>تثبیت این کف</button><div id="calibration" hidden><div class="point-row"><button data-action="point-a">ثبت A</button><button data-action="point-b">ثبت B</button></div><label>فاصله واقعی A تا B (متر)<input type="number" id="real-distance" value="1" min=".1" max="20" step=".01"></label><button data-action="apply-distance">اعمال مقیاس</button></div></div>'+
- '<div class="side-tools"><div class="side-basic"><button data-action="select" aria-label="انتخاب">⌖</button><button data-action="undo" disabled aria-label="بازگشت تغییر">↶</button><button data-action="redo" disabled aria-label="انجام دوباره">↷</button></div><div id="draw-controls" class="draw-controls" hidden><strong>کنترل ترسیم</strong><button data-action="record-start">ثبت نقطه شروع</button><button class="primary" data-action="record-end">ثبت نقطه پایان / نصب</button><button data-action="cancel-start">لغو نقطه شروع</button><button data-action="finish-line">پایان ترسیم</button></div></div><div class="aim-marker" id="aim-marker" hidden><span>＋</span><small id="aim-label">محل ترسیم</small></div>'+
+ '<div class="side-tools"><div class="side-basic"><button data-action="select" aria-label="انتخاب">⌖</button><button data-action="undo" disabled aria-label="بازگشت تغییر">↶</button><button data-action="redo" disabled aria-label="انجام دوباره">↷</button></div></div><div class="aim-marker" id="aim-marker" hidden><span>＋</span><small id="aim-label">محل ترسیم</small></div>'+
  '<div class="mini-map"><span>پلان زنده</span><div id="mini-plan" class="mini-plan"></div><small id="item-count">هنوز آبجکتی در صحنه نیست</small></div>'+
- '<aside class="object-editor" id="object-editor" hidden></aside><div class="bottom-panel"><div class="tool-sheet" id="tool-sheet" hidden></div><nav class="dock">'+categories.map(([id,name,icon])=>'<button data-action="category" data-category="'+id+'"><span>'+icon+'</span><small>'+name+'</small></button>').join('')+'</nav></div>'+
+ '<aside class="object-editor" id="object-editor" hidden></aside><div class="bottom-panel"><div id="draw-controls" class="draw-controls" hidden><strong>کنترل ترسیم</strong><button data-action="record-start">ثبت نقطه شروع</button><button class="primary" data-action="record-end">ثبت نقطه پایان / نصب</button><button data-action="cancel-start">لغو نقطه شروع</button><button data-action="finish-line">پایان ترسیم</button></div><div class="tool-sheet" id="tool-sheet" hidden></div><nav class="dock">'+categories.map(([id,name,icon])=>'<button data-action="category" data-category="'+id+'"><span>'+icon+'</span><small>'+name+'</small></button>').join('')+'</nav></div>'+
  '</main>';
  showScene();
 }
@@ -81,7 +81,7 @@ function arUpdate(data){
  document.getElementById('calibration').hidden=!data.locked;
  if(data.locked&&document.getElementById('ab-status'))
   document.getElementById('ab-status').textContent=data.direction===null||data.direction===undefined?
-   'نقاط A و B را روی کف جابه‌جا کن؛ جهت شبکه تابع خط A—B است.':
+   'A و B را روی کف لمس کن و بکش؛ شبکه همزمان می‌چرخد.':
    'جهت شبکه: '+num(data.direction,0)+'° · نقطه A مبدأ و B جهت را تعیین می‌کند.';
  if(data.locked)document.getElementById('scan-card').classList.add('complete');
 }
@@ -159,8 +159,11 @@ function drawSelection(){
  if(obj.kind==='cabinet')fields=field('length','طول (متر)',obj.hostId?(obj.endT-obj.startT)*Geo.lengthOf(currentItems().find(x=>x.id===obj.hostId)):Geo.lengthOf(obj),.3)+
   field('depth','عمق (متر)',obj.depth,.2)+field('height','ارتفاع (متر)',obj.height,.25)+
   field('elevation','ارتفاع از کف (متر)',obj.elevation,0);
+ const models=obj.kind==='equipment'?Geo.EQUIPMENT_MODELS[obj.subtype]||[]:[];
+ const modelOptions=models.length?'<div class="model-choices"><strong>مدل '+esc(obj.name)+'</strong><div class="model-choices-grid">'+models.map(m=>
+  '<button data-action="equipment-model" data-model="'+esc(m.id)+'" class="'+((obj.model||models[0].id)===m.id?'active':'')+'">'+esc(m.label)+'</button>').join('')+'</div></div>':'';
  panel.innerHTML='<div class="object-head"><strong>'+esc(title)+'</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
-  '<div class="object-fields">'+fields+'</div><div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
+  modelOptions+'<div class="object-fields">'+fields+'</div><div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
   (['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌ها را بکش؛ اندازه‌گذاری هنگام حرکت نمایش داده می‌شود و پس از رها کردن، با دقت ۱ سانتی‌متر ثبت می‌شود.</small>':'');
 }
@@ -188,15 +191,16 @@ function showScene(){
  if(drawing){
   const name={wall:'دیوار',window:'پنجره ثابت',door:'در',base:'کابینت زمینی',upper:'کابینت هوایی',fridge:'یخچال',stove:'اجاق گاز',sink:'سینک'}[drawing.tool];
   const length=drawing.start&&hover?Math.hypot(hover.x-drawing.start.x,hover.z-drawing.start.z):null;
-  hint.textContent=name+' — '+(drawing.start?'نقطه پایان را ثبت کن':'پیش‌نمایش را بررسی و نقطه شروع را ثبت کن')+
+  const singleTap=['window','door','fridge','stove','sink'].includes(drawing.tool);
+  hint.textContent=name+' — '+(singleTap?'پیش‌نمایش را نشانه بگیر و برای نصب یک‌بار لمس کن':drawing.start?'نقطه پایان را ثبت کن':'پیش‌نمایش را بررسی و نقطه شروع را ثبت کن')+
    (length!==null?' · '+num(length)+' متر':'');
  }
  floor?.setItems(items,selection);
  floor?.setDrawing(drawing?.start||null,drawing?.tool);
  floor?.setLighting(renderSettings());
  const controls=document.getElementById('draw-controls');if(controls){
-  controls.hidden=!drawing;
   const single=['window','door','fridge','stove','sink'].includes(drawing?.tool);
+  controls.hidden=!drawing||single;
   controls.querySelector('[data-action="record-start"]').disabled=!drawing||!!drawing.start||single;
   controls.querySelector('[data-action="record-end"]').disabled=!drawing||(!drawing.start&&!single);
   controls.querySelector('[data-action="record-end"]').textContent=single?'نصب / افزودن':'ثبت نقطه پایان';
@@ -238,10 +242,20 @@ function selectAt(point,target,arId=null){
  selection=hit?.id||null;showScene();
 }
 function initialPreviewForTool(tool){
- if(tool==='wall'||tool==='fridge')return {x:0,z:0};
+ if(tool==='wall')return {x:0,z:0};
+ if(tool==='fridge'){
+  const w=currentItems().find(x=>x.kind==='wall');
+  if(!w)return {x:0,z:0};
+  const len=Geo.lengthOf(w),nx=-(w.z2-w.z1)/len,nz=(w.x2-w.x1)/len;
+  return {x:(w.x1+w.x2)/2+nx*.65,z:(w.z1+w.z2)/2+nz*.65};
+ }
  if(tool==='stove'||tool==='sink'){
-  const c=currentItems().find(x=>x.kind==='cabinet'&&x.subtype==='base');
-  return c?{x:(c.x1+c.x2)/2,z:(c.z1+c.z2)/2}:null;
+  for(const c of currentItems().filter(x=>x.kind==='cabinet'&&x.subtype==='base'))
+   for(const t of [.2,.4,.6,.8,.5]){
+    const p={x:c.x1+(c.x2-c.x1)*t,z:c.z1+(c.z2-c.z1)*t};
+    try{Geo.placeEquipment(currentItems(),p,tool);return p;}catch{}
+   }
+  return null;
  }
  const w=currentItems().find(x=>x.kind==='wall');
  if(!w)return null;
@@ -251,7 +265,7 @@ function placeAt(point){
  if(!drawing||!point)return;
  const items=currentItems(),tool=drawing.tool;
  if(['fridge','stove','sink'].includes(tool)){
-  commitChange(Geo.placeEquipment(items,point,tool));drawing={tool,start:null};hover=point;showScene();return;
+  commitChange(Geo.placeEquipment(items,point,tool));drawing={tool,start:null};hover=initialPreviewForTool(tool);showScene();return;
  }
  if(tool==='window'||tool==='door'){
   const near=Geo.nearestWall(items,point.x,point.z,.60);
@@ -261,10 +275,11 @@ function placeAt(point){
  }
  if(!drawing.start){
   if(tool==='base'||tool==='upper'){
-   const near=Geo.nearestWall(items,point.x,point.z,.60);
-   if(!near){tell('اول دیوار بکش؛ شروع کابینت فقط روی دیوار ممکن است.');return;}
-   const w=near.wall,cross=(point.x-w.x1)*(w.z2-w.z1)-(point.z-w.z1)*(w.x2-w.x1);
-   drawing.start={x:near.x,z:near.z,hostId:w.id,side:Math.abs(cross)<.01?1:cross>0?-1:1};
+   const snap=Geo.snapCabinetPoint(items,point.x,point.z,.85);
+   if(!snap){tell('برای کابینت، نشانگر باید به دیوار یا کنج آن برسد.');return;}
+   const w=items.find(x=>x.id===snap.hostId),
+    cross=(point.x-w.x1)*(w.z2-w.z1)-(point.z-w.z1)*(w.x2-w.x1);
+   drawing.start={x:snap.x,z:snap.z,hostId:w.id,side:Math.abs(cross)<.01?1:cross>0?-1:1};
   }else{
    const p=Geo.resolvePoint(items,null,point.x,point.z,settings);
    drawing.start={x:p.x,z:p.z};
@@ -276,15 +291,13 @@ function placeAt(point){
   const end=Geo.resolvePoint(items,a,point.x,point.z,settings);
   b={x:end.x,z:end.z};
  }else{
-  const host=items.find(w=>w.id===a.hostId);
-  if(!host)throw Error('دیوار میزبان دیگر وجود ندارد.');
-  const near=Geo.projectOnWall(host,point.x,point.z);
-  if(near.distance>.65)throw Error('نقطه پایان باید روی همان دیوار میزبان باشد.');
-  b={x:near.x,z:near.z};
+  b=Geo.snapCabinetPoint(items,point.x,point.z,.85);
+  if(!b)throw Error('نقطه پایان باید روی دیوار میزبان یا دیوار متصل به آن باشد.');
  }
  const result=tool==='wall'?Geo.placeWall(items,a,b,{thickness:settings.thickness,height:settings.height}):
-  Geo.placeCabinet(items,a,b,{kind:tool==='upper'?'upper':'base',depth:tool==='upper'?settings.upperDepth:settings.baseDepth});
- commitChange(result);drawing={tool,start:result.end};hover=null;showScene();
+  Geo.placeCabinetRoute(items,a,b,{kind:tool==='upper'?'upper':'base',
+   depth:tool==='upper'?settings.upperDepth:settings.baseDepth,groupId:drawing.groupId});
+ commitChange(result);drawing={tool,start:result.end,groupId:result.groupId||drawing.groupId};hover=null;showScene();
 }
 function controlPoint(){
  if(mode==='ar')return floor?.pick()||null;
@@ -379,6 +392,15 @@ function finishResize(cancelled=false){
  }
 }
 document.addEventListener('pointerdown',e=>{
+ if(mode==='ar'&&floor?.locked&&e.target.closest('.editor-scene')){
+  const which=floor.pickCalibrationHandle(e.clientX,e.clientY);
+  if(which){
+   abDrag={which,pointerId:e.pointerId};
+   const scene=document.querySelector('.editor-scene');
+   try{scene?.setPointerCapture(e.pointerId);}catch{}
+   e.preventDefault();return;
+  }
+ }
  const handle=e.target.closest('[data-handle],[data-open-handle]');
  const hit=handle?{id:handle.dataset.itemId,side:handle.dataset.openHandle||handle.dataset.handle}:
   mode==='ar'&&!drawing&&!e.target.closest('button,input,aside,.editor-header,.bottom-panel,.side-tools')?floor?.pickHandle(e.clientX,e.clientY):null;
@@ -402,6 +424,10 @@ document.addEventListener('pointerdown',e=>{
  e.preventDefault();e.stopPropagation();
 });
 document.addEventListener('pointermove',e=>{
+ if(abDrag&&e.pointerId===abDrag.pointerId){
+  floor?.dragCalibrationPoint(e.clientX,e.clientY,abDrag.which);
+  e.preventDefault();return;
+ }
  if(dragHandle){
   if(e.pointerId!==dragHandle.pointerId)return;
   if(Math.hypot(e.clientX-dragHandle.startClientX,e.clientY-dragHandle.startClientY)<3)return;
@@ -418,8 +444,9 @@ document.addEventListener('pointermove',e=>{
  const svg=e.target.closest('#plan-view');if(!svg)return;
  const point=planPoint(svg,e);if(!point)return;
  const cabinet=['base','upper','fridge','stove','sink'].includes(drawing.tool);
- const resolved=cabinet?point:Geo.resolvePoint(currentItems(),drawing.start,point.x,point.z,settings);
- hover={x:resolved.x,z:resolved.z};
+ const snapped=['base','upper'].includes(drawing.tool)?Geo.snapCabinetPoint(currentItems(),point.x,point.z,.85):null;
+ const resolved=snapped|| (cabinet?point:Geo.resolvePoint(currentItems(),drawing.start,point.x,point.z,settings));
+ hover={x:resolved.x,z:resolved.z,...(snapped?{hostId:snapped.hostId,corner:snapped.corner}:{})};
  svg.querySelector('.live-preview')?.remove();
  const ghost=renderPreview(currentItems(),drawing,hover);
  if(ghost){
@@ -433,6 +460,7 @@ document.addEventListener('pointermove',e=>{
  }
 });
 document.addEventListener('pointerup',e=>{
+ if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;return;}
  if(dragHandle){if(e.pointerId===dragHandle.pointerId)finishResize();return;}
  const scene=e.target.closest('.editor-scene');if(!scene)return;
  if(e.target.closest('[data-action]'))return;
@@ -445,6 +473,7 @@ document.addEventListener('pointerup',e=>{
  }catch(error){tell(error.message);}
 });
 document.addEventListener('pointercancel',e=>{
+ if(abDrag&&e.pointerId===abDrag.pointerId)abDrag=null;
  if(dragHandle&&e.pointerId===dragHandle.pointerId)finishResize(true);
 });
 
@@ -476,6 +505,11 @@ document.addEventListener('click',async e=>{
   if(action==='select'){drawing=null;selection=null;showScene();return;}
   if(action==='undo'){undoChange();return;}
   if(action==='redo'){undoChange(true);return;}
+  if(action==='equipment-model'){
+   const obj=currentItems().find(x=>x.id===selection);
+   if(obj?.kind==='equipment')commitChange(Geo.editEquipment(currentItems(),obj.id,{model:button.dataset.model}));
+   return;
+  }
   if(action==='apply-edit'){applySelection();return;}
   if(action==='close-object'){selection=null;showScene();return;}
   if(action==='delete-object'){if(selection){commitChange(Geo.removeObject(currentItems(),selection));selection=null;showScene();}return;}

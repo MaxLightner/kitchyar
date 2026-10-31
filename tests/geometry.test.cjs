@@ -144,7 +144,7 @@ test('renderer has real ray-tested AO, directional shadows, reflection probe and
  assert.match(floor,/this\.previewGroup=new THREE\.Group/);
  assert.match(floor,/upper\?1\/3:-1\/3/);
 });
-test('UI font sizes are at least 15px and drawing buttons share side controls',()=>{
+test('UI font sizes are at least 15px and drawing controls belong to bottom panel',()=>{
  const css=source('styles.css'),app=source('app.js');
  for(const match of css.matchAll(/font(?:-size)?:\s*(\d+(?:\.\d+)?)px/g))
   assert.ok(Number(match[1])>=15,'font below 15px: '+match[0]);
@@ -251,4 +251,65 @@ test('live resize guides locate nearest cabinet or wall corner',async()=>{
  assert.match(app,/function finishResize/);
  assert.match(floor,/pickHandle\(clientX,clientY\)/);
  assert.match(floor,/setEditPreview\(items,id,side,visible\)/);
+});
+
+test('cabinet cursor snaps to wall endpoints and corner route installs without intermediate confirmation',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+ items=G.placeWall(items,{x:3,z:0},{x:3,z:3}).items;
+ const corner=G.snapCabinetPoint(items,3.1,.08);
+ assert.equal(corner.corner,true);assert.equal(corner.x,3);assert.equal(corner.z,0);
+ const a=G.snapCabinetPoint(items,.5,.09),b=G.snapCabinetPoint(items,3.04,2);
+ const path=G.cabinetPath(items,a,b);
+ assert.equal(path.segments.length,2,'preview route turns around connected wall');
+ const placed=G.placeCabinetRoute(items,a,b,{kind:'base'});
+ const cabinets=placed.items.filter(x=>x.kind==='cabinet');
+ assert.equal(cabinets.length,2,'one end tap installs two wall segments');
+ assert.notEqual(cabinets[0].hostId,cabinets[1].hostId);
+ assert.equal(placed.end.hostId,b.hostId);
+ assert.ok(cabinets.every(c=>G.lengthOf(c)>.3));
+});
+test('upper cabinet stops at fixed window instead of crossing opening',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeOpening(items,items[0].id,3,0,{style:'fixed'}).items;
+ const a=G.snapCabinetPoint(items,.25,0),b=G.snapCabinetPoint(items,4.7,0);
+ const done=G.placeCabinetRoute(items,a,b,{kind:'upper'});
+ assert.equal(done.stoppedAtOpening,true);
+ assert.ok(done.end.x<2.4 && done.end.x>2.35);
+});
+test('sink-to-stove gap is at least 45 cm measured from object edges',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:6,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:5.8,z:0},{kind:'base'}).items;
+ items=G.placeEquipment(items,{x:1,z:.3},'sink').items;
+ assert.throws(()=>G.placeEquipment(items,{x:2,z:.3},'stove'),/۴۵ سانتی‌متر/);
+ items=G.placeEquipment(items,{x:3,z:.3},'stove').items;
+ const sink=items.find(x=>x.subtype==='sink'),stove=items.find(x=>x.subtype==='stove');
+ assert.equal(sink.rotation,stove.rotation);
+ assert.equal(items.filter(x=>x.kind==='equipment').length,2);
+ const wrongModel=()=>G.editEquipment(items,sink.id,{model:'not-a-model'});
+ assert.throws(wrongModel,/مدل تجهیزات نامعتبر/);
+ items=G.editEquipment(items,sink.id,{model:'double'}).items;
+ assert.equal(items.find(x=>x.id===sink.id).model,'double');
+});
+test('fridge snaps behind a wall face and rejects cabinet collision',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:6,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:2,z:0},{kind:'base'}).items;
+ assert.throws(()=>G.placeEquipment(items,{x:1,z:.75},'fridge'),/کابینت برخورد/);
+ const done=G.placeEquipment(items,{x:3,z:.8},'fridge');
+ const fridge=done.items.find(x=>x.subtype==='fridge');
+ assert.ok(fridge.z>.4 && fridge.z<.5,'rear face snaps to wall surface');
+});
+test('UI renders bottom controls, direct A/B drag, live corner ghost, and equipment model picker',()=>{
+ const app=source('app.js'),floor=source('floor-ar.js'),plan=source('plan-view.js'),css=source('styles.css');
+ assert.ok(app.indexOf('class="bottom-panel"')<app.indexOf('id="draw-controls"'));
+ assert.match(app,/const single=\['window','door','fridge','stove','sink'\]/);
+ assert.match(app,/data-action="equipment-model"/);
+ assert.match(floor,/pickCalibrationHandle\(clientX,clientY\)/);
+ assert.match(floor,/dragCalibrationPoint\(clientX,clientY,which\)/);
+ assert.match(floor,/cabinetPath\(this\.items,a,snapped\)/);
+ assert.match(plan,/cabinetPath\(items,start,target\)/);
+ assert.match(css,/\.bottom-panel \.draw-controls/);
 });

@@ -247,3 +247,23 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 }
 
 .live-gap-summary{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:0 5px 5px;font-size:15px;color:#9c5433;line-height:1.6}
+
+/* All start/end/confirm controls live in the bottom action strip. */
+.bottom-panel .draw-controls{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:7px;
+ width:100%;max-width:none;max-height:none;overflow:visible;flex-wrap:wrap;padding:8px 10px;
+ border:1px solid #cdd5c9;border-radius:13px 13px 0 0;background:#fbf8f1f5}
+.bottom-panel .draw-controls[hidden]{display:none}
+.bottom-panel .draw-controls strong{font-size:15px;flex:0 0 auto;white-space:nowrap}
+.bottom-panel .draw-controls button{flex:1 1 125px;min-width:0;max-width:220px;width:auto;
+ min-height:42px;padding:8px 9px;font-size:15px;white-space:normal}
+.model-choices{padding:12px 0 3px;border-bottom:1px solid #d9d6cd;display:flex;flex-direction:column;gap:8px}
+.model-choices strong{font-size:15px;color:#335c4d}
+.model-choices-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.model-choices-grid button{font-size:15px;line-height:1.4;padding:9px 4px;border-radius:9px;border:1px solid #c5d2c8}
+.model-choices-grid button.active{background:#376b59;border-color:#376b59;color:white}
+@media(max-width:730px){
+ .bottom-panel .draw-controls{gap:4px;padding:5px}
+ .bottom-panel .draw-controls strong{display:none}
+ .bottom-panel .draw-controls button{flex:1 1 40%;font-size:15px;min-height:36px;padding:4px}
+ .model-choices-grid button{min-height:43px}
+}
