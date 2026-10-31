@@ -3,8 +3,9 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=render26';
-import {neighborGaps} from './edit-handles.js?v=render26';
+import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=materials27';
+import {neighborGaps} from './edit-handles.js?v=materials27';
+import {DEFAULT_MATERIALS,materialFor,assetUrl} from './materials.js?v=materials27';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -14,6 +15,7 @@ export class FloorAR {
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
    this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;this.calibrationOffset=null;this.savedCalibration=null;this.calibrationVisible=true;
    this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10,taskLighting:true,taskIntensity:1.8};
+   this.materialSettings={...DEFAULT_MATERIALS};this.textureCache=new Map();
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
@@ -643,8 +645,134 @@ export class FloorAR {
  setItems(items,selectedId=null){
   const signature=JSON.stringify(items||[]);
   if(signature===this.itemsSignature&&selectedId===this.selectedId)return;
+  const previousCount=this.items?.length||0;
   this.itemsSignature=signature;this.items=structuredClone(items||[]);
+  if(this.previewRenderer&&previousCount!==this.items.length)this.fitPreview();
   this.selectedId=selectedId;this.previewVersion=(this.previewVersion||0)+1;this.rebuildObjects();
+ }
+ setMaterials(materials={}){
+  const next={...DEFAULT_MATERIALS,...materials};
+  if(JSON.stringify(next)===JSON.stringify(this.materialSettings))return;
+  this.materialSettings=next;this.rebuildObjects();
+ }
+ surfaceTexture(category,id,width,height,grainDirection='auto'){
+  const info=materialFor(category,id);if(!info?.file)return null;
+  const path=assetUrl(info.file);
+  if(!this.textureCache.has(path)){
+   const texture=new THREE.TextureLoader().load(path,()=>{
+    // Image fetch completes outside the XR animation loop; rebuild only once per asset.
+    if(this.objectGroup)this.rebuildObjects();
+   },undefined,()=>console.warn('Kitchyar texture unavailable:',path));
+   texture.colorSpace=THREE.SRGBColorSpace;
+   texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
+   this.textureCache.set(path,texture);
+  }
+  const texture=this.textureCache.get(path).clone();texture.needsUpdate=true;
+  texture.userData={...texture.userData,ephemeral:true};
+  const scale=info.wood?.65:category==='backsplash'?.50:1.15;
+  const horizontal=info.wood&&grainDirection==='horizontal';
+  texture.center.set(.5,.5);texture.rotation=horizontal?Math.PI/2:0;
+  texture.repeat.set(Math.max(.35,width/scale),Math.max(.35,height/scale));
+  return texture;
+ }
+ surfaceMaterial(category,id,width,height,grainDirection='auto'){
+  const info=materialFor(category,id);
+  const isCounter=category==='counter',isTile=category==='backsplash';
+  return new THREE.MeshPhysicalMaterial({
+   color:info?.color??0xffffff,map:this.surfaceTexture(category,id,width,height,grainDirection),
+   roughness:isCounter?.27:isTile?.42:info?.wood?.52:.46,metalness:isCounter?.04:0,
+   clearcoat:isCounter?.19:.06,clearcoatRoughness:.27,
+   envMap:this.reflectionRT?.texture,envMapIntensity:isCounter?.10:this.renderSettings.reflection
+  });
+ }
+ /* Desktop preview shares the exact AR object mesher/materials. It does not
+    pretend to be a tracked AR session and remains available without ARCore. */
+ startPreview(host){
+  if(this.previewRenderer)return;
+  this.previewHost=host;this.previewScene=new THREE.Scene();this.previewScene.background=new THREE.Color(0xe9ede8);
+  this.floorGroup=new THREE.Group();this.objectGroup=new THREE.Group();
+  this.floorGroup.add(this.objectGroup);this.previewScene.add(this.floorGroup);
+  const grid=new THREE.GridHelper(24,120,0xb3c2b6,0xd5ddd4);grid.position.y=-.012;
+  this.previewScene.add(grid);
+  this.previewCamera=new THREE.PerspectiveCamera(46,1,.02,100);
+  this.previewOrbit={x:0,y:.72,radius:6,yaw:.72,pitch:.56};
+  this.sun=new THREE.DirectionalLight(0xfff7ec,2);this.sun.position.set(4,7,3);
+  this.sun.castShadow=true;this.sun.shadow.mapSize.set(1024,1024);
+  this.sun.shadow.camera.left=-10;this.sun.shadow.camera.right=10;
+  this.sun.shadow.camera.top=10;this.sun.shadow.camera.bottom=-10;
+  this.previewScene.add(this.sun,this.sun.target);
+  this.ambient=new THREE.HemisphereLight(0xe7f2fb,0xa59b8c,1.35);this.previewScene.add(this.ambient);
+  this.previewRenderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'default'});
+  this.previewRenderer.shadowMap.enabled=true;
+  this.previewRenderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  this.previewRenderer.outputColorSpace=THREE.SRGBColorSpace;
+  this.previewRenderer.domElement.className='preview-3d-canvas';
+  host.appendChild(this.previewRenderer.domElement);
+  const canvas=this.previewRenderer.domElement;
+  canvas.addEventListener('pointerdown',e=>{
+   this.previewDrag={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false};
+   try{canvas.setPointerCapture(e.pointerId);}catch{}
+  });
+  canvas.addEventListener('pointermove',e=>{
+   const d=this.previewDrag;if(!d||d.id!==e.pointerId)return;
+   const dx=e.clientX-d.x,dy=e.clientY-d.y;
+   if(Math.abs(dx)+Math.abs(dy)>2)d.moved=true;
+   this.previewOrbit.yaw-=dx*.006;
+   this.previewOrbit.pitch=THREE.MathUtils.clamp(this.previewOrbit.pitch+dy*.005,.12,1.42);
+   d.x=e.clientX;d.y=e.clientY;this.renderPreview();
+  });
+  canvas.addEventListener('pointerup',e=>{if(this.previewDrag?.id===e.pointerId){
+   this.previewWasDragged=this.previewDrag.moved;this.previewDrag=null;
+  }});
+  canvas.addEventListener('wheel',e=>{
+   e.preventDefault();this.previewOrbit.radius=THREE.MathUtils.clamp(this.previewOrbit.radius*(e.deltaY>0?1.1:.9),1.5,25);
+   this.renderPreview();
+  },{passive:false});
+  if(typeof ResizeObserver!=='undefined'){
+   this.previewResize=new ResizeObserver(()=>this.renderPreview());this.previewResize.observe(host);
+  }
+  this.fitPreview();this.rebuildObjects();this.setLighting(this.renderSettings);this.renderPreview();
+ }
+ fitPreview(){
+  if(!this.previewOrbit)return;
+  const vertices=[];
+  for(const o of this.items)if(['wall','cabinet'].includes(o.kind)){
+   vertices.push([o.x1,o.z1],[o.x2,o.z2]);
+  }else if(o.kind==='equipment')vertices.push([o.x,o.z]);
+  if(!vertices.length)return;
+  const xs=vertices.map(p=>p[0]),zs=vertices.map(p=>p[1]);
+  this.previewOrbit.x=(Math.min(...xs)+Math.max(...xs))/2;
+  this.previewOrbit.z=(Math.min(...zs)+Math.max(...zs))/2;
+  this.previewOrbit.radius=Math.max(3.5,(Math.max(...xs)-Math.min(...xs)+Math.max(...zs)-Math.min(...zs))*.85+2);
+ }
+ renderPreview(){
+  if(!this.previewRenderer||!this.previewCamera||!this.previewHost)return;
+  const rect=this.previewHost.getBoundingClientRect(),w=Math.max(1,rect.width),h=Math.max(1,rect.height);
+  this.previewRenderer.setSize(w,h,false);this.previewCamera.aspect=w/h;this.previewCamera.updateProjectionMatrix();
+  const o=this.previewOrbit,r=o.radius;
+  this.previewCamera.position.set(o.x+r*Math.cos(o.pitch)*Math.cos(o.yaw),o.y+r*Math.sin(o.pitch),
+   (o.z||0)+r*Math.cos(o.pitch)*Math.sin(o.yaw));
+  this.previewCamera.lookAt(o.x,o.y,o.z||0);this.previewRenderer.render(this.previewScene,this.previewCamera);
+ }
+ previewRay(clientX,clientY){
+  if(!this.previewRenderer)return null;
+  const r=this.previewRenderer.domElement.getBoundingClientRect();
+  const mouse=new THREE.Vector2((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);
+  const ray=new THREE.Raycaster();ray.setFromCamera(mouse,this.previewCamera);return ray;
+ }
+ pickPreviewObject(clientX,clientY){
+  if(this.previewWasDragged){this.previewWasDragged=false;return null;}
+  const hits=this.previewRay(clientX,clientY)?.intersectObjects(this.objectGroup?.children||[],true)||[];
+  for(const hit of hits){let mesh=hit.object;while(mesh){if(mesh.userData?.objectId)return mesh.userData.objectId;mesh=mesh.parent;}}
+  return null;
+ }
+ pickPreviewPoint(clientX,clientY){
+  const ray=this.previewRay(clientX,clientY),point=new THREE.Vector3();
+  return ray?.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),point)?{x:point.x,z:point.z}:null;
+ }
+ stopPreview(){
+  this.previewResize?.disconnect();this.previewRenderer?.dispose();this.previewRenderer?.domElement.remove();
+  this.previewRenderer=null;this.previewHost=null;this.previewScene=null;this.objectGroup=null;this.floorGroup=null;
  }
  setLighting(options={}){
   const before=this.renderSettings||{},next={...before,...options};
@@ -806,7 +934,9 @@ export class FloorAR {
   if(!this.objectGroup)return;
   for(const mesh of [...this.objectGroup.children]){
    this.objectGroup.remove(mesh);
-   mesh.traverse(n=>{n.geometry?.dispose();if(n.material)for(const m of (Array.isArray(n.material)?n.material:[n.material]))m.dispose();});
+   mesh.traverse(n=>{n.geometry?.dispose();if(n.material)for(const m of (Array.isArray(n.material)?n.material:[n.material])){
+    if(m.map?.userData?.ephemeral)m.map.dispose();m.dispose();
+   }});
   }
   const material=(color,extra={})=>new THREE.MeshStandardMaterial({color,roughness:.65,...extra});
   const plaster=material(0xd7dbd1),selected=material(0x65ac8e),frame=material(0xf0eee6);
@@ -816,7 +946,6 @@ export class FloorAR {
    color,roughness:.36,metalness:.08,clearcoat:.10,clearcoatRoughness:.22,
    envMap:this.reflectionRT?.texture,envMapIntensity:this.renderSettings.reflection
   });
-  const base=cabinet(0xbda995),upper=cabinet(0xe2ded4);
   const cabinetSelected=cabinet(0x65ac8e);
   const box=(owner,from,to,y0,y1,width,angle,cx,cz,mat)=>{
    if(to-from<.002||y1-y0<.002)return;
@@ -867,7 +996,8 @@ export class FloorAR {
    const len=Math.hypot(c.x2-c.x1,c.z2-c.z1);if(len<.3)continue;
    const angle=Math.atan2(c.z2-c.z1,c.x2-c.x1),y0=c.elevation??.1;
    const cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2,ux=Math.cos(angle),uz=Math.sin(angle),nx=-uz,nz=ux;
-   const fill=c.id===this.selectedId?cabinetSelected:['upper','over-fridge'].includes(c.subtype)?upper:base;
+   const bodyMat=this.surfaceMaterial('body',this.materialSettings.body,len,c.height);
+   const fill=c.id===this.selectedId?cabinetSelected:bodyMat;
    // Subtract axis-aligned sink/hob holes from each depth layer of the carcass.
    const cuts=countertopCutouts(this.items,c);
    const subtract=(area,holes)=>{
@@ -902,10 +1032,10 @@ export class FloorAR {
     for(const t of [.01,.32,.65,.98]){
      box(c,0,len,y0+c.height*t,y0+c.height*t+.025,c.depth,angle,cx,cz,fill);
     }
-   }else if(this.items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&e.hostId===c.id)){
-    // The oven cuts an actual aperture through the base body. The hob can
-    // overlap that bay vertically while the countertop retains its own hole.
-    const ovens=this.items.filter(e=>e.kind==='equipment'&&e.subtype==='oven'&&e.hostId===c.id)
+   }else if(this.items.some(e=>e.kind==='equipment'&&['oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
+    // An oven or undercounter appliance cuts the carcass face; only a sink/hob
+    // cuts the stone above. The washer/dishwasher top remains one solid slab.
+    const ovens=this.items.filter(e=>e.kind==='equipment'&&['oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)
      .map(e=>({x:((e.offsetT??.5)-.5)*len,z:0,width:e.width+.025,depth:c.depth+.04,
       yLow:e.elevation,yHigh:e.elevation+e.height}));
     const topY=y0+c.height;
@@ -930,8 +1060,7 @@ export class FloorAR {
     // At first placement, every base envelope has a stone worktop and recessed plinth.
     const ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len,side=c.side||1;
     const nx=-uz*side,nz=ux*side,cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2;
-    const stone=new THREE.MeshPhysicalMaterial({color:0xf1eae0,roughness:.27,metalness:.04,
-     clearcoat:.18,envMap:this.reflectionRT?.texture,envMapIntensity:.10});
+    const stone=this.surfaceMaterial('counter',this.materialSettings.counter,len,c.depth);
     // Mesh each remaining stone rectangle; no top faces exist over cutouts.
     slices(y0+c.height,y0+c.height+.035,cuts,stone,.0175);
     stone.dispose();
@@ -941,25 +1070,53 @@ export class FloorAR {
     toe.rotation.y=-angle;toe.castShadow=true;toe.receiveShadow=true;
     toe.userData.objectId=c.id;toe.userData.cabinet=true;this.objectGroup.add(toe);
    }
+   bodyMat.dispose();
+  }
+  // Automatic backsplash: attached to the host wall, from worktop to the
+  // underside of upper cupboards (or a standard 62 cm rise), excluding windows.
+  for(const c of this.items.filter(x=>x.kind==='cabinet'&&x.subtype==='base')){
+   const w=this.items.find(o=>o.id===c.hostId&&o.kind==='wall');if(!w)continue;
+   const wallLen=Math.hypot(w.x2-w.x1,w.z2-w.z1),angle=Math.atan2(w.z2-w.z1,w.x2-w.x1);
+   const baseTop=c.elevation+c.height+.035,from=c.startT*wallLen,to=c.endT*wallLen;
+   const upper=this.items.filter(u=>u.kind==='cabinet'&&['upper','bridge'].includes(u.subtype)&&
+    u.hostId===w.id&&u.side===c.side&&Math.min(u.endT,c.endT)>Math.max(u.startT,c.startT));
+   const nearestTop=upper.length?Math.min(...upper.map(u=>u.elevation)):baseTop+.62;
+   const endY=Math.min(w.height-.025,nearestTop);
+   if(endY-baseTop<.10)continue;
+   let spans=[[from,to]];
+   for(const opening of this.items.filter(o=>o.kind==='opening'&&o.hostId===w.id&&
+    o.sill<endY&&o.sill+o.height>baseTop)){
+    const a=opening.hostT*wallLen-opening.width/2,b=opening.hostT*wallLen+opening.width/2;
+    spans=spans.flatMap(([s,e])=>e<=a||s>=b?[[s,e]]:[[s,Math.min(e,a)],[Math.max(s,b),e]].filter(([x,y])=>y-x>.01));
+   }
+   const ux=Math.cos(angle),uz=Math.sin(angle),side=c.side||1,nx=-uz*side,nz=ux*side;
+   for(const [s,e] of spans){
+    const span=e-s;if(span<.05)continue;
+    const t=(s+e)/2,offset=w.thickness/2+.014;
+    const tile=this.surfaceMaterial('backsplash',this.materialSettings.backsplash,span,endY-baseTop);
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(span,endY-baseTop,.013),tile);
+    mesh.position.set(w.x1+ux*t+nx*offset,(baseTop+endY)/2,w.z1+uz*t+nz*offset);
+    mesh.rotation.y=-angle;mesh.receiveShadow=true;mesh.userData.objectId=c.id;
+    this.objectGroup.add(mesh);
+   }
   }
   // Each facade is a semantic, selectable object independent of its future internal unit.
   for(const panel of this.items.filter(o=>o.kind==='front')){
    const host=this.items.find(c=>c.id===panel.hostId&&c.kind==='cabinet');
    if(!host)continue;
-   const pose=frontPose(panel,host),finish=panel.finish==='wood'?0xad8658:
-    panel.finish==='graphite'?0x59616a:0xe8d9c1;
+   const pose=frontPose(panel,host),materialId=panel.materialId||this.materialSettings.front;
+   const grain=panel.grainDirection==='horizontal'||(panel.grainDirection!=='vertical'&&panel.subtype==='drawer')?'horizontal':'vertical';
    const root=new THREE.Group();root.position.set(pose.x,pose.y,pose.z);root.rotation.y=-pose.angle;
    root.userData.objectId=panel.id;this.objectGroup.add(root);
-   const surface=new THREE.Mesh(new THREE.BoxGeometry(pose.width,pose.height,pose.thickness),
-    new THREE.MeshPhysicalMaterial({color:panel.id===this.selectedId?0x69c7a3:finish,roughness:.32,
-     metalness:.04,clearcoat:.10,clearcoatRoughness:.22,
-     envMap:this.reflectionRT?.texture,envMapIntensity:this.renderSettings.reflection}));
+   const faceMaterial=panel.id===this.selectedId?cabinetSelected.clone():
+    this.surfaceMaterial('front',materialId,pose.width,pose.height,grain);
+   const surface=new THREE.Mesh(new THREE.BoxGeometry(pose.width,pose.height,pose.thickness),faceMaterial);
    surface.castShadow=true;surface.receiveShadow=true;surface.userData.objectId=panel.id;
    root.add(surface);
    const visibleZ=(pose.side||1)*(.012+pose.thickness/2);
    if(panel.style==='frame'&&pose.width>.20&&pose.height>.18){
     const inset=new THREE.Mesh(new THREE.BoxGeometry(pose.width-.065,pose.height-.065,.007),
-     material(finish,{roughness:.46}));
+     this.surfaceMaterial('front',materialId,pose.width-.065,pose.height-.065,grain));
     inset.position.z=visibleZ*.82;inset.userData.objectId=panel.id;root.add(inset);
    }
    if(panel.handleStyle!=='hidden'){
@@ -1037,7 +1194,7 @@ export class FloorAR {
      add(new THREE.BoxGeometry(o.width*.9,.12,.024),steel,0,o.height*.91,front+.025);
      for(let i=0;i<3;i++)add(new THREE.CylinderGeometry(.014,.014,.014,10),dark,-o.width*.33+i*.065,o.height*.91,front+.046,Math.PI/2);
     }
-    if(o.subtype!=='oven')add(new THREE.BoxGeometry(o.width+.035,.045,o.depth+.05),material(0xd9d1c2),0,o.height+.023,0);
+    // No appliance cap: the uncut countertop above both machines is the cap.
     body.dispose();
    }else if(o.subtype==='hood'){
     const wide=o.width,body=material(o.model==='concealed'?0xe6dfd1:0xaebabb,{metalness:.55,roughness:.24});
@@ -1103,10 +1260,11 @@ export class FloorAR {
    }
    for(const m of [steel,dark,silver])m.dispose();
   }
-  for(const m of [plaster,selected,frame,glass,wood,base,upper,cabinetSelected])m.dispose();
+  for(const m of [plaster,selected,frame,glass,wood,cabinetSelected])m.dispose();
   this.applyRaycastAO();
   this.updateEditHandles();
   this.reflectionDirty=true;
+  this.renderPreview();
  }
  /* Geometry-based ambient occlusion: hemisphere rays against actual neighboring meshes.
     Computed only when geometry or AO strength changes, never per XR frame. */

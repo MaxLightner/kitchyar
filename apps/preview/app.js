@@ -1,13 +1,15 @@
-import {FloorAR} from './floor-ar.js?v=render26';
-import * as Geo from './geometry.js?v=render26';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render26';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render26';
+import {FloorAR} from './floor-ar.js?v=materials27';
+import * as Geo from './geometry.js?v=materials27';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=materials27';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=materials27';
+import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,assetUrl} from './materials.js?v=materials27';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=value=>new Date(value).toLocaleDateString('fa-IR',{year:'numeric',month:'short',day:'numeric'});
-let projects=[],floor=null,mode='ar',activeTool=null,activeId=null,toastTimer=null,loadError=null;
+let projects=[],floor=null,desktopPreview=null,mode='ar',activeTool=null,activeId=null,toastTimer=null,loadError=null;
 let selection=null,drawing=null,hover=null,pendingUpperEdit=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null,planCalibrationDrag=null;
+let movingEquipmentId=null;
 let sessionProjectId=null,parkedEditor=null,calibrationCollapsed=false;
 const settings={thickness:.12,height:2.8,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.72,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8};
@@ -28,7 +30,8 @@ function go(hash,autoAR=false){
  history.pushState({},'',hash);render();
  if(autoAR)beginAR();
 }
-function closeFloor(){const old=floor;floor=null;sessionProjectId=null;
+function closeDesktopPreview(){desktopPreview?.stopPreview();desktopPreview=null;}
+function closeFloor(){closeDesktopPreview();const old=floor;floor=null;sessionProjectId=null;
  if(parkedEditor){parkedEditor.remove();parkedEditor=null;}
  if(old)old.stop();}
 function updateCalibrationPanel(){
@@ -41,7 +44,7 @@ function updateCalibrationPanel(){
 }
 function createProject(){
  const now=new Date().toISOString();
- const p={id:uid(),name:'آشپزخانه جدید',createdAt:now,updatedAt:now,scene:{items:[],render:{...defaultRender},calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}}},revision:0};
+ const p={id:uid(),name:'آشپزخانه جدید',createdAt:now,updatedAt:now,scene:{items:[],render:{...defaultRender},materials:{...DEFAULT_MATERIALS},calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}}},revision:0};
  projects.unshift(p);save();go('#/editor/'+p.id,true);
 }
 function welcome(){
@@ -59,7 +62,7 @@ const categories=[
 ];
 function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
- activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;undoStack=[];redoStack=[];calibrationCollapsed=false;
+ activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
@@ -84,7 +87,7 @@ function render(){
  if(!target&&floor?.session&&sessionProjectId===activeId){
   const root=document.getElementById('editor-root');
   if(root){parkedEditor=root;document.body.appendChild(root);root.classList.add('session-parked');}
- }else if(floor)closeFloor();
+ }else if(floor||desktopPreview)closeFloor();
  if(target)editorPage(target);
  else if(hash==='#/projects')projectPage();
  else welcome();
@@ -136,6 +139,11 @@ function projectMenu(id){
  const p=projects.find(x=>x.id===id);if(!p)return;
  dialogs.innerHTML='<div class="dialog-cover"><div class="dialog"><h2>'+esc(p.name)+'</h2><button data-action="rename" data-id="'+esc(id)+'">تغییر نام</button><button data-action="copy" data-id="'+esc(id)+'">ایجاد کپی</button><button class="danger" data-action="delete" data-id="'+esc(id)+'">حذف پروژه</button><button data-action="close-dialog">بستن</button></div></div>';
 }
+function openStyleGallery(){
+ dialogs.innerHTML='<div class="dialog-cover"><div class="dialog style-dialog"><div class="style-dialog-head"><h2>انتخاب نمونه آشپزخانه</h2><button data-action="close-dialog">×</button></div><p>با انتخاب هر نمونه، تقسیم‌بندی درب و کشوها و متریال‌های آشپزخانه روی کابینت‌های فعلی اعمال می‌شود. بعداً هم می‌توانی همه چیز را جداگانه تغییر دهی.</p><div class="style-grid">'+
+  KITCHEN_STYLES.map(s=>'<button data-action="choose-style" data-style="'+s.id+'"><img src="'+assetUrl(s.image)+'" alt="نمونه '+s.label+'" loading="lazy"><strong>'+s.label+'</strong></button>').join('')+
+  '</div><button data-action="close-dialog">انصراف</button></div></div>';
+}
 function rename(id){
  const p=projects.find(x=>x.id===id);if(!p)return;
  dialogs.innerHTML='<div class="dialog-cover"><form id="rename-form" class="dialog"><h2>تغییر نام پروژه</h2><input id="rename-input" maxlength="65" required value="'+esc(p.name)+'"><button class="primary" type="submit">ذخیره نام</button><button type="button" data-action="close-dialog">انصراف</button></form></div>';
@@ -154,6 +162,17 @@ const value=(name,defaultValue)=>Number(document.querySelector('[data-edit="'+na
 function drawTools(){
  const sheet=document.getElementById('tool-sheet');if(!sheet)return;
  sheet.hidden=!activeTool;if(!activeTool)return;
+ if(activeTool==='material'){
+  const chosen={...DEFAULT_MATERIALS,...currentProject()?.scene?.materials};
+  sheet.innerHTML='<div class="material-tool-head"><strong>متریال‌های مستقل آشپزخانه</strong><button data-action="open-style-gallery">گالری نمونه‌های آشپزخانه</button></div>'+
+   Object.entries({body:'بدنه کابینت',front:'درب و کشو',counter:'صفحه رویه',backsplash:'بین‌کابینتی خودکار'}).map(([key,title])=>
+    '<div class="material-family"><strong>'+title+'</strong><div class="material-options">'+MATERIALS[key].map(m=>
+    '<button data-action="set-material" data-surface="'+key+'" data-material="'+m.id+'" class="'+(chosen[key]===m.id?'active':'')+'">'+
+    (m.file?'<img loading="lazy" src="'+assetUrl(m.file)+'" alt="">':'<span class="material-color" style="background:#'+m.color.toString(16).padStart(6,'0')+'"></span>')+
+    '<small>'+m.label+'</small></button>').join('')+'</div></div>').join('')+
+   '<p class="material-note">بافت‌ها فایل مستقل دارند؛ اندازه و جهت رگه روی هر پنل بر اساس ابعاد واقعی تنظیم می‌شود. کاشی بین کابینتی خودکار است.</p>';
+  return;
+ }
  const tools=activeTool==='architecture'?[['wall','دیوار'],['window','پنجره ثابت'],['door','در']]:
   activeTool==='cabinets'?[['base','کابینت زمینی'],['upper','کابینت هوایی']]:
   activeTool==='equipment'?[['fridge','یخچال'],['stove','اجاق گاز'],['sink','سینک'],
@@ -161,7 +180,7 @@ function drawTools(){
   activeTool==='fronts'?[['front-smart','طراحی هوشمند کل آشپزخانه'],['front-doors','درب بازشو'],['front-drawers2','۲ کشوی مساوی'],['front-drawers3','۳ کشوی مساوی'],['front-drawers4','۴ کشوی مساوی'],['front-graduated','۳ کشوی پلکانی'],['front-mixed','کشوی بالا + دو درب'],['front-mixedLower','دو درب بالا + کشوی پایین']]:[];
  if(!tools.length){sheet.innerHTML='<span>ابزارهای این بخش در مرحله بعد اضافه می‌شوند.</span><button data-action="hide-tools">بستن</button>';return;}
  const wallTools=activeTool==='architecture';
- sheet.innerHTML='<div class="tool-choices">'+tools.map(([id,label])=>
+ sheet.innerHTML=(activeTool==='fronts'?'<button class="style-gallery-trigger" data-action="open-style-gallery">▣ انتخاب مدل از گالری آشپزخانه</button>':'')+'<div class="tool-choices">'+tools.map(([id,label])=>
   '<button class="'+(drawing?.tool===id?'active':'')+'" data-action="tool" data-tool="'+id+'">'+label+'</button>').join('')+
   '<button data-action="select">انتخاب</button></div>'+
   (activeTool==='fronts'?'<p class="equipment-help">طرح هوشمند تمام کابینت‌ها را یک‌جا با سینک، گاز، فر و یخچال هماهنگ می‌کند. پیش‌نمایش را ببین و تأیید کن؛ برای تغییر یک کابینت آن را انتخاب کن و یک طرح دیگر بزن.</p>':activeTool==='equipment'?'<p class="equipment-help">یخچال روی کف یا داخل کابینت قرار می‌گیرد؛ گاز و سینک روی صفحه و ظرفشویی، لباسشویی و فر داخل کابینت زمینی نصب می‌شوند.</p>':wallTools?'<div class="tool-settings"><label>ضخامت دیوار (متر)<input data-setting="thickness" type="number" min=".07" max=".8" step=".01" value="'+settings.thickness+'"></label>'+
@@ -214,7 +233,8 @@ function drawSelection(){
    const choose=(key,title,options,value)=>'<label>'+title+'<select data-edit-front="'+key+'">'+options.map(([v,l])=>
     '<option value="'+v+'" '+(value===v?'selected':'')+'>'+l+'</option>').join('')+'</select></label>';
    fields=field('width','عرض نما (متر)',span,.15)+field('height','ارتفاع نما (متر)',height,.10)+
-    choose('finish','رنگ نما',[['cream','کرم روشن'],['wood','طرح چوب'],['graphite','گرافیتی']],obj.finish||'cream')+
+    choose('materialId','متریال این نما',[['','مطابق انتخاب کلی'],...MATERIALS.front.map(m=>[m.id,m.label])],obj.materialId||'')+
+    choose('grainDirection','جهت رگه چوب',[['auto','خودکار: درب عمودی، کشو افقی'],['vertical','عمودی'],['horizontal','افقی']],obj.grainDirection||'auto')+
     choose('style','طرح پنل',[['flat','صاف'],['frame','قاب‌دار']],obj.style||'flat')+
     choose('handleStyle','دستگیره',[['bar','میله‌ای'],['knob','دکمه‌ای'],['hidden','مخفی']],obj.handleStyle||'bar');
    if(obj.subtype==='door')fields+=choose('hinge','محل لولا',[['left','چپ'],['right','راست'],['top','بالا / افقی']],obj.hinge||'left');
@@ -233,6 +253,7 @@ function drawSelection(){
  const extras=obj.kind==='cabinet'&&obj.subtype==='upper'?'<div class="object-extras"><button data-action="toggle-task-light">'+(renderSettings().taskLighting?'خاموش‌کردن نور زیر همه کابینت‌ها':'روشن‌کردن نور زیر همه کابینت‌ها')+'</button><p>قفسهٔ رابط بین کابینت زمینی و هوایی</p><label>عرض قفسه (متر)<input type="number" data-bridge-width min=".45" max="1.20" step=".01" value=".45"></label><div class="model-choices-grid"><button data-action="bridge" data-edge="start" data-depth="base">سمت چپ · عمق زمینی</button><button data-action="bridge" data-edge="end" data-depth="base">سمت راست · عمق زمینی</button><button data-action="bridge" data-edge="start" data-depth="upper">سمت چپ · عمق هوایی</button><button data-action="bridge" data-edge="end" data-depth="upper">سمت راست · عمق هوایی</button></div></div>':obj.kind==='equipment'&&obj.subtype==='fridge'?'<div class="object-extras"><strong>کابینت بالای یخچال</strong><div class="model-choices-grid"><button data-action="fridge-over" data-depth=".60">عمق ۶۰ سانتی‌متر</button><button data-action="fridge-over" data-depth="fridge">عمق خود یخچال</button></div></div>':obj.kind==='cabinet'&&obj.subtype==='base'?'<div class="object-extras"><strong>برش‌های صفحه کابینت</strong>'+((Geo.countertopCutouts(currentItems(),obj).map(h=>'<p>'+ (h.type==='sink'?'سینک':'گاز')+' · '+Math.round(h.width*100)+' × '+Math.round(h.depth*100)+' سانتی‌متر · از ابتدای کابینت '+Math.round(h.left*100)+' سانتی‌متر</p>').join(''))||'<p>برشی ثبت نشده است.</p>')+'</div>':'';
  panel.innerHTML='<div class="object-head"><strong>'+esc(title)+'</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
   modelOptions+'<div class="object-fields">'+fields+'</div>'+extras+(obj.kind==='cabinet'&&obj.subtype==='base'?'<button class="cut-sheet-button" data-action="cut-sheet">نمای دقیق برش صفحه</button>':'')+'<div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
+  (obj.kind==='equipment'&&obj.subtype!=='hood'?'<button data-action="move-equipment">جابجایی روی پلان / AR</button>':'')+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
   (obj.kind==='front'?'<small>دستگیره‌های نما را در تصویر بکش؛ عرض و ارتفاع با اسنپ ۱ سانتی‌متر ثبت می‌شوند.</small>':
    ['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌ها را بکش؛ اندازه‌گذاری هنگام حرکت نمایش داده می‌شود و پس از رها کردن، با دقت ۱ سانتی‌متر ثبت می‌شود.</small>':'');
@@ -281,7 +302,11 @@ function showScene(){
  document.getElementById('mini-plan').innerHTML=renderPlan(items,{mini:true,calibration:currentProject()?.scene?.calibration});
  document.getElementById('item-count').textContent=items.length?num(items.length,0)+' عنصر در صحنه':'هنوز آبجکتی در صحنه نیست';
  const hint=document.getElementById('drawing-hint');
- hint.hidden=!drawing;
+ hint.hidden=!drawing&&!movingEquipmentId;
+ if(movingEquipmentId&&!drawing){
+  const moved=items.find(o=>o.id===movingEquipmentId);
+  hint.textContent='جابجایی '+(moved?.name||'تجهیزات')+' — محل جدید را روی پلان یا کف AR لمس کن. برای لغو، «انتخاب» را بزن.';
+ }
  if(drawing){
   const name={wall:'دیوار',window:'پنجره ثابت',door:'در',base:'کابینت زمینی',upper:'کابینت هوایی',fridge:'یخچال',stove:'اجاق گاز',sink:'سینک',dishwasher:'ماشین ظرفشویی',washer:'ماشین لباسشویی',oven:'فر توکار',
    'front-smart':'هوشمندسازی همه کابینت‌ها','front-doors':'درب بازشو','front-drawers2':'دو کشو','front-drawers3':'سه کشو','front-drawers4':'چهار کشو','front-graduated':'سه کشوی پلکانی','front-mixed':'کشوی بالا و درب پایین','front-mixedLower':'درب بالا و کشوی پایین'}[drawing.tool];
@@ -291,6 +316,17 @@ function showScene(){
    (length!==null?' · '+num(length)+' متر':'');
  }
  floor?.setItems(items,selection);
+ floor?.setMaterials({...DEFAULT_MATERIALS,...currentProject()?.scene?.materials});
+ if(mode==='3d'){
+  if(!desktopPreview){
+   try{desktopPreview=new FloorAR(document.getElementById('editor-root'),()=>{},()=>{});
+    desktopPreview.startPreview(document.querySelector('.editor-scene'));
+   }catch(error){closeDesktopPreview();tell('نمای سه‌بعدی در این مرورگر آماده نشد: '+error.message);}
+  }
+  desktopPreview?.setItems(items,selection);
+  desktopPreview?.setMaterials({...DEFAULT_MATERIALS,...currentProject()?.scene?.materials});
+  desktopPreview?.setLighting(renderSettings());
+ }
  if(mode==='ar')floor?.setEditPreview(items,selection,'centre',
   !!items.find(o=>o.id===selection&&o.kind==='opening')&&!drawing);
  floor?.setDrawing(drawing?.start||null,drawing?.tool,{height:settings.upperHeight,elevation:settings.upperElevation,hostId:drawing?.hostId});
@@ -310,16 +346,19 @@ function showScene(){
  buttons.forEach(b=>b.disabled=b.dataset.action==='undo'?!undoStack.length:!redoStack.length);
  drawSelection();drawTools();
 }
-function commitChange(result){
+function commitChange(result,{materials}={}){
  if(!result||!Array.isArray(result.items))throw Error('تغییر هندسه معتبر نیست.');
  const p=currentProject();if(!p)return;
- undoStack.push(structuredClone(currentItems()));if(undoStack.length>60)undoStack.shift();redoStack=[];
+ undoStack.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene?.materials}});if(undoStack.length>60)undoStack.shift();redoStack=[];
  p.scene??={items:[]};p.scene.items=result.items;p.updatedAt=new Date().toISOString();p.revision=(p.revision||0)+1;
+ if(materials)p.scene.materials={...DEFAULT_MATERIALS,...materials};
  save();selection=result.selectedId||null;showScene();
 }
 function undoChange(redo=false){
  const source=redo?redoStack:undoStack,dest=redo?undoStack:redoStack;if(!source.length)return;
- const p=currentProject();dest.push(structuredClone(currentItems()));p.scene.items=source.pop();
+ const p=currentProject();dest.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene.materials}});
+ const snapshot=source.pop();p.scene.items=Array.isArray(snapshot)?snapshot:snapshot.items;
+ if(!Array.isArray(snapshot))p.scene.materials=snapshot.materials;
  p.updatedAt=new Date().toISOString();save();selection=null;drawing=null;showScene();
 }
 function selectAt(point,target,arId=null){
@@ -453,7 +492,7 @@ function applySelection(){
   result=Geo.editFront(currentItems(),obj.id,{
    width:Math.abs(desiredWidth-shownWidth)>.001?desiredWidth:undefined,
    height:Math.abs(desiredHeight-shownHeight)>.001?desiredHeight:undefined,
-   finish:get('finish'),style:get('style'),handleStyle:get('handleStyle'),
+   materialId:get('materialId'),grainDirection:get('grainDirection'),style:get('style'),handleStyle:get('handleStyle'),
    hinge:obj.subtype==='door'?get('hinge'):undefined});
  }
  if(result)commitChange(result);
@@ -696,10 +735,18 @@ document.addEventListener('pointerup',e=>{
  const scene=e.target.closest('.editor-scene');if(!scene)return;
  if(e.target.closest('[data-action]'))return;
  try{
+  if(mode==='3d'&&desktopPreview?.previewWasDragged){desktopPreview.previewWasDragged=false;return;}
   const svg=scene.querySelector('#plan-view');
-  const point=mode==='2d'?svg?planPoint(svg,e):null:mode==='ar'?floor?.pick():null;
-  const arId=mode==='ar'&&!drawing?floor?.pickObject(e.clientX,e.clientY):null;
+  const point=mode==='2d'?svg?planPoint(svg,e):null:mode==='ar'?floor?.pick():
+   mode==='3d'?desktopPreview?.pickPreviewPoint(e.clientX,e.clientY):null;
+  const arId=mode==='ar'&&!drawing?floor?.pickObject(e.clientX,e.clientY):
+   mode==='3d'&&!drawing?desktopPreview?.pickPreviewObject(e.clientX,e.clientY):null;
   if(!point&&!arId){if(mode==='ar'&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
+  if(movingEquipmentId){
+   if(!point){tell('برای جابه‌جایی، محل جدید را روی کف نشانه بگیر.');return;}
+   const result=Geo.moveEquipment(currentItems(),movingEquipmentId,point);
+   movingEquipmentId=null;commitChange(result);tell('تجهیزات جابه‌جا شد و صفحه و کابینت بازسازی شدند.');return;
+  }
   if(drawing){
     hover=point;
     if(['wall','base','upper'].includes(drawing.tool)){showScene();return;}
@@ -723,6 +770,19 @@ document.addEventListener('click',async e=>{
   if(action==='open')return go('#/editor/'+id,true);
   if(action==='more')return projectMenu(id);
   if(action==='close-dialog'){dialogs.innerHTML='';pendingUpperEdit=null;return;}
+  if(action==='open-style-gallery')return openStyleGallery();
+  if(action==='choose-style'){
+   const style=KITCHEN_STYLES.find(s=>s.id===button.dataset.style);
+   if(!style)throw Error('مدل انتخاب‌شده پیدا نشد.');
+   const result=Geo.applyKitchenLayout(currentItems(),style.id);
+   dialogs.innerHTML='';commitChange(result,{materials:style.materials});tell('مدل، درب‌ها، کشوها و متریال‌ها اعمال شدند.');return;
+  }
+  if(action==='set-material'){
+   const category=button.dataset.surface,material=button.dataset.material;
+   if(!MATERIALS[category]?.some(m=>m.id===material))throw Error('متریال معتبر نیست.');
+   const palette={...DEFAULT_MATERIALS,...currentProject()?.scene?.materials,[category]:material};
+   commitChange({items:structuredClone(currentItems()),selectedId:selection},{materials:palette});return;
+  }
   if(action==='upper-height-cancel'){pendingUpperEdit=null;dialogs.innerHTML='';return;}
   if(action==='upper-height-single'||action==='upper-height-all'){
    if(!pendingUpperEdit)return;const {id,changes}=pendingUpperEdit;
@@ -753,7 +813,7 @@ document.addEventListener('click',async e=>{
   if(action==='tool'){
    const chosen=button.dataset.tool,selected=currentItems().find(o=>o.id===selection);
    const host=selected?.kind==='cabinet'?selected:selected?.kind==='front'?currentItems().find(o=>o.id===selected.hostId):null;
-   drawing={tool:chosen,start:null,hostId:chosen.startsWith('front-')?host?.id:null};
+   movingEquipmentId=null;drawing={tool:chosen,start:null,hostId:chosen.startsWith('front-')?host?.id:null};
    selection=null;hover=initialPreviewForTool(drawing.tool);showScene();return;
   }
   if(action==='confirm-drawing'){
@@ -765,7 +825,7 @@ document.addEventListener('click',async e=>{
   }
   if(action==='cancel-drawing'){finishLine();return;}
   if(action==='select'){
-   drawing=null;selection=null;activeTool=null;
+   drawing=null;movingEquipmentId=null;selection=null;activeTool=null;
    document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
    showScene();return;
   }
@@ -787,8 +847,15 @@ document.addEventListener('click',async e=>{
    return;
   }
   if(action==='apply-edit'){applySelection();return;}
+  if(action==='move-equipment'){
+   const e=currentItems().find(o=>o.id===selection&&o.kind==='equipment');
+   if(!e||e.subtype==='hood')throw Error('برای جابجایی یک وسیله مستقل انتخاب کن.');
+   movingEquipmentId=e.id;drawing=null;activeTool=null;
+   document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
+   showScene();tell('روی محل جدید وسیله در پلان یا AR بزن.');return;
+  }
   if(action==='close-object'){selection=null;showScene();return;}
-  if(action==='delete-object'){if(selection){commitChange(Geo.removeObject(currentItems(),selection));selection=null;showScene();}return;}
+  if(action==='delete-object'){if(selection){movingEquipmentId=null;commitChange(Geo.removeObject(currentItems(),selection));selection=null;showScene();}return;}
   if(action==='save'){touch(activeId);document.getElementById('save-indicator').textContent='ذخیره‌شده';return tell('پروژه ذخیره شد.');}
   if(action==='start-ar')return beginAR();
   if(action==='rescan'){
@@ -819,7 +886,8 @@ document.addEventListener('click',async e=>{
   if(action==='menu'){document.getElementById('editor-menu').hidden=!document.getElementById('editor-menu').hidden;return;}
   if(action==='close-menu'){document.getElementById('editor-menu').hidden=true;return;}
   if(action==='mode'){
-   const next=button.dataset.mode;if(next===mode)return;mode=next;
+   const next=button.dataset.mode;if(next===mode)return;
+   if(next!=='3d')closeDesktopPreview();mode=next;
    document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));
    updateCalibrationPanel();
    document.querySelector('[data-action="rescan"]').hidden=next!=='ar';
@@ -832,13 +900,13 @@ document.addEventListener('click',async e=>{
     }
    else {document.getElementById('scan-status').hidden=true;document.getElementById('scan-card').hidden=true;document.getElementById('scene-message').classList.add('visible');
     document.getElementById('scene-message').querySelector('h2').textContent=next==='2d'?'پلان دوبعدی':'نمای سه‌بعدی';
-    document.getElementById('scene-message').querySelector('p').textContent=next==='2d'?'روی پلان برای ترسیم یا انتخاب آبجکت بزن.':'نمای سه‌بعدی دسکتاپ در مرحله بعد فعال می‌شود.';showScene();}
+    document.getElementById('scene-message').querySelector('p').textContent=next==='2d'?'روی پلان برای ترسیم یا انتخاب آبجکت بزن.':'مدل سه‌بعدی را بچرخان، زوم کن و برای ویرایش آبجکت‌ها را انتخاب کن.';showScene();}
    return;
   }
   if(action==='category'){
    if(mode==='ar'&&!floor?.locked){tell('ابتدا کف را اسکن و تثبیت کن؛ یا وارد نمای ۲بعدی شو.');return;}
    const kind=button.dataset.category;
-   activeTool=activeTool===kind?null:kind;drawing=null;hover=null;
+   activeTool=activeTool===kind?null:kind;drawing=null;movingEquipmentId=null;hover=null;
    document.querySelectorAll('[data-category]').forEach(b=>b.classList.toggle('active',b.dataset.category===activeTool));
    showScene();return;
   }

@@ -30,7 +30,7 @@ test('editor starts with AR and provides a calibration after floor confirmation'
 });
 test('retains explicit fallback with no fake successful tracking',()=>{
  const source=read('app.js');
- assert.match(source,/نمای سه‌بعدی دسکتاپ در مرحله بعد فعال می‌شود/);
+ assert.match(source,/desktopPreview\.startPreview/);
  assert.match(source,/این دستگاه یا مرورگر از AR پشتیبانی نمی‌کند/);
 });
 

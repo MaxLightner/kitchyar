@@ -660,3 +660,60 @@ test('a built-in oven stays directly under the hob in the same cabinet, in eithe
    f.startT<=hob.offsetT&&f.endT>=hob.offsetT).length,0,'oven aperture remains uncovered');
  }
 });
+test('dishwasher and washer fit below one uncut full-length worktop and restore facades after deletion',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:8,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:7.8,z:0},{kind:'base'}).items;
+ const cabinet=items.find(o=>o.kind==='cabinet');
+ items=G.placeEquipment(items,{x:2,z:.33},'dishwasher').items;
+ items=G.placeEquipment(items,{x:4,z:.33},'washer').items;
+ assert.equal(items.filter(o=>o.kind==='cabinet').length,1,'machines never split the host cabinet');
+ assert.equal(G.countertopCutouts(items,cabinet).length,0,'the whole stone top is uncut');
+ const fixtures=items.filter(o=>['washer','dishwasher'].includes(o.subtype));
+ for(const e of fixtures){
+  assert.equal(e.hostId,cabinet.id);
+  assert.ok(e.elevation+e.height<=cabinet.elevation+cabinet.height-.019);
+ }
+ items=G.placeFrontLayout(items,cabinet.id,'doors').items;
+ for(const e of fixtures){
+  const now=items.find(o=>o.id===e.id);
+  assert.equal(items.filter(f=>f.kind==='front'&&f.startT<now.offsetT&&f.endT>now.offsetT).length,0);
+ }
+ const moved=G.moveEquipment(items,fixtures[0].id,{x:6,z:.33});
+ items=moved.items;
+ assert.equal(moved.selectedId,fixtures[0].id);
+ assert.equal(items.filter(o=>o.kind==='cabinet').length,1);
+ assert.equal(G.countertopCutouts(items,cabinet).length,0);
+ items=G.removeObject(items,fixtures[0].id).items;
+ assert.ok(items.some(f=>f.kind==='front'&&f.startT<6/7.6&&f.endT>6/7.6),'a missing appliance bay gains cabinet doors');
+});
+test('sink and stove move atomically with fresh cutouts and a hood follows the stove',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:8,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:7.8,z:0},{kind:'base'}).items;
+ const base=items.find(o=>o.kind==='cabinet');
+ items=G.placeEquipment(items,{x:1.3,z:.32},'stove').items;
+ items=G.placeEquipment(items,{x:5.2,z:.32},'sink').items;
+ const stove=items.find(e=>e.subtype==='stove'),hood=items.find(e=>e.subtype==='hood');
+ const before=G.countertopCutouts(items,base).find(c=>c.id===stove.id).left;
+ items=G.moveEquipment(items,stove.id,{x:2.4,z:.32}).items;
+ assert.notEqual(G.countertopCutouts(items,base).find(c=>c.id===stove.id).left,before);
+ assert.equal(items.find(e=>e.id===hood.id).linkedStoveId,stove.id);
+ assert.ok(Math.abs(items.find(e=>e.id===hood.id).x-items.find(e=>e.id===stove.id).x)<.001);
+ const sink=items.find(e=>e.subtype==='sink');
+ items=G.removeObject(items,sink.id).items;
+ assert.equal(G.countertopCutouts(items,base).length,1,'the old sink cutout is healed');
+ assert.throws(()=>G.moveEquipment(items,stove.id,{x:100,z:100}),/کابینت/);
+});
+test('sample kitchen styles recalculate real facade bays without covering appliances',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ for(const sample of ['modern-oak','soft-cream','graphite','walnut-sage']){
+  let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+  items=G.placeCabinet(items,{x:.2,z:0},{x:4.8,z:0},{kind:'base'}).items;
+  items=G.placeEquipment(items,{x:2.1,z:.32},'dishwasher').items;
+  const e=items.find(o=>o.subtype==='dishwasher');
+  items=G.applyKitchenLayout(items,sample).items;
+  assert.ok(items.some(o=>o.kind==='front'));
+  assert.ok(items.every(f=>f.kind!=='front'||!(f.startT<e.offsetT&&f.endT>e.offsetT)));
+ }
+});

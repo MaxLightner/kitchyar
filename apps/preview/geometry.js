@@ -320,6 +320,7 @@ export const FRIDGE_FEET=[18,22,24,28,30,32];
 const FRIDGE_DIMENSIONS={single:{18:[.72,.68,1.75],22:[.76,.70,1.83],24:[.82,.72,1.90],28:[.85,.74,1.93],30:[.88,.75,1.95],32:[.91,.77,1.98]},side:{18:[.84,.70,1.71],22:[.87,.72,1.78],24:[.90,.74,1.80],28:[.92,.77,1.85],30:[.95,.79,1.88],32:[.98,.80,1.90]},combination:{18:[.72,.68,1.76],22:[.76,.70,1.83],24:[.80,.72,1.88],28:[.84,.75,1.94],30:[.88,.77,1.96],32:[.90,.79,1.99]}};
 export const fridgeDimensions=(model='single',feet=24)=>FRIDGE_DIMENSIONS[model]?.[feet]||FRIDGE_DIMENSIONS.single[24];
 const BUILT_IN_TYPES=new Set(['dishwasher','washer','oven']);
+const UNDERCOUNTER_TYPES=new Set(['dishwasher','washer']);
 export const MIN_CABINET_LENGTH=.45;
 
 /* Facade-first design: semantic door/drawer rectangles precede internal carcass units.
@@ -359,9 +360,10 @@ export function frontPose(front,c){
    dimensions remain semantic, independent of future internal cabinet units. */
 function layoutBays(items,c,preset){
  const len=lengthOf(c),fixtures=[];
- if(preset==='smart'||items.some(e=>e.kind==='equipment'&&['sink','oven'].includes(e.subtype)&&e.hostId===c.id)){
-  for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove','oven'].includes(o.subtype))){
-   if(preset!=='smart'&&!['sink','oven'].includes(e.subtype))continue;
+ if(preset==='smart'||items.some(e=>e.kind==='equipment'&&['sink','oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
+  for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove','oven','dishwasher','washer'].includes(o.subtype))){
+   if(preset!=='smart'&&!['sink','oven','dishwasher','washer'].includes(e.subtype))continue;
+   if(['dishwasher','washer','oven'].includes(e.subtype)&&c.subtype!=='base')continue;
    let centre=null;
    if(c.subtype==='base'&&e.hostId===c.id)centre=(e.offsetT??.5)*len;
    if(c.subtype==='upper'&&e.subtype!=='oven'){
@@ -416,7 +418,7 @@ export function planFronts(items,c,preset='doors'){
   const sink=type==='sink',stove=type==='stove';
   const oven=type==='oven'||stove&&items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&
    Math.hypot(e.x-bays[i].e.x,e.z-bays[i].e.z)<.55);
-  if(oven)continue; // Leave a real opening for the oven face.
+  if(oven||['dishwasher','washer'].includes(type))continue; // Keep appliance faces unobstructed.
   const layout=sink&&c.subtype==='base'?'sinkDoors':preset!=='smart'?preset:
    (c.subtype==='upper'&&sink?'lift':
     c.subtype!=='base'?'doors':
@@ -468,6 +470,27 @@ export function planSmartKitchen(source){
  for(const c of cabinetry)validateFronts(items,c);
  return {items,selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
 }
+/* Catalog styles alter actual semantic door/drawer layouts, not just colors. */
+export function applyKitchenLayout(source,styleId){
+ const presets={
+  'modern-oak':{base:'smart',upper:'doors',style:'flat',handle:'hidden',finish:'wood'},
+  'soft-cream':{base:'mixedLower',upper:'doors',style:'frame',handle:'bar',finish:'cream'},
+  graphite:{base:'drawers3',upper:'doors',style:'flat',handle:'hidden',finish:'graphite'},
+  'walnut-sage':{base:'graduated',upper:'doors',style:'flat',handle:'bar',finish:'wood'}
+ };
+ const spec=presets[styleId];if(!spec)throw Error('مدل آشپزخانه انتخاب‌شده معتبر نیست.');
+ const items=copy(source),cabinets=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge');
+ if(!cabinets.length)throw Error('ابتدا کابینت‌ها را نصب کن؛ سپس یکی از مدل‌های گالری را انتخاب کن.');
+ for(const c of cabinets){
+  reflowFronts(items,c,c.subtype==='base'?spec.base:spec.upper);
+  for(const front of items.filter(f=>f.kind==='front'&&f.hostId===c.id)){
+   front.style=spec.style;front.handleStyle=spec.handle;front.finish=spec.finish;
+   delete front.materialId;
+  }
+  validateFronts(items,c);
+ }
+ return {items,selectedId:items.find(f=>f.kind==='front')?.id||cabinets[0].id};
+}
 function reflowFronts(items,c,preset=c?.frontPreset){
  if(!FRONT_PRESETS[preset])return;
  const previous=items.filter(o=>o.kind==='front'&&o.hostId===c.id)
@@ -476,8 +499,10 @@ function reflowFronts(items,c,preset=c?.frontPreset){
  for(let i=0;i<fresh.length;i++)if(previous[i]&&previous[i].subtype===fresh[i].subtype){
   fresh[i].id=previous[i].id;
   fresh[i].finish=previous[i].finish||'cream';
+  if(previous[i].materialId)fresh[i].materialId=previous[i].materialId;
   fresh[i].style=previous[i].style||'flat';
   fresh[i].handleStyle=previous[i].handleStyle||'bar';
+  if(previous[i].grainDirection)fresh[i].grainDirection=previous[i].grainDirection;
  }
  for(let i=items.length-1;i>=0;i--)if(items[i].kind==='front'&&items[i].hostId===c.id)items.splice(i,1);
  items.push(...fresh);
@@ -491,7 +516,7 @@ export function placeFrontLayout(source,cabinetId,preset='doors'){
  validateFronts(items,c);
  return {items,selectedId:items.find(o=>o.kind==='front'&&o.hostId===c.id)?.id||c.id};
 }
-export function editFront(source,id,{width,height,hinge,finish,style,handleStyle}={}){
+export function editFront(source,id,{width,height,hinge,finish,style,handleStyle,materialId,grainDirection}={}){
  const items=copy(source),f=byId(items,id),c=byId(items,f?.hostId);
  if(f?.kind!=='front'||c?.kind!=='cabinet')throw Error('درب یا کشوی معتبر انتخاب نشده است.');
  if(width!==undefined){
@@ -518,6 +543,8 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
  if(finish!==undefined){if(!['cream','wood','graphite'].includes(finish))throw Error('رنگ درب نامعتبر است.');f.finish=finish;}
  if(style!==undefined){if(!['flat','frame'].includes(style))throw Error('سبک درب نامعتبر است.');f.style=style;}
  if(handleStyle!==undefined){if(!['bar','knob','hidden'].includes(handleStyle))throw Error('دستگیره نامعتبر است.');f.handleStyle=handleStyle;}
+ if(materialId!==undefined)f.materialId=materialId||undefined;
+ if(grainDirection!==undefined){if(!['auto','vertical','horizontal'].includes(grainDirection))throw Error('جهت بافت معتبر نیست.');f.grainDirection=grainDirection;}
  c.frontPreset='custom';
  validateFronts(items,c);
  return {items,selectedId:id};
@@ -574,12 +601,12 @@ export function validateEquipmentSpacing(items){
  }
 }
 function syncEquipment(items){
- for(const e of items.filter(o=>o.kind==='equipment'&&o.subtype==='oven'&&o.builtIn&&o.hostId)){
+ for(const e of items.filter(o=>o.kind==='equipment'&&BUILT_IN_TYPES.has(o.subtype)&&o.builtIn&&o.hostId)){
   const c=byId(items,e.hostId);if(!c||c.kind!=='cabinet')continue;
   const t=e.offsetT??.5;
   e.x=c.x1+(c.x2-c.x1)*t;e.z=c.z1+(c.z2-c.z1)*t;
   e.rotation=Math.atan2(c.z2-c.z1,c.x2-c.x1)+(c.side===-1?Math.PI:0);
-  e.elevation=c.elevation+.12;
+  e.elevation=e.subtype==='oven'?c.elevation+.12:Math.max(.005,c.elevation+c.height-e.height-.02);
  }
  for(const e of items.filter(o=>o.kind==='equipment'&&o.subtype!=='fridge'&&o.subtype!=='hood'&&!o.builtIn)){
   const p=equipmentPosition(e,items);
@@ -756,6 +783,28 @@ function embedOven(items,obj,point){
    throw Error('فر با وسیله توکار دیگری تداخل دارد.');
  return true;
 }
+/* A washing machine or dishwasher occupies the front cavity of its cabinet run.
+   Unlike a refrigerator it never deletes/splits the host or its full worktop. */
+function embedUndercounter(items,obj,point){
+ const ranked=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base').map(c=>{
+  const len=lengthOf(c),dx=c.x2-c.x1,dz=c.z2-c.z1;
+  const t=Math.max(0,Math.min(1,((point.x-c.x1)*dx+(point.z-c.z1)*dz)/(len*len)));
+  return {c,t,d:Math.hypot(point.x-c.x1-dx*t,point.z-c.z1-dz*t)};
+ }).filter(v=>v.d<=v.c.depth/2+.22&&lengthOf(v.c)>=obj.width+.04&&v.c.depth>=obj.depth-.035&&
+  v.c.elevation+v.c.height-obj.height-.02>=.005).sort((a,b)=>a.d-b.d);
+ const best=ranked[0];if(!best)return false;
+ const c=best.c,len=lengthOf(c),margin=(obj.width/2+.02)/len;
+ obj.hostId=c.id;obj.offsetT=Math.max(margin,Math.min(1-margin,best.t));
+ obj.builtIn=true;obj.underCounter=true;
+ obj.surround={wallId:c.hostId,side:c.side};
+ syncEquipment([c,obj]); // Position from the host without changing any other object.
+ for(const other of items.filter(e=>e.kind==='equipment'&&['oven','dishwasher','washer','fridge'].includes(e.subtype))){
+  const vertical=Math.min(obj.elevation+obj.height,other.elevation+other.height)-Math.max(obj.elevation,other.elevation);
+  if(vertical>.015&&polygonOverlap(equipmentFootprint(obj),equipmentFootprint(other)))
+   throw Error('فضای زیر صفحه با تجهیزات توکار دیگری اشغال شده است.');
+ }
+ return true;
+}
 export function placeEquipment(source,point,subtype){
  const spec=EQUIPMENT_SPECS[subtype],items=copy(source);
  if(!spec||!finite(point?.x,point?.z))throw Error('محل تجهیزات معتبر نیست.');
@@ -781,10 +830,8 @@ export function placeEquipment(source,point,subtype){
     throw Error('یخچال با تجهیزات دیگر برخورد دارد.');
  }else if(subtype==='oven'){
   if(!embedOven(items,obj,point))throw Error('برای نصب فر توکار، کابینت زمینی با عمق و طول کافی لازم است.');
- }else if(BUILT_IN_TYPES.has(subtype)){
-  if(!embedFridge(items,obj,point))throw Error('برای نصب وسیله توکار، کابینت زمینی و فضای کافی لازم است.');
-  if(items.some(w=>wall(w)&&polygonOverlap(equipmentFootprint(obj),wallFootprint(w))))
-   throw Error('تجهیزات توکار با دیوار تداخل دارند.');
+ }else if(UNDERCOUNTER_TYPES.has(subtype)){
+  if(!embedUndercounter(items,obj,point))throw Error('برای نصب زیرصفحه، کابینت زمینی با ارتفاع و عمق کافی لازم است.');
  }else{
   const bases=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base');
   const ranked=bases.map(c=>{
@@ -801,7 +848,7 @@ export function placeEquipment(source,point,subtype){
     throw Error('این قسمت کابینت قبلاً تجهیزات دارد.');
  }
  items.push(obj);
- if(subtype==='oven'){
+ if(BUILT_IN_TYPES.has(subtype)||['sink','stove'].includes(subtype)){
   const c=byId(items,obj.hostId);
   if(FRONT_PRESETS[c?.frontPreset])reflowFronts(items,c);
  }
@@ -838,7 +885,7 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
  e.width=Number(width??e.width);e.depth=Number(depth??e.depth);e.height=Number(height??e.height);
  if(!finite(e.width,e.depth,e.height)||e.width<.3||e.width>2||e.depth<.2||e.depth>1.3||e.height<.025||e.height>2.7)
   throw Error('ابعاد تجهیزات نامعتبر است.');
- if(e.builtIn){
+ if(e.builtIn&&e.subtype==='fridge'){
   const hostWall=byId(items,e.surround?.wallId);
   if(hostWall){
    const len=lengthOf(hostWall),ux=(hostWall.x2-hostWall.x1)/len,uz=(hostWall.z2-hostWall.z1)/len;
@@ -880,6 +927,9 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
  if(e.hostId){
   const host=byId(items,e.hostId);
   if(!host||e.width>lengthOf(host)-.04)throw Error('عرض تجهیزات از طول کابینت بیشتر است.');
+  if(UNDERCOUNTER_TYPES.has(e.subtype)&&
+   (e.depth>host.depth+.035||e.height>host.elevation+host.height-.025))
+   throw Error('ابعاد ماشین از فضای زیر صفحه کابینت بزرگ‌تر است.');
   const margin=(e.width/2+.02)/lengthOf(host);
   e.offsetT=Math.max(margin,Math.min(1-margin,e.offsetT??.5));
   syncEquipment(items);
@@ -965,10 +1015,53 @@ export function removeObject(source,id){
  if(!target)throw Error('آبجکت پیدا نشد.');
  if(target.subtype==='hood')throw Error('هود همیشه همراه گاز است؛ مدل آن را تغییر بده.');
  const deleted=new Set([id]);let changed=true;
- while(changed){changed=false;for(const o of source)if((o.hostId&&deleted.has(o.hostId)||o.linkedStoveId&&deleted.has(o.linkedStoveId))&&!deleted.has(o.id)){deleted.add(o.id);changed=true;}}
+ while(changed){changed=false;for(const o of source)if((o.hostId&&deleted.has(o.hostId)||o.linkedStoveId&&deleted.has(o.linkedStoveId)||o.overFridgeId&&deleted.has(o.overFridgeId))&&!deleted.has(o.id)){deleted.add(o.id);changed=true;}}
  const items=copy(source).filter(o=>!deleted.has(o.id));
  if(target.kind==='front'){const owner=byId(items,target.hostId);if(owner)owner.frontPreset='custom';}
+ if(target.kind==='equipment'){
+  // Old integrated units and inset refrigerators replaced cabinet geometry;
+  // explicitly restore that missing run on deletion, including its facade.
+  if(target.builtIn&&!target.hostId&&target.surround?.wallId){
+   const wallObj=byId(items,target.surround.wallId),side=target.surround.side;
+   if(wall(wallObj)){
+    const len=lengthOf(wallObj),mid=projectOnWall(wallObj,target.x,target.z).t;
+    const width=target.surround.bayWidth||target.width+.055;
+    const startT=Math.max(0,mid-width/(2*len)),endT=Math.min(1,mid+width/(2*len));
+    const overlap=items.some(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===wallObj.id&&c.side===side&&
+     Math.min(c.endT,endT)-Math.max(c.startT,startT)>.002);
+    const neighbor=items.find(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===wallObj.id&&c.side===side);
+    if(!overlap&&neighbor&&(endT-startT)*len>=MIN_CABINET_LENGTH){
+     const restored={id:uid(),kind:'cabinet',subtype:'base',name:'کابینت زمینی',hostId:wallObj.id,
+      side,startT,endT,depth:neighbor.depth,height:neighbor.height,elevation:neighbor.elevation,frontPreset:'doors'};
+     items.push(restored);syncCabinet(items,restored);reflowFronts(items,restored,'doors');
+    }
+   }
+  }
+  const host=byId(items,target.hostId);
+  if(host?.kind==='cabinet'&&host.subtype==='base'){
+   reflowFronts(items,host,FRONT_PRESETS[host.frontPreset]?host.frontPreset:'doors');
+  }
+ }
  return {items,selectedId:null};
+}
+/* A move is one atomic replacement: clear old cutouts/apertures, relocate, and
+   rebuild front bays. Failure leaves the original project untouched. */
+export function moveEquipment(source,id,point){
+ const original=byId(source,id);
+ if(original?.kind!=='equipment'||original.subtype==='hood')throw Error('برای جابه‌جایی، خود وسیله را انتخاب کن.');
+ const cleared=removeObject(source,id).items;
+ const placed=placeEquipment(cleared,point,original.subtype);
+ const created=byId(placed.items,placed.selectedId);
+ if(!created)throw Error('انتقال تجهیزات انجام نشد.');
+ const createdId=created.id;created.id=id;
+ for(const hood of placed.items.filter(e=>e.linkedStoveId===createdId)){
+  hood.linkedStoveId=id;
+  const oldHood=source.find(e=>e.linkedStoveId===id);
+  if(oldHood){hood.id=oldHood.id;hood.model=oldHood.model;}
+ }
+ const changes={width:original.width,depth:original.depth,height:original.height,model:original.model,
+  induction:original.induction,sinkSize:original.sinkSize,fridgeFeet:original.fridgeFeet};
+ return {...editEquipment(placed.items,id,changes),selectedId:id};
 }
 
 export function editCabinet(source,id,{length,depth,height,elevation}){
