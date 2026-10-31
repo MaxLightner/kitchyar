@@ -118,7 +118,9 @@
     }
     function addWall(parent,item,openings){
       const len=Math.hypot(item.x2-item.x1,item.z2-item.z1);
-      const wallMat=mat(item.color||'#e8e9e4');
+      const frontFacing=((item.x1+item.x2+item.z1+item.z2)/2)>.6;
+      const wallMat=new THREE.MeshStandardMaterial({color:item.color||'#e8e9e4',roughness:.93,
+        metalness:0,transparent:frontFacing,opacity:frontFacing?.22:1,depthWrite:!frontFacing});
       let prev=0;
       for(const opening of openings) {
         const a=opening.offset-opening.width/2,b=opening.offset+opening.width/2;
@@ -129,6 +131,7 @@
         prev=b;
       }
       addBox(parent,item,prev,len,item.thickness,0,item.height,wallMat);
+      if(frontFacing)parent.traverse(mesh=>{if(mesh.isMesh)mesh.castShadow=false;});
       for(const op of openings) {
         const frame=mat(op.openingType==='door'?'#988c77':'#b5bdbc','stone');
         const a=op.offset-op.width/2,b=op.offset+op.width/2;
