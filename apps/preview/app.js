@@ -461,7 +461,8 @@ document.addEventListener('pointerdown',e=>{
  if(mode==='ar'&&floor?.locked&&e.target.closest('.editor-scene')){
   const which=floor.pickCalibrationHandle(e.clientX,e.clientY);
   if(which){
-   abDrag={which,pointerId:e.pointerId};floor.beginCalibrationDrag(e.clientX,e.clientY,which);
+   abDrag={which,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,moved:false};
+   floor.beginCalibrationDrag(e.clientX,e.clientY,which);
    const scene=document.querySelector('.editor-scene');
    try{scene?.setPointerCapture(e.pointerId);}catch{}
    e.preventDefault();return;
@@ -507,7 +508,8 @@ document.addEventListener('pointermove',e=>{
   e.preventDefault();return;
  }
  if(abDrag&&e.pointerId===abDrag.pointerId){
-  floor?.dragCalibrationPoint(e.clientX,e.clientY,abDrag.which);
+  if(Math.hypot(e.clientX-abDrag.startX,e.clientY-abDrag.startY)<5){e.preventDefault();return;}
+  abDrag.moved=true;floor?.dragCalibrationPoint(e.clientX,e.clientY,abDrag.which);
   e.preventDefault();return;
  }
  if(dragHandle){

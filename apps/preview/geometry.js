@@ -516,6 +516,8 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
  if(e.hostId){
   const host=byId(items,e.hostId);
   if(!host||e.width>lengthOf(host)-.04)throw Error('عرض تجهیزات از طول کابینت بیشتر است.');
+  const margin=(e.width/2+.02)/lengthOf(host);
+  e.offsetT=Math.max(margin,Math.min(1-margin,e.offsetT??.5));
   syncEquipment(items);
  }
  validateEquipmentSpacing(items);
