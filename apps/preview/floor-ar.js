@@ -3,8 +3,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render14';
-import {neighborGaps} from './edit-handles.js?v=render14';
+import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render15';
+import {neighborGaps} from './edit-handles.js?v=render15';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -12,7 +12,7 @@ export class FloorAR {
   Object.assign(this,{root,update,exit,session:null,renderer:null,locked:false,current:null,origin:null});
   this.scanner=new FloorScanner();this.rig=new AnchorStabilizer();this.sources=[];this.anchors=[];
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
-   this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;
+   this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;this.calibrationOffset=null;this.savedCalibration=null;
    this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10};
  }
  report(message,extra={}){
@@ -144,12 +144,30 @@ export class FloorAR {
   this.whiteFloor.visible=true;this.shadowFloor.visible=true;
   this.marks.forEach(m=>m.visible=false);
   this.candidates=[this.origin.clone(),...this.scanner.observations.map(p=>p.clone())];
-  this.points={a:new THREE.Vector3(-.5,0,.65),b:new THREE.Vector3(.5,0,.65)};
+  this.points=this.savedCalibration?{
+    a:new THREE.Vector3(this.savedCalibration.a.x,0,this.savedCalibration.a.z),
+    b:new THREE.Vector3(this.savedCalibration.b.x,0,this.savedCalibration.b.z)
+   }:{a:new THREE.Vector3(-.5,0,.65),b:new THREE.Vector3(.5,0,.65)};
   this.drawRuler();
   this.report('کف تثبیت شد. A یا B را با نشانگر جابه‌جا کن؛ شبکه هم‌جهت می‌شود.',{progress:100});
   return true;
  }
- capture(which){
+ setCalibration(points,apply=false){
+   if(!points?.a||!points?.b||![points.a.x,points.a.z,points.b.x,points.b.z].every(Number.isFinite)||
+    Math.hypot(points.b.x-points.a.x,points.b.z-points.a.z)<.10)return false;
+   this.savedCalibration={a:{x:points.a.x,z:points.a.z},b:{x:points.b.x,z:points.b.z}};
+   if(apply&&this.locked){
+    this.points={a:new THREE.Vector3(points.a.x,0,points.a.z),b:new THREE.Vector3(points.b.x,0,points.b.z)};
+    this.drawRuler();
+   }
+   return true;
+  }
+  calibrationSnapshot(){
+   return this.points.a&&this.points.b?{
+    a:{x:this.points.a.x,z:this.points.a.z},b:{x:this.points.b.x,z:this.points.b.z}
+   }:null;
+  }
+  capture(which){
   if(!this.locked||!this.current)return false;
   this.floorGroup.updateWorldMatrix(true,false);
   this.points[which]=this.floorGroup.worldToLocal(this.current.clone());
@@ -364,42 +382,95 @@ export class FloorAR {
   }else if(obj.kind==='cabinet'){
    const w=items.find(x=>x.id===obj.hostId);if(!w)return;
    const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
-   const nx=-uz,nz=ux,offset=(obj.side||1)*obj.depth/2+.05;
+   const nx=-uz,nz=ux,offset=(obj.side||1)*(w.thickness/2+.004+obj.depth/2);
    for(const [side,t] of [['start',obj.startT],['end',obj.endT]])
     mark(side,w.x1+ux*t*len+nx*offset,obj.elevation+obj.height/2,
      w.z1+uz*t*len+nz*offset,0x64d2a5);
+    const centre=(obj.startT+obj.endT)*len/2;
+    mark('top',w.x1+ux*centre+nx*offset,obj.elevation+obj.height+.015,
+     w.z1+uz*centre+nz*offset,0xe9ad63);
+    mark('bottom',w.x1+ux*centre+nx*offset,obj.elevation,
+     w.z1+uz*centre+nz*offset,0x61b5c1);
   }else if(obj.kind==='wall'){
    mark('start',obj.x1,.15,obj.z1,0x64d2a5);
    mark('end',obj.x2,.15,obj.z2,0x64d2a5);
   }
  }
  pickCalibrationHandle(clientX,clientY){
-  if(!this.locked||!this.ruler?.visible)return null;
+  if(!this.locked||!this.ruler?.visible||!this.lastPose||!this.renderer)return null;
+  // Chido's screen-space hit testing tolerates fingers over the visible A/B badges,
+  // even where a world-space XR ray misses their small physical spheres.
+  const view=this.lastPose.views?.[0],rect=this.renderer.domElement.getBoundingClientRect();
+  if(view&&rect.width&&rect.height){
+   this.floorGroup.updateWorldMatrix(true,true);
+   const cameraView=new THREE.Matrix4().fromArray(view.transform.inverse.matrix),
+    projection=new THREE.Matrix4().fromArray(view.projectionMatrix);
+   let nearest=null,distance=54;
+   for(const [name,mark] of [['a',this.markA],['b',this.markB]]){
+    if(!mark?.visible)continue;
+    for(const height of [0,.16]){
+     const world=mark.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0,height,0));
+     const clip=world.applyMatrix4(cameraView).applyMatrix4(projection);
+     if(clip.z<-.8||clip.z>1.1||Math.abs(clip.x)>1.2||Math.abs(clip.y)>1.2)continue;
+     const sx=rect.left+(clip.x+1)*rect.width/2,sy=rect.top+(1-clip.y)*rect.height/2;
+     const d=Math.hypot(sx-clientX,sy-clientY);
+     if(d<distance){distance=d;nearest=name;}
+    }
+   }
+   if(nearest)return nearest;
+  }
   const ray=this._rayFromTouch(clientX,clientY);if(!ray)return null;
-  this.floorGroup.updateWorldMatrix(true,true);
   const hit=new THREE.Raycaster(ray.origin,ray.direction,.04,12)
-   .intersectObjects([this.markA,this.markB],true);
-  return hit.find(h=>h.object.userData.calibration||h.object.parent?.userData.calibration)?.object.userData.calibration||
-   hit.find(h=>h.object.parent?.userData.calibration)?.object.parent.userData.calibration||null;
+   .intersectObjects([this.markA,this.markB],true)[0];
+  return hit?.object.userData.calibration||hit?.object.parent?.userData.calibration||null;
  }
- dragCalibrationPoint(clientX,clientY,which){
+ _calibrationFloorPoint(clientX,clientY){
   const ray=this._rayFromTouch(clientX,clientY);
-  if(!ray||!this.locked||!['a','b'].includes(which)||Math.abs(ray.direction.y)<.001)return false;
+  if(!ray||!this.locked||Math.abs(ray.direction.y)<.001)return null;
   this.floorGroup.updateWorldMatrix(true,false);
   const y=this.floorGroup.getWorldPosition(new THREE.Vector3()).y;
   const distance=(y-ray.origin.y)/ray.direction.y;
-  if(distance<.05||distance>14)return false;
+  if(distance<.05||distance>14)return null;
   const local=this.floorGroup.worldToLocal(ray.at(distance,new THREE.Vector3()));
-  local.y=0;this.points[which]=local;this.drawRuler();
+  local.y=0;return local;
+ }
+ beginCalibrationDrag(clientX,clientY,which){
+  this.calibrationOffset=null;
+  const at=this._calibrationFloorPoint(clientX,clientY),old=this.points[which];
+  if(at&&old)this.calibrationOffset=old.clone().sub(at);
+ }
+ endCalibrationDrag(){this.calibrationOffset=null;}
+ dragCalibrationPoint(clientX,clientY,which){
+  const local=this._calibrationFloorPoint(clientX,clientY);
+  if(!local||!['a','b'].includes(which))return false;
+  if(this.calibrationOffset)local.add(this.calibrationOffset);
+  const other=this.points[which==='a'?'b':'a'];
+  if(other&&local.distanceTo(other)<.1)return false;
+  this.points[which]=local;this.drawRuler();
   this.report('نقطه '+which.toUpperCase()+' جابه‌جا شد؛ جهت شبکه همزمان تنظیم شد.',{
    distance:this.points.a&&this.points.b?this.points.a.distanceTo(this.points.b):null});
   return true;
  }
  pickHandle(clientX,clientY){
-  const ray=this._rayFromTouch(clientX,clientY);if(!ray||!this.editGroup)return null;
-  this.floorGroup.updateWorldMatrix(true,true);
-  const hits=new THREE.Raycaster(ray.origin,ray.direction,.04,15).intersectObjects(this.editGroup.children,true);
-  return hits[0]?.object.userData.editHandle||null;
+  if(!this.editGroup||!this.lastPose||!this.renderer)return null;
+  const view=this.lastPose.views?.[0],rect=this.renderer.domElement.getBoundingClientRect();
+  if(view&&rect.width&&rect.height){
+   this.floorGroup.updateWorldMatrix(true,true);
+   const cameraView=new THREE.Matrix4().fromArray(view.transform.inverse.matrix),
+    projection=new THREE.Matrix4().fromArray(view.projectionMatrix);
+   let nearest=null,distance=43;
+   for(const marker of this.editGroup.children){
+    const pos=marker.getWorldPosition(new THREE.Vector3()).applyMatrix4(cameraView).applyMatrix4(projection);
+    if(pos.z<-.8||pos.z>1.1||Math.abs(pos.x)>1.2||Math.abs(pos.y)>1.2)continue;
+    const sx=rect.left+(pos.x+1)*rect.width/2,sy=rect.top+(1-pos.y)*rect.height/2;
+    const d=Math.hypot(sx-clientX,sy-clientY);
+    if(d<distance){distance=d;nearest=marker.userData.editHandle;}
+   }
+   if(nearest)return nearest;
+  }
+  const ray=this._rayFromTouch(clientX,clientY);if(!ray)return null;
+  return new THREE.Raycaster(ray.origin,ray.direction,.04,15)
+   .intersectObjects(this.editGroup.children,true)[0]?.object.userData.editHandle||null;
  }
  dragHandlePoint(clientX,clientY,id){
   const ray=this._rayFromTouch(clientX,clientY),o=this.items.find(x=>x.id===id);
@@ -407,7 +478,7 @@ export class FloorAR {
   const w=o.kind==='wall'?o:this.items.find(x=>x.id===o.hostId);if(!w)return null;
   const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
   const nx=-uz,nz=ux,offset=o.kind==='opening'?w.thickness/2+.06:
-   o.kind==='cabinet'?(o.side||1)*o.depth/2+.05:0;
+   o.kind==='cabinet'?(o.side||1)*(w.thickness/2+.004+o.depth/2):0;
   this.floorGroup.updateWorldMatrix(true,false);
   const inverse=this.floorGroup.matrixWorld.clone().invert();
   const from=ray.origin.clone().applyMatrix4(inverse),
@@ -477,6 +548,8 @@ export class FloorAR {
    const len=Math.hypot(o.x2-o.x1,o.z2-o.z1),angle=Math.atan2(o.z2-o.z1,o.x2-o.x1);
    box(len,o.height,o.depth,(o.x1+o.x2)/2,o.elevation+o.height/2,(o.z1+o.z2)/2,angle);
    label('طول '+len.toFixed(2)+' m',(o.x1+o.x2)/2,o.elevation+o.height+.24,(o.z1+o.z2)/2);
+    label('ارتفاع '+o.height.toFixed(2)+' m',(o.x1+o.x2)/2+.26,o.elevation+o.height/2,(o.z1+o.z2)/2+.24);
+    label('از کف '+o.elevation.toFixed(2)+' m',(o.x1+o.x2)/2-.26,Math.max(.17,o.elevation/2),(o.z1+o.z2)/2-.24);
   }else if(o.kind==='wall'){
    const len=Math.hypot(o.x2-o.x1,o.z2-o.z1);
    box(len,o.height,o.thickness,(o.x1+o.x2)/2,o.height/2,(o.z1+o.z2)/2,Math.atan2(o.z2-o.z1,o.x2-o.x1));
@@ -520,8 +593,8 @@ export class FloorAR {
   }
   if(changed)this.rebuildObjects();
  }
- setDrawing(start,kind){
-  this.drawing=kind?{start,kind}:null;
+ setDrawing(start,kind,options={}){
+  this.drawing=kind?{start,kind,...options}:null;
   if(!kind&&this.previewGroup)this.previewGroup.visible=false;
  }
  updatePreview(){
@@ -536,7 +609,7 @@ export class FloorAR {
    const snapped=snapCabinetPoint(this.items,p.x,p.z,.85);
    const route=snapped?cabinetPath(this.items,a,snapped):null;
    if(!route){group.visible=false;return;}
-   const upper=kind==='upper',depth=upper?.35:.60,elevation=upper?1.55:.08,high=upper?.72:.78;
+   const upper=kind==='upper',depth=upper?.35:.60,elevation=upper?(this.drawing.elevation??1.55):.08,high=upper?(this.drawing.height??.72):.78;
    for(let i=0;i<route.segments.length;i++){
     const seg=route.segments[i],w=this.items.find(o=>o.id===seg.wallId);
     if(!w)continue;
@@ -606,13 +679,13 @@ export class FloorAR {
     from=a?project(a):project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
     to=project(p);
     if(kind==='upper')try{
-     const t=limitCabinetEnd(this.items,host,from.t,to.t,{kind:'upper'});
+     const t=limitCabinetEnd(this.items,host,from.t,to.t,{kind:'upper',height:this.drawing.height??.72,elevation:this.drawing.elevation??1.55});
      to=project({x:host.x1+t*(host.x2-host.x1),z:host.z1+t*(host.z2-host.z1)});
     }catch{group.visible=false;return;}
     if(!a&&Math.hypot(to.x-from.x,to.z-from.z)<.3){
      from=project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
     }
-    width=kind==='upper'?.35:.60;level=kind==='upper'?1.55:.08;height=kind==='upper'?.72:.78;colour=kind==='upper'?0xe5c79a:0xbca289;
+    width=kind==='upper'?.35:.60;level=kind==='upper'?(this.drawing.elevation??1.55):.08;height=kind==='upper'?(this.drawing.height??.72):.78;colour=kind==='upper'?0xe5c79a:0xbca289;
     const nx=-(host.z2-host.z1)/len*(a?.side||1),nz=(host.x2-host.x1)/len*(a?.side||1);
     const offset=host.thickness/2+.004+width/2;
     from={x:from.x+nx*offset,z:from.z+nz*offset};

@@ -148,8 +148,10 @@ test('UI font sizes are at least 15px and drawing controls belong to bottom pane
  const css=source('styles.css'),app=source('app.js');
  for(const match of css.matchAll(/font(?:-size)?:\s*(\d+(?:\.\d+)?)px/g))
   assert.ok(Number(match[1])>=15,'font below 15px: '+match[0]);
- for(const action of ['record-start','record-end','cancel-start','finish-line'])
+ for(const action of ['confirm-drawing','cancel-drawing'])
   assert.match(app,new RegExp('data-action="'+action+'"'));
+ for(const action of ['record-start','record-end','cancel-start','finish-line'])
+  assert.doesNotMatch(app,new RegExp('data-action="'+action+'"'));
  assert.match(app,/id="draw-controls"/);
  assert.match(app,/data-render="sunAzimuth"/);
 });
@@ -305,11 +307,71 @@ test('fridge snaps behind a wall face and rejects cabinet collision',async()=>{
 test('UI renders bottom controls, direct A/B drag, live corner ghost, and equipment model picker',()=>{
  const app=source('app.js'),floor=source('floor-ar.js'),plan=source('plan-view.js'),css=source('styles.css');
  assert.ok(app.indexOf('class="bottom-panel"')<app.indexOf('id="draw-controls"'));
- assert.match(app,/const single=\['window','door','fridge','stove','sink'\]/);
+ assert.match(app,/controls\.hidden=!drawing;/);
  assert.match(app,/data-action="equipment-model"/);
  assert.match(floor,/pickCalibrationHandle\(clientX,clientY\)/);
  assert.match(floor,/dragCalibrationPoint\(clientX,clientY,which\)/);
  assert.match(floor,/cabinetPath\(this\.items,a,snapped\)/);
  assert.match(plan,/cabinetPath\(items,start,target\)/);
  assert.match(css,/\.bottom-panel \.draw-controls/);
+});
+
+test('new drawing confirmation/cancellation flow covers walls, cabinets and equipment',()=>{
+ const app=source('app.js'),css=source('styles.css');
+ assert.match(app,/if\(action==='confirm-drawing'\)/);
+ assert.match(app,/if\(action==='cancel-drawing'\)/);
+ assert.match(app,/return placeAt\(point\)/);
+ assert.match(app,/if\(mode==='2d'\)return hover\|\|null/);
+ assert.match(app,/\['wall','base','upper'\]\.includes\(drawing\.tool\)/);
+ assert.match(css,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+ assert.match(app,/controls\.hidden=!drawing;/);
+ assert.doesNotMatch(app,/controls\.hidden=!drawing\|\|single/);
+});
+test('on-scene calibration grips rotate the 2D grid and persist AB across reopening',()=>{
+ const app=source('app.js'),plan=source('plan-view.js'),floor=source('floor-ar.js');
+ assert.match(plan,/patternTransform=/);
+ assert.match(plan,/data-calibration=/);
+ assert.match(app,/planCalibrationDrag/);
+ assert.match(app,/p\.scene\.calibration/);
+ assert.match(floor,/this\.net\.rotation\.z=-this\.gridYaw/);
+ assert.match(floor,/view\.transform\.inverse\.matrix/);
+ assert.match(floor,/beginCalibrationDrag/);
+ assert.match(floor,/calibrationSnapshot/);
+ assert.match(floor,/calibrationOffset/);
+});
+test('floor scanning restart remains accessible after leaving and returning to a project',()=>{
+ const app=source('app.js'),css=source('styles.css');
+ assert.match(app,/data-action="rescan">شروع \/ اسکن دوبارهٔ کف/);
+ assert.match(app,/if\(action==='rescan'\)/);
+ assert.match(app,/if\(floor\?\.session\)\{await floor\.scan\(\);\}/);
+ assert.match(app,/else \{if\(floor\)\{floor\.cleanup\(\);floor=null;\}beginAR\(\);\}/);
+ assert.match(app,/if\(floor!==instance\)return/);
+ assert.match(css,/\.scan-card \.scan-restart/);
+});
+test('installed upper cabinets support 1cm top, sill and endpoint edits',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ const H=await import('../apps/preview/edit-handles.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinetRoute(items,G.snapCabinetPoint(items,.5,0),G.snapCabinetPoint(items,2,0),
+  {kind:'upper',height:.84,elevation:1.4}).items;
+ const cabinet=items.find(x=>x.kind==='cabinet');
+ assert.equal(cabinet.height,.84);assert.equal(cabinet.elevation,1.4);
+ let raised=H.resizeFromHandle(items,cabinet.id,'top',{y:2.493}).items.find(x=>x.id===cabinet.id);
+ assert.equal(raised.height,1.09);assert.equal(raised.elevation,1.4);
+ let moved=H.resizeFromHandle(items,cabinet.id,'bottom',{y:1.6}).items.find(x=>x.id===cabinet.id);
+ assert.equal(moved.elevation,1.6);assert.equal(moved.height,.64);
+ let grown=H.resizeFromHandle(items,cabinet.id,'end',{along:2.2}).items.find(x=>x.id===cabinet.id);
+ assert.ok(Math.abs(G.lengthOf(grown)-1.7)<.01);
+ const panel=H.renderCabinetElevation(items,cabinet);
+ assert.match(panel,/data-open-handle="top"/);
+ assert.match(panel,/data-open-handle="bottom"/);
+});
+test('touch handles have large targets for selected cabinets and height editing',()=>{
+ const plan=source('plan-view.js'),app=source('app.js'),floor=source('floor-ar.js');
+ assert.match(plan,/class="resize-handle"/);
+ assert.match(plan,/r="\.22"/);
+ assert.match(app,/renderCabinetElevation/);
+ assert.match(floor,/mark\('top'/);
+ assert.match(floor,/mark\('bottom'/);
+ assert.match(floor,/distance=43/);
 });

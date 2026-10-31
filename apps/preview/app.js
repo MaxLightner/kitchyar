@@ -1,14 +1,14 @@
-import {FloorAR} from './floor-ar.js?v=render14';
-import * as Geo from './geometry.js?v=render14';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render14';
-import {resizeFromHandle,handlePosition,renderElevation} from './edit-handles.js?v=render14';
+import {FloorAR} from './floor-ar.js?v=render15';
+import * as Geo from './geometry.js?v=render15';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render15';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation} from './edit-handles.js?v=render15';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=value=>new Date(value).toLocaleDateString('fa-IR',{year:'numeric',month:'short',day:'numeric'});
 let projects=[],floor=null,mode='ar',activeTool=null,activeId=null,toastTimer=null,loadError=null;
-let selection=null,drawing=null,hover=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null;
-const settings={thickness:.12,height:2.8,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35};
+let selection=null,drawing=null,hover=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null,planCalibrationDrag=null;
+const settings={thickness:.12,height:2.8,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.72,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10};
 const renderSettings=()=>({...defaultRender,...currentProject()?.scene?.render});
 try{
@@ -30,7 +30,7 @@ function go(hash,autoAR=false){
 function closeFloor(){const old=floor;floor=null;if(old)old.stop();}
 function createProject(){
  const now=new Date().toISOString();
- const p={id:uid(),name:'آشپزخانه جدید',createdAt:now,updatedAt:now,scene:{items:[],render:{...defaultRender}},revision:0};
+ const p={id:uid(),name:'آشپزخانه جدید',createdAt:now,updatedAt:now,scene:{items:[],render:{...defaultRender},calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}}},revision:0};
  projects.unshift(p);save();go('#/editor/'+p.id,true);
 }
 function welcome(){
@@ -51,13 +51,13 @@ function editorPage(id){
  activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;undoStack=[];redoStack=[];
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
- '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">اسکن مجدد ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
+ '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
  '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
- '<section class="scan-card" id="scan-card"><div class="scan-head"><strong id="scan-stage">در انتظار اسکن کف</strong><span id="scan-pct">۰٪</span></div><progress id="scan-progress" max="100" value="0"></progress><small>آمادگی بر اساس برخوردهای معتبر و نمونه‌های مستقل است؛ درصد ARCore نیست.</small><div class="scan-info"><span id="scan-hits">برخورد معتبر: ۰</span><span id="anchor-count">Anchor: ۰ / ۵</span></div></section>'+
- '<div class="scan-confirm"><button class="primary" id="confirm-floor" data-action="confirm-floor" disabled>تثبیت این کف</button><div id="calibration" hidden><div class="point-row"><button data-action="point-a">ثبت A</button><button data-action="point-b">ثبت B</button></div><label>فاصله واقعی A تا B (متر)<input type="number" id="real-distance" value="1" min=".1" max="20" step=".01"></label><button data-action="apply-distance">اعمال مقیاس</button></div></div>'+
+ '<section class="scan-card" id="scan-card"><button class="scan-restart" data-action="rescan">شروع / اسکن دوبارهٔ کف ↻</button><div class="scan-head"><strong id="scan-stage">در انتظار اسکن کف</strong><span id="scan-pct">۰٪</span></div><progress id="scan-progress" max="100" value="0"></progress><small>آمادگی بر اساس برخوردهای معتبر و نمونه‌های مستقل است؛ درصد ARCore نیست.</small><div class="scan-info"><span id="scan-hits">برخورد معتبر: ۰</span><span id="anchor-count">Anchor: ۰ / ۵</span></div></section>'+
+ '<div class="scan-confirm"><button class="primary" id="confirm-floor" data-action="confirm-floor" disabled>تثبیت این کف</button><div id="calibration" hidden><p class="calibration-help">A و B را روی صحنه بگیر و بکش؛ جهت شبکه همان لحظه تغییر می‌کند.</p><label>فاصله واقعی A تا B (متر)<input type="number" id="real-distance" value="1" min=".1" max="20" step=".01"></label><button data-action="apply-distance">اعمال مقیاس</button></div></div>'+
  '<div class="side-tools"><div class="side-basic"><button data-action="select" aria-label="انتخاب">⌖</button><button data-action="undo" disabled aria-label="بازگشت تغییر">↶</button><button data-action="redo" disabled aria-label="انجام دوباره">↷</button></div></div><div class="aim-marker" id="aim-marker" hidden><span>＋</span><small id="aim-label">محل ترسیم</small></div>'+
  '<div class="mini-map"><span>پلان زنده</span><div id="mini-plan" class="mini-plan"></div><small id="item-count">هنوز آبجکتی در صحنه نیست</small></div>'+
- '<aside class="object-editor" id="object-editor" hidden></aside><div class="bottom-panel"><div id="draw-controls" class="draw-controls" hidden><strong>کنترل ترسیم</strong><button data-action="record-start">ثبت نقطه شروع</button><button class="primary" data-action="record-end">ثبت نقطه پایان / نصب</button><button data-action="cancel-start">لغو نقطه شروع</button><button data-action="finish-line">پایان ترسیم</button></div><div class="tool-sheet" id="tool-sheet" hidden></div><nav class="dock">'+categories.map(([id,name,icon])=>'<button data-action="category" data-category="'+id+'"><span>'+icon+'</span><small>'+name+'</small></button>').join('')+'</nav></div>'+
+ '<aside class="object-editor" id="object-editor" hidden></aside><div class="bottom-panel"><div id="draw-controls" class="draw-controls" hidden><button class="primary" data-action="confirm-drawing">تأیید</button><button data-action="cancel-drawing">لغو</button></div><div class="tool-sheet" id="tool-sheet" hidden></div><nav class="dock">'+categories.map(([id,name,icon])=>'<button data-action="category" data-category="'+id+'"><span>'+icon+'</span><small>'+name+'</small></button>').join('')+'</nav></div>'+
  '</main>';
  showScene();
 }
@@ -70,6 +70,8 @@ function render(){
 }
 function arUpdate(data){
  const msg=document.getElementById('scan-status');if(!msg)return;
+ if(data.calibration){const p=currentProject();if(p){p.scene.calibration=data.calibration;save();}}
+ if(!data.locked){document.getElementById('editor-root')?.classList.remove('floor-locked');document.getElementById('scan-card')?.classList.remove('complete');}
  msg.textContent=data.message+(data.depth?' · اکلوژن عمق واقعی فعال':'');
  const stage=document.getElementById('scan-stage');
  stage.textContent=data.locked?'کف تثبیت شده':data.ready?'کف آماده تثبیت':'در حال شناسایی کف';
@@ -88,14 +90,18 @@ function arUpdate(data){
 function beginAR(){
  if(!document.getElementById('editor-root')||mode!=='ar')return;
  if(floor?.session)return;
- floor=new FloorAR(document.getElementById('editor-root'),arUpdate,()=>{
-  document.getElementById('editor-root')?.classList.remove('ar-live');
-  if(mode==='ar')document.getElementById('scan-status').textContent='جلسه AR بسته شد.';
- });
- floor.setItems(currentItems(),selection);floor.setLighting(renderSettings());
- const pending=floor.start();
- pending.then(()=>{document.getElementById('editor-root')?.classList.add('ar-live');})
+ const instance=new FloorAR(document.getElementById('editor-root'),
+   data=>{if(floor===instance)arUpdate(data);},()=>{
+    if(floor!==instance)return;
+    document.getElementById('editor-root')?.classList.remove('ar-live');
+    if(mode==='ar')document.getElementById('scan-status').textContent='جلسه AR بسته شد.';
+   });
+  floor=instance;
+  instance.setItems(currentItems(),selection);instance.setLighting(renderSettings());instance.setCalibration(currentProject()?.scene?.calibration);
+  const pending=instance.start();
+ pending.then(()=>{if(floor===instance)document.getElementById('editor-root')?.classList.add('ar-live');})
   .catch(error=>{
+   if(floor!==instance)return;
    const detail=String(error?.message||'');
    const unsupported=/not supported|no XR hardware|not found|not available|unsupported/i.test(detail);
    document.getElementById('scan-status').textContent=unsupported?'این دستگاه یا مرورگر از AR پشتیبانی نمی‌کند. برای شناسایی کف، Chrome در گوشی سازگار با ARCore را باز کن.':'راه‌اندازی AR ناموفق بود: '+detail;
@@ -135,7 +141,7 @@ function drawTools(){
   (activeTool==='equipment'?'<p class="equipment-help">یخچال روی کف قرار می‌گیرد؛ گاز و سینک روی کابینت زمینی نصب می‌شوند.</p>':wallTools?'<div class="tool-settings"><label>ضخامت دیوار (متر)<input data-setting="thickness" type="number" min=".07" max=".8" step=".01" value="'+settings.thickness+'"></label>'+
    '<label>ارتفاع (متر)<input data-setting="height" type="number" min=".4" max="9" step=".1" value="'+settings.height+'"></label></div>':
    '<div class="tool-settings"><label>عمق زمینی (متر)<input data-setting="baseDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.baseDepth+'"></label>'+
-   '<label>عمق هوایی (متر)<input data-setting="upperDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.upperDepth+'"></label></div>')+
+   '<label>عمق هوایی (متر)<input data-setting="upperDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.upperDepth+'"></label>'+'<label>ارتفاع کابینت هوایی (متر)<input data-setting="upperHeight" type="number" min=".25" max="1.8" step=".01" value="'+settings.upperHeight+'"></label>'+'<label>ارتفاع نصب از کف (متر)<input data-setting="upperElevation" type="number" min="0" max="3" step=".01" value="'+settings.upperElevation+'"></label></div>')+
   '<div class="snap-options"><label><input type="checkbox" data-setting="pointSnap" '+(settings.pointSnap?'checked':'')+'> اسنپ نقطه</label>'+
   '<label><input type="checkbox" data-setting="angleSnap" '+(settings.angleSnap?'checked':'')+'> زاویه ۴۵°</label>'+
   '<label><input type="checkbox" data-setting="gridSnap" '+(settings.gridSnap?'checked':'')+'> شبکه ۱۰ سانتی</label>'+
@@ -172,7 +178,7 @@ function showScene(){
  const items=currentItems(),host=document.getElementById('plan-host');
  const isPlan=mode==='2d';host.hidden=!isPlan;
  if(isPlan){
-  host.innerHTML=renderPlan(items,{selectedId:selection,drawing,hover});
+  host.innerHTML=renderPlan(items,{selectedId:selection,drawing:drawing?{...drawing,height:settings.upperHeight,elevation:settings.upperElevation}:null,hover,calibration:currentProject()?.scene?.calibration});
   document.getElementById('scene-message').classList.add('hide-for-plan');
  }else {
   host.innerHTML='';
@@ -180,11 +186,11 @@ function showScene(){
  }
  const elevation=document.getElementById('elevation-panel');
  if(elevation){
-  const opening=items.find(o=>o.id===selection&&o.kind==='opening');
-  elevation.hidden=!isPlan||!opening||!!drawing;
-  elevation.innerHTML=elevation.hidden?'':renderElevation(items,opening);
+  const selected=items.find(o=>o.id===selection&&['opening','cabinet'].includes(o.kind));
+   elevation.hidden=!isPlan||!selected||!!drawing;
+   elevation.innerHTML=elevation.hidden?'':selected.kind==='opening'?renderElevation(items,selected):renderCabinetElevation(items,selected);
  }
- document.getElementById('mini-plan').innerHTML=renderPlan(items,{mini:true});
+ document.getElementById('mini-plan').innerHTML=renderPlan(items,{mini:true,calibration:currentProject()?.scene?.calibration});
  document.getElementById('item-count').textContent=items.length?num(items.length,0)+' عنصر در صحنه':'هنوز آبجکتی در صحنه نیست';
  const hint=document.getElementById('drawing-hint');
  hint.hidden=!drawing;
@@ -192,18 +198,16 @@ function showScene(){
   const name={wall:'دیوار',window:'پنجره ثابت',door:'در',base:'کابینت زمینی',upper:'کابینت هوایی',fridge:'یخچال',stove:'اجاق گاز',sink:'سینک'}[drawing.tool];
   const length=drawing.start&&hover?Math.hypot(hover.x-drawing.start.x,hover.z-drawing.start.z):null;
   const singleTap=['window','door','fridge','stove','sink'].includes(drawing.tool);
-  hint.textContent=name+' — '+(singleTap?'پیش‌نمایش را نشانه بگیر و برای نصب یک‌بار لمس کن':drawing.start?'نقطه پایان را ثبت کن':'پیش‌نمایش را بررسی و نقطه شروع را ثبت کن')+
+  hint.textContent=name+' — '+(singleTap?'روی پیش‌نمایش لمس کن یا «تأیید» بزن':drawing.start?'نقطه پایان را نشانه بگیر و «تأیید» بزن':'نقطه شروع را نشانه بگیر و «تأیید» بزن')+
    (length!==null?' · '+num(length)+' متر':'');
  }
  floor?.setItems(items,selection);
- floor?.setDrawing(drawing?.start||null,drawing?.tool);
+ floor?.setDrawing(drawing?.start||null,drawing?.tool,{height:settings.upperHeight,elevation:settings.upperElevation});
  floor?.setLighting(renderSettings());
  const controls=document.getElementById('draw-controls');if(controls){
-  const single=['window','door','fridge','stove','sink'].includes(drawing?.tool);
-  controls.hidden=!drawing||single;
-  controls.querySelector('[data-action="record-start"]').disabled=!drawing||!!drawing.start||single;
-  controls.querySelector('[data-action="record-end"]').disabled=!drawing||(!drawing.start&&!single);
-  controls.querySelector('[data-action="record-end"]').textContent=single?'نصب / افزودن':'ثبت نقطه پایان';
+  controls.hidden=!drawing;
+  controls.querySelector('[data-action="confirm-drawing"]').disabled=!drawing;
+  controls.querySelector('[data-action="confirm-drawing"]').title=drawing?.start?'ثبت انتهای قطعه و ادامهٔ مسیر':'تأیید محل نشانگر';
  }
  const marker=document.getElementById('aim-marker');if(marker){
   marker.hidden=!drawing||mode!=='ar';
@@ -271,7 +275,7 @@ function placeAt(point){
   const near=Geo.nearestWall(items,point.x,point.z,.60);
   if(!near){tell('برای نصب در یا پنجره باید نشانگر روی دیوار باشد.');return;}
   const result=Geo.placeOpening(items,near.wall.id,point.x,point.z,{style:tool==='door'?'door':'fixed'});
-  commitChange(result);drawing={tool,start:null};showScene();return;
+  commitChange(result);drawing={tool,start:null};hover=initialPreviewForTool(tool);showScene();return;
  }
  if(!drawing.start){
   if(tool==='base'||tool==='upper'){
@@ -296,18 +300,12 @@ function placeAt(point){
  }
  const result=tool==='wall'?Geo.placeWall(items,a,b,{thickness:settings.thickness,height:settings.height}):
   Geo.placeCabinetRoute(items,a,b,{kind:tool==='upper'?'upper':'base',
-   depth:tool==='upper'?settings.upperDepth:settings.baseDepth,groupId:drawing.groupId});
- commitChange(result);drawing={tool,start:result.end,groupId:result.groupId||drawing.groupId};hover=null;showScene();
+   depth:tool==='upper'?settings.upperDepth:settings.baseDepth,height:tool==='upper'?settings.upperHeight:undefined,elevation:tool==='upper'?settings.upperElevation:undefined,groupId:drawing.groupId});
+ commitChange(result);drawing={tool,start:result.end,groupId:result.groupId||drawing.groupId};hover=result.end||null;showScene();
 }
 function controlPoint(){
  if(mode==='ar')return floor?.pick()||null;
- if(mode==='2d'){
-  if(hover)return hover;
-  const svg=document.getElementById('plan-view'),marker=document.getElementById('aim-marker');
-  if(!svg)return null;
-  const r=svg.getBoundingClientRect(),evt={clientX:r.left+r.width*.50,clientY:r.top+r.height*(drawing?.tool==='upper'?1/3:2/3)};
-  return planPoint(svg,evt);
- }
+ if(mode==='2d')return hover||null;
  return null;
 }
 function finishLine(){
@@ -338,6 +336,7 @@ document.addEventListener('change',e=>{
  const slider=e.target.closest('[data-render]');if(slider){touch(activeId);return;}
  const field=e.target.closest('[data-setting]');if(!field)return;
  const name=field.dataset.setting;settings[name]=field.type==='checkbox'?field.checked:Number(field.value);
+  if(['upperHeight','upperElevation','upperDepth','baseDepth'].includes(name)&&drawing)showScene();
 });
 /* Dedicated resize gesture: no document mutation until pointer release. */
 function positionForResize(e,drag){
@@ -370,9 +369,9 @@ function paintResize(){
   const host=document.getElementById('plan-host');
   if(host)host.innerHTML=renderPlan(objItems,{selectedId:selection,gesture});
   const panel=document.getElementById('elevation-panel');
-  if(panel){const opening=current?.kind==='opening'?current:null;
-   panel.hidden=!opening;
-   panel.innerHTML=opening?renderElevation(objItems,opening,gesture):'';
+  if(panel){const editable=current&&['opening','cabinet'].includes(current.kind)?current:null;
+    panel.hidden=!editable;
+    panel.innerHTML=!editable?'':editable.kind==='opening'?renderElevation(objItems,editable,gesture):renderCabinetElevation(objItems,editable,gesture);
    if(dragHandle.error)panel.insertAdjacentHTML('beforeend','<p class="resize-warning">'+esc(dragHandle.error)+'</p>');
   }
  }else if(mode==='ar'){
@@ -392,10 +391,17 @@ function finishResize(cancelled=false){
  }
 }
 document.addEventListener('pointerdown',e=>{
+ const planMarker=mode==='2d'&&!drawing?e.target.closest('[data-calibration]'):null;
+ if(planMarker){
+  planCalibrationDrag={which:planMarker.dataset.calibration,pointerId:e.pointerId};
+  const scene=document.querySelector('.editor-scene');
+  try{scene?.setPointerCapture(e.pointerId);}catch{}
+  e.preventDefault();return;
+ }
  if(mode==='ar'&&floor?.locked&&e.target.closest('.editor-scene')){
   const which=floor.pickCalibrationHandle(e.clientX,e.clientY);
   if(which){
-   abDrag={which,pointerId:e.pointerId};
+   abDrag={which,pointerId:e.pointerId};floor.beginCalibrationDrag(e.clientX,e.clientY,which);
    const scene=document.querySelector('.editor-scene');
    try{scene?.setPointerCapture(e.pointerId);}catch{}
    e.preventDefault();return;
@@ -424,6 +430,17 @@ document.addEventListener('pointerdown',e=>{
  e.preventDefault();e.stopPropagation();
 });
 document.addEventListener('pointermove',e=>{
+ if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){
+  const svg=document.querySelector('#plan-view'),point=svg?planPoint(svg,e):null;
+  if(point){const p=currentProject();if(p){
+   p.scene.calibration??={a:{x:-.5,z:.65},b:{x:.5,z:.65}};
+   const current=p.scene.calibration,old=current[planCalibrationDrag.which];
+   current[planCalibrationDrag.which]={x:Math.round(point.x*100)/100,z:Math.round(point.z*100)/100};
+   if(Math.hypot(current.b.x-current.a.x,current.b.z-current.a.z)>.10)showScene();
+   else current[planCalibrationDrag.which]=old;
+  }}
+  e.preventDefault();return;
+ }
  if(abDrag&&e.pointerId===abDrag.pointerId){
   floor?.dragCalibrationPoint(e.clientX,e.clientY,abDrag.which);
   e.preventDefault();return;
@@ -460,7 +477,10 @@ document.addEventListener('pointermove',e=>{
  }
 });
 document.addEventListener('pointerup',e=>{
- if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;return;}
+ if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();return;}
+ if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();
+  const p=currentProject();if(p&&floor){p.scene.calibration=floor.calibrationSnapshot();save();}
+  return;}
  if(dragHandle){if(e.pointerId===dragHandle.pointerId)finishResize();return;}
  const scene=e.target.closest('.editor-scene');if(!scene)return;
  if(e.target.closest('[data-action]'))return;
@@ -469,11 +489,16 @@ document.addEventListener('pointerup',e=>{
   const point=mode==='2d'?svg?planPoint(svg,e):null:mode==='ar'?floor?.pick():null;
   const arId=mode==='ar'&&!drawing?floor?.pickObject(e.clientX,e.clientY):null;
   if(!point&&!arId){if(mode==='ar'&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
-  if(drawing)placeAt(point);else selectAt(point,e.target,arId);
+  if(drawing){
+    hover=point;
+    if(['wall','base','upper'].includes(drawing.tool)){showScene();return;}
+    placeAt(point);
+   }else selectAt(point,e.target,arId);
  }catch(error){tell(error.message);}
 });
 document.addEventListener('pointercancel',e=>{
- if(abDrag&&e.pointerId===abDrag.pointerId)abDrag=null;
+ if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();}
+ if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();}
  if(dragHandle&&e.pointerId===dragHandle.pointerId)finishResize(true);
 });
 
@@ -494,14 +519,12 @@ document.addEventListener('click',async e=>{
    projects.unshift({...structuredClone(p),id:uid(),name:p.name+' — کپی',createdAt:time,updatedAt:time});
    save();dialogs.innerHTML='';projectPage();return;}
   if(action==='tool'){drawing={tool:button.dataset.tool,start:null};selection=null;hover=initialPreviewForTool(drawing.tool);showScene();return;}
-  if(action==='record-start'||action==='record-end'){
-   const p=controlPoint();if(!p){tell('نشانگر هنوز روی سطح معتبر قرار نگرفته است.');return;}
-   if(action==='record-start'&&drawing?.start){tell('نقطه شروع قبلاً ثبت شده است.');return;}
-   if(action==='record-end'&&!drawing?.start&&!['window','door','fridge','stove','sink'].includes(drawing?.tool)){tell('ابتدا نقطه شروع را ثبت کن.');return;}
-   return placeAt(p);
+  if(action==='confirm-drawing'){
+   if(!drawing)return;
+   const point=controlPoint();if(!point){tell('نشانگر را روی محل دلخواه در صحنه ببر، سپس تأیید کن.');return;}
+   return placeAt(point);
   }
-  if(action==='cancel-start'){if(drawing){drawing.start=null;showScene();}return;}
-  if(action==='finish-line'){finishLine();return;}
+  if(action==='cancel-drawing'){finishLine();return;}
   if(action==='select'){drawing=null;selection=null;showScene();return;}
   if(action==='undo'){undoChange();return;}
   if(action==='redo'){undoChange(true);return;}
@@ -515,10 +538,22 @@ document.addEventListener('click',async e=>{
   if(action==='delete-object'){if(selection){commitChange(Geo.removeObject(currentItems(),selection));selection=null;showScene();}return;}
   if(action==='save'){touch(activeId);document.getElementById('save-indicator').textContent='ذخیره‌شده';return tell('پروژه ذخیره شد.');}
   if(action==='start-ar')return beginAR();
-  if(action==='rescan'){if(floor?.session){await floor.scan();document.getElementById('scan-card').classList.remove('complete');document.getElementById('editor-root').classList.remove('floor-locked');}
-   else beginAR();return;}
-  if(action==='confirm-floor'){if(!floor?.confirm())tell('هنوز کف آماده تثبیت نیست.');else document.getElementById('editor-root').classList.add('floor-locked');return;}
-  if(action==='point-a'||action==='point-b'){if(!floor?.capture(action==='point-a'?'a':'b'))tell('نشانگر را روی سطح معتبر قرار بده.');return;}
+  if(action==='rescan'){
+   activeTool=null;drawing=null;hover=null;
+   document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
+   showScene();
+   if(floor?.session){await floor.scan();}
+   else {if(floor){floor.cleanup();floor=null;}beginAR();}
+   document.getElementById('scan-card')?.classList.remove('complete');
+   document.getElementById('editor-root')?.classList.remove('floor-locked');
+   document.querySelector('.scan-restart')?.classList.remove('attention');
+   return;
+  }
+  if(action==='confirm-floor'){
+   if(!floor?.confirm())tell('هنوز کف آماده تثبیت نیست.');
+   else{document.getElementById('editor-root').classList.add('floor-locked');floor?.setCalibration(currentProject()?.scene?.calibration,true);}
+   return;
+  }
   if(action==='apply-distance'){floor?.calibrate(document.getElementById('real-distance').value);return;}
   if(action==='menu'){document.getElementById('editor-menu').hidden=!document.getElementById('editor-menu').hidden;return;}
   if(action==='close-menu'){document.getElementById('editor-menu').hidden=true;return;}
@@ -527,13 +562,20 @@ document.addEventListener('click',async e=>{
    document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));
    document.querySelector('.scan-confirm').hidden=next!=='ar';
    document.querySelector('[data-action="rescan"]').hidden=next!=='ar';
-   if(next==='ar'){document.getElementById('scan-status').hidden=false;document.getElementById('scan-card').hidden=false;document.getElementById('scan-status').textContent='برای شروع اسکن، دوربین AR را فعال کن.';showScene();beginAR();}
+   if(next==='ar'){
+     activeTool=null;drawing=null;hover=null;
+     document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
+     document.getElementById('scan-status').hidden=false;document.getElementById('scan-card').hidden=false;
+     document.getElementById('scan-status').textContent='برای شروع اسکن، دوربین AR را فعال کن.';
+     showScene();beginAR();
+    }
    else {closeFloor();document.getElementById('scan-status').hidden=true;document.getElementById('scan-card').hidden=true;document.getElementById('scene-message').classList.add('visible');
     document.getElementById('scene-message').querySelector('h2').textContent=next==='2d'?'پلان دوبعدی':'نمای سه‌بعدی';
     document.getElementById('scene-message').querySelector('p').textContent=next==='2d'?'روی پلان برای ترسیم یا انتخاب آبجکت بزن.':'نمای سه‌بعدی دسکتاپ در مرحله بعد فعال می‌شود.';showScene();}
    return;
   }
   if(action==='category'){
+   if(mode==='ar'&&!floor?.locked){tell('ابتدا کف را اسکن و تثبیت کن؛ یا وارد نمای ۲بعدی شو.');return;}
    const kind=button.dataset.category;
    activeTool=activeTool===kind?null:kind;drawing=null;hover=null;
    document.querySelectorAll('[data-category]').forEach(b=>b.classList.toggle('active',b.dataset.category===activeTool));

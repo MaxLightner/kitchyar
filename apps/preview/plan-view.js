@@ -1,13 +1,16 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render14';
-import {renderPlanMeasurements} from './edit-handles.js?v=render14';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render15';
+import {renderPlanMeasurements} from './edit-handles.js?v=render15';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
-export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null}={}){
+export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null}={}){
  const walls=items.filter(x=>x.kind==='wall'),cabinets=items.filter(x=>x.kind==='cabinet');
  const gridId=mini?'mini-grid-k':'main-grid-k';
+ const cal=calibration?.a&&calibration?.b?calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}};
+ const angle=Math.atan2(cal.b.z-cal.a.z,cal.b.x-cal.a.x)*180/Math.PI;
+ const rotation='translate('+f(cal.a.x)+' '+f(cal.a.z)+') rotate('+f(angle)+') translate('+f(-cal.a.x)+' '+f(-cal.a.z)+')';
  let out='<svg '+(mini?'class="mini-svg"':'id="plan-view" class="plan-svg"')+
   ' xmlns="http://www.w3.org/2000/svg" viewBox="-5 -4 10 8" preserveAspectRatio="xMidYMid meet" role="img" aria-label="پلان متریک پروژه">'+
-  '<defs><pattern id="'+gridId+'" width=".1" height=".1" patternUnits="userSpaceOnUse"><path d="M.1 0H0V.1" fill="none" stroke="#a4bbaa" stroke-width=".006"/></pattern></defs>'+
+  '<defs><pattern id="'+gridId+'" width=".1" height=".1" patternUnits="userSpaceOnUse" patternTransform="'+rotation+'"><path d="M.1 0H0V.1" fill="none" stroke="#a4bbaa" stroke-width=".006"/></pattern></defs>'+
   '<rect x="-5" y="-4" width="10" height="8" fill="#f4f5ef"/><rect x="-5" y="-4" width="10" height="8" fill="url(#'+gridId+')"/>';
  for(const w of walls){
   const isSelected=w.id===selectedId;
@@ -63,11 +66,23 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   out+='<line class="opening-hit" data-item-id="'+safe(o.id)+'" x1="'+f(w.x1+(w.x2-w.x1)*a)+'" y1="'+f(w.z1+(w.z2-w.z1)*a)+
    '" x2="'+f(w.x1+(w.x2-w.x1)*b)+'" y2="'+f(w.z1+(w.z2-w.z1)*b)+'" stroke="transparent" stroke-width=".22" pointer-events="stroke"/>';
  }
+ if(!mini&&!drawing){
+   out+='<g class="ab-calibration" aria-label="جهت شبکه A و B">'+
+    '<line x1="'+f(cal.a.x)+'" y1="'+f(cal.a.z)+'" x2="'+f(cal.b.x)+'" y2="'+f(cal.b.z)+'" stroke="#d39d54" stroke-width=".027" stroke-dasharray=".075,.035" pointer-events="none"/>';
+   for(const which of ['a','b']){const p=cal[which],color=which==='a'?'#e4a75d':'#4cafa3';
+    out+='<g data-calibration="'+which+'" class="ab-touch"><circle cx="'+f(p.x)+'" cy="'+f(p.z)+'" r=".24" fill="transparent"/>'+
+     '<circle cx="'+f(p.x)+'" cy="'+f(p.z)+'" r=".10" fill="'+color+'" stroke="#fff" stroke-width=".025" pointer-events="none"/>'+
+     '<g transform="translate('+f(p.x)+' '+f(p.z)+') scale(.010)" pointer-events="none">'+
+     '<text x="0" y="5" font-size="15px" font-weight="bold" text-anchor="middle" fill="#243c34">'+which.toUpperCase()+'</text></g></g>';
+   }
+   out+='</g>';
+  }
  const selection=items.find(x=>x.id===selectedId);
  if(selection&&['wall','cabinet'].includes(selection.kind)&&!mini){
   for(const [side,x,z] of [['start',selection.x1,selection.z1],['end',selection.x2,selection.z2]]){
-   out+='<circle data-handle="'+side+'" data-item-id="'+safe(selection.id)+'" cx="'+f(x)+'" cy="'+f(z)+
-    '" r=".095" fill="#51b090" stroke="#fff" stroke-width=".028"/>';
+   out+='<g class="resize-handle" data-handle="'+side+'" data-item-id="'+safe(selection.id)+'">'+
+     '<circle cx="'+f(x)+'" cy="'+f(z)+'" r=".22" fill="transparent"/>'+
+     '<circle cx="'+f(x)+'" cy="'+f(z)+'" r=".105" fill="#51b090" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';
   }
  }
  if(selection&&selection.kind==='opening'&&!mini){
@@ -76,8 +91,10 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    const len=lengthOf(host),dx=(host.x2-host.x1)/len,dz=(host.z2-host.z1)/len;
    const center=selection.hostT*len;
    for(const [side,d] of [['left',center-selection.width/2],['centre',center],['right',center+selection.width/2]]){
-    out+='<circle data-open-handle="'+side+'" data-item-id="'+safe(selection.id)+'" cx="'+f(host.x1+dx*d)+'" cy="'+f(host.z1+dz*d)+
-     '" r=".085" fill="'+(side==='centre'?'#d8a15b':'#51b090')+'" stroke="#fff" stroke-width=".028"/>';
+    const cx=f(host.x1+dx*d),cz=f(host.z1+dz*d);
+     out+='<g class="resize-handle" data-open-handle="'+side+'" data-item-id="'+safe(selection.id)+'">'+
+      '<circle cx="'+cx+'" cy="'+cz+'" r=".22" fill="transparent"/>'+
+      '<circle cx="'+cx+'" cy="'+cz+'" r=".09" fill="'+(side==='centre'?'#d8a15b':'#51b090')+'" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';
    }
   }
  }
@@ -130,7 +147,7 @@ export function renderPreview(items,drawing,hover){
    let a=seg.startT+(i>0?dir*cabinetTurnTrim(items.find(o=>o.id===route.segments[i-1].wallId),w)/len:0),
     b=seg.endT-(i<route.segments.length-1?dir*cabinetTurnTrim(w,items.find(o=>o.id===route.segments[i+1].wallId))/len:0);
    let stopped=false;
-   if(tool==='upper')try{const old=b;b=limitCabinetEnd(items,w,a,b,{kind:'upper'});stopped=Math.abs(old-b)>.0001;}catch{b=a;stopped=true;}
+   if(tool==='upper')try{const old=b;b=limitCabinetEnd(items,w,a,b,{kind:'upper',height:drawing?.height??.72,elevation:drawing?.elevation??1.55});stopped=Math.abs(old-b)>.0001;}catch{b=a;stopped=true;}
    if(Math.abs(b-a)*len<.03){if(stopped)break;continue;}
    const c={startT:Math.min(a,b),endT:Math.max(a,b),depth:tool==='upper'?.35:.6,side:seg.side};
    const fp=cabinetFootprint(c,w);
@@ -165,7 +182,7 @@ export function renderPreview(items,drawing,hover){
    }else{
     const a=start?projectOnWall(host,start.x,start.z).t:Math.max(0,projectOnWall(host,hover.x,hover.z).t-1/len);
     let b=start?projectOnWall(host,hover.x,hover.z).t:Math.min(1,a+1/len);
-    if(tool==='upper')try{b=limitCabinetEnd(items,host,a,b,{kind:'upper'});}catch{b=a;}
+    if(tool==='upper')try{b=limitCabinetEnd(items,host,a,b,{kind:'upper',height:drawing?.height??.72,elevation:drawing?.elevation??1.55});}catch{b=a;}
     if(Math.abs(b-a)*len>.02){
      const cabinet={startT:Math.min(a,b),endT:Math.max(a,b),depth:width,side:start?.side||1};
      corners=cabinetFootprint(cabinet,host).corners;

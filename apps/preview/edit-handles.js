@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,moveCabinetEndpoint,moveEndpoint} from './geometry.js?v=render14';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint} from './geometry.js?v=render15';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -40,7 +40,13 @@ export function resizeFromHandle(items,id,side,position){
  }
  if(object.kind==='cabinet'){
   const host=byId(items,object.hostId);if(!host)throw Error('دیوار میزبان پیدا نشد.');
-  if(!['start','end'].includes(side))throw Error('دستگیره کابینت معتبر نیست.');
+  if(side==='top')return editCabinet(items,id,{height:Math.max(.25,snapCm(position.y-object.elevation))});
+   if(side==='bottom'){
+    const top=object.elevation+object.height;
+    const elevation=Math.max(0,Math.min(top-.25,snapCm(position.y)));
+    return editCabinet(items,id,{elevation,height:snapCm(top-elevation)});
+   }
+   if(!['start','end'].includes(side))throw Error('دستگیره کابینت معتبر نیست.');
   const len=lengthOf(host),old=side==='start'?object.endT*len:object.startT*len;
   let along=snapCm(position.along);
   along=side==='start'?Math.max(0,Math.min(old-.30,along)):Math.min(len,Math.max(old+.30,along));
@@ -65,7 +71,8 @@ export function handlePosition(items,id,side){
  }
  if(o.kind==='cabinet'){
   const w=byId(items,o.hostId);if(!w)return null;
-  return {along:(side==='start'?o.startT:o.endT)*lengthOf(w),y:o.elevation+o.height/2};
+  const len=lengthOf(w),along=(side==='start'?o.startT:side==='end'?o.endT:(o.startT+o.endT)/2)*len;
+   return {along,y:side==='top'?o.elevation+o.height:side==='bottom'?o.elevation:o.elevation+o.height/2};
  }
  if(o.kind==='wall')return {x:side==='start'?o.x1:o.x2,z:side==='start'?o.z1:o.z2};
  return null;
@@ -133,4 +140,29 @@ export function renderPlanMeasurements(items,id,side){
   out+=label(pos(len/2,-.4),'طول '+n(len)+'m');
  }
  return out+'</g>';
+}
+
+/* Same editable front elevation as windows, with cabinet top and floor-offset grips. */
+export function renderCabinetElevation(items,cabinet,drag=null){
+ if(!cabinet||cabinet.kind!=='cabinet')return '';
+ const host=byId(items,cabinet.hostId);if(!host)return '';
+ const scale=Math.min(72,160/Math.max(host.height,2.2)),ground=201;
+ const sy=y=>ground-y*scale,top=sy(cabinet.elevation+cabinet.height),bottom=sy(cabinet.elevation);
+ const marker=(side,y,color,label)=>'<g class="elevation-handle" data-open-handle="'+side+'" data-item-id="'+esc(cabinet.id)+'">'+
+  '<circle cx="160" cy="'+n(y)+'" r="15" fill="transparent"/>'+
+  '<circle cx="160" cy="'+n(y)+'" r="9" fill="'+color+'" stroke="#fff" stroke-width="2"/>'+
+  '<title>'+label+'</title></g>';
+ const measured=drag?.id===cabinet.id;
+ return '<div class="elevation-title"><strong>نمای روبه‌روی '+esc(cabinet.name)+'</strong><span>بالا: ارتفاع · پایین: تراز نصب</span></div>'+
+  '<svg id="elevation-view" data-ppm="'+n(scale)+'" viewBox="0 0 320 225" role="img" aria-label="دستگیره‌های ارتفاع کابینت">'+
+  '<rect x="7" y="'+n(sy(host.height))+'" width="306" height="'+n(ground-sy(host.height))+'" fill="#e1e8e0" stroke="#a8b7ad"/>'+
+  '<line x1="7" x2="313" y1="'+ground+'" y2="'+ground+'" stroke="#416854" stroke-width="2"/>'+
+  '<rect x="82" y="'+n(top)+'" width="156" height="'+n(bottom-top)+'" fill="'+(cabinet.subtype==='upper'?'#e0cfad':'#b6cbb8')+'" stroke="#64836b" stroke-width="2"/>'+
+  marker('top',top,'#e9ad63','ارتفاع کل کابینت')+
+  marker('bottom',bottom,'#57b7aa','فاصله لبه پایین تا کف')+
+  '<text x="13" y="'+n((top+bottom)/2)+'" class="elevation-scale">'+n(cabinet.height)+' m</text>'+
+  '<text x="13" y="'+n((bottom+ground)/2)+'" class="elevation-scale">'+n(cabinet.elevation)+' m از کف</text>'+
+  (measured?'<line x1="252" x2="252" y1="'+n(top)+'" y2="'+n(bottom)+'" class="measure-line"/>'+
+   '<line x1="270" x2="270" y1="'+n(bottom)+'" y2="'+ground+'" class="measure-line"/>':'')+
+  '</svg>';
 }
