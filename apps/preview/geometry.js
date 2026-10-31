@@ -3,6 +3,7 @@
  * Source: MaxLightner/archyar main (private), 89283efb, 2026-10-31.
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
+import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=finishes28';
 export const SNAP_RADIUS=.50;
 const uid=()=>globalThis.crypto?.randomUUID?.()||'node-'+Math.random().toString(36).slice(2);
 const dist=(ax,az,bx,bz)=>Math.hypot(bx-ax,bz-az);
@@ -471,25 +472,49 @@ export function planSmartKitchen(source){
  return {items,selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
 }
 /* Catalog styles alter actual semantic door/drawer layouts, not just colors. */
-export function applyKitchenLayout(source,styleId){
- const presets={
-  'modern-oak':{base:'smart',upper:'doors',style:'flat',handle:'hidden',finish:'wood'},
-  'soft-cream':{base:'mixedLower',upper:'doors',style:'frame',handle:'bar',finish:'cream'},
-  graphite:{base:'drawers3',upper:'doors',style:'flat',handle:'hidden',finish:'graphite'},
-  'walnut-sage':{base:'graduated',upper:'doors',style:'flat',handle:'bar',finish:'wood'}
- };
- const spec=presets[styleId];if(!spec)throw Error('مدل آشپزخانه انتخاب‌شده معتبر نیست.');
- const items=copy(source),cabinets=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge');
- if(!cabinets.length)throw Error('ابتدا کابینت‌ها را نصب کن؛ سپس یکی از مدل‌های گالری را انتخاب کن.');
+export function applyKitchenLayout(source,styleId,{cabinetIds=null}={}){
+ const spec=KITCHEN_STYLES.find(s=>s.id===styleId)?.layout;
+ if(!spec)throw Error('مدل آشپزخانه انتخاب‌شده معتبر نیست.');
+ const items=copy(source),cabinets=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge'&&
+  (!cabinetIds||cabinetIds.includes(c.id)));
  for(const c of cabinets){
   reflowFronts(items,c,c.subtype==='base'?spec.base:spec.upper);
   for(const front of items.filter(f=>f.kind==='front'&&f.hostId===c.id)){
-   front.style=spec.style;front.handleStyle=spec.handle;front.finish=spec.finish;
-   delete front.materialId;
+   front.style=spec.panel;front.handleStyle=spec.handle;front.finish=spec.finish;
+   delete front.materialId;front.frameMaterialId=spec.frameMaterial||undefined;
   }
   validateFronts(items,c);
  }
- return {items,selectedId:items.find(f=>f.kind==='front')?.id||cabinets[0].id};
+ return {items,selectedId:items.find(f=>f.kind==='front'&&cabinets.some(c=>c.id===f.hostId))?.id||cabinets[0]?.id||null};
+}
+export function paintFronts(source,id,{scope='single',part='panel',materialId}={}){
+ if(!MATERIALS.front.some(m=>m.id===materialId))throw Error('متریال نما معتبر نیست.');
+ if(!['single','connected','layer','all'].includes(scope)||!['panel','frame'].includes(part))
+  throw Error('حالت رنگ‌آمیزی معتبر نیست.');
+ const items=copy(source),front=byId(items,id),host=byId(items,front?.hostId);
+ if(front?.kind!=='front'||host?.kind!=='cabinet')throw Error('ابتدا یک درب یا کشو انتخاب کن.');
+ const layer=c=>c?.subtype==='base'?'base':'upper';
+ const cabinets=items.filter(o=>o.kind==='cabinet'&&o.subtype!=='bridge');
+ const connected=new Set([host.id]);
+ if(scope==='connected'){
+  let changed=true;
+  while(changed){changed=false;
+   for(const c of cabinets)if(!connected.has(c.id)&&layer(c)===layer(host)&&
+    cabinets.some(n=>connected.has(n.id)&&Math.abs(n.elevation-c.elevation)<.15&&
+     (n.cornerGroup&&c.cornerGroup&&n.cornerGroup===c.cornerGroup||
+      [[n.x1,n.z1],[n.x2,n.z2]].some(a=>[[c.x1,c.z1],[c.x2,c.z2]].some(b=>dist(...a,...b)<.10))))){
+    connected.add(c.id);changed=true;
+   }
+  }
+ }
+ let count=0;
+ for(const f of items.filter(o=>o.kind==='front')){
+  const c=byId(items,f.hostId);
+  if(scope==='single'&&f.id!==id||scope==='connected'&&!connected.has(f.hostId)||
+    scope==='layer'&&layer(c)!==layer(host)||part==='frame'&&f.style!=='frame')continue;
+  f[part==='frame'?'frameMaterialId':'materialId']=materialId;count++;
+ }
+ return {items,selectedId:id,paintedCount:count};
 }
 function reflowFronts(items,c,preset=c?.frontPreset){
  if(!FRONT_PRESETS[preset])return;
@@ -500,6 +525,7 @@ function reflowFronts(items,c,preset=c?.frontPreset){
   fresh[i].id=previous[i].id;
   fresh[i].finish=previous[i].finish||'cream';
   if(previous[i].materialId)fresh[i].materialId=previous[i].materialId;
+  if(previous[i].frameMaterialId)fresh[i].frameMaterialId=previous[i].frameMaterialId;
   fresh[i].style=previous[i].style||'flat';
   fresh[i].handleStyle=previous[i].handleStyle||'bar';
   if(previous[i].grainDirection)fresh[i].grainDirection=previous[i].grainDirection;
@@ -516,7 +542,7 @@ export function placeFrontLayout(source,cabinetId,preset='doors'){
  validateFronts(items,c);
  return {items,selectedId:items.find(o=>o.kind==='front'&&o.hostId===c.id)?.id||c.id};
 }
-export function editFront(source,id,{width,height,hinge,finish,style,handleStyle,materialId,grainDirection}={}){
+export function editFront(source,id,{width,height,hinge,finish,style,handleStyle,materialId,frameMaterialId,grainDirection}={}){
  const items=copy(source),f=byId(items,id),c=byId(items,f?.hostId);
  if(f?.kind!=='front'||c?.kind!=='cabinet')throw Error('درب یا کشوی معتبر انتخاب نشده است.');
  if(width!==undefined){
@@ -544,6 +570,7 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
  if(style!==undefined){if(!['flat','frame'].includes(style))throw Error('سبک درب نامعتبر است.');f.style=style;}
  if(handleStyle!==undefined){if(!['bar','knob','hidden'].includes(handleStyle))throw Error('دستگیره نامعتبر است.');f.handleStyle=handleStyle;}
  if(materialId!==undefined)f.materialId=materialId||undefined;
+ if(frameMaterialId!==undefined)f.frameMaterialId=frameMaterialId||undefined;
  if(grainDirection!==undefined){if(!['auto','vertical','horizontal'].includes(grainDirection))throw Error('جهت بافت معتبر نیست.');f.grainDirection=grainDirection;}
  c.frontPreset='custom';
  validateFronts(items,c);
@@ -633,10 +660,50 @@ function polygonOverlap(a,b,gap=.008){
  }
  return true;
 }
-function wallFootprint(w){
- const len=lengthOf(w),nx=-(w.z2-w.z1)/len*w.thickness/2,nz=(w.x2-w.x1)/len*w.thickness/2;
- return [{x:w.x1+nx,z:w.z1+nz},{x:w.x2+nx,z:w.z2+nz},
-  {x:w.x2-nx,z:w.z2-nz},{x:w.x1-nx,z:w.z1-nz}];
+/* A wall joint is a shared geometric cap, not a pair of overlapping boxes.
+ * Both the plan and the WebGL mesher consume these exact longitudinal offsets.
+ * At T/cross junctions we keep conservative square caps; the miter is only
+ * defined for two outgoing walls. Very acute miters are bevel-limited. */
+export function wallJointCaps(w,items=[]){
+ const len=lengthOf(w),empty={startPlus:0,startMinus:0,endPlus:0,endMinus:0};
+ if(len<.1)return empty;
+ const cap=(end,side)=>{
+  const px=end?w.x2:w.x1,pz=end?w.z2:w.z1;
+  const ux=(end?w.x1-w.x2:w.x2-w.x1)/len,uz=(end?w.z1-w.z2:w.z2-w.z1)/len;
+  const linked=[];
+  for(const other of items)if(wall(other)&&other.id!==w.id){
+   for(const e of [false,true]){
+    const x=e?other.x2:other.x1,z=e?other.z2:other.z1;
+    if((end?w.endNodeId:w.startNodeId)&&
+       (end?w.endNodeId:w.startNodeId)===(e?other.endNodeId:other.startNodeId)||dist(px,pz,x,z)<.002){
+     const length=lengthOf(other);
+     if(length>.099)linked.push({other,ux:(e?other.x1-other.x2:other.x2-other.x1)/length,
+      uz:(e?other.z1-other.z2:other.z2-other.z1)/length});
+    }
+   }
+  }
+  if(linked.length!==1)return 0;
+  const next=linked[0],cross=ux*next.uz-uz*next.ux;
+  if(Math.abs(cross)<.0001)return 0;
+  // At an end node local +Z is opposite to the outgoing ray's left side.
+  const s=end?-side:side,h=w.thickness/2,otherH=next.other.thickness/2;
+  const p1={x:-uz*s*h,z:ux*s*h};
+  const p2={x:next.uz*s*otherH,z:-next.ux*s*otherH};
+  const t=((p2.x-p1.x)*next.uz-(p2.z-p1.z)*next.ux)/cross;
+  const limit=Math.min(.45,Math.max(w.thickness,next.other.thickness)*2);
+  return (end?-1:1)*Math.max(-limit,Math.min(limit,t));
+ };
+ return {startPlus:cap(false,1),startMinus:cap(false,-1),
+  endPlus:cap(true,1),endMinus:cap(true,-1)};
+}
+export function wallFootprint(w,items=[]){
+ const len=lengthOf(w);if(len<.001)return [];
+ const ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len,nx=-uz*w.thickness/2,nz=ux*w.thickness/2;
+ const cap=wallJointCaps(w,items);
+ return [{x:w.x1+ux*cap.startPlus+nx,z:w.z1+uz*cap.startPlus+nz},
+  {x:w.x2+ux*cap.endPlus+nx,z:w.z2+uz*cap.endPlus+nz},
+  {x:w.x2+ux*cap.endMinus-nx,z:w.z2+uz*cap.endMinus-nz},
+  {x:w.x1+ux*cap.startMinus-nx,z:w.z1+uz*cap.startMinus-nz}];
 }
 function validateCabinets(items,w){
  const len=lengthOf(w),cab=items.filter(c=>c.kind==='cabinet'&&c.hostId===w.id),openings=items.filter(o=>o.kind==='opening'&&o.hostId===w.id);
@@ -653,7 +720,7 @@ function validateCabinets(items,w){
      Math.min(c.elevation+c.height,o.sill+o.height)-Math.max(c.elevation,o.sill)>.015)
     throw Error('کابینت با در یا پنجره روی دیوار تداخل دارد.');
   const fp=cabinetFootprint(c,w);
-  for(const other of items)if(wall(other)&&other.id!==w.id&&polygonOverlap(fp.corners,wallFootprint(other)))
+  for(const other of items)if(wall(other)&&other.id!==w.id&&polygonOverlap(fp.corners,wallFootprint(other,items)))
    throw Error('کابینت به دیوار مجاور برخورد می‌کند؛ فاصله از گوشه را بیشتر کن.');
   for(const other of items)if(other.kind==='cabinet'&&other.id!==c.id&&other.hostId!==c.hostId){
    const owner=byId(items,other.hostId);
@@ -817,7 +884,7 @@ export function placeEquipment(source,point,subtype){
   Object.assign(obj,snapFridgePoint(items,point,obj.width,obj.depth));
   embedFridge(items,obj,point);
   for(const w of items.filter(wall)){
-   if(polygonOverlap(equipmentFootprint(obj),wallFootprint(w)))throw Error('یخچال نباید داخل دیوار قرار بگیرد.');
+   if(polygonOverlap(equipmentFootprint(obj),wallFootprint(w,items)))throw Error('یخچال نباید داخل دیوار قرار بگیرد.');
   }
   for(const c of items.filter(o=>o.kind==='cabinet')){
    const host=byId(items,c.hostId);
@@ -914,7 +981,7 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
    e.z=hostWall.z1+uz*center+nz*(hostWall.thickness/2+e.depth/2+.02);
    e.rotation=Math.atan2(uz,ux)+(side<0?Math.PI:0);
    e.surround.bayWidth=e.width+.055;
-   if(items.some(w=>wall(w)&&polygonOverlap(equipmentFootprint(e),wallFootprint(w))))
+   if(items.some(w=>wall(w)&&polygonOverlap(equipmentFootprint(e),wallFootprint(w,items))))
     throw Error('ابعاد وسیله با دیوار تداخل دارد.');
    for(const c of items.filter(o=>o.kind==='cabinet')){
     const owner=byId(items,c.hostId);

@@ -25,6 +25,14 @@ The active UI and navigation remain the earlier three-screen structure. Editor d
 - Installed equipment can be selected, moved, or deleted transactionally in 2D/AR. Moves recalculate cutouts and linked hoods; removing an appliance reflows facade panels into the emptied bay. Older fridge-style integrated bays are restored when removed.
 - `3D` now displays the same scene mesher and materials in a desktop orbit viewer without requiring ARCore.
 
+### Finished surfaces and reusable kitchen styles
+
+- Connected non-orthogonal walls use capped miter geometry shared by plan and 3D/AR; sharp junctions have a bevel limit to avoid protruding spikes.
+- Carcasses render in neutral white. Only exposed end panels can use a body finish, separately for base and upper cabinets; individual facade panels and decorative frames are independently paintable.
+- Select a facade and paint a single panel, its connected run, all cabinets on the same level, or the whole kitchen. The material picker also gives separate base/upper finish defaults.
+- Gallery styles are defined once as semantic layout/handle/material rules; a selected style is saved in the project and can be chosen before any cabinet is installed. Later cabinet additions inherit it.
+- Cabinet, countertop and backsplash WebP images remain independent but were downsampled to at most 1024 pixels and compressed from 2.31 MB to 0.49 MB in total. The 3D renderer shares GPU texture objects; panel UV coordinates provide individual repeats and wood-grain rotation.
+
 ## Source fidelity and boundaries
 
 The WebXR scanner is imported from pinned Chido commit 0abbab05c15eed4f3922d1e1dc74b5c17b82e8be. The geometry code is a JavaScript port of selected native Archiyar domain operations from commit 89283ef; it is not a byte-for-byte Android runtime. The UI editor keeps one semantic model per project.

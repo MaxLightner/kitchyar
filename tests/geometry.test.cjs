@@ -717,3 +717,41 @@ test('sample kitchen styles recalculate real facade bays without covering applia
   assert.ok(items.every(f=>f.kind!=='front'||!(f.startT<e.offsetT&&f.endT>e.offsetT)));
  }
 });
+test('oblique shared wall caps meet on both sides without protruding square ends',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ for(const degrees of [45,60,90,120,135]){
+  const radians=degrees*Math.PI/180;
+  let items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+  items=G.placeWall(items,{x:0,z:0},{x:3*Math.cos(radians),z:3*Math.sin(radians)}).items;
+  const [a,b]=items.filter(i=>i.kind==='wall');
+  const pa=G.wallFootprint(a,items),pb=G.wallFootprint(b,items);
+  assert.ok(Math.hypot(pa[0].x-pb[3].x,pa[0].z-pb[3].z)<1e-5,`inside ${degrees}°`);
+  assert.ok(Math.hypot(pa[3].x-pb[0].x,pa[3].z-pb[0].z)<1e-5,`outside ${degrees}°`);
+ }
+});
+test('sample style can be chosen before any cabinets exist',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ assert.deepEqual(G.applyKitchenLayout([],'modern-oak').items,[]);
+});
+test('facade paint supports one, connected, layer and framed inserts',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0},{x:1.5,z:0}).items;
+ items=G.placeCabinet(items,{x:1.5,z:0},{x:3,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0},{x:1.5,z:0},{kind:'upper'}).items;
+ items=G.applyKitchenLayout(items,'soft-cream').items;
+ const all=items.filter(f=>f.kind==='front'),first=all.find(f=>items.some(c=>c.id===f.hostId&&c.subtype==='base'));
+ let result=G.paintFronts(items,first.id,{scope:'single',materialId:'oak'});
+ assert.equal(result.items.filter(f=>f.materialId==='oak').length,1);
+ result=G.paintFronts(items,first.id,{scope:'connected',materialId:'walnut'});
+ assert.ok(result.items.filter(f=>f.materialId==='walnut').length>1);
+ assert.ok(result.items.filter(f=>f.materialId==='walnut').every(f=>items.find(c=>c.id===f.hostId)?.subtype==='base'));
+ result=G.paintFronts(items,first.id,{scope:'layer',part:'frame',materialId:'graphite-matte'});
+ assert.ok(result.items.some(f=>f.style==='frame'&&f.frameMaterialId==='graphite-matte'));
+ assert.ok(result.items.filter(f=>items.find(c=>c.id===f.hostId)?.subtype==='upper').every(f=>f.frameMaterialId!=='graphite-matte'));
+ const resized=G.editCabinet(result.items,first.hostId,{height:.88}).items;
+ assert.ok(resized.some(f=>f.kind==='front'&&f.frameMaterialId==='graphite-matte'),
+  'frame finish survives a cabinet resize');
+ result=G.paintFronts(items,first.id,{scope:'all',materialId:'sage-matte'});
+ assert.equal(result.items.filter(f=>f.materialId==='sage-matte').length,all.length);
+});

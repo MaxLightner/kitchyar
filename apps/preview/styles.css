@@ -168,6 +168,8 @@ input,select,textarea,button,label,output{font-size:max(15px,1em)}
 .style-grid button{padding:0;overflow:hidden;text-align:right;background:#fff;border-radius:13px}
 .style-grid img{width:100%;aspect-ratio:1.65;object-fit:cover;display:block;background:#e4ded3}
 .style-grid strong{display:block;padding:10px 12px;font-size:15px}
+.style-grid small{display:block;padding:0 12px 10px;color:#696b61;font-size:15px;line-height:1.6}
+.style-grid button.active{outline:3px solid #398768}
 .style-grid button:hover,.style-grid button:focus-visible{border-color:#328366;box-shadow:0 0 0 2px #32836635}
 .style-gallery-trigger{width:100%;background:#315e4a;color:#fff;border-color:#315e4a}
 .material-tool-head strong{font-size:16px}.material-tool-head button{background:#315e4a;color:white;border-color:#315e4a}
@@ -183,6 +185,14 @@ input,select,textarea,button,label,output{font-size:max(15px,1em)}
 .preview-3d-canvas:active{cursor:grabbing}
 .editor-scene:has(.preview-3d-canvas) .scene-grid,.editor-scene:has(.preview-3d-canvas) .scene-message{display:none}
 @media(max-width:530px){.style-grid{gap:7px}.style-grid strong{padding:7px;font-size:15px}.style-dialog{padding:14px}}
+.paint-panel{display:grid;gap:8px;padding:11px;border:1px solid #dfd7cb;border-radius:12px;background:#f8f5ee}
+.paint-panel strong{font-size:15px}.paint-choice{display:flex;gap:5px;flex-wrap:wrap}
+.paint-choice button{flex:1;min-width:calc(50% - 6px);padding:7px 4px;font-size:15px}
+.paint-choice button.active{background:#315e4a;color:white;border-color:#315e4a}
+.paint-colors{display:flex;gap:6px;overflow-x:auto;padding:2px 0 5px}
+.paint-colors button{min-width:70px;padding:4px;display:grid;justify-items:center;gap:3px}
+.paint-colors img,.paint-colors span{width:59px;height:41px;display:block;object-fit:cover;border-radius:5px}
+.paint-colors small{font-size:15px;white-space:nowrap}.paint-panel>small{color:#6a756e;font-size:15px}
 
 
 /* Render controls, legibility and the dedicated one-third AR aiming zones. */

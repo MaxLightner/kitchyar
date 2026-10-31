@@ -3,9 +3,9 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=materials27';
-import {neighborGaps} from './edit-handles.js?v=materials27';
-import {DEFAULT_MATERIALS,materialFor,assetUrl} from './materials.js?v=materials27';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=finishes28';
+import {neighborGaps} from './edit-handles.js?v=finishes28';
+import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=finishes28';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -667,23 +667,33 @@ export class FloorAR {
    texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
    this.textureCache.set(path,texture);
   }
-  const texture=this.textureCache.get(path).clone();texture.needsUpdate=true;
-  texture.userData={...texture.userData,ephemeral:true};
-  const scale=info.wood?.65:category==='backsplash'?.50:1.15;
-  const horizontal=info.wood&&grainDirection==='horizontal';
-  texture.center.set(.5,.5);texture.rotation=horizontal?Math.PI/2:0;
-  texture.repeat.set(Math.max(.35,width/scale),Math.max(.35,height/scale));
-  return texture;
+  // Reuse one GPU texture for every panel; physical repeats and grain direction
+  // are represented in mesh UVs, never by cloning a texture per door/drawer.
+  return this.textureCache.get(path);
  }
  surfaceMaterial(category,id,width,height,grainDirection='auto'){
   const info=materialFor(category,id);
   const isCounter=category==='counter',isTile=category==='backsplash';
-  return new THREE.MeshPhysicalMaterial({
+  const surface=new THREE.MeshPhysicalMaterial({
    color:info?.color??0xffffff,map:this.surfaceTexture(category,id,width,height,grainDirection),
    roughness:isCounter?.27:isTile?.42:info?.wood?.52:.46,metalness:isCounter?.04:0,
    clearcoat:isCounter?.19:.06,clearcoatRoughness:.27,
    envMap:this.reflectionRT?.texture,envMapIntensity:isCounter?.10:this.renderSettings.reflection
   });
+  if(info?.file)surface.userData={textureScale:info.wood?.65:isTile?.50:1.15,
+   horizontal:!!info.wood&&grainDirection==='horizontal'};
+  return surface;
+ }
+ applySurfaceUV(geometry,mat,width,height,depth){
+  const scale=mat?.userData?.textureScale;if(!scale)return geometry;
+  const uv=geometry.getAttribute('uv');if(!uv||uv.count!==24)return geometry;
+  const faces=[[depth,height],[depth,height],[width,depth],[width,depth],[width,height],[width,height]];
+  for(let face=0;face<6;face++)for(let i=0;i<4;i++){
+   const j=face*4+i,u=uv.getX(j),v=uv.getY(j),[w,h]=faces[face];
+   if(mat.userData.horizontal)uv.setXY(j,v*h/scale,u*w/scale);
+   else uv.setXY(j,u*w/scale,v*h/scale);
+  }
+  uv.needsUpdate=true;return geometry;
  }
  /* Desktop preview shares the exact AR object mesher/materials. It does not
     pretend to be a tracked AR session and remains available without ARCore. */
@@ -949,17 +959,50 @@ export class FloorAR {
   const cabinetSelected=cabinet(0x65ac8e);
   const box=(owner,from,to,y0,y1,width,angle,cx,cz,mat)=>{
    if(to-from<.002||y1-y0<.002)return;
-   const mesh=new THREE.Mesh(new THREE.BoxGeometry(to-from,y1-y0,width),mat.clone());
+   const geo=this.applySurfaceUV(new THREE.BoxGeometry(to-from,y1-y0,width),mat,to-from,y1-y0,width);
+   const mesh=new THREE.Mesh(geo,mat.clone());
    mesh.position.set(cx,(y0+y1)/2,cz);mesh.rotation.y=-angle;
    mesh.userData.objectId=owner.id;mesh.userData.wall=owner.kind==='wall';
    mesh.userData.cabinet=owner.kind==='cabinet';
    mesh.castShadow=true;mesh.receiveShadow=true;this.objectGroup.add(mesh);
   };
+  const wallPrism=(owner,a,b,y0,y1,width,angle,cap,mat)=>{
+   if(b-a<.002||y1-y0<.002)return;
+   const h=width/2;
+   const sP=a<.0001?cap.startPlus:0,sM=a<.0001?cap.startMinus:0;
+   const eP=b>cap.length-.0001?cap.endPlus:0,eM=b>cap.length-.0001?cap.endMinus:0;
+   const lower=[[a+sP,y0,h],[b+eP,y0,h],[b+eM,y0,-h],[a+sM,y0,-h]];
+   const upper=lower.map(p=>[p[0],y1,p[2]]);
+   const positions=[],uvs=[],indices=[];
+   const quad=(p,q,r,s)=>{
+    const start=positions.length/3;
+    for(const [point,uv] of [[p,[0,0]],[q,[1,0]],[r,[1,1]],[s,[0,1]]]){
+     positions.push(...point);uvs.push(...uv);
+    }
+    indices.push(start,start+1,start+2,start,start+2,start+3);
+   };
+   quad(upper[0],upper[1],upper[2],upper[3]);
+   quad(lower[3],lower[2],lower[1],lower[0]);
+   quad(lower[0],lower[1],upper[1],upper[0]);
+   quad(lower[2],lower[3],upper[3],upper[2]);
+   quad(lower[3],lower[0],upper[0],upper[3]);
+   quad(lower[1],lower[2],upper[2],upper[1]);
+   const geo=new THREE.BufferGeometry();
+   geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+   geo.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+   geo.setIndex(indices);geo.computeVertexNormals();
+   const mesh=new THREE.Mesh(geo,mat.clone());
+   mesh.position.set(owner.x1,0,owner.z1);mesh.rotation.y=-angle;
+   mesh.userData.objectId=owner.id;mesh.userData.wall=true;
+   mesh.castShadow=true;mesh.receiveShadow=true;this.objectGroup.add(mesh);
+  };
   for(const w of this.items.filter(x=>x.kind==='wall')){
    const dx=w.x2-w.x1,dz=w.z2-w.z1,len=Math.hypot(dx,dz);if(len<.1)continue;
    const angle=Math.atan2(dz,dx),ux=dx/len,uz=dz/len;
+   const caps={...wallJointCaps(w,this.items),length:len};
    const piece=(a,b,y0,y1,width,mat,owner=w)=>{
-    const t=(a+b)/2;box(owner,a,b,y0,y1,width,angle,w.x1+t*ux,w.z1+t*uz,mat);
+    if(owner===w&&width===w.thickness)wallPrism(owner,a,b,y0,y1,width,angle,caps,mat);
+    else {const t=(a+b)/2;box(owner,a,b,y0,y1,width,angle,w.x1+t*ux,w.z1+t*uz,mat);}
    };
    const fill=w.id===this.selectedId?selected:plaster;
    const openings=this.items.filter(o=>o.kind==='opening'&&o.hostId===w.id)
@@ -996,8 +1039,11 @@ export class FloorAR {
    const len=Math.hypot(c.x2-c.x1,c.z2-c.z1);if(len<.3)continue;
    const angle=Math.atan2(c.z2-c.z1,c.x2-c.x1),y0=c.elevation??.1;
    const cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2,ux=Math.cos(angle),uz=Math.sin(angle),nx=-uz,nz=ux;
-   const bodyMat=this.surfaceMaterial('body',this.materialSettings.body,len,c.height);
-   const fill=c.id===this.selectedId?cabinetSelected:bodyMat;
+   const bodyId=resolveFinish(this.materialSettings,c.subtype,'body');
+   const bodyMat=this.surfaceMaterial('body',bodyId,len,c.height);
+   // The carcass stays neutral white. Only exposed finished side panels carry
+   // body texture; the interior will never inherit decorative surface maps.
+   const fill=c.id===this.selectedId?cabinetSelected:material(0xf8f8f6);
    // Subtract axis-aligned sink/hob holes from each depth layer of the carcass.
    const cuts=countertopCutouts(this.items,c);
    const subtract=(area,holes)=>{
@@ -1056,6 +1102,19 @@ export class FloorAR {
      slices(y0+c.height-bottom,y0+c.height-top,cuts.filter(h=>h.cutDepth>top+.001),fill);
     }
    }else box(c,0,len,y0,y0+c.height,c.depth,angle,cx,cz,fill);
+   if(c.subtype!=='bridge')for(const end of [-1,1]){
+    const point=end<0?{x:c.x1,z:c.z1}:{x:c.x2,z:c.z2};
+    const concealed=this.items.some(other=>other.kind==='cabinet'&&other.id!==c.id&&
+     other.subtype===c.subtype&&Math.abs((other.elevation||0)-y0)<.025&&
+     [{x:other.x1,z:other.z1},{x:other.x2,z:other.z2}]
+      .some(p=>Math.hypot(point.x-p.x,point.z-p.z)<.045));
+    if(concealed)continue;
+    const panelGeo=this.applySurfaceUV(new THREE.BoxGeometry(.012,c.height,c.depth),bodyMat,.012,c.height,c.depth);
+    const panel=new THREE.Mesh(panelGeo,(c.id===this.selectedId?cabinetSelected:bodyMat).clone());
+    panel.position.set(cx+ux*end*(len/2-.006),y0+c.height/2,cz+uz*end*(len/2-.006));
+    panel.rotation.y=-angle;panel.castShadow=true;panel.receiveShadow=true;
+    panel.userData.objectId=c.id;panel.userData.cabinet=true;this.objectGroup.add(panel);
+   }
    if(c.subtype==='base'){
     // At first placement, every base envelope has a stone worktop and recessed plinth.
     const ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len,side=c.side||1;
@@ -1070,7 +1129,7 @@ export class FloorAR {
     toe.rotation.y=-angle;toe.castShadow=true;toe.receiveShadow=true;
     toe.userData.objectId=c.id;toe.userData.cabinet=true;this.objectGroup.add(toe);
    }
-   bodyMat.dispose();
+   bodyMat.dispose();if(fill!==cabinetSelected)fill.dispose();
   }
   // Automatic backsplash: attached to the host wall, from worktop to the
   // underside of upper cupboards (or a standard 62 cm rise), excluding windows.
@@ -1094,7 +1153,7 @@ export class FloorAR {
     const span=e-s;if(span<.05)continue;
     const t=(s+e)/2,offset=w.thickness/2+.014;
     const tile=this.surfaceMaterial('backsplash',this.materialSettings.backsplash,span,endY-baseTop);
-    const mesh=new THREE.Mesh(new THREE.BoxGeometry(span,endY-baseTop,.013),tile);
+    const mesh=new THREE.Mesh(this.applySurfaceUV(new THREE.BoxGeometry(span,endY-baseTop,.013),tile,span,endY-baseTop,.013),tile);
     mesh.position.set(w.x1+ux*t+nx*offset,(baseTop+endY)/2,w.z1+uz*t+nz*offset);
     mesh.rotation.y=-angle;mesh.receiveShadow=true;mesh.userData.objectId=c.id;
     this.objectGroup.add(mesh);
@@ -1104,19 +1163,23 @@ export class FloorAR {
   for(const panel of this.items.filter(o=>o.kind==='front')){
    const host=this.items.find(c=>c.id===panel.hostId&&c.kind==='cabinet');
    if(!host)continue;
-   const pose=frontPose(panel,host),materialId=panel.materialId||this.materialSettings.front;
+   const pose=frontPose(panel,host),materialId=panel.materialId||resolveFinish(this.materialSettings,host.subtype,'front');
    const grain=panel.grainDirection==='horizontal'||(panel.grainDirection!=='vertical'&&panel.subtype==='drawer')?'horizontal':'vertical';
    const root=new THREE.Group();root.position.set(pose.x,pose.y,pose.z);root.rotation.y=-pose.angle;
    root.userData.objectId=panel.id;this.objectGroup.add(root);
+   const frameId=panel.style==='frame'?panel.frameMaterialId||materialId:materialId;
    const faceMaterial=panel.id===this.selectedId?cabinetSelected.clone():
-    this.surfaceMaterial('front',materialId,pose.width,pose.height,grain);
-   const surface=new THREE.Mesh(new THREE.BoxGeometry(pose.width,pose.height,pose.thickness),faceMaterial);
+    this.surfaceMaterial('front',frameId,pose.width,pose.height,grain);
+   const surface=new THREE.Mesh(this.applySurfaceUV(new THREE.BoxGeometry(pose.width,pose.height,pose.thickness),faceMaterial,
+    pose.width,pose.height,pose.thickness),faceMaterial);
    surface.castShadow=true;surface.receiveShadow=true;surface.userData.objectId=panel.id;
    root.add(surface);
    const visibleZ=(pose.side||1)*(.012+pose.thickness/2);
    if(panel.style==='frame'&&pose.width>.20&&pose.height>.18){
-    const inset=new THREE.Mesh(new THREE.BoxGeometry(pose.width-.065,pose.height-.065,.007),
-     this.surfaceMaterial('front',materialId,pose.width-.065,pose.height-.065,grain));
+    const innerMaterial=panel.id===this.selectedId?cabinetSelected.clone():
+     this.surfaceMaterial('front',materialId,pose.width-.065,pose.height-.065,grain);
+    const inset=new THREE.Mesh(this.applySurfaceUV(new THREE.BoxGeometry(pose.width-.065,pose.height-.065,.007),
+     innerMaterial,pose.width-.065,pose.height-.065,.007),innerMaterial);
     inset.position.z=visibleZ*.82;inset.userData.objectId=panel.id;root.add(inset);
    }
    if(panel.handleStyle!=='hidden'){

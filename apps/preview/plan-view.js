@@ -1,5 +1,5 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=materials27';
-import {renderPlanMeasurements} from './edit-handles.js?v=materials27';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=finishes28';
+import {renderPlanMeasurements} from './edit-handles.js?v=finishes28';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true}={}){
@@ -17,8 +17,8 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   '<rect x="-5" y="-4" width="10" height="8" fill="#f4f5ef"/><rect x="-5" y="-4" width="10" height="8" fill="url(#'+gridId+')"/>';
  for(const w of walls){
   const isSelected=w.id===selectedId;
-  out+='<line data-item-id="'+safe(w.id)+'" x1="'+f(w.x1)+'" y1="'+f(w.z1)+'" x2="'+f(w.x2)+'" y2="'+f(w.z2)+
-   '" stroke="'+(isSelected?'#3c9b7f':'#6f7771')+'" stroke-width="'+f(w.thickness)+'" stroke-linecap="butt" />';
+  out+='<polygon data-item-id="'+safe(w.id)+'" points="'+wallFootprint(w,walls).map(p=>f(p.x)+','+f(p.z)).join(' ')+
+   '" fill="'+(isSelected?'#3c9b7f':'#6f7771')+'" />';
  }
  for(const o of items.filter(x=>x.kind==='opening')){
   const w=walls.find(x=>x.id===o.hostId);if(!w)continue;

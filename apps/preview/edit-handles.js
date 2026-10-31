@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=materials27';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=finishes28';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
