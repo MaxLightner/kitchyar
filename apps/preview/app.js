@@ -138,7 +138,7 @@ function drawTools(){
 function drawSelection(){
  const panel=document.getElementById('object-editor');if(!panel)return;
  const obj=currentItems().find(x=>x.id===selection);
- panel.hidden=!obj;if(!obj)return;
+ panel.hidden=!obj||!!drawing;if(!obj||drawing)return;
  const field=(key,title,val,min,step='.01')=>'<label>'+title+'<input type="number" data-edit="'+key+'" value="'+Number(val).toFixed(2)+'" min="'+min+'" step="'+step+'"></label>';
  let fields='',title=obj.name;
  if(obj.kind==='wall')fields=field('length','طول (متر)',Geo.lengthOf(obj),.1)+field('thickness','ضخامت (متر)',obj.thickness,.07)+field('height','ارتفاع (متر)',obj.height,.4);
