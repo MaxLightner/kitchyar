@@ -1,6 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=render10';
-import * as Geo from './geometry.js?v=render10';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render10';
+import {FloorAR} from './floor-ar.js?v=render11';
+import * as Geo from './geometry.js?v=render11';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render11';
+import {resizeFromHandle,handlePosition,renderElevation} from './edit-handles.js?v=render11';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -48,7 +49,7 @@ const categories=[
 function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
  activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;undoStack=[];redoStack=[];
- app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
+ app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">اسکن مجدد ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
  '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
@@ -161,7 +162,7 @@ function drawSelection(){
  panel.innerHTML='<div class="object-head"><strong>'+esc(title)+'</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
   '<div class="object-fields">'+fields+'</div><div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
-  (['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌های سبز و نارنجی در پلان قابل جابه‌جایی‌اند.</small>':'');
+  (['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌ها را بکش؛ اندازه‌گذاری هنگام حرکت نمایش داده می‌شود و پس از رها کردن، با دقت ۱ سانتی‌متر ثبت می‌شود.</small>':'');
 }
 function showScene(){
  const root=document.getElementById('editor-root');if(!root)return;
@@ -173,6 +174,12 @@ function showScene(){
  }else {
   host.innerHTML='';
   document.getElementById('scene-message').classList.remove('hide-for-plan');
+ }
+ const elevation=document.getElementById('elevation-panel');
+ if(elevation){
+  const opening=items.find(o=>o.id===selection&&o.kind==='opening');
+  elevation.hidden=!isPlan||!opening||!!drawing;
+  elevation.innerHTML=elevation.hidden?'':renderElevation(items,opening);
  }
  document.getElementById('mini-plan').innerHTML=renderPlan(items,{mini:true});
  document.getElementById('item-count').textContent=items.length?num(items.length,0)+' عنصر در صحنه':'هنوز آبجکتی در صحنه نیست';
@@ -319,55 +326,100 @@ document.addEventListener('change',e=>{
  const field=e.target.closest('[data-setting]');if(!field)return;
  const name=field.dataset.setting;settings[name]=field.type==='checkbox'?field.checked:Number(field.value);
 });
+/* Dedicated resize gesture: no document mutation until pointer release. */
+function positionForResize(e,drag){
+ const original=drag.initial,scene=document.querySelector('.editor-scene');
+ if(drag.surface==='elevation'){
+  const pixels=drag.pixelsPerMetre||1;
+  return {...original,along:(original.along||0)+(e.clientX-drag.startClientX)/pixels,
+   y:(original.y||0)-(e.clientY-drag.startClientY)/pixels};
+ }
+ if(mode==='ar'){
+  const target=floor?.dragHandlePoint(e.clientX,e.clientY,drag.id);
+  return target||null;
+ }
+ const svg=scene?.querySelector('#plan-view');
+ const point=svg?planPoint(svg,e):null;if(!point)return null;
+ const obj=drag.originalItems.find(o=>o.id===drag.id);
+ if(obj?.kind==='wall')return point;
+ const host=drag.originalItems.find(o=>o.id===obj?.hostId);
+ if(!host)return null;
+ const projected=Geo.projectOnWall(host,point.x,point.z);
+ return {along:projected.t*Geo.lengthOf(host),y:original.y};
+}
+function paintResize(){
+ if(!dragHandle)return;
+ const objItems=dragHandle.previewItems||dragHandle.originalItems;
+ const current=objItems.find(o=>o.id===dragHandle.id);
+ const gesture=dragHandle.moved?{id:dragHandle.id,side:dragHandle.side,
+  anchorCentre:dragHandle.anchorCentre,anchorScale:dragHandle.anchorScale}:null;
+ if(mode==='2d'){
+  const host=document.getElementById('plan-host');
+  if(host)host.innerHTML=renderPlan(objItems,{selectedId:selection,gesture});
+  const panel=document.getElementById('elevation-panel');
+  if(panel){const opening=current?.kind==='opening'?current:null;
+   panel.hidden=!opening;
+   panel.innerHTML=opening?renderElevation(objItems,opening,gesture):'';
+   if(dragHandle.error)panel.insertAdjacentHTML('beforeend','<p class="resize-warning">'+esc(dragHandle.error)+'</p>');
+  }
+ }else if(mode==='ar'){
+  floor?.setEditPreview(objItems,dragHandle.id,dragHandle.side,dragHandle.moved);
+ }
+}
+function finishResize(cancelled=false){
+ const drag=dragHandle;if(!drag)return;
+ dragHandle=null;
+ const scene=document.querySelector('.editor-scene');scene?.classList.remove('is-resizing');
+ if(mode==='ar')floor?.setEditPreview(null,null,null,false);
+ if(!cancelled&&drag.moved&&drag.previewItems){
+  commitChange({items:drag.previewItems,selectedId:drag.id});
+ }else{
+  if(drag.error&&!cancelled)tell(drag.error);
+  showScene();
+ }
+}
 document.addEventListener('pointerdown',e=>{
  const handle=e.target.closest('[data-handle],[data-open-handle]');
- if(!handle)return;
- dragHandle={id:handle.dataset.itemId,side:handle.dataset.openHandle||handle.dataset.handle,
-  kind:handle.hasAttribute('data-open-handle')?'opening':'endpoint',startClientX:e.clientX,startClientY:e.clientY};
-});
-document.addEventListener('pointerup',e=>{
- const scene=e.target.closest('.editor-scene');if(!scene){dragHandle=null;return;}
- if(e.target.closest('[data-action]')){dragHandle=null;return;}
- try{
-  const svg=scene.querySelector('#plan-view');
-  const point=mode==='2d'?svg?planPoint(svg,e):null:mode==='ar'?floor?.pick():null;
-  if(dragHandle){
-   if(Math.hypot(e.clientX-dragHandle.startClientX,e.clientY-dragHandle.startClientY)<5){dragHandle=null;return;}
-   if(point){
-    const obj=currentItems().find(x=>x.id===dragHandle.id);
-    if(dragHandle.kind==='opening'){
-     const host=currentItems().find(x=>x.id===obj?.hostId);
-     if(host){
-      const position=Geo.projectOnWall(host,point.x,point.z).t*Geo.lengthOf(host);
-      const begin=obj.hostT*Geo.lengthOf(host)-obj.width/2;
-      const end=obj.hostT*Geo.lengthOf(host)+obj.width/2;
-      let left=begin,right=end;
-      if(dragHandle.side==='left')left=position;
-      else if(dragHandle.side==='right')right=position;
-      else {left=position-obj.width/2;right=position+obj.width/2;}
-      commitChange(Geo.editOpening(currentItems(),obj.id,
-       {width:right-left,metresFromStart:(left+right)/2}));
-     }
-    }else{
-     const edit=obj?.kind==='cabinet'?Geo.moveCabinetEndpoint:Geo.moveEndpoint;
-     commitChange(edit(currentItems(),dragHandle.id,dragHandle.side==='start',point.x,point.z));
-    }
-   }
-   dragHandle=null;return;
-  }
-  const arId=mode==='ar'&&!drawing?floor?.pickObject(e.clientX,e.clientY):null;
-  if(!point&&!arId){if(mode==='ar'&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
-  if(drawing)placeAt(point);else selectAt(point,e.target,arId);
- }catch(error){tell(error.message);dragHandle=null;}
+ const hit=handle?{id:handle.dataset.itemId,side:handle.dataset.openHandle||handle.dataset.handle}:
+  mode==='ar'&&!drawing&&!e.target.closest('button,input,aside,.editor-header,.bottom-panel,.side-tools')?floor?.pickHandle(e.clientX,e.clientY):null;
+ if(!hit||drawing||!currentItems().some(o=>o.id===hit.id))return;
+ const initial=handlePosition(currentItems(),hit.id,hit.side);
+ if(!initial)return;
+ const elevationSvg=handle?.closest('#elevation-view');
+ const surface=elevationSvg?'elevation':mode==='ar'?'ar':'plan';
+ const ppm=elevationSvg?Number(elevationSvg.dataset.ppm)*elevationSvg.getBoundingClientRect().width/320:0;
+ const original=currentItems().find(o=>o.id===hit.id);
+ const wall=original?.kind==='opening'?currentItems().find(o=>o.id===original.hostId):null;
+ selection=hit.id;
+ dragHandle={id:hit.id,side:hit.side,initial,surface,pixelsPerMetre:ppm,
+  startClientX:e.clientX,startClientY:e.clientY,originalItems:structuredClone(currentItems()),
+  previewItems:null,moved:false,error:null,pointerId:e.pointerId,
+  anchorCentre:wall?original.hostT*Geo.lengthOf(wall):null,
+  anchorScale:elevationSvg?Number(elevationSvg.dataset.ppm):null};
+ const scene=document.querySelector('.editor-scene');
+ scene?.classList.add('is-resizing');
+ try{scene?.setPointerCapture(e.pointerId);}catch{}
+ e.preventDefault();e.stopPropagation();
 });
 document.addEventListener('pointermove',e=>{
+ if(dragHandle){
+  if(e.pointerId!==dragHandle.pointerId)return;
+  if(Math.hypot(e.clientX-dragHandle.startClientX,e.clientY-dragHandle.startClientY)<3)return;
+  const position=positionForResize(e,dragHandle);
+  if(!position)return;
+  dragHandle.moved=true;
+  try{
+   const result=resizeFromHandle(dragHandle.originalItems,dragHandle.id,dragHandle.side,position);
+   dragHandle.previewItems=result.items;dragHandle.error=null;
+  }catch(error){dragHandle.error=error.message;}
+  paintResize();e.preventDefault();return;
+ }
  if(mode!=='2d'||!drawing)return;
  const svg=e.target.closest('#plan-view');if(!svg)return;
  const point=planPoint(svg,e);if(!point)return;
  const cabinet=['base','upper','fridge','stove','sink'].includes(drawing.tool);
  const resolved=cabinet?point:Geo.resolvePoint(currentItems(),drawing.start,point.x,point.z,settings);
  hover={x:resolved.x,z:resolved.z};
- // Live complete footprint (not a line) while preserving the SVG event target.
  svg.querySelector('.live-preview')?.remove();
  const ghost=renderPreview(currentItems(),drawing,hover);
  if(ghost){
@@ -379,7 +431,21 @@ document.addEventListener('pointermove',e=>{
  if(hint&&drawing.start){
   hint.textContent='پیش‌نمایش حجمی · طول: '+num(Math.hypot(hover.x-drawing.start.x,hover.z-drawing.start.z))+' متر · '+(resolved.label||'روی دیوار');
  }
-
+});
+document.addEventListener('pointerup',e=>{
+ if(dragHandle){if(e.pointerId===dragHandle.pointerId)finishResize();return;}
+ const scene=e.target.closest('.editor-scene');if(!scene)return;
+ if(e.target.closest('[data-action]'))return;
+ try{
+  const svg=scene.querySelector('#plan-view');
+  const point=mode==='2d'?svg?planPoint(svg,e):null:mode==='ar'?floor?.pick():null;
+  const arId=mode==='ar'&&!drawing?floor?.pickObject(e.clientX,e.clientY):null;
+  if(!point&&!arId){if(mode==='ar'&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
+  if(drawing)placeAt(point);else selectAt(point,e.target,arId);
+ }catch(error){tell(error.message);}
+});
+document.addEventListener('pointercancel',e=>{
+ if(dragHandle&&e.pointerId===dragHandle.pointerId)finishResize(true);
 });
 
 document.addEventListener('click',async e=>{

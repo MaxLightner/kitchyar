@@ -1,7 +1,8 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition} from './geometry.js?v=render9';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition} from './geometry.js?v=render11';
+import {renderPlanMeasurements} from './edit-handles.js?v=render11';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
-export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null}={}){
+export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null}={}){
  const walls=items.filter(x=>x.kind==='wall'),cabinets=items.filter(x=>x.kind==='cabinet');
  const gridId=mini?'mini-grid-k':'main-grid-k';
  let out='<svg '+(mini?'class="mini-svg"':'id="plan-view" class="plan-svg"')+
@@ -44,6 +45,12 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   }else if(e.subtype==='sink')out+='<rect x="'+f(e.x-e.width*.36)+'" y="'+f(e.z-e.depth*.32)+'" width="'+f(e.width*.72)+'" height="'+f(e.depth*.64)+'" rx=".055" fill="#4d8585" stroke="#e3f4f0" stroke-width=".03"/>';
   out+='</g>';
  }
+ if(!mini)for(const o of items.filter(x=>x.kind==='opening')){
+  const w=walls.find(x=>x.id===o.hostId);if(!w)continue;
+  const len=lengthOf(w),a=(o.hostT*len-o.width/2)/len,b=(o.hostT*len+o.width/2)/len;
+  out+='<line class="opening-hit" data-item-id="'+safe(o.id)+'" x1="'+f(w.x1+(w.x2-w.x1)*a)+'" y1="'+f(w.z1+(w.z2-w.z1)*a)+
+   '" x2="'+f(w.x1+(w.x2-w.x1)*b)+'" y2="'+f(w.z1+(w.z2-w.z1)*b)+'" stroke="transparent" stroke-width=".22" pointer-events="stroke"/>';
+ }
  const selection=items.find(x=>x.id===selectedId);
  if(selection&&['wall','cabinet'].includes(selection.kind)&&!mini){
   for(const [side,x,z] of [['start',selection.x1,selection.z1],['end',selection.x2,selection.z2]]){
@@ -62,6 +69,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    }
   }
  }
+ if(gesture&&!mini)out+=renderPlanMeasurements(items,gesture.id,gesture.side);
  if(drawing&&!mini)out+=renderPreview(items,drawing,hover);
  return out+'</svg>';
 }

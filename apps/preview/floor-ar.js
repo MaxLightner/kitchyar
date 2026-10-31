@@ -3,7 +3,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,EQUIPMENT_SPECS} from './geometry.js?v=render9';
+import {limitCabinetEnd,EQUIPMENT_SPECS} from './geometry.js?v=render11';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -53,6 +53,8 @@ export class FloorAR {
     this.objectGroup=new THREE.Group();this.floorGroup.add(this.objectGroup);
     this.previewGroup=new THREE.Group();this.previewGroup.visible=false;
     this.previewGroup.renderOrder=20;this.floorGroup.add(this.previewGroup);
+    this.editGroup=new THREE.Group();this.floorGroup.add(this.editGroup);
+    this.editPreviewGroup=new THREE.Group();this.floorGroup.add(this.editPreviewGroup);
     this.whiteFloor=new THREE.Mesh(new THREE.PlaneGeometry(6,6),new THREE.MeshStandardMaterial({
      color:0xffffff,transparent:true,opacity:.50,depthWrite:false,roughness:1,metalness:0,side:THREE.DoubleSide
     }));
@@ -301,6 +303,116 @@ export class FloorAR {
   const local=this.floorGroup.worldToLocal(hit.point.clone());
   return {x:local.x,z:local.z};
  }
+ _clearEdit(group){
+  if(!group)return;
+  while(group.children.length){
+   const child=group.children[0];group.remove(child);
+   child.traverse(x=>{x.geometry?.dispose();const mat=x.material;
+    if(mat)for(const m of Array.isArray(mat)?mat:[mat]){m.map?.dispose();m.dispose();}});
+  }
+ }
+ _rayFromTouch(clientX,clientY){
+  if(!this.locked||!this.lastPose||!this.renderer)return null;
+  const r=this.renderer.domElement.getBoundingClientRect();
+  return this.screenRay(this.lastPose,false,(clientX-r.left)/r.width*2-1,1-(clientY-r.top)/r.height*2);
+ }
+ updateEditHandles(items=this.items){
+  if(!this.editGroup)return;
+  this._clearEdit(this.editGroup);
+  const obj=items?.find(x=>x.id===this.selectedId);if(!obj)return;
+  const mark=(side,x,y,z,color)=>{
+   const mesh=new THREE.Mesh(new THREE.SphereGeometry(.105,18,14),
+    new THREE.MeshBasicMaterial({color,depthTest:false,transparent:true,opacity:.95}));
+   mesh.position.set(x,y,z);mesh.renderOrder=50;
+   mesh.userData.editHandle={id:obj.id,side};
+   this.editGroup.add(mesh);
+  };
+  if(obj.kind==='opening'){
+   const w=items.find(x=>x.id===obj.hostId);if(!w)return;
+   const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
+   const nx=-uz,nz=ux,offset=w.thickness/2+.06,center=obj.hostT*len;
+   const p=(along,y)=>({x:w.x1+ux*along+nx*offset,y,z:w.z1+uz*along+nz*offset});
+   const l=center-obj.width/2,r=center+obj.width/2,middle=obj.sill+obj.height/2;
+   for(const [side,along,y,c] of [['left',l,middle,0x66d0a7],['right',r,middle,0x66d0a7],
+    ['top',center,obj.sill+obj.height,0xf1b366],['centre',center,middle,0xffe2a5]])
+    {const v=p(along,y);mark(side,v.x,v.y,v.z,c);}
+   if(obj.style!=='door'){const v=p(center,obj.sill);mark('bottom',v.x,v.y,v.z,0xf1b366);}
+  }else if(obj.kind==='cabinet'){
+   const w=items.find(x=>x.id===obj.hostId);if(!w)return;
+   const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
+   const nx=-uz,nz=ux,offset=(obj.side||1)*obj.depth/2+.05;
+   for(const [side,t] of [['start',obj.startT],['end',obj.endT]])
+    mark(side,w.x1+ux*t*len+nx*offset,obj.elevation+obj.height/2,
+     w.z1+uz*t*len+nz*offset,0x64d2a5);
+  }else if(obj.kind==='wall'){
+   mark('start',obj.x1,.15,obj.z1,0x64d2a5);
+   mark('end',obj.x2,.15,obj.z2,0x64d2a5);
+  }
+ }
+ pickHandle(clientX,clientY){
+  const ray=this._rayFromTouch(clientX,clientY);if(!ray||!this.editGroup)return null;
+  this.floorGroup.updateWorldMatrix(true,true);
+  const hits=new THREE.Raycaster(ray.origin,ray.direction,.04,15).intersectObjects(this.editGroup.children,true);
+  return hits[0]?.object.userData.editHandle||null;
+ }
+ dragHandlePoint(clientX,clientY,id){
+  const ray=this._rayFromTouch(clientX,clientY),o=this.items.find(x=>x.id===id);
+  if(!ray||!o)return null;
+  const w=o.kind==='wall'?o:this.items.find(x=>x.id===o.hostId);if(!w)return null;
+  const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
+  const nx=-uz,nz=ux,offset=o.kind==='opening'?w.thickness/2+.06:
+   o.kind==='cabinet'?(o.side||1)*o.depth/2+.05:0;
+  this.floorGroup.updateWorldMatrix(true,false);
+  const inverse=this.floorGroup.matrixWorld.clone().invert();
+  const from=ray.origin.clone().applyMatrix4(inverse),
+   dir=ray.direction.clone().transformDirection(inverse),den=dir.x*nx+dir.z*nz;
+  if(Math.abs(den)<.002)return null;
+  const distance=((w.x1+nx*offset-from.x)*nx+(w.z1+nz*offset-from.z)*nz)/den;
+  if(distance<.05||distance>18)return null;
+  const hit=from.addScaledVector(dir,distance),along=(hit.x-w.x1)*ux+(hit.z-w.z1)*uz;
+  return {along,y:hit.y,x:hit.x,z:hit.z};
+ }
+ _editLabel(text,x,y,z){
+  const canvas=document.createElement('canvas');canvas.width=256;canvas.height=64;
+  const c=canvas.getContext('2d');c.fillStyle='#f7f5eb';c.fillRect(0,0,256,64);
+  c.strokeStyle='#69a995';c.strokeRect(2,2,252,60);c.fillStyle='#244d40';
+  c.font='bold 31px Tahoma';c.textAlign='center';c.textBaseline='middle';c.fillText(text,128,32);
+  const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),
+   depthTest:false,transparent:true}));sprite.position.set(x,y,z);sprite.scale.set(.72,.18,1);
+  sprite.renderOrder=55;this.editPreviewGroup.add(sprite);
+ }
+ setEditPreview(items,id,side,visible){
+  if(!this.editPreviewGroup)return;
+  this._clearEdit(this.editPreviewGroup);
+  if(!visible||!items){this.updateEditHandles();return;}
+  const o=items.find(x=>x.id===id);if(!o)return;
+  this.updateEditHandles(items);
+  const mat=new THREE.MeshBasicMaterial({color:0x61c5a3,opacity:.36,transparent:true,
+   depthTest:false,depthWrite:false,side:THREE.DoubleSide});
+  const box=(width,height,depth,x,y,z,angle)=>{
+   const mesh=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.02,width),Math.max(.02,height),depth),mat);
+   mesh.position.set(x,y,z);mesh.rotation.y=-angle;mesh.renderOrder=40;this.editPreviewGroup.add(mesh);
+  };
+  const label=(t,x,y,z)=>this._editLabel(t,x,y,z);
+  if(o.kind==='opening'){
+   const w=items.find(x=>x.id===o.hostId);if(!w)return;
+   const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
+   const nx=-uz,nz=ux,offset=w.thickness/2+.09,t=o.hostT*len;
+   const x=w.x1+ux*t+nx*offset,z=w.z1+uz*t+nz*offset;
+   box(o.width,o.height,.018,x,o.sill+o.height/2,z,Math.atan2(uz,ux));
+   label('عرض '+o.width.toFixed(2)+' m',x,o.sill+o.height+.24,z);
+   label('ارتفاع '+o.height.toFixed(2)+' m',x+.28,o.sill+o.height/2,z+.28);
+   label('کف '+o.sill.toFixed(2)+' m',x-.28,Math.max(.15,o.sill/2),z-.28);
+  }else if(o.kind==='cabinet'){
+   const len=Math.hypot(o.x2-o.x1,o.z2-o.z1),angle=Math.atan2(o.z2-o.z1,o.x2-o.x1);
+   box(len,o.height,o.depth,(o.x1+o.x2)/2,o.elevation+o.height/2,(o.z1+o.z2)/2,angle);
+   label('طول '+len.toFixed(2)+' m',(o.x1+o.x2)/2,o.elevation+o.height+.24,(o.z1+o.z2)/2);
+  }else if(o.kind==='wall'){
+   const len=Math.hypot(o.x2-o.x1,o.z2-o.z1);
+   box(len,o.height,o.thickness,(o.x1+o.x2)/2,o.height/2,(o.z1+o.z2)/2,Math.atan2(o.z2-o.z1,o.x2-o.x1));
+   label('طول '+len.toFixed(2)+' m',(o.x1+o.x2)/2,o.height+.22,(o.z1+o.z2)/2);
+  }
+ }
  pickObject(clientX,clientY){
   if(!this.locked||!this.lastPose||!this.objectGroup)return null;
   const rect=this.renderer.domElement.getBoundingClientRect();
@@ -448,8 +560,8 @@ export class FloorAR {
   for(const w of this.items.filter(x=>x.kind==='wall')){
    const dx=w.x2-w.x1,dz=w.z2-w.z1,len=Math.hypot(dx,dz);if(len<.1)continue;
    const angle=Math.atan2(dz,dx),ux=dx/len,uz=dz/len;
-   const piece=(a,b,y0,y1,width,mat)=>{
-    const t=(a+b)/2;box(w,a,b,y0,y1,width,angle,w.x1+t*ux,w.z1+t*uz,mat);
+   const piece=(a,b,y0,y1,width,mat,owner=w)=>{
+    const t=(a+b)/2;box(owner,a,b,y0,y1,width,angle,w.x1+t*ux,w.z1+t*uz,mat);
    };
    const fill=w.id===this.selectedId?selected:plaster;
    const openings=this.items.filter(o=>o.kind==='opening'&&o.hostId===w.id)
@@ -460,19 +572,19 @@ export class FloorAR {
     piece(o.a,o.b,0,o.sill,w.thickness,fill);
     piece(o.a,o.b,o.sill+o.height,w.height,w.thickness,fill);
     const t=Math.max(w.thickness+.018,.065),edge=.045;
-    piece(o.a,o.a+edge,o.sill,o.sill+o.height,t,frame);
-    piece(o.b-edge,o.b,o.sill,o.sill+o.height,t,frame);
-    piece(o.a,o.b,o.sill+o.height-edge,o.sill+o.height,t,frame);
+    piece(o.a,o.a+edge,o.sill,o.sill+o.height,t,frame,o);
+    piece(o.b-edge,o.b,o.sill,o.sill+o.height,t,frame,o);
+    piece(o.a,o.b,o.sill+o.height-edge,o.sill+o.height,t,frame,o);
     if(o.style==='fixed'){
-     piece(o.a,o.b,o.sill,o.sill+edge,t,frame);
-     piece(o.a+edge,o.b-edge,o.sill+edge,o.sill+o.height-edge,.015,glass);
+     piece(o.a,o.b,o.sill,o.sill+edge,t,frame,o);
+     piece(o.a+edge,o.b-edge,o.sill+edge,o.sill+o.height-edge,.015,glass,o);
     }else{
      const hingeX=w.x1+o.a*ux,hingeZ=w.z1+o.a*uz;
      const pivot=new THREE.Group();pivot.position.set(hingeX,0,hingeZ);
      pivot.rotation.y=-angle+(o.mirrored?1:-1)*(o.openFraction||0)*Math.PI/2;
      const panel=new THREE.Mesh(new THREE.BoxGeometry(o.width-edge,o.height,.047),wood.clone());
      panel.position.set((o.width-edge)/2,o.height/2,0);
-     panel.castShadow=true;panel.receiveShadow=true;pivot.add(panel);this.objectGroup.add(pivot);
+     panel.castShadow=true;panel.receiveShadow=true;panel.userData.objectId=o.id;pivot.userData.objectId=o.id;pivot.add(panel);this.objectGroup.add(pivot);
     }
     last=o.b;
    }
@@ -523,6 +635,7 @@ export class FloorAR {
   }
   for(const m of [plaster,selected,frame,glass,wood,base,upper,cabinetSelected])m.dispose();
   this.applyRaycastAO();
+  this.updateEditHandles();
   this.reflectionDirty=true;
  }
  /* Geometry-based ambient occlusion: hemisphere rays against actual neighboring meshes.

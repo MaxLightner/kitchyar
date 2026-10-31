@@ -202,3 +202,53 @@ test('moving wall endpoint never jumps back to its own start snap node',async()=
  items=G.placeWall(items,{x:2,z:0},{x:2.3,z:.015}).items;
  assert.equal(items.filter(x=>x.kind==='wall').length,2);
 });
+
+
+test('direct window handles snap to one centimetre and preserve the opposite edge',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ const H=await import('../apps/preview/edit-handles.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ const wall=items[0];
+ items=G.placeOpening(items,wall.id,2.5,0,{style:'fixed',sill:.9,height:1.2,width:1.2}).items;
+ const op=items.find(o=>o.kind==='opening'),rightBefore=op.hostT*5+op.width/2;
+ const bottom=H.resizeFromHandle(items,op.id,'bottom',{y:1.073}).items.find(o=>o.id===op.id);
+ assert.equal(bottom.sill,1.07);assert.equal(bottom.height,1.03);
+ assert.equal(bottom.sill+bottom.height,2.1,'top edge stays fixed during sill drag');
+ const left=H.resizeFromHandle(items,op.id,'left',{along:1.713}).items.find(o=>o.id===op.id);
+ assert.equal(left.width,1.39);
+ assert.ok(Math.abs(left.hostT*5+left.width/2-rightBefore)<1e-8,'opposite edge must not shift');
+ assert.throws(()=>H.resizeFromHandle(items,op.id,'top',{y:2.91}),/بازشو|دیوار/);
+ const minimum=H.resizeFromHandle(items,op.id,'left',{along:100}).items.find(o=>o.id===op.id);
+ assert.equal(minimum.width,.3,'width is clamped to 30cm');
+});
+test('cabinet installed length has stable 1 cm start/end resizing',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ const H=await import('../apps/preview/edit-handles.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.5,z:0},{x:1.5,z:0},{kind:'base'}).items;
+ const c=items.find(o=>o.kind==='cabinet');
+ const adjusted=H.resizeFromHandle(items,c.id,'end',{along:1.647}).items.find(o=>o.id===c.id);
+ assert.equal((adjusted.endT-adjusted.startT)*5,1.15);
+ assert.equal(adjusted.startT,c.startT);
+});
+test('live resize guides locate nearest cabinet or wall corner',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ const H=await import('../apps/preview/edit-handles.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ const wall=items[0];
+ items=G.placeCabinet(items,{x:.5,z:0},{x:1.5,z:0},{kind:'base'}).items;
+ items=G.placeOpening(items,wall.id,2.5,0,{style:'fixed'}).items;
+ const op=items.find(o=>o.kind==='opening'),gap=H.neighborGaps(items,op);
+ assert.equal(gap.before.label,'کابینت زمینی');
+ assert.equal(gap.before.gap,.4);
+ assert.equal(gap.after.label,'کنج دیوار');
+ const elevation=H.renderElevation(items,op,{id:op.id,side:'bottom'});
+ assert.match(elevation,/data-open-handle="bottom"/);
+ assert.match(elevation,/کابینت زمینی/);
+ assert.match(H.renderPlanMeasurements(items,op.id,'right'),/live-measurements/);
+ const app=source('app.js'),floor=source('floor-ar.js');
+ assert.match(app,/setPointerCapture/);
+ assert.match(app,/function finishResize/);
+ assert.match(floor,/pickHandle\(clientX,clientY\)/);
+ assert.match(floor,/setEditPreview\(items,id,side,visible\)/);
+});
