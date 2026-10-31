@@ -185,7 +185,107 @@
     }
     return {list, get, create, update, duplicate, remove, exportProject, importProject};
   }
-  return {STORAGE_KEY, SCHEMA_VERSION, createRepository, normalizeScene, normalizeItem, normalizeCalibration,
+
+  // Implicit shared-node topology: all segment endpoints are metric coordinates.
+  const pointAt=(wall,t)=>{const l=length(wall)||1;return {x:wall.x1+(wall.x2-wall.x1)*t/l,z:wall.z1+(wall.z2-wall.z1)*t/l};};
+  function nearestOn(wall,p){
+    const l=length(wall)||1,dx=(wall.x2-wall.x1)/l,dz=(wall.z2-wall.z1)/l;
+    const t=clamp((p.x-wall.x1)*dx+(p.z-wall.z1)*dz,0,l);
+    const q=pointAt(wall,t);
+    return {t,p:q,d:Math.hypot(p.x-q.x,p.z-q.z)};
+  }
+  function segmentIntersection(a,b){
+    const ax=a.x2-a.x1,az=a.z2-a.z1,bx=b.x2-b.x1,bz=b.z2-b.z1;
+    const cross=ax*bz-az*bx;
+    if(Math.abs(cross)<1e-8)return null;
+    const qx=b.x1-a.x1,qz=b.z1-a.z1;
+    const t=(qx*bz-qz*bx)/cross,u=(qx*az-qz*ax)/cross;
+    if(t<-.001||t>1.001||u<-.001||u>1.001)return null;
+    return {a:clamp(t,0,1)*length(a),b:clamp(u,0,1)*length(b)};
+  }
+  function connectWall(items,rawWall){
+    const walls=items.filter(i=>i.kind==='wall');
+    const wall=normalizeItem(rawWall);
+    // Endpoint first, then on-segment snap: exact shared coordinates are important.
+    for(const key of ['1','2']){
+      const p={x:wall['x'+key],z:wall['z'+key]};
+      const candidates=walls.flatMap(w=>[pointAt(w,0),pointAt(w,length(w))]);
+      let closest=null,dist=.18;
+      for(const q of candidates){const d=Math.hypot(q.x-p.x,q.z-p.z);if(d<dist){closest=q;dist=d;}}
+      if(!closest){
+        for(const w of walls){const q=nearestOn(w,p);if(q.d<dist){closest=q.p;dist=q.d;}}
+      }
+      if(closest){wall['x'+key]=rounded(closest.x);wall['z'+key]=rounded(closest.z);}
+    }
+    if(length(wall)<.3)throw Error('طول دیوار کمتر از ۳۰ سانتی‌متر است.');
+    const cuts=new Map(walls.map(w=>[w.id,[]])),freshCuts=[];
+    function cut(list,t,len){if(t>.3&&t<len-.3&&!list.some(v=>Math.abs(v-t)<.055))list.push(t);}
+    for(const other of walls){
+      const l=length(other),n=length(wall);
+      const intersection=segmentIntersection(other,wall);
+      if(intersection){cut(cuts.get(other.id),intersection.a,l);cut(freshCuts,intersection.b,n);}
+      for(const p of [pointAt(wall,0),pointAt(wall,n)]){
+        const q=nearestOn(other,p);
+        if(q.d<.06)cut(cuts.get(other.id),q.t,l);
+      }
+      for(const p of [pointAt(other,0),pointAt(other,l)]){
+        const q=nearestOn(wall,p);
+        if(q.d<.06)cut(freshCuts,q.t,n);
+      }
+    }
+    const others=items.filter(i=>i.kind!=='wall').map(copy);
+    function split(w,positions){
+      const l=length(w),opens=others.filter(o=>o.kind==='opening'&&o.wallId===w.id);
+      const ordered=[0,...positions.sort((a,b)=>a-b),l];
+      const valid=[0];
+      for(const t of ordered.slice(1,-1)){
+        const prev=valid.at(-1);
+        if(t-prev<.3||l-t<.3)continue;
+        // A node must not cut through the occupied width of an opening.
+        if(opens.some(o=>Math.abs(o.offset-t)<o.width/2+.09))continue;
+        valid.push(t);
+      }
+      valid.push(l);
+      const fragments=[];
+      for(let i=1;i<valid.length;i++){
+        const from=valid[i-1],to=valid[i];
+        if(to-from<.3)continue;
+        const a=pointAt(w,from),b=pointAt(w,to);
+        const fragment={...w,id:fragments.length?w.id+'-j'+id().slice(-8):w.id,
+          x1:rounded(a.x),z1:rounded(a.z),x2:rounded(b.x),z2:rounded(b.z)};
+        fragments.push(fragment);
+        for(const op of opens){
+          if(op.offset>=from-1e-5&&op.offset<=to+1e-5){
+            op.wallId=fragment.id;op.offset=rounded(op.offset-from);
+          }
+        }
+      }
+      return fragments.length?fragments:[w];
+    }
+    const existing=walls.flatMap(w=>split(w,cuts.get(w.id)));
+    const added=split(wall,freshCuts);
+    return {items:[...existing,...added,...others],selectedId:added[0].id};
+  }
+  function propagateWallNodes(items,oldWall,changed){
+    if(!oldWall||oldWall.kind!=='wall')return;
+    for(const edge of ['1','2']){
+      const x='x'+edge,z='z'+edge;
+      if(!(x in changed)&&!(z in changed))continue;
+      const old={x:oldWall[x],z:oldWall[z]};
+      const next={x:changed[x]===undefined?old.x:changed[x],z:changed[z]===undefined?old.z:changed[z]};
+      if(Math.hypot(next.x-old.x,next.z-old.z)<.0005)continue;
+      for(const other of items){
+        if(other.id===oldWall.id||other.kind!=='wall')continue;
+        for(const e of ['1','2']){
+          if(Math.hypot(other['x'+e]-old.x,other['z'+e]-old.z)<.025){
+            other['x'+e]=next.x;other['z'+e]=next.z;
+          }
+        }
+      }
+    }
+  }
+
+  return {STORAGE_KEY, SCHEMA_VERSION, connectWall, propagateWallNodes, createRepository, normalizeScene, normalizeItem, normalizeCalibration,
     blankProject, sampleVolume, createWall, createOpening, createCabinetRun, canPlaceOpening,
     validateScene, length, rounded, copy, DEFAULT_CALIBRATION};
 });
