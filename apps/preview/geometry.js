@@ -360,10 +360,10 @@ export function frontPose(front,c){
 function layoutBays(items,c,preset){
  const len=lengthOf(c),fixtures=[];
  if(preset==='smart'){
-  for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove'].includes(o.subtype))){
+  for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove','oven'].includes(o.subtype))){
    let centre=null;
    if(c.subtype==='base'&&e.hostId===c.id)centre=(e.offsetT??.5)*len;
-   if(c.subtype==='upper'){
+   if(c.subtype==='upper'&&e.subtype!=='oven'){
     const base=byId(items,e.hostId);
     if(base?.kind==='cabinet'&&base.hostId===c.hostId&&base.side===c.side){
      const px=e.x,pz=e.z,dx=c.x2-c.x1,dz=c.z2-c.z1;
@@ -413,7 +413,7 @@ export function planFronts(items,c,preset='doors'){
  for(let i=0;i<bays.length;i++){
   const {a:metresA,b:metresB,type}=bays[i],a=metresA/length,b=metresB/length,span=metresB-metresA;
   const sink=type==='sink',stove=type==='stove';
-  const oven=stove&&items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&
+  const oven=type==='oven'||stove&&items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&
    Math.hypot(e.x-bays[i].e.x,e.z-bays[i].e.z)<.55);
   if(oven)continue; // Leave a real opening for the oven face.
   const layout=sink&&c.subtype==='base'?'sinkDoors':preset!=='smart'?preset:
@@ -573,6 +573,13 @@ export function validateEquipmentSpacing(items){
  }
 }
 function syncEquipment(items){
+ for(const e of items.filter(o=>o.kind==='equipment'&&o.subtype==='oven'&&o.builtIn&&o.hostId)){
+  const c=byId(items,e.hostId);if(!c||c.kind!=='cabinet')continue;
+  const t=e.offsetT??.5;
+  e.x=c.x1+(c.x2-c.x1)*t;e.z=c.z1+(c.z2-c.z1)*t;
+  e.rotation=Math.atan2(c.z2-c.z1,c.x2-c.x1)+(c.side===-1?Math.PI:0);
+  e.elevation=c.elevation+.12;
+ }
  for(const e of items.filter(o=>o.kind==='equipment'&&o.subtype!=='fridge'&&o.subtype!=='hood'&&!o.builtIn)){
   const p=equipmentPosition(e,items);
   if(!p)throw Error('تجهیزات باید روی کابینت زمینی معتبر نصب شوند.');
@@ -724,6 +731,30 @@ function embedFridge(items,obj,point){
  validateCabinets(items,w);
  return true;
 }
+/* An in-cabinet oven remains inside its base run. Keeping the host run intact
+   lets a stove occupy the exact same bay above it without drifting sideways. */
+function embedOven(items,obj,point){
+ const ranked=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base').map(c=>{
+  const len=lengthOf(c),dx=c.x2-c.x1,dz=c.z2-c.z1;
+  const t=Math.max(0,Math.min(1,((point.x-c.x1)*dx+(point.z-c.z1)*dz)/(len*len)));
+  const x=c.x1+t*dx,z=c.z1+t*dz;
+  return {c,t,d:Math.hypot(point.x-x,point.z-z)};
+ }).filter(v=>v.d<=v.c.depth/2+.22&&lengthOf(v.c)>=obj.width+.04&&v.c.depth>=obj.depth-.02)
+  .sort((a,b)=>a.d-b.d);
+ const best=ranked[0];if(!best)return false;
+ const c=best.c,len=lengthOf(c),margin=(obj.width/2+.02)/len;
+ const t=Math.max(margin,Math.min(1-margin,best.t));
+ obj.x=c.x1+(c.x2-c.x1)*t;obj.z=c.z1+(c.z2-c.z1)*t;
+ obj.rotation=Math.atan2(c.z2-c.z1,c.x2-c.x1)+(c.side===-1?Math.PI:0);
+ obj.elevation=c.elevation+.12;
+ obj.hostId=c.id;obj.offsetT=t;obj.builtIn=true;
+ obj.surround={wallId:c.hostId,side:c.side};
+ if(obj.elevation+obj.height>c.elevation+c.height-.015)throw Error('ارتفاع فر از فضای کابینت بیشتر است.');
+ for(const other of items.filter(e=>e.kind==='equipment'&&['oven','dishwasher','washer','fridge'].includes(e.subtype)))
+  if(polygonOverlap(equipmentFootprint(obj),equipmentFootprint(other)))
+   throw Error('فر با وسیله توکار دیگری تداخل دارد.');
+ return true;
+}
 export function placeEquipment(source,point,subtype){
  const spec=EQUIPMENT_SPECS[subtype],items=copy(source);
  if(!spec||!finite(point?.x,point?.z))throw Error('محل تجهیزات معتبر نیست.');
@@ -747,6 +778,8 @@ export function placeEquipment(source,point,subtype){
   for(const e of items.filter(o=>o.kind==='equipment'))
    if(polygonOverlap(equipmentFootprint(obj),equipmentFootprint(e)))
     throw Error('یخچال با تجهیزات دیگر برخورد دارد.');
+ }else if(subtype==='oven'){
+  if(!embedOven(items,obj,point))throw Error('برای نصب فر توکار، کابینت زمینی با عمق و طول کافی لازم است.');
  }else if(BUILT_IN_TYPES.has(subtype)){
   if(!embedFridge(items,obj,point))throw Error('برای نصب وسیله توکار، کابینت زمینی و فضای کافی لازم است.');
   if(items.some(w=>wall(w)&&polygonOverlap(equipmentFootprint(obj),wallFootprint(w))))
@@ -762,11 +795,15 @@ export function placeEquipment(source,point,subtype){
   const len=lengthOf(best.c),margin=(spec.width/2+.02)/len;
   obj.hostId=best.c.id;obj.offsetT=Math.max(margin,Math.min(1-margin,best.t));obj.depthT=0;
   const pos=equipmentPosition(obj,items);Object.assign(obj,pos);
-  for(const other of items.filter(o=>o.kind==='equipment'&&o.hostId===obj.hostId))
+  for(const other of items.filter(o=>o.kind==='equipment'&&o.hostId===obj.hostId&&!(subtype==='stove'&&o.subtype==='oven')))
    if(Math.abs(other.offsetT-obj.offsetT)*len<(other.width+obj.width)/2+.02)
     throw Error('این قسمت کابینت قبلاً تجهیزات دارد.');
  }
  items.push(obj);
+ if(subtype==='oven'){
+  const c=byId(items,obj.hostId);
+  if(FRONT_PRESETS[c?.frontPreset])reflowFronts(items,c);
+ }
  if(subtype==='stove')items.push({id:uid(),kind:'equipment',subtype:'hood',name:'هود',
   model:'slim',linkedStoveId:obj.id,width:Math.max(.60,obj.width),depth:.45,height:.32,
   elevation:1.55,x:obj.x,z:obj.z,rotation:obj.rotation});
@@ -940,6 +977,7 @@ export function editCabinet(source,id,{length,depth,height,elevation}){
  c.endT=c.startT+target/len;
  c.depth=Number(depth??c.depth);c.height=Number(height??c.height);c.elevation=Number(elevation??c.elevation);
  if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
+ if(['upper','base'].includes(c.subtype))refitBridges(items);
  validateCabinets(items,w);return {items,selectedId:id};
 }
 export function moveCabinetEndpoint(source,id,start,x,z){
@@ -953,6 +991,7 @@ export function moveCabinetEndpoint(source,id,start,x,z){
  if(Math.abs(boundary-t)*lengthOf(w)<.15)t=boundary;
  if(start)c.startT=t;else c.endT=t;
  if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
+ if(['upper','base'].includes(c.subtype))refitBridges(items);
  validateCabinets(items,w);return {items,selectedId:id};
 }
 
@@ -1014,6 +1053,19 @@ export function addVerticalBridge(source,upperId,{edge='end',depthMode='base',wi
  items.push(c);validateCabinets(items,owner);
  return {items,selectedId:c.id};
 }
+function refitBridges(items){
+ const uppers=items.filter(c=>c.kind==='cabinet'&&c.subtype==='upper');
+ for(const bridge of items.filter(c=>c.kind==='cabinet'&&c.subtype==='bridge')){
+  const matching=uppers.find(c=>c.hostId===bridge.hostId&&c.side===bridge.side&&
+   c.startT<=bridge.startT+.01&&c.endT>=bridge.endT-.01);
+  const base=items.find(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===bridge.hostId&&
+   c.side===bridge.side&&c.startT<=bridge.startT+.01&&c.endT>=bridge.endT-.01);
+  if(!matching||!base)throw Error('قفسه رابط باید بین دو کابینت هم‌راستا بماند.');
+  bridge.elevation=base.elevation+base.height+.04;
+  bridge.height=matching.elevation-bridge.elevation-.04;
+  if(bridge.height<.25)throw Error('ارتفاع جدید برای قفسه رابط کافی نیست.');
+ }
+}
 export function applyAllUpperHeights(source,{height,elevation}={}){
  const items=copy(source),uppers=items.filter(c=>c.kind==='cabinet'&&c.subtype==='upper');
  if(!uppers.length)throw Error('کابینت هوایی وجود ندارد.');
@@ -1021,18 +1073,7 @@ export function applyAllUpperHeights(source,{height,elevation}={}){
   if(elevation!==undefined)c.elevation=Number(elevation);
   if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
  }
- // Refit previously installed vertical shelving to the new lower edge.
- for(const bridge of items.filter(c=>c.kind==='cabinet'&&c.subtype==='bridge')){
-  const matching=uppers.find(c=>c.hostId===bridge.hostId&&c.side===bridge.side&&
-   c.startT<=bridge.startT+.01&&c.endT>=bridge.endT-.01);
-  if(!matching)continue;
-  const base=items.find(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===bridge.hostId&&
-   c.side===bridge.side&&c.startT<=bridge.startT+.01&&c.endT>=bridge.endT-.01);
-  if(!base)continue;
-  bridge.elevation=base.elevation+base.height+.04;
-  bridge.height=matching.elevation-bridge.elevation-.04;
-  if(bridge.height<.25)throw Error('ارتفاع جدید برای قفسه رابط کافی نیست.');
- }
+ refitBridges(items);
  for(const id of new Set(uppers.map(c=>c.hostId)))validateCabinets(items,byId(items,id));
  return {items,selectedId:uppers[0].id};
 }

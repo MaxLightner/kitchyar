@@ -627,6 +627,8 @@ test('vertical shelf bridges base/upper and tracks bulk upper height changes',as
  const modified=G.applyAllUpperHeights(items,{elevation:1.70,height:.60}).items;
  assert.equal(modified.find(o=>o.id===upper.id).elevation,1.70);
  assert.ok(modified.find(o=>o.id===bridge.id).height>bridge.height);
+ const onlyOne=G.editCabinet(items,upper.id,{elevation:1.65}).items;
+ assert.ok(onlyOne.find(o=>o.id===bridge.id).height>bridge.height,'single upper resize keeps bridge connected');
 });
 test('cabinet pointer snaps to neighboring cabinet edges without gaps',async()=>{
  G||=await import('../apps/preview/geometry.js');
@@ -639,4 +641,20 @@ test('cabinet pointer snaps to neighboring cabinet edges without gaps',async()=>
  assert.ok(Math.abs(snapped.x-1.6)<1e-6&&snapped.edgeSnap);
  const moved=G.moveCabinetEndpoint(items,first.id,false,1.56,0).items;
  assert.ok(Math.abs(moved.find(o=>o.id===first.id).endT-second.startT)<1e-6);
+});
+
+test('a built-in oven stays directly under the hob in the same cabinet, in either placement order',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ for(const order of [['oven','stove'],['stove','oven']]){
+  let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+  items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:4.9,z:0}).items;
+  for(const type of order)items=G.placeEquipment(items,{x:2.4,z:.34},type).items;
+  const oven=items.find(e=>e.subtype==='oven'),hob=items.find(e=>e.subtype==='stove');
+  assert.equal(oven.hostId,hob.hostId);
+  assert.ok(Math.abs(oven.x-hob.x)<.025,'stove does not jump to adjacent cabinet');
+  assert.equal(oven.builtIn,true);
+  const smart=G.planSmartKitchen(items).items;
+  assert.equal(smart.filter(f=>f.kind==='front'&&f.hostId===hob.hostId&&
+   f.startT<=hob.offsetT&&f.endT>=hob.offsetT).length,0,'oven aperture remains uncovered');
+ }
 });

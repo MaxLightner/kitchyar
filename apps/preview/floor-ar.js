@@ -902,6 +902,22 @@ export class FloorAR {
     for(const t of [.01,.32,.65,.98]){
      box(c,0,len,y0+c.height*t,y0+c.height*t+.025,c.depth,angle,cx,cz,fill);
     }
+   }else if(this.items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&e.hostId===c.id)){
+    // The oven cuts an actual aperture through the base body. The hob can
+    // overlap that bay vertically while the countertop retains its own hole.
+    const ovens=this.items.filter(e=>e.kind==='equipment'&&e.subtype==='oven'&&e.hostId===c.id)
+     .map(e=>({x:((e.offsetT??.5)-.5)*len,z:0,width:e.width+.025,depth:c.depth+.04,
+      yLow:e.elevation,yHigh:e.elevation+e.height}));
+    const topY=y0+c.height;
+    const levels=[y0,topY,...ovens.flatMap(e=>[e.yLow,e.yHigh]),
+     ...cuts.map(h=>topY-h.cutDepth)].filter(y=>y>=y0&&y<=topY).sort((a,b)=>a-b);
+    for(let i=0;i<levels.length-1;i++){
+     const bottom=levels[i],top=levels[i+1],mid=(bottom+top)/2;
+     if(top-bottom<.001)continue;
+     const holes=[...ovens.filter(o=>mid>=o.yLow&&mid<=o.yHigh),
+      ...cuts.filter(h=>topY-mid<h.cutDepth)];
+     slices(bottom,top,holes,fill);
+    }
    }else if(cuts.length){
     const depths=[0,...new Set(cuts.map(h=>h.cutDepth).sort((a,b)=>a-b))],deepest=depths.at(-1);
     box(c,0,len,y0,y0+c.height-deepest,c.depth,angle,cx,cz,fill);
