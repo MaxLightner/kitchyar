@@ -118,3 +118,9 @@ test('facade panel taps are not swallowed by nearby resize grips',()=>{
  const app=read('app.js');
  assert.match(app,/if\(e\.target\.closest\('\.front-panel-elevation'\)\)return null/);
 });
+
+test('tapping through an elevated resize grip can still select a neighboring drawer',()=>{
+ const app=read('app.js');
+ assert.match(app,/document\.elementsFromPoint\(e\.clientX,e\.clientY\)/);
+ assert.match(app,/if\(panel\?\.dataset\.itemId\)selectAt\(null,panel\)/);
+});

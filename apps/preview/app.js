@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=render22';
-import * as Geo from './geometry.js?v=render22';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render22';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render22';
+import {FloorAR} from './floor-ar.js?v=render23';
+import * as Geo from './geometry.js?v=render23';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render23';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render23';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -653,7 +653,18 @@ document.addEventListener('pointerup',e=>{
  if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();
   const p=currentProject();if(p&&floor){p.scene.calibration=floor.calibrationSnapshot();save();}
   return;}
- if(dragHandle){if(e.pointerId===dragHandle.pointerId)finishResize();return;}
+ if(dragHandle){
+  if(e.pointerId===dragHandle.pointerId){
+   // Tapping a grip without dragging is selection, not a swallowed touch.
+   // Check the panel under the 28px grip's transparent finger hit area.
+   const panel=!dragHandle.moved&&dragHandle.surface==='elevation'?
+    [...document.elementsFromPoint(e.clientX,e.clientY)]
+     .map(node=>node.closest?.('.front-panel-elevation')).find(Boolean):null;
+   finishResize();
+   if(panel?.dataset.itemId)selectAt(null,panel);
+  }
+  return;
+ }
  const scene=e.target.closest('.editor-scene');if(!scene)return;
  if(e.target.closest('[data-action]'))return;
  try{
