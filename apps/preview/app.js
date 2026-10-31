@@ -1,6 +1,6 @@
 import {FloorAR} from './floor-ar.js?v=render18';
 import * as Geo from './geometry.js?v=render18';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render18';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render19';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation} from './edit-handles.js?v=render18';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
