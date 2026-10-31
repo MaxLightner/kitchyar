@@ -48,3 +48,29 @@
 .xr-scan-readiness small{font-size:10px;opacity:.83}
 .xr-menu-sheet{pointer-events:auto;position:absolute;top:60px;right:14px;width:min(280px,calc(100vw - 28px));background:#20372de8;padding:17px;border-radius:13px;box-shadow:0 18px 45px #05170b66;display:grid;gap:9px}
 .xr-menu-sheet p{line-height:1.8;margin:0}
+
+
+/* Chido-aligned warm minimal shell; the metric editor remains independent. */
+:root{--paper:#f5f1ea;--surface:#fffaf5;--sage:#837567;--sage-dark:#554b41;--sage-soft:#eae2d8;--line:#ded5ca;--muted:#988b7c;--ink:#39352f;--soft:#f0ebe4}
+.workspace-main{background:#e8e4dd}
+.dock{border-color:#e1d7cb;background:#fffaf2eb}
+.dock-button{color:#827567}.dock-button.active{background:#eee5db;color:#51483e}
+.button.primary,.welcome-primary{background:#807468;color:#fff;border-color:#807468}
+.button.primary:hover:not(:disabled){background:#6e6257;color:#fff}
+.mode-switch{background:#ece5dc;border-color:#d9cec1}
+.tool-sheet{border-color:#e0d6ca;background:#fffaf6ed}
+.welcome-chido{position:relative;width:100%;min-height:100svh;background:#ebe2d8;overflow:hidden;display:flex;align-items:center}
+.welcome-chido:before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,#f0e8df 0%,#f2e9e0 42%,#e6e3d9 100%)}
+.welcome-chido .welcome-title{position:absolute;top:29%;left:4%;width:38%;text-align:center;z-index:2}
+.welcome-chido .welcome-title h1{margin:0;direction:ltr;font:300 clamp(28px,4vw,45px)/1.3 Arial,sans-serif;letter-spacing:.23em;color:#302d28}
+.welcome-chido .welcome-title p{font-size:13px;color:#807366;line-height:1.8}
+.welcome-chido .welcome-art{position:absolute;right:0;top:0;width:57%;height:100%;z-index:1;display:flex;align-items:center;justify-content:center}
+.welcome-chido .hero-visual{width:100%;height:100%;max-width:none;background:radial-gradient(ellipse at 55% 65%,#c3c3b9aa,transparent 62%)}
+.welcome-chido .hero-visual svg{height:76%;width:94%;filter:drop-shadow(28px 35px 19px #514c3b25)}
+.welcome-chido .hero-tag,.welcome-chido .hero-caption{display:none}
+.welcome-chido .welcome-bottom{position:absolute;bottom:6%;left:4%;width:38%;max-width:470px;z-index:2;display:flex;flex-direction:column;gap:10px;text-align:center}
+.welcome-chido .welcome-bottom button{width:100%;min-height:53px;border:1px solid #bcb0a1;background:#f5eee8bd;color:#443d36;border-radius:14px;font-size:13px;font-weight:600}
+.welcome-chido .welcome-bottom .welcome-primary{background:#807468;color:#fff;border-color:#807468;position:relative}
+.welcome-chido .welcome-primary span{position:absolute;left:25px}
+.welcome-chido .welcome-wordmark{font:13px Arial,sans-serif;letter-spacing:.14em;direction:ltr;color:#514b44;margin-top:5px}
+@media(max-width:720px){.welcome-chido{min-height:100svh;display:flex;flex-direction:column}.welcome-chido .welcome-title{top:9%;left:4%;width:92%}.welcome-chido .welcome-art{top:22%;right:0;width:100%;height:45%}.welcome-chido .hero-visual svg{height:100%;width:100%}.welcome-chido .welcome-bottom{bottom:max(20px,env(safe-area-inset-bottom));left:7%;width:86%;max-width:none;gap:8px}.welcome-chido .welcome-bottom button{min-height:49px}}
