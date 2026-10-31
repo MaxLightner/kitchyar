@@ -345,6 +345,7 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .front-elevation-dimension{font:700 15px Tahoma,Arial,sans-serif;fill:#3c5d50;pointer-events:none}
 .front-panel-elevation{cursor:pointer;touch-action:none}
 .front-panel-elevation:hover>rect{stroke:#41a783;stroke-width:2.5}
+.front-panel-elevation.is-open>rect{fill-opacity:.55;stroke:#2c9970;stroke-dasharray:5 3}
 .front-resize-grip{cursor:grab;touch-action:none}
 .front-resize-grip:active{cursor:grabbing}
 .object-fields select{min-height:42px;min-width:0;font-size:15px;border-radius:8px;padding:7px;background:#fffdf7;color:#27493d;border:1px solid #b0c5b8}
@@ -353,6 +354,9 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .preview-elevation-flag{font:700 15px Tahoma,Arial,sans-serif;color:#866237;background:#fff1d8;border-radius:8px;padding:5px 9px;margin-bottom:6px}
 
 .front-elevation-scroll{direction:ltr}
+.front-opening-panel{display:grid;gap:7px;margin:10px 0;padding:10px;border:1px solid #c9ddd0;border-radius:10px;background:#eff7ef}
+.front-opening-panel button{min-height:44px;font-size:15px}
+.front-opening-panel small{font-size:15px;color:#496453;line-height:1.6}
 
 /* Smart kitchen planning, panel controls and real cut-sheet drawings. */
 .object-editor{max-height:calc(100svh - 345px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}

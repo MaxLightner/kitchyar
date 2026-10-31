@@ -3,7 +3,7 @@
  * Source: MaxLightner/archyar main (private), 89283efb, 2026-10-31.
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
-import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=surface31';
+import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=cabinet32';
 export const SNAP_RADIUS=.50;
 const uid=()=>globalThis.crypto?.randomUUID?.()||'node-'+Math.random().toString(36).slice(2);
 const dist=(ax,az,bx,bz)=>Math.hypot(bx-ax,bz-az);
@@ -656,6 +656,7 @@ function reflowFronts(items,c,preset=c?.frontPreset){
   if(previous[i].frameMaterialId)fresh[i].frameMaterialId=previous[i].frameMaterialId;
   fresh[i].style=previous[i].style||'flat';
   fresh[i].handleStyle=previous[i].handleStyle||'bar';
+  if(previous[i].openFraction)fresh[i].openFraction=previous[i].openFraction;
   if(previous[i].grainDirection)fresh[i].grainDirection=previous[i].grainDirection;
   if(previous[i].manualOverrides){
    fresh[i].manualOverrides={...previous[i].manualOverrides};
@@ -790,6 +791,27 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
  if(gap!==undefined){const spacing=Number(gap);if(!finite(spacing)||spacing<.001||spacing>.012)throw Error('درز نمای کابینت باید ۱ تا ۱۲ میلی‌متر باشد.');if(f.gap!==spacing)manual.gap=true;f.gap=spacing;}
  if(width!==undefined||height!==undefined)c.frontPreset='custom';
  validateFronts(items,c);
+ return {items,selectedId:id};
+}
+/* Interior geometry is derived only for opened fronts, never stored as a
+   manufacturing unit or generated for every closed door and drawer. */
+export function frontOpeningCavity(front,c){
+ if(front?.kind!=='front'||c?.kind!=='cabinet'||front.hostId!==c.id||!(front.openFraction>.01))return null;
+ const len=lengthOf(c),side=c.side||1,frame=.026;
+ const width=(front.endT-front.startT)*len-2*frame;
+ const yLow=c.elevation+c.height*front.bottomT+frame,
+  yHigh=c.elevation+c.height*front.topT-frame;
+ if(width<.07||yHigh-yLow<.055)return null;
+ const backZ=-side*(c.depth/2-.055),faceZ=side*(c.depth/2+.006);
+ return {x:((front.startT+front.endT)/2-.5)*len,
+  z:(backZ+faceZ)/2,width,depth:Math.abs(faceZ-backZ),yLow,yHigh,backZ,faceZ,side};
+}
+export function setFrontOpening(source,id,fraction){
+ const items=copy(source),f=byId(items,id);
+ if(f?.kind!=='front'||!['door','drawer'].includes(f.subtype))throw Error('ابتدا یک درب یا کشو انتخاب کن.');
+ const amount=Number(fraction);
+ if(!Number.isFinite(amount)||amount<0||amount>1)throw Error('میزان بازشدن درب یا کشو باید بین صفر و یک باشد.');
+ f.openFraction=amount;
  return {items,selectedId:id};
 }
 function validateFronts(items,c){

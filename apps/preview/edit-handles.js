@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=appearance30';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=cabinet32';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -205,7 +205,7 @@ export function renderFrontElevation(items,cabinet,selectedId=null,drag=null){
    selected=o.id===selectedId,color=colors[o.finish]||colors.cream;
   const horizontal=o.hinge==='top';
   const knobX=o.subtype==='drawer'||horizontal?x+w/2:o.hinge==='left'?x+w-13:x+13;
-  graphic+='<g class="front-panel-elevation" data-item-id="'+esc(o.id)+'" tabindex="0" role="button" aria-label="'+(o.subtype==='drawer'?'کشو':'درب')+' '+n((o.endT-o.startT)*len)+' متر">'+
+  graphic+='<g class="front-panel-elevation'+(o.openFraction>.01?' is-open':'')+'" data-item-id="'+esc(o.id)+'" tabindex="0" role="button" aria-label="'+(o.subtype==='drawer'?'کشو':'درب')+' '+n((o.endT-o.startT)*len)+' متر'+(o.openFraction>.01?'، باز':'')+'">'+
    '<rect x="'+n(x)+'" y="'+n(y)+'" width="'+n(w)+'" height="'+n(h)+'" rx="1.4" fill="'+color+'" stroke="'+(selected?'#168b6a':'#7e7b73')+'" stroke-width="'+(selected?'2.6':'.9')+'"/>'+
    (o.style==='frame'?'<rect x="'+n(x+5)+'" y="'+n(y+5)+'" width="'+n(Math.max(1,w-10))+'" height="'+n(Math.max(1,h-10))+'" rx="1" fill="none" stroke="#847e72" stroke-width="1.2"/>':'')+
    (o.handleStyle==='hidden'?'':o.handleStyle==='knob'?

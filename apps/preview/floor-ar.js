@@ -3,10 +3,10 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=surface31';
-import {neighborGaps} from './edit-handles.js?v=surface31';
-import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=surface31';
-import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=surface31';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,frontOpeningCavity,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=cabinet32';
+import {neighborGaps} from './edit-handles.js?v=cabinet32';
+import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=cabinet32';
+import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=cabinet32';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -1061,6 +1061,8 @@ export class FloorAR {
    const fill=c.id===this.selectedId?cabinetSelected:material(0xf8f8f6);
    // Subtract axis-aligned sink/hob holes from each depth layer of the carcass.
    const cuts=countertopCutouts(this.items,c);
+   const opened=this.items.filter(f=>f.kind==='front'&&f.hostId===c.id&&f.openFraction>.01)
+    .map(f=>({front:f,cavity:frontOpeningCavity(f,c)})).filter(entry=>entry.cavity);
    const subtract=(area,holes)=>{
     let rects=[area];
     for(const h of holes){const next=[];
@@ -1093,6 +1095,43 @@ export class FloorAR {
     for(const t of [.01,.32,.65,.98]){
      box(c,0,len,y0+c.height*t,y0+c.height*t+.025,c.depth,angle,cx,cz,fill);
     }
+   }else if(opened.length){
+    // Only opened bays are hollowed. Closed fronts retain the old continuous
+    // lightweight cabinet box; countertop holes and appliance slots coexist.
+    const appliances=this.items.filter(e=>e.kind==='equipment'&&['oven','microwave','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)
+     .map(e=>({x:((e.offsetT??.5)-.5)*len,z:0,width:e.width+.025,depth:c.depth+.04,
+      yLow:e.elevation,yHigh:e.elevation+e.height}));
+    const topY=y0+c.height;
+    const levels=[y0,topY,...appliances.flatMap(e=>[e.yLow,e.yHigh]),
+     ...cuts.map(cut=>topY-cut.cutDepth),...opened.flatMap(o=>[o.cavity.yLow,o.cavity.yHigh])]
+     .filter(y=>y>=y0&&y<=topY).sort((a,b)=>a-b);
+    for(let i=0;i<levels.length-1;i++){
+     const low=levels[i],high=levels[i+1],mid=(low+high)/2;
+     if(high-low<.001)continue;
+     const holes=[...appliances.filter(e=>mid>=e.yLow&&mid<=e.yHigh),
+      ...cuts.filter(cut=>topY-mid<cut.cutDepth),
+      ...opened.filter(o=>mid>o.cavity.yLow&&mid<o.cavity.yHigh).map(o=>o.cavity)];
+     slices(low,high,holes,fill);
+    }
+    const inside=material(0xf4f5f2,{roughness:.82});
+    for(const {front,cavity:v} of opened){
+     const height=v.yHigh-v.yLow,centreY=(v.yLow+v.yHigh)/2;
+     // Plain white interior appears only for the exposed opening.
+     addDetail(v.width-.016,height,.015,v.x,centreY,v.backZ+v.side*.007,inside);
+     if(front.subtype==='drawer'){
+      const slide=Math.min(c.depth*.70,.38)*front.openFraction,
+       depth=Math.min(c.depth*.75,.48),z=v.faceZ-v.side*depth/2+v.side*slide;
+      addDetail(v.width-.025,.016,depth,v.x,v.yLow+.02,z,inside);
+      for(const x of [v.x-v.width/2+.018,v.x+v.width/2-.018])
+       addDetail(.014,Math.min(.13,height-.035),depth,x,v.yLow+.075,z,inside);
+      addDetail(v.width-.025,Math.min(.13,height-.035),.015,v.x,v.yLow+.075,z-v.side*depth/2,inside);
+     }else{
+      const shelves=height>.95?2:height>.44?1:0;
+      for(let j=1;j<=shelves;j++)addDetail(v.width-.025,.018,v.depth-.035,
+       v.x,v.yLow+height*j/(shelves+1),v.z,inside);
+     }
+    }
+    inside.dispose();
    }else if(this.items.some(e=>e.kind==='equipment'&&['oven','microwave','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
     // An oven or undercounter appliance cuts the carcass face; only a sink/hob
     // cuts the stone above. The washer/dishwasher top remains one solid slab.
@@ -1333,20 +1372,40 @@ export class FloorAR {
    const grain=panel.grainDirection==='horizontal'||(panel.grainDirection!=='vertical'&&panel.subtype==='drawer')?'horizontal':'vertical';
    const root=new THREE.Group();root.position.set(pose.x,pose.y,pose.z);root.rotation.y=-pose.angle;
    root.userData.objectId=panel.id;this.objectGroup.add(root);
+   const amount=Math.max(0,Math.min(1,panel.openFraction||0));
+   let leaf=root;
+   if(amount>.01&&panel.subtype==='drawer'){
+    const distance=Math.min(host.depth*.70,.38)*amount;
+    root.position.x-=Math.sin(pose.angle)*(pose.side||1)*distance;
+    root.position.z+=Math.cos(pose.angle)*(pose.side||1)*distance;
+   }else if(amount>.01&&panel.subtype==='door'){
+    const pivot=new THREE.Group(),face=new THREE.Group();
+    if(panel.hinge==='top'){
+     pivot.position.y=pose.height/2;
+     pivot.rotation.x=-(pose.side||1)*amount*Math.PI*.48;
+     face.position.y=-pose.height/2;
+    }else{
+     const left=panel.hinge!=='right';
+     pivot.position.x=(left?-1:1)*pose.width/2;
+     pivot.rotation.y=(left?-1:1)*(pose.side||1)*amount*Math.PI*.49;
+     face.position.x=(left?1:-1)*pose.width/2;
+    }
+    root.add(pivot);pivot.add(face);leaf=face;
+   }
    const frameId=panel.style==='frame'?panel.frameMaterialId||materialId:materialId;
    const faceMaterial=panel.id===this.selectedId?cabinetSelected.clone():
     this.surfaceMaterial('front',frameId,pose.width,pose.height,grain);
    const surface=new THREE.Mesh(this.applySurfaceUV(new THREE.BoxGeometry(pose.width,pose.height,pose.thickness),faceMaterial,
     pose.width,pose.height,pose.thickness),faceMaterial);
    surface.castShadow=true;surface.receiveShadow=true;surface.userData.objectId=panel.id;
-   root.add(surface);
+   leaf.add(surface);
    const visibleZ=(pose.side||1)*(.012+pose.thickness/2);
    if(panel.style==='frame'&&pose.width>.20&&pose.height>.18){
     const innerMaterial=panel.id===this.selectedId?cabinetSelected.clone():
      this.surfaceMaterial('front',materialId,pose.width-.065,pose.height-.065,grain);
     const inset=new THREE.Mesh(this.applySurfaceUV(new THREE.BoxGeometry(pose.width-.065,pose.height-.065,.007),
      innerMaterial,pose.width-.065,pose.height-.065,.007),innerMaterial);
-    inset.position.z=visibleZ*.82;inset.userData.objectId=panel.id;root.add(inset);
+    inset.position.z=visibleZ*.82;inset.userData.objectId=panel.id;leaf.add(inset);
    }
    if(panel.handleStyle!=='hidden'){
     const metal=material(0x8c9493,{metalness:.64,roughness:.25});
@@ -1356,7 +1415,7 @@ export class FloorAR {
     if(isDrawer||horizontal)handle.rotation.z=Math.PI/2;
     handle.position.set(isDrawer||horizontal?0:panel.hinge==='left'?pose.width/2-.055:-pose.width/2+.055,
      horizontal?-pose.height/2+.055:isDrawer?pose.height*.19:0,visibleZ+.015*(pose.side||1));
-    handle.userData.objectId=panel.id;handle.castShadow=true;root.add(handle);
+    handle.userData.objectId=panel.id;handle.castShadow=true;leaf.add(handle);
    }
   }
   if(this.renderSettings.taskLighting){

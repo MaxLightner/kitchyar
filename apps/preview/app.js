@@ -1,9 +1,9 @@
-import {FloorAR} from './floor-ar.js?v=surface31';
-import * as Geo from './geometry.js?v=surface31';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=surface31';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=surface31';
-import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=surface31';
-import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=surface31';
+import {FloorAR} from './floor-ar.js?v=cabinet32';
+import * as Geo from './geometry.js?v=cabinet32';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=cabinet32';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=cabinet32';
+import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=cabinet32';
+import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=cabinet32';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -223,8 +223,7 @@ function drawTools(){
  if(!tools.length){sheet.innerHTML='<span>ابزارهای این بخش در مرحله بعد اضافه می‌شوند.</span><button data-action="hide-tools">بستن</button>';return;}
  const wallTools=activeTool==='architecture';
  sheet.innerHTML=(activeTool==='fronts'?'<div class="front-tools-actions"><button class="style-gallery-trigger" data-action="open-style-gallery">▣ انتخاب مدل از گالری آشپزخانه</button><button data-action="open-front-rules">⚙ قوانین درب، کشو و هم‌ترازی</button></div>':'')+'<div class="tool-choices">'+tools.map(([id,label])=>
-  '<button class="'+(drawing?.tool===id?'active':'')+'" data-action="tool" data-tool="'+id+'">'+label+'</button>').join('')+
-  '<button data-action="select">انتخاب</button></div>'+
+  '<button class="'+(drawing?.tool===id?'active':'')+'" data-action="tool" data-tool="'+id+'">'+label+'</button>').join('')+'</div>'+
   (activeTool==='fronts'?'<p class="equipment-help">طرح هوشمند تمام کابینت‌ها را یک‌جا با سینک، گاز، فر و یخچال هماهنگ می‌کند. پیش‌نمایش را ببین و تأیید کن؛ برای تغییر یک کابینت آن را انتخاب کن و یک طرح دیگر بزن.</p>':activeTool==='equipment'?'<p class="equipment-help">یخچال روی کف یا داخل کابینت قرار می‌گیرد؛ گاز و سینک روی صفحه و ظرفشویی، لباسشویی و فر داخل کابینت زمینی نصب می‌شوند.</p>':wallTools?'<div class="tool-settings"><label>ضخامت دیوار (متر)<input data-setting="thickness" type="number" min=".07" max=".8" step=".01" value="'+settings.thickness+'"></label>'+
    '<label>ارتفاع (متر)<input data-setting="height" type="number" min=".4" max="9" step=".1" value="'+settings.height+'"></label></div>':
    '<div class="tool-settings"><label>عمق زمینی (متر)<input data-setting="baseDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.baseDepth+'"></label>'+
@@ -303,6 +302,9 @@ function drawSelection(){
    '<button data-action="paint-front" data-material="'+m.id+'" title="'+m.label+'" aria-label="رنگ‌آمیزی '+m.label+'">'+
    (m.file?'<img src="'+assetUrl(m.file)+'" alt="">':'<span style="background:#'+m.color.toString(16).padStart(6,'0')+'"></span>')+
    '<small>'+m.label+'</small></button>').join('')+'</div><small>رنگ فقط روی نماهای انتخاب‌شده اعمال می‌شود؛ داخل کابینت سفید می‌ماند.</small></div>':'';
+ const openControls=obj.kind==='front'?'<div class="front-opening-panel"><button class="primary" data-action="toggle-front" aria-label="'+(obj.openFraction>.01?'بستن':'باز کردن')+' '+(obj.subtype==='drawer'?'کشو':'درب')+'">'+
+  (obj.openFraction>.01?'بستن '+(obj.subtype==='drawer'?'کشو':'درب'):'باز کردن '+(obj.subtype==='drawer'?'کشو':'درب'))+
+  '</button><small>فقط هنگام بازشدن، فضای داخلی سفید همین قسمت ساخته و نمایش داده می‌شود.</small></div>':'';
  const decorControls=obj.kind==='cabinet'&&obj.subtype!=='bridge'?(()=>{
   const decor=Geo.resolvedCabinetDecor(obj),choose=(key,title,options)=>'<label>'+title+'<select data-decor="'+key+'">'+options.map(([id,label])=>
    '<option value="'+id+'" '+(decor[key]===id?'selected':'')+'>'+label+'</option>').join('')+'</select></label>';
@@ -350,7 +352,7 @@ function drawSelection(){
    '<button data-action="equipment-facade" data-facade="'+id+'" class="'+((obj.facadeMode||'visible')===id?'active':'')+'" '+(obj.subtype==='fridge'&&!obj.builtIn&&id!=='visible'?'disabled':'')+'>'+label+'</button>').join('')+
   '</div><small>پوشش فقط ظاهر دستگاه را تغییر می‌دهد؛ ابعاد و جای نصب ثابت می‌مانند.</small></div>':'';
  panel.innerHTML='<div class="object-head"><strong>'+esc(title)+'</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
-  modelOptions+'<div class="object-fields">'+fields+'</div>'+(['front','cabinet'].includes(obj.kind)?'<button class="front-rule-open" data-action="open-front-rules">⚙ قوانین نما و هم‌ترازسازی گروهی</button>':'')+paintControls+decorControls+counterControls+specialtyControls+equipmentFacadeControls+extras+(obj.kind==='cabinet'&&obj.subtype==='base'?'<button class="cut-sheet-button" data-action="cut-sheet">نمای دقیق برش صفحه</button>':'')+'<div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
+  modelOptions+'<div class="object-fields">'+fields+'</div>'+openControls+(['front','cabinet'].includes(obj.kind)?'<button class="front-rule-open" data-action="open-front-rules">⚙ قوانین نما و هم‌ترازسازی گروهی</button>':'')+paintControls+decorControls+counterControls+specialtyControls+equipmentFacadeControls+extras+(obj.kind==='cabinet'&&obj.subtype==='base'?'<button class="cut-sheet-button" data-action="cut-sheet">نمای دقیق برش صفحه</button>':'')+'<div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
   (obj.kind==='equipment'&&obj.subtype!=='hood'?'<button data-action="move-equipment">جابجایی روی پلان / AR</button>':'')+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
   (obj.kind==='front'?'<small>دستگیره‌های نما را در تصویر بکش؛ عرض و ارتفاع با اسنپ ۱ سانتی‌متر ثبت می‌شوند.</small>':
@@ -932,6 +934,13 @@ document.addEventListener('click',async e=>{
     height:Number(get('height')),grout:Number(get('grout')),groutColor:get('groutColor')});
    commitChange({items:structuredClone(currentItems()),selectedId:selection},{tileLayout});
    tell('الگوی هندسی کاشی و بندکشی اعمال شد.');return;
+  }
+  if(action==='toggle-front'){
+   const front=currentItems().find(o=>o.id===selection&&o.kind==='front');
+   if(!front)throw Error('ابتدا درب یا کشوی موردنظر را انتخاب کن.');
+   const opening=front.openFraction>.01?0:1;
+   commitChange(Geo.setFrontOpening(currentItems(),front.id,opening));
+   tell(opening?'درب یا کشو باز شد؛ فضای داخلی این قسمت نمایش داده می‌شود.':'درب یا کشو بسته شد.');return;
   }
   if(action==='paint-scope'){
    paintScope=button.dataset.scope;drawSelection();return;

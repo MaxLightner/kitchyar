@@ -116,6 +116,19 @@ test('ceramic layouts generate clipped batched geometry in six patterns without 
  assert.match(app,/data-action="apply-tile-layout"/);
  assert.match(app,/tileLayout:currentTileLayout\(\)/);
 });
+test('cabinet opening builds white interiors on demand and the lower tool sheet has no select button',()=>{
+ const app=read('app.js'),renderer=read('floor-ar.js'),elevation=read('edit-handles.js');
+ assert.match(app,/data-action="toggle-front"/);
+ assert.match(app,/Geo\.setFrontOpening\(currentItems\(\),front\.id,opening\)/);
+ assert.doesNotMatch(app,/'<button data-action="select">انتخاب<\/button>/);
+ assert.match(app,/class="side-tools"/,'the existing side select tool stays available');
+ assert.match(renderer,/frontOpeningCavity\(f,c\)/);
+ assert.match(renderer,/else if\(opened\.length\)/);
+ assert.match(renderer,/front\.subtype==='drawer'/);
+ assert.match(renderer,/pivot\.rotation\.y=/);
+ assert.match(renderer,/pivot\.rotation\.x=/);
+ assert.match(elevation,/is-open/);
+});
 test('new facade styles keep all explicit text at 13 px or larger',()=>{
  const css=read('styles.css');
  const sizes=[...css.matchAll(/font-size\s*:\s*([\d.]+)px/g)].map(m=>Number(m[1]));
