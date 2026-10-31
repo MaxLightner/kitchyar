@@ -99,3 +99,17 @@ test('new facade styles keep all explicit text at 13 px or larger',()=>{
  assert.ok(sizes.every(n=>n>=13));
  assert.match(css,/front-elevation-dimension/);
 });
+
+test('changing only front styling never re-snaps the displayed rounded dimensions',()=>{
+ const app=read('app.js');
+ assert.match(app,/shownWidth=Math\.round\(actualWidth\*100\)\/100/);
+ assert.match(app,/width:Math\.abs\(desiredWidth-shownWidth\)>\.001\?desiredWidth:undefined/);
+ assert.match(app,/height:Math\.abs\(desiredHeight-shownHeight\)>\.001\?desiredHeight:undefined/);
+});
+test('facade viewport scrolls selected front into view without hidden hit targets',()=>{
+ const app=read('app.js'),css=read('styles.css');
+ assert.match(app,/selectedPanel\.getBBox\(\)/);
+ assert.match(app,/scroller\.scrollLeft/);
+ assert.match(app,/const clip=el\.closest\('\.front-elevation-scroll'\)/);
+ assert.match(css,/\.front-elevation-scroll\{direction:ltr\}/);
+});

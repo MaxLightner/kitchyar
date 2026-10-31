@@ -316,3 +316,5 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .elevation-title span{font-size:max(13px,1em)}
 
 .preview-elevation-flag{font:700 15px Tahoma,Arial,sans-serif;color:#866237;background:#fff1d8;border-radius:8px;padding:5px 9px;margin-bottom:6px}
+
+.front-elevation-scroll{direction:ltr}

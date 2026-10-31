@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=render20';
-import * as Geo from './geometry.js?v=render20';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render20';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render20';
+import {FloorAR} from './floor-ar.js?v=render21';
+import * as Geo from './geometry.js?v=render21';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render21';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render21';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -217,7 +217,8 @@ function drawSelection(){
  panel.innerHTML='<div class="object-head"><strong>'+esc(title)+'</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
   modelOptions+'<div class="object-fields">'+fields+'</div><div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
-  (['wall','cabinet','opening','front'].includes(obj.kind)?'<small>دستگیره‌های نما را در تصویر بکش؛ عرض و ارتفاع با اسنپ ۱ سانتی‌متر ثبت می‌شوند.</small>':'');
+  (obj.kind==='front'?'<small>دستگیره‌های نما را در تصویر بکش؛ عرض و ارتفاع با اسنپ ۱ سانتی‌متر ثبت می‌شوند.</small>':
+   ['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌ها را بکش؛ اندازه‌گذاری هنگام حرکت نمایش داده می‌شود و پس از رها کردن، با دقت ۱ سانتی‌متر ثبت می‌شود.</small>':'');
 }
 function showScene(){
  const root=document.getElementById('editor-root');if(!root)return;
@@ -248,6 +249,16 @@ function showScene(){
    '<div class="preview-elevation-flag">پیش‌نمایش · هنوز ثبت نشده</div>'+renderFrontElevation(pending,previewHost):
    selected.kind==='opening'?renderElevation(items,selected):
    hasFacades?renderFrontElevation(items,facadeHost,selection):selected.kind==='cabinet'?renderCabinetElevation(items,selected):'';
+  // Scroll only the facade strip to bring the selected panel and its grips into view.
+  if(!elevation.hidden&&selected?.kind==='front'&&!drawing){
+   const scroller=elevation.querySelector('.front-elevation-scroll'),
+    selectedPanel=[...elevation.querySelectorAll('.front-panel-elevation')]
+     .find(node=>node.dataset.itemId===selection);
+   if(scroller&&selectedPanel){
+    const panelBox=selectedPanel.getBBox();
+    scroller.scrollLeft=Math.max(0,panelBox.x-scroller.clientWidth*.32);
+   }
+  }
  }
  document.getElementById('mini-plan').innerHTML=renderPlan(items,{mini:true,calibration:currentProject()?.scene?.calibration});
  document.getElementById('item-count').textContent=items.length?num(items.length,0)+' عنصر در صحنه':'هنوز آبجکتی در صحنه نیست';
@@ -408,9 +419,14 @@ function applySelection(){
  if(obj.kind==='front'){
   const c=currentItems().find(x=>x.id===obj.hostId);
   const get=key=>document.querySelector('[data-edit-front="'+key+'"]')?.value;
-  result=Geo.editFront(currentItems(),obj.id,{width:value('width',(obj.endT-obj.startT)*Geo.lengthOf(c)),
-   height:value('height',(obj.topT-obj.bottomT)*c.height),finish:get('finish'),style:get('style'),
-   handleStyle:get('handleStyle'),hinge:obj.subtype==='door'?get('hinge'):undefined});
+  const actualWidth=(obj.endT-obj.startT)*Geo.lengthOf(c),actualHeight=(obj.topT-obj.bottomT)*c.height;
+  const shownWidth=Math.round(actualWidth*100)/100,shownHeight=Math.round(actualHeight*100)/100;
+  const desiredWidth=value('width',shownWidth),desiredHeight=value('height',shownHeight);
+  result=Geo.editFront(currentItems(),obj.id,{
+   width:Math.abs(desiredWidth-shownWidth)>.001?desiredWidth:undefined,
+   height:Math.abs(desiredHeight-shownHeight)>.001?desiredHeight:undefined,
+   finish:get('finish'),style:get('style'),handleStyle:get('handleStyle'),
+   hinge:obj.subtype==='door'?get('hinge'):undefined});
  }
  if(result)commitChange(result);
 }
@@ -523,6 +539,8 @@ function pickPlanHandle(e){
   const box=el.getBoundingClientRect();
   if(!box.width||!box.height)continue;
   const cx=box.left+box.width/2,cy=box.top+box.height/2;
+  const clip=el.closest('.front-elevation-scroll')?.getBoundingClientRect();
+  if(clip&&(cx<clip.left||cx>clip.right||cy<clip.top||cy>clip.bottom))continue;
   const d=Math.hypot(e.clientX-cx,e.clientY-cy);
   if(d<distance){
    distance=d;hit={id:el.dataset.itemId,side:el.dataset.openHandle||el.dataset.handle,element:el};

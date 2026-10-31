@@ -1,5 +1,5 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose} from './geometry.js?v=render20';
-import {renderPlanMeasurements} from './edit-handles.js?v=render20';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose} from './geometry.js?v=render21';
+import {renderPlanMeasurements} from './edit-handles.js?v=render21';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true}={}){
@@ -153,6 +153,7 @@ export function equipmentCorners(x,z,width,depth,rotation=0){
 }
 export function renderPreview(items,drawing,hover){
  if(!drawing||!hover)return '';
+ const visibleRadius=.12;
  const tool=drawing.tool,start=drawing.start;
  const wallMode=tool==='wall',openingMode=tool==='window'||tool==='door';
  if(tool?.startsWith('front-')){
