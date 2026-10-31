@@ -177,13 +177,21 @@ export function placeWall(source,start,end,{thickness=.12,height=2.8,tolerance=S
 export function placeCabinet(source,start,end,{kind='base',depth,height,elevation}={}){
  const items=copy(source),a={...start},b={...end};
  if(!finite(a.x,a.z,b.x,b.z)||dist(a.x,a.z,b.x,b.z)<.30)throw Error('طول کابینت باید حداقل ۳۰ سانتی‌متر باشد.');
- const candidates=items.filter(o=>o.kind==='cabinet');
- for(const p of [a,b])for(const c of candidates)for(const end of [{x:c.x1,z:c.z1},{x:c.x2,z:c.z2}]){
-  if(dist(p.x,p.z,end.x,end.z)<.18){p.x=end.x;p.z=end.z;}
+ const candidates=items.filter(o=>o.kind==='cabinet'&&o.subtype===kind);
+ let startNodeId=uid(),endNodeId=uid();
+ for(const [index,p] of [a,b].entries())for(const c of candidates){
+  c.startNodeId ||= uid();c.endNodeId ||= uid();
+  for(const end of [{x:c.x1,z:c.z1,nodeId:c.startNodeId},{x:c.x2,z:c.z2,nodeId:c.endNodeId}]){
+   if(dist(p.x,p.z,end.x,end.z)<.18){
+    p.x=end.x;p.z=end.z;
+    if(index===0)startNodeId=end.nodeId;else endNodeId=end.nodeId;
+   }
+  }
  }
+ if(dist(a.x,a.z,b.x,b.z)<.30||startNodeId===endNodeId)throw Error('دو انتهای کابینت باید مجزا باشند.');
  const upper=kind==='upper';
  const obj={id:uid(),kind:'cabinet',subtype:kind,name:upper?'کابینت هوایی':'کابینت زمینی',
-  x1:a.x,z1:a.z,x2:b.x,z2:b.z,depth:depth??(upper?.35:.60),
+  x1:a.x,z1:a.z,x2:b.x,z2:b.z,startNodeId,endNodeId,depth:depth??(upper?.35:.60),
   height:height??(upper?.72:.88),elevation:elevation??(upper?1.46:.10)};
  items.push(obj);return {items,selectedId:obj.id,end:{x:b.x,z:b.z}};
 }
@@ -194,11 +202,11 @@ export function placeOpening(source,hostId,x,z,{style='fixed',width,height,sill}
  if(!finite(width,height,sill)||width<.3||height<.3||sill<0||sill+height>w.height||width>lengthOf(w)-.20)
   throw Error('ابعاد بازشو با دیوار سازگار نیست.');
  const projected=projectOnWall(w,x,z),margin=(width/2+.1)/lengthOf(w),t=Math.max(margin,Math.min(1-margin,projected.t));
- const op={id:uid(),kind:'opening',style,name:door?'در':'پنجره ثابت',hostId:w.id,hostT:t,width,height,sill};
+ const op={id:uid(),kind:'opening',style,name:door?'در':'پنجره ثابت',hostId:w.id,hostT:t,width,height,sill,mirrored:false,openFraction:0};
  items.push(op);validateHostOpenings(items,w);
  return {items,selectedId:op.id};
 }
-export function editOpening(source,id,{width,height,sill,metresFromStart}){
+export function editOpening(source,id,{width,height,sill,metresFromStart,mirrored,openFraction}){
  const items=copy(source),op=byId(items,id),w=byId(items,op?.hostId);
  if(!op||op.kind!=='opening'||!wall(w))throw Error('بازشوی معتبر انتخاب نشده است.');
  op.width=Number(width??op.width);op.height=Number(height??op.height);op.sill=Number(sill??op.sill);
@@ -206,7 +214,12 @@ export function editOpening(source,id,{width,height,sill,metresFromStart}){
  if(!finite(centre,op.width,op.height,op.sill)||op.width<.3||op.height<.3||op.sill<0||
   (op.style==='door'&&op.sill>.01)||centre<op.width/2+.1||centre>lengthOf(w)-op.width/2-.1)
   throw Error('ابعاد یا محل بازشو خارج از دیوار است.');
- op.hostT=centre/lengthOf(w);validateHostOpenings(items,w);
+ op.hostT=centre/lengthOf(w);
+ if(op.style==='door'){
+  if(openFraction!==undefined){const f=Number(openFraction);if(!finite(f)||f<0||f>1)throw Error('زاویه بازشدن در معتبر نیست.');op.openFraction=f;}
+  if(mirrored!==undefined)op.mirrored=Boolean(mirrored);
+ }
+ validateHostOpenings(items,w);
  return {items,selectedId:id};
 }
 export function moveEndpoint(source,id,start,x,z){
@@ -250,7 +263,27 @@ export function editCabinet(source,id,{length,depth,height,elevation}){
  const d=Number(depth??c.depth),h=Number(height??c.height),e=Number(elevation??c.elevation);
  if(!finite(target,d,h,e)||target<.3||target>20||d<.20||d>1.20||h<.25||h>3||e<0||e>4)
   throw Error('ابعاد کابینت خارج از محدوده است.');
- c.x2=c.x1+(c.x2-c.x1)/oldLength*target;c.z2=c.z1+(c.z2-c.z1)/oldLength*target;
- c.depth=d;c.height=h;c.elevation=e;
+ const nx=c.x1+(c.x2-c.x1)/oldLength*target,nz=c.z1+(c.z2-c.z1)/oldLength*target;
+ const endNode=c.endNodeId;
+ for(const other of items)if(other.kind==='cabinet'&&other.subtype===c.subtype){
+  if(other.startNodeId===endNode){other.x1=nx;other.z1=nz;}
+  if(other.endNodeId===endNode){other.x2=nx;other.z2=nz;}
+ }
+ c.x2=nx;c.z2=nz;c.depth=d;c.height=h;c.elevation=e;
+ for(const other of items)if(other.kind==='cabinet'&&lengthOf(other)<.30)
+  throw Error('تغییر طول کابینت، قطعه متصل را کوتاه می‌کند.');
+ return {items,selectedId:id};
+}
+
+export function moveCabinetEndpoint(source,id,start,x,z){
+ const items=copy(source),c=byId(items,id);
+ if(!c||c.kind!=='cabinet'||!finite(x,z))throw Error('کابینت انتخابی معتبر نیست.');
+ const node=start?c.startNodeId:c.endNodeId;
+ for(const other of items)if(other.kind==='cabinet'&&other.subtype===c.subtype){
+  if(other.startNodeId===node){other.x1=x;other.z1=z;}
+  if(other.endNodeId===node){other.x2=x;other.z2=z;}
+ }
+ for(const other of items)if(other.kind==='cabinet'&&lengthOf(other)<.30)
+  throw Error('طول کابینت باید حداقل ۳۰ سانتی‌متر بماند.');
  return {items,selectedId:id};
 }

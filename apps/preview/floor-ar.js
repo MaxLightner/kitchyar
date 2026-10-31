@@ -251,7 +251,14 @@ export class FloorAR {
     if(o.style==='fixed'){
      piece(o.a,o.b,o.sill,o.sill+edge,t,frame);
      piece(o.a+edge,o.b-edge,o.sill+edge,o.sill+o.height-edge,.015,glass);
-    }else piece(o.a+edge,o.b-edge,0,o.height,.047,wood);
+    }else{
+     const hingeX=w.x1+o.a*ux,hingeZ=w.z1+o.a*uz;
+     const pivot=new THREE.Group();pivot.position.set(hingeX,0,hingeZ);
+     pivot.rotation.y=-angle+(o.mirrored?1:-1)*(o.openFraction||0)*Math.PI/2;
+     const panel=new THREE.Mesh(new THREE.BoxGeometry(o.width-edge,o.height,.047),wood.clone());
+     panel.position.set((o.width-edge)/2,o.height/2,0);
+     pivot.add(panel);this.objectGroup.add(pivot);
+    }
     last=o.b;
    }
    piece(last,len,0,w.height,w.thickness,fill);

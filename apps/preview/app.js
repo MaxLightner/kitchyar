@@ -144,6 +144,8 @@ function drawSelection(){
   const host=currentItems().find(x=>x.id===obj.hostId);
   fields=field('width','عرض (متر)',obj.width,.3)+field('height','ارتفاع (متر)',obj.height,.3)+
    field('sill','ارتفاع نصب (متر)',obj.sill,0)+field('offset','فاصله از ابتدای دیوار',obj.hostT*Geo.lengthOf(host),.1);
+  if(obj.style==='door')fields+=field('openFraction','میزان بازشدن در (۰ تا ۱)',obj.openFraction||0,0,'.05')+
+   '<label class="check-row">جهت لولا<input type="checkbox" data-edit="mirrored" '+(obj.mirrored?'checked':'')+'></label>';
  }
  if(obj.kind==='cabinet')fields=field('length','طول (متر)',Geo.lengthOf(obj),.3)+
   field('depth','عمق (متر)',obj.depth,.2)+field('height','ارتفاع (متر)',obj.height,.25)+
@@ -151,7 +153,7 @@ function drawSelection(){
  panel.innerHTML='<div class="object-head"><strong>'+esc(title)+'</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
   '<div class="object-fields">'+fields+'</div><div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
-  (obj.kind==='wall'?'<small>نقاط سبز در پلان برای ویرایش گره‌های متصل قابل جابه‌جایی‌اند.</small>':'');
+  (['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌های سبز و نارنجی در پلان قابل جابه‌جایی‌اند.</small>':'');
 }
 function showScene(){
  const root=document.getElementById('editor-root');if(!root)return;
@@ -231,7 +233,8 @@ function applySelection(){
   {length:value('length',Geo.lengthOf(obj)),thickness:value('thickness',obj.thickness),height:value('height',obj.height)});
  if(obj.kind==='opening')result=Geo.editOpening(currentItems(),obj.id,
   {width:value('width',obj.width),height:value('height',obj.height),sill:value('sill',obj.sill),
-   metresFromStart:value('offset',0)});
+   metresFromStart:value('offset',0),openFraction:value('openFraction',obj.openFraction||0),
+   mirrored:document.querySelector('[data-edit="mirrored"]')?.checked});
  if(obj.kind==='cabinet')result=Geo.editCabinet(currentItems(),obj.id,
   {length:value('length',Geo.lengthOf(obj)),depth:value('depth',obj.depth),
    height:value('height',obj.height),elevation:value('elevation',obj.elevation)});
@@ -242,7 +245,10 @@ document.addEventListener('change',e=>{
  const name=field.dataset.setting;settings[name]=field.type==='checkbox'?field.checked:Number(field.value);
 });
 document.addEventListener('pointerdown',e=>{
- const handle=e.target.closest('[data-handle]');if(handle)dragHandle={id:handle.dataset.itemId,start:handle.dataset.handle==='start'};
+ const handle=e.target.closest('[data-handle],[data-open-handle]');
+ if(!handle)return;
+ dragHandle={id:handle.dataset.itemId,side:handle.dataset.openHandle||handle.dataset.handle,
+  kind:handle.hasAttribute('data-open-handle')?'opening':'endpoint',startClientX:e.clientX,startClientY:e.clientY};
 });
 document.addEventListener('pointerup',e=>{
  const scene=e.target.closest('.editor-scene');if(!scene){dragHandle=null;return;}
@@ -251,7 +257,27 @@ document.addEventListener('pointerup',e=>{
   const svg=scene.querySelector('#plan-view');
   const point=mode==='2d'?svg?planPoint(svg,e):null:mode==='ar'?floor?.pick():null;
   if(dragHandle){
-   if(point)commitChange(Geo.moveEndpoint(currentItems(),dragHandle.id,dragHandle.start,point.x,point.z));
+   if(Math.hypot(e.clientX-dragHandle.startClientX,e.clientY-dragHandle.startClientY)<5){dragHandle=null;return;}
+   if(point){
+    const obj=currentItems().find(x=>x.id===dragHandle.id);
+    if(dragHandle.kind==='opening'){
+     const host=currentItems().find(x=>x.id===obj?.hostId);
+     if(host){
+      const position=Geo.projectOnWall(host,point.x,point.z).t*Geo.lengthOf(host);
+      const begin=obj.hostT*Geo.lengthOf(host)-obj.width/2;
+      const end=obj.hostT*Geo.lengthOf(host)+obj.width/2;
+      let left=begin,right=end;
+      if(dragHandle.side==='left')left=position;
+      else if(dragHandle.side==='right')right=position;
+      else {left=position-obj.width/2;right=position+obj.width/2;}
+      commitChange(Geo.editOpening(currentItems(),obj.id,
+       {width:right-left,metresFromStart:(left+right)/2}));
+     }
+    }else{
+     const edit=obj?.kind==='cabinet'?Geo.moveCabinetEndpoint:Geo.moveEndpoint;
+     commitChange(edit(currentItems(),dragHandle.id,dragHandle.side==='start',point.x,point.z));
+    }
+   }
    dragHandle=null;return;
   }
   if(!point){if(mode==='ar'&&drawing)tell('اول کف را در AR تثبیت کن.');return;}

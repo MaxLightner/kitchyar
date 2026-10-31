@@ -31,10 +31,21 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    '" stroke-width="'+f(c.depth)+'" opacity="'+(c.subtype==='upper'?'.55':'.92')+'"/>';
  }
  const selection=items.find(x=>x.id===selectedId);
- if(selection&&selection.kind==='wall'&&!mini){
+ if(selection&&['wall','cabinet'].includes(selection.kind)&&!mini){
   for(const [side,x,z] of [['start',selection.x1,selection.z1],['end',selection.x2,selection.z2]]){
    out+='<circle data-handle="'+side+'" data-item-id="'+safe(selection.id)+'" cx="'+f(x)+'" cy="'+f(z)+
     '" r=".095" fill="#51b090" stroke="#fff" stroke-width=".028"/>';
+  }
+ }
+ if(selection&&selection.kind==='opening'&&!mini){
+  const host=walls.find(w=>w.id===selection.hostId);
+  if(host){
+   const len=lengthOf(host),dx=(host.x2-host.x1)/len,dz=(host.z2-host.z1)/len;
+   const center=selection.hostT*len;
+   for(const [side,d] of [['left',center-selection.width/2],['centre',center],['right',center+selection.width/2]]){
+    out+='<circle data-open-handle="'+side+'" data-item-id="'+safe(selection.id)+'" cx="'+f(host.x1+dx*d)+'" cy="'+f(host.z1+dz*d)+
+     '" r=".085" fill="'+(side==='centre'?'#d8a15b':'#51b090')+'" stroke="#fff" stroke-width=".028"/>';
+   }
   }
  }
  if(drawing&&!mini){

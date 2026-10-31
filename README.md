@@ -8,9 +8,9 @@ The browser geometry module apps/preview/geometry.js ports the relevant semantic
 
 - Continuous start/end wall runs, point/segment snapping before 45° angle snapping, stable shared endpoint IDs.
 - Endpoint, T and crossing connections with split walls and hosted opening remapping. Invalid splits inside an opening are rejected atomically.
-- Host-wall-bound fixed windows and doors with nonoverlap and dimension constraints. Rectangular voids are built into the WebXR 3D wall mesh.
+- Host-wall-bound fixed windows and hinged doors with nonoverlap, hinge direction, open angle and dimension constraints. Rectangular voids are built into the WebXR 3D wall mesh.
 - Continuous base and upper cabinet runs with independent height, elevation and depth.
-- Numeric edits, connected endpoint dragging in the 2D plan, undo/redo and local persistence, using shared metric data for WebXR and plan.
+- Numeric edits, wall/cabinet endpoint and opening-handle dragging in the 2D plan, undo/redo and local persistence, using shared metric data for WebXR and plan.
 - Persistent 10 cm AR floor grid after floor confirmation.
 - All UI font sizes are at least 13 CSS pixels, including mobile.
 

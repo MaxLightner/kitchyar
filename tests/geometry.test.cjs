@@ -87,3 +87,22 @@ test('new dock tools keep the same three screen editor route',()=>{
  assert.match(app,/function editorPage/);assert.match(app,/mode='ar'/);
  assert.match(app,/function commitChange/);assert.match(app,/function undoChange/);
 });
+
+test('adjacent cabinets share an editable joint',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeCabinet([],{x:0,z:0},{x:2,z:0},{kind:'base'}).items;
+ items=G.placeCabinet(items,{x:2.05,z:0},{x:3.6,z:0},{kind:'base'}).items;
+ assert.equal(items[0].endNodeId,items[1].startNodeId);
+ items=G.moveCabinetEndpoint(items,items[0].id,false,2.4,.2).items;
+ assert.deepEqual([items[1].x1,items[1].z1],[2.4,.2]);
+});
+test('door hinge and opening angle stay attached to the wall',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
+ items=G.placeOpening(items,items[0].id,2,0,{style:'door'}).items;
+ const id=items.find(x=>x.kind==='opening').id;
+ items=G.editOpening(items,id,{openFraction:.8,mirrored:true}).items;
+ assert.equal(items.find(x=>x.id===id).openFraction,.8);
+ assert.equal(items.find(x=>x.id===id).mirrored,true);
+ assert.throws(()=>G.editOpening(items,id,{openFraction:1.4}),/زاویه/);
+});

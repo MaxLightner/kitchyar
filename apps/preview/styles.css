@@ -155,3 +155,6 @@ input,select,textarea,button,label,output{font-size:max(13px,1em)}
  .object-editor{top:205px;width:min(280px,calc(100vw - 28px));left:8px}
  .drawing-hint{top:110px;max-width:70vw}
 }
+
+.object-fields .check-row{flex-direction:row;align-items:center;justify-content:space-between;grid-column:span 2}
+.object-fields input[type="checkbox"]{width:18px;height:18px;accent-color:#39745a}
