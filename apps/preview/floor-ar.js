@@ -717,12 +717,72 @@ export class FloorAR {
   return point;
  }
  setItems(items,selectedId=null){
+  if(items===this.itemsSource){this.setSelection(selectedId);return;}
   const signature=JSON.stringify(items||[]);
-  if(signature===this.itemsSignature&&selectedId===this.selectedId)return;
+  this.itemsSource=items;
+  if(signature===this.itemsSignature){this.setSelection(selectedId);return;}
   const previousCount=this.items?.length||0;
   this.itemsSignature=signature;this.items=structuredClone(items||[]);
   if(this.previewRenderer&&previousCount!==this.items.length)this.fitPreview();
   this.selectedId=selectedId;this.previewVersion=(this.previewVersion||0)+1;this.rebuildObjects();
+ }
+ // Apply a complete semantic scene snapshot in one pass. Style changes used to
+ // trigger one full rebuild per items/materials/tiles setter, each rebaking AO.
+ setSceneState(items,selectedId,materials={},tileLayout={}){
+  const sourceUnchanged=items===this.itemsSource;
+  const signature=sourceUnchanged?this.itemsSignature:JSON.stringify(items||[]);
+  const nextMaterials={...DEFAULT_MATERIALS,...materials};
+  const nextTiles=validateTileLayout(tileLayout);
+  const geometryChanged=signature!==this.itemsSignature;
+  const appearanceChanged=JSON.stringify(nextMaterials)!==JSON.stringify(this.materialSettings)||
+   JSON.stringify(nextTiles)!==JSON.stringify(this.tileLayout);
+  this.itemsSource=items;
+  if(!geometryChanged&&!appearanceChanged){this.setSelection(selectedId);return;}
+  const previousCount=this.items?.length||0;
+  if(geometryChanged){
+   this.itemsSignature=signature;this.items=structuredClone(items||[]);
+   if(this.previewRenderer&&previousCount!==this.items.length)this.fitPreview();
+  }
+  this.materialSettings=nextMaterials;this.tileLayout=nextTiles;
+  this.selectedId=selectedId;this.previewVersion=(this.previewVersion||0)+1;
+  this.rebuildObjects();
+ }
+ // Selection only changes emissive accents and edit grips. Rebuilding the full
+ // mesh here used to trigger thousands of raycast AO checks on every tap.
+ clearSelectionHighlight(){
+  for(const entry of this.selectionHighlights||[]){
+   entry.mesh.material=entry.original;
+   for(const material of entry.temporary)material.dispose();
+  }
+  this.selectionHighlights=[];
+ }
+ highlightSelection(){
+  if(!this.selectedId||!this.objectGroup)return;
+  this.selectionHighlights=[];
+  const accent=new THREE.Color(0x44b88c);
+  this.objectGroup.traverse(mesh=>{
+   if(!mesh.isMesh||!mesh.material)return;
+   let owner=mesh;
+   while(owner&&owner!==this.objectGroup&&!owner.userData?.objectId)owner=owner.parent;
+   if(owner?.userData?.objectId!==this.selectedId)return;
+   const original=mesh.material,materials=Array.isArray(original)?original:[original];
+   const temporary=materials.map(material=>{
+    const clone=material.clone();
+    if(clone.emissive){clone.emissive.copy(accent);clone.emissiveIntensity=.27;}
+    else if(clone.color)clone.color.lerp(accent,.25);
+    return clone;
+   });
+   mesh.material=Array.isArray(original)?temporary:temporary[0];
+   this.selectionHighlights.push({mesh,original,temporary});
+  });
+ }
+ setSelection(selectedId=null){
+  if(selectedId===this.selectedId)return;
+  this.clearSelectionHighlight();
+  this.selectedId=selectedId;
+  this.highlightSelection();
+  this.updateEditHandles();
+  this.renderPreview();
  }
  setMaterials(materials={}){
   const next={...DEFAULT_MATERIALS,...materials};
@@ -739,8 +799,14 @@ export class FloorAR {
   const path=assetUrl(info.file);
   if(!this.textureCache.has(path)){
    const texture=new THREE.TextureLoader().load(path,()=>{
-    // Image fetch completes outside the XR animation loop; rebuild only once per asset.
-    if(this.objectGroup)this.rebuildObjects();
+    // Several materials can finish loading in the same frame. Rebuild only once.
+    if(this.objectGroup&&!this.textureRebuildScheduled){
+     this.textureRebuildScheduled=true;
+     requestAnimationFrame(()=>{
+      this.textureRebuildScheduled=false;
+      if(this.objectGroup)this.rebuildObjects();
+     });
+    }
    },undefined,()=>console.warn('Kitchyar texture unavailable:',path));
    texture.colorSpace=THREE.SRGBColorSpace;
    texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
@@ -860,6 +926,7 @@ export class FloorAR {
   return ray?.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),point)?{x:point.x,z:point.z}:null;
  }
  stopPreview(){
+  this.clearSelectionHighlight();
   this.previewResize?.disconnect();this.previewRenderer?.dispose();this.previewRenderer?.domElement.remove();
   this.previewRenderer=null;this.previewHost=null;this.previewScene=null;this.objectGroup=null;this.floorGroup=null;
  }
@@ -867,8 +934,10 @@ export class FloorAR {
   const before=this.renderSettings||{},next={...before,...options};
   const changed=next.aoStrength!==before.aoStrength||next.reflection!==before.reflection||
    next.taskLighting!==before.taskLighting||next.taskIntensity!==before.taskIntensity;
+  const lightingChanged=next.sunAzimuth!==before.sunAzimuth||next.sunElevation!==before.sunElevation||
+   next.sunIntensity!==before.sunIntensity||next.ambientIntensity!==before.ambientIntensity;
   this.renderSettings=next;
-  if(this.sun){
+  if(this.sun&&lightingChanged){
    const az=THREE.MathUtils.degToRad(next.sunAzimuth),el=THREE.MathUtils.degToRad(next.sunElevation);
    const r=8;this.sun.position.set(r*Math.cos(el)*Math.cos(az),r*Math.sin(el),r*Math.cos(el)*Math.sin(az));
    this.sun.intensity=next.sunIntensity;this.sun.target.position.set(0,0,0);
@@ -1021,6 +1090,11 @@ export class FloorAR {
  }
  rebuildObjects(){
   if(!this.objectGroup)return;
+  const selectedId=this.selectedId;
+  this.clearSelectionHighlight();
+  // The selected appearance is applied after meshing and AO, without changing
+  // the geometry or the materials that are shared by other objects.
+  this.selectedId=null;
   for(const mesh of [...this.objectGroup.children]){
    this.objectGroup.remove(mesh);
    mesh.traverse(n=>{n.geometry?.dispose();if(n.material)for(const m of (Array.isArray(n.material)?n.material:[n.material])){
@@ -1651,6 +1725,8 @@ export class FloorAR {
   }
   for(const m of [plaster,selected,frame,glass,wood,cabinetSelected])m.dispose();
   this.applyRaycastAO();
+  this.selectedId=selectedId;
+  this.highlightSelection();
   this.updateEditHandles();
   this.reflectionDirty=true;
   this.renderPreview();
@@ -1705,6 +1781,7 @@ export class FloorAR {
  async stop(){if(this.session)try{await this.session.end();}catch{this.cleanup();}}
  cleanup(){
   this.hitSource?.cancel();this.lowerHitSource?.cancel?.();for(const s of this.sources)try{s.cancel();}catch{}
+  this.clearSelectionHighlight();
   this.disableWideView();this.wideRenderer?.dispose();this.wideRenderer?.domElement.remove();
   this.wideRenderer=null;this.wideCamera=null;
   this.renderer?.setAnimationLoop(null);this.reflectionRT?.dispose();this.renderer?.dispose();this.renderer?.domElement.remove();

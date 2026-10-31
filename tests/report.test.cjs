@@ -46,11 +46,14 @@ test('editing a facade immediately changes report dimensions, print and XLSX use
  assert.match(html,/report-print/);
  assert.match(html,/report-xlsx/);
  assert.match(html,/report-fronts/);
+ assert.match(html,/report-nesting/);
+ assert.match(html,/report-recalculate/);
+ assert.match(html,/report-sheet-svg/);
  assert.match(html,/D001/);
  assert.match(html,/آشپزخانه تست &amp; نمونه/);
  assert.doesNotMatch(html,/href="#report-fronts"/,'links must not hijack the SPA hash route');
 });
-test('export produces a proper six-sheet Office OpenXML ZIP with typed dimension cells',async()=>{
+test('export produces nine Office OpenXML sheets with numeric MDF and facade dimensions',async()=>{
  const report=R.buildCutReport(await sample()),zip=Book.xlsxBytes(report);
  assert.ok(zip.byteLength>5500);
  const data=new DataView(zip.buffer,zip.byteOffset,zip.byteLength);
@@ -62,13 +65,17 @@ test('export produces a proper six-sheet Office OpenXML ZIP with typed dimension
   entries.set(name,decode.decode(zip.slice(start,start+len)));
   p=start+len;
  }
- assert.equal(entries.size,11);
+ assert.equal(entries.size,14);
  assert.match(entries.get('[Content_Types].xml'),/spreadsheetml\.sheet\.main\+xml/);
  assert.match(entries.get('xl/workbook.xml'),/sheet name="درب و کشو"/);
  assert.match(entries.get('xl/workbook.xml'),/sheet name="برش تجهیزات"/);
+ assert.match(entries.get('xl/workbook.xml'),/sheet name="ورق MDF"/);
+ assert.match(entries.get('xl/workbook.xml'),/sheet name="برش MDF"/);
  assert.match(entries.get('xl/worksheets/sheet2.xml'),/<c r="D2"><v>\d+<\/v><\/c>/,'dimensions must be numeric');
  assert.match(entries.get('xl/worksheets/sheet2.xml'),/D001/);
- assert.match(entries.get('xl/worksheets/sheet4.xml'),/سینک/);
+ assert.match(entries.get('xl/worksheets/sheet4.xml'),/D001/);
+ assert.match(entries.get('xl/worksheets/sheet4.xml'),/<c r="F2"><v>\d+<\/v><\/c>/,'cut positions must be numeric');
+ assert.match(entries.get('xl/worksheets/sheet7.xml'),/سینک/);
  assert.equal(data.getUint32(p,true),0x02014b50,'central ZIP directory follows files');
  assert.equal(data.getUint32(zip.length-22,true),0x06054b50,'ZIP end record exists');
 });

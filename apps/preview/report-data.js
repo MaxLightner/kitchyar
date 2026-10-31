@@ -2,13 +2,14 @@
    This is deliberately a schematic schedule, never a CNC nesting/cut program. */
 import {lengthOf,countertopCutouts,frontPose} from './geometry.js?v=report33';
 import {MATERIALS,DEFAULT_MATERIALS,resolveFinish} from './materials.js?v=report33';
+import {nestFronts} from './sheet-nesting.js?v=nest35';
 
 const mm=metres=>Math.round(metres*1000);
 const findLabel=(family,id)=>MATERIALS[family]?.find(m=>m.id===id)?.label||id||'نامشخص';
 const sortCabinets=(a,b)=>String(a.hostId).localeCompare(String(b.hostId))||
  (a.elevation||0)-(b.elevation||0)||a.startT-b.startT||a.endT-b.endT;
 
-export function buildCutReport(project){
+export function buildCutReport(project,sheetOptions={}){
  const items=project?.scene?.items||[],settings={...DEFAULT_MATERIALS,...project?.scene?.materials};
  const cabinets=items.filter(x=>x.kind==='cabinet'&&x.subtype!=='bridge').sort(sortCabinets);
  const byId=new Map(items.map(item=>[item.id,item]));
@@ -29,6 +30,7 @@ export function buildCutReport(project){
    const row={code:codeFront,cabinet:code,hostId:c.id,id:f.id,
     type:drawer?'کشو':'درب',widthMm,heightMm,quantity:1,
     gapMm:mm(f.gap??.003),material:findLabel('front',materialId),materialId,
+    wood:!!MATERIALS.front.find(m=>m.id===materialId)?.wood,
     style:f.style==='frame'?'قاب‌دار':'صاف',hinge:drawer?'—':
      ({left:'چپ',right:'راست',top:'بالا'}[f.hinge]||'نامشخص'),
     grain:f.grainDirection==='horizontal'||(f.grainDirection!=='vertical'&&drawer)?'افقی':'عمودی',
@@ -85,10 +87,13 @@ export function buildCutReport(project){
   finish();
  }
  countertop.sort((a,b)=>a.code.localeCompare(b.code));
+ const nesting=nestFronts(fronts,sheetOptions);
  if(fronts.some(f=>f.style==='قاب‌دار'))warnings.push('درب قاب‌دار در این گزارش فقط با ابعاد کلی نما نمایش داده شده؛ قطعات تشکیل‌دهنده قاب هنوز تفکیک نشده‌اند.');
  if(countertop.length>1)warnings.push('صفحه‌ها بر اساس امتداد هر دیوار تفکیک شده‌اند. محل اتصال گوشه‌ها و جهت برش فارسی‌بر باید پیش از تولید تعیین شود.');
  if(countertop.some(c=>c.curveMm||c.cornerRadiusMm||c.raisedMm||c.waterfall!=='none'))warnings.push('فرم‌های آبشاری، منحنی، گوشه گرد و صفحه دوارتفاعی در جدول ثبت‌اند اما پلان برش آن‌ها مستطیل شماتیک است؛ اندازه‌گیری واقعی فرم باید پیش از برش تأیید شود.');
  if(cutouts.length)warnings.push('محل برش سینک و گاز از مدل طراحی خوانده شده است؛ ابعاد نهایی باید با شابلون یا مشخصات سازنده تجهیزات تطبیق داده شود.');
+ if(nesting.unplaced.length)warnings.push('بعضی نماها با ابعاد ورق انتخابی جا نمی‌شوند؛ تعداد ورق اعلام‌شده بدون این قطعات است. ابعاد ورق یا تقسیم‌بندی درب‌ها باید اصلاح شود.');
+ warnings.push('تعداد ورق MDF تخمینی و بر اساس چیدمان مستطیلی پیشنهادی است؛ جهت رگه چوب، فاصله تیغ و حاشیه رعایت شده اما روش برش واقعی کارگاه ممکن است ورق بیشتری مصرف کند.');
  warnings.push('ضخامت ورق، نوار لبه، لقی نصب، جهت سوراخ‌کاری لولا و تلرانس دستگاه هنوز تعریف نشده‌اند. این خروجی شماتیک است و مستقیماً فایل CNC نیست.');
  const byMaterial=new Map();
  for(const f of fronts){const key=f.material;
@@ -97,9 +102,10 @@ export function buildCutReport(project){
  }
  return {projectId:project?.id||'',name:project?.name||'پروژه',
   revision:project?.revision||0,updatedAt:project?.updatedAt||'',
-  fronts,cabinetViews,countertop,cutouts,warnings,materials:[...byMaterial.values()].map(m=>
+  fronts,cabinetViews,countertop,cutouts,nesting,warnings,materials:[...byMaterial.values()].map(m=>
    ({...m,areaSqm:Math.round(m.areaSqm*1000)/1000})),
-  totals:{doors,drawers,fronts:fronts.length,frontAreaSqm:Math.round(doorArea*1000)/1000,
+  totals:{doors,drawers,fronts:fronts.length,mdfSheets:nesting.totalSheets,
+   unplacedFronts:nesting.unplaced.length,frontAreaSqm:Math.round(doorArea*1000)/1000,
    slabs:countertop.length,counterLengthM:Math.round(countertop.reduce((a,c)=>a+c.lengthMm,0))/1000,
    counterAreaSqm:Math.round(countertop.reduce((a,c)=>a+c.estimatedAreaSqm,0)*1000)/1000,
    cutouts:cutouts.length},

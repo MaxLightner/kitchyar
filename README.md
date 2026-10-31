@@ -23,6 +23,13 @@ Editor defaults to AR. After a tracked AR session has recognized and locked the 
 - Adjacent base-cabinet countertop stretches on the same wall are grouped for a schematic plan, showing estimated span/depth and the real sink/hob aperture locations derived from the project model. Separate angled runs retain explicit seam warnings.
 - **چاپ / PDF** uses an A4-landscape print stylesheet (choose Save as PDF in the browser print dialog). **دریافت Excel** creates a real offline `.xlsx` file with six sheets and numeric millimetre measurements without third-party runtime dependencies.
 - Reports always recalculate from the current saved project. They remain **schematic**: sheet thickness, edge banding, hinge drilling, manufacturing tolerances, and countertop joinery are not yet specified and must be verified before CNC/cutting.
+- A new **MDF facade sheet nesting** section packs all door and drawer-front rectangles by finish into configurable stock sheets (default 2800×2070 mm, 3 mm saw kerf, 10 mm margin), preserving horizontal/vertical grain direction for wood. It displays material-based sheet counts, numbered sheets, precise rectangular piece coordinates, unplaceable-piece warnings, and print-ready SVG sheet layouts. The XLSX export includes stock, placements and unplaced-pieces worksheets with typed numeric measurements. Unit carcasses are deliberately excluded for now. This is an estimated rectangular cutting plan, not an optimized CNC program.
+
+## Selection performance and AR dialog UX
+
+- Choosing an object now changes emissive selection accents and edit grips incrementally, without rebuilding all meshes, refreshing reflection probes, or re-running raycast ambient occlusion. Material and geometry changes are batched into a single rebuild per scene update.
+- Editor dialogs are descendants of the active WebXR DOM-overlay root, so kitchen-style photos, rules and cut previews remain visible **inside** immersive AR. Dialog backdrops and Escape dismiss settings; re-tapping the current object or tapping genuinely empty tracked space dismisses its property editor.
+- Tool panels have explicit close controls; changing a kitchen style applies facade layout first, lets the browser paint, then applies finish materials after a short delay as a single undoable edit.
 
 ## Surface library, kitchen styles, and editable equipment
 

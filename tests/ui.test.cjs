@@ -34,6 +34,34 @@ test('retains explicit fallback with no fake successful tracking',()=>{
  assert.match(source,/desktopPreview\.startPreview/);
  assert.match(source,/این دستگاه یا مرورگر از AR پشتیبانی نمی‌کند/);
 });
+test('selecting objects does not remesh the whole kitchen or recompute raycast AO',()=>{
+ const floor=read('floor-ar.js'),app=read('app.js');
+ const select=floor.slice(floor.indexOf(' setSelection(selectedId=null){'),
+  floor.indexOf(' setMaterials(materials={}){'));
+ assert.match(select,/this\.highlightSelection\(\)/);
+ assert.match(select,/this\.updateEditHandles\(\)/);
+ assert.doesNotMatch(select,/rebuildObjects\(/);
+ assert.doesNotMatch(select,/applyRaycastAO\(/);
+ assert.match(floor,/setSceneState\(items,selectedId,materials=\{\},tileLayout=\{\}\)/);
+ assert.match(app,/floor\?\.setSceneState\(items,selection,materials,tileLayout\)/);
+ assert.match(app,/desktopPreview\?\.setSceneState\(items,selection,materials,tileLayout\)/);
+});
+test('AR settings are in the same DOM overlay, and all panels have dismiss gestures',()=>{
+ const app=read('app.js');
+ assert.match(app,/document\.getElementById\('editor-root'\)\.appendChild\(dialogs\)/);
+ assert.match(app,/document\.getElementById\('editor-root'\)\?\.appendChild\(dialogs\)/);
+ assert.match(app,/e\.target\.classList\?\.contains\('dialog-cover'\)/);
+ assert.match(app,/if\(e\.key!=='Escape'\)return/);
+ assert.match(app,/data-action="hide-tools" aria-label="بستن پنل ابزار"/);
+ assert.match(app,/selectAt\(trackedView\(\)\?null:point,e\.target,arId\)/);
+});
+test('style gallery changes facades before materials without consuming two undo steps',()=>{
+ const app=read('app.js');
+ assert.match(app,/commitChange\(result,\{styleId:style\.id\}\)/);
+ assert.match(app,/await new Promise\(resolve=>setTimeout\(resolve,450\)\)/);
+ assert.match(app,/project\.scene\.materials=\{\.\.\.DEFAULT_MATERIALS,\.\.\.style\.materials\}/);
+ assert.doesNotMatch(app,/commitChange\(result,\{materials:style\.materials,styleId:style\.id\}\)/);
+});
 
 test('exactly two bottom drawing actions are exposed for every tool',()=>{
  const source=read('app.js');

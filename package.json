@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Kitchyar: Chido WebXR floor scanning and Archiyar-derived semantic kitchen wall editor",
   "scripts": {
-    "check": "node --check apps/preview/app.js && node --check apps/preview/floor-ar.js && node --check apps/preview/wide-view.js && node --check apps/preview/geometry.js && node --check apps/preview/plan-view.js && node --test tests/*.test.cjs"
+    "check": "node --check apps/preview/app.js && node --check apps/preview/floor-ar.js && node --check apps/preview/wide-view.js && node --check apps/preview/sheet-nesting.js && node --check apps/preview/geometry.js && node --check apps/preview/plan-view.js && node --test tests/*.test.cjs"
   }
 }
