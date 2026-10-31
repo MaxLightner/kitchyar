@@ -82,8 +82,12 @@ function beginAR(){
  });
  const pending=floor.start();
  pending.then(()=>{document.getElementById('editor-root')?.classList.add('ar-live');})
-  .catch(error=>{document.getElementById('scan-status').textContent=error.message;
-   document.getElementById('scene-message')?.classList.add('visible');});
+  .catch(error=>{
+   const detail=String(error?.message||'');
+   const unsupported=/not supported|no XR hardware|not found|not available|unsupported/i.test(detail);
+   document.getElementById('scan-status').textContent=unsupported?'این دستگاه یا مرورگر از AR پشتیبانی نمی‌کند. برای شناسایی کف، Chrome در گوشی سازگار با ARCore را باز کن.':'راه‌اندازی AR ناموفق بود: '+detail;
+   document.getElementById('scene-message')?.classList.add('visible');
+  });
 }
 function projectMenu(id){
  const p=projects.find(x=>x.id===id);if(!p)return;
