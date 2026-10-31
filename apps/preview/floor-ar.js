@@ -3,9 +3,9 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=facaderules29';
-import {neighborGaps} from './edit-handles.js?v=facaderules29';
-import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=facaderules29';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor} from './geometry.js?v=appearance30';
+import {neighborGaps} from './edit-handles.js?v=appearance30';
+import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=appearance30';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -638,7 +638,7 @@ export class FloorAR {
    const v=this.floorGroup.worldToLocal(this.current.clone());
    point={x:v.x,z:v.z};
   }
-  if(['base','upper'].includes(this.drawing?.kind))
+  if(['base','upper','tall'].includes(this.drawing?.kind))
    return snapCabinetPoint(this.items,point.x,point.z,.85)||point;
   return point;
  }
@@ -1041,6 +1041,15 @@ export class FloorAR {
    const cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2,ux=Math.cos(angle),uz=Math.sin(angle),nx=-uz,nz=ux;
    const bodyId=resolveFinish(this.materialSettings,c.subtype,'body');
    const bodyMat=this.surfaceMaterial('body',bodyId,len,c.height);
+   const decor=resolvedCabinetDecor(c),frontMat=this.surfaceMaterial('front',resolveFinish(this.materialSettings,c.subtype==='upper'?'upper':'base','front'),len,c.height);
+   const addDetail=(width,height,depth,x,y,z,mat=frontMat)=>{
+    if(width<=0||height<=0||depth<=0)return;
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(width,height,depth),mat.clone());
+    mesh.position.set(cx+ux*x+nx*z,y,cz+uz*x+nz*z);mesh.rotation.y=-angle;
+    mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.objectId=c.id;mesh.userData.cabinet=true;
+    this.objectGroup.add(mesh);
+   };
+   const frontZ=(c.side||1)*(c.depth/2+.025);
    // The carcass stays neutral white. Only exposed finished side panels carry
    // body texture; the interior will never inherit decorative surface maps.
    const fill=c.id===this.selectedId?cabinetSelected:material(0xf8f8f6);
@@ -1078,10 +1087,10 @@ export class FloorAR {
     for(const t of [.01,.32,.65,.98]){
      box(c,0,len,y0+c.height*t,y0+c.height*t+.025,c.depth,angle,cx,cz,fill);
     }
-   }else if(this.items.some(e=>e.kind==='equipment'&&['oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
+   }else if(this.items.some(e=>e.kind==='equipment'&&['oven','microwave','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
     // An oven or undercounter appliance cuts the carcass face; only a sink/hob
     // cuts the stone above. The washer/dishwasher top remains one solid slab.
-    const ovens=this.items.filter(e=>e.kind==='equipment'&&['oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)
+    const ovens=this.items.filter(e=>e.kind==='equipment'&&['oven','microwave','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)
      .map(e=>({x:((e.offsetT??.5)-.5)*len,z:0,width:e.width+.025,depth:c.depth+.04,
       yLow:e.elevation,yHigh:e.elevation+e.height}));
     const topY=y0+c.height;
@@ -1102,7 +1111,7 @@ export class FloorAR {
      slices(y0+c.height-bottom,y0+c.height-top,cuts.filter(h=>h.cutDepth>top+.001),fill);
     }
    }else box(c,0,len,y0,y0+c.height,c.depth,angle,cx,cz,fill);
-   if(c.subtype!=='bridge')for(const end of [-1,1]){
+   if(c.subtype!=='bridge'&&decor.endPanel!=='none')for(const end of [-1,1]){
     const point=end<0?{x:c.x1,z:c.z1}:{x:c.x2,z:c.z2};
     const concealed=this.items.some(other=>other.kind==='cabinet'&&other.id!==c.id&&
      other.subtype===c.subtype&&Math.abs((other.elevation||0)-y0)<.025&&
@@ -1114,22 +1123,62 @@ export class FloorAR {
     panel.position.set(cx+ux*end*(len/2-.006),y0+c.height/2,cz+uz*end*(len/2-.006));
     panel.rotation.y=-angle;panel.castShadow=true;panel.receiveShadow=true;
     panel.userData.objectId=c.id;panel.userData.cabinet=true;this.objectGroup.add(panel);
+    if(decor.endPanel==='framed'){
+     const x=end*(len/2+.011),edge=.028,outer=c.depth*.91;
+     for(const y of [y0+.04,y0+c.height-.04])addDetail(.019,.027,outer,x,y,0,bodyMat);
+     for(const z of [-outer/2+edge,outer/2-edge])addDetail(.019,c.height-.075,.024,x,y0+c.height/2,z,bodyMat);
+    }
    }
-   if(c.subtype==='base'){
+   if(['base','tall'].includes(c.subtype)){
     // At first placement, every base envelope has a stone worktop and recessed plinth.
     const ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len,side=c.side||1;
     const nx=-uz*side,nz=ux*side,cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2;
-    const stone=this.surfaceMaterial('counter',this.materialSettings.counter,len,c.depth);
-    // Mesh each remaining stone rectangle; no top faces exist over cutouts.
-    slices(y0+c.height,y0+c.height+.035,cuts,stone,.0175);
-    stone.dispose();
+    if(c.subtype==='base'){
+     const stone=this.surfaceMaterial('counter',this.materialSettings.counter,len,c.depth);
+     // Mesh each remaining stone rectangle; no top faces exist over cutouts.
+     slices(y0+c.height,y0+c.height+.035,cuts,stone,.0175);
+     stone.dispose();
+    }
     const toe=new THREE.Mesh(new THREE.BoxGeometry(len,.085,.09),
-     material(0x776d62,{metalness:.03,roughness:.68}));
-    toe.position.set(cx+nx*(c.depth/2-.064),Math.max(.042,y0-.035),cz+nz*(c.depth/2-.064));
+     decor.toeKick==='body'?bodyMat.clone():material(0x776d62,{metalness:.03,roughness:.68}));
+    const recess=decor.toeKick==='flush'?c.depth/2-.017:c.depth/2-.064;
+    toe.position.set(cx+nx*(c.side||1)*recess,Math.max(.042,y0-.035),cz+nz*(c.side||1)*recess);
     toe.rotation.y=-angle;toe.castShadow=true;toe.receiveShadow=true;
     toe.userData.objectId=c.id;toe.userData.cabinet=true;this.objectGroup.add(toe);
    }
-   bodyMat.dispose();if(fill!==cabinetSelected)fill.dispose();
+   if(['upper','over-fridge','tall'].includes(c.subtype)&&decor.crown!=='none'){
+    const top=y0+c.height,depth=c.depth+.045;
+    addDetail(len+.04,.038,depth,0,top+.019,0,bodyMat);
+    if(decor.crown==='classic'){
+     addDetail(len+.065,.025,depth+.035,0,top+.050,0,frontMat);
+     addDetail(len+.087,.018,depth+.053,0,top+.071,0,bodyMat);
+    }
+   }
+   if(c.subtype!=='bridge'){
+    const facadeY=y0+c.height/2;
+    if(decor.pilaster!=='none')for(const side of [-1,1]){
+     const x=side*(len/2-.025);
+     addDetail(decor.pilaster==='classic' ? .045 : .028,c.height-.035,.026,x,facadeY,frontZ);
+     if(decor.pilaster==='classic')for(const y of [y0+.046,y0+c.height-.046])
+      addDetail(.070,.047,.038,x,y,frontZ,bodyMat);
+    }
+    if(['vertical','both'].includes(decor.trim))for(const x of [-len/2+.021,len/2-.021])
+     addDetail(.014,c.height-.025,.012,x,facadeY,frontZ+.010*(c.side||1));
+    if(['horizontal','both'].includes(decor.trim))for(const y of [y0+.027,y0+c.height-.027])
+     addDetail(len-.045,.014,.012,0,y,frontZ+.010*(c.side||1));
+    if(decor.wallFiller==='auto'){
+     const host=this.items.find(w=>w.id===c.hostId&&w.kind==='wall');
+     if(host){const hostLen=Math.hypot(host.x2-host.x1,host.z2-host.z1);
+      for(const [sign,gap] of [[-1,c.startT*hostLen],[1,(1-c.endT)*hostLen]]){
+       if(gap<.018||gap>.20)continue;
+       const occupied=this.items.some(other=>other.kind==='cabinet'&&other.id!==c.id&&other.hostId===host.id&&other.side===c.side&&
+        Math.abs(other.elevation-c.elevation)<.02&&(sign<0?Math.abs(other.endT-c.startT):Math.abs(other.startT-c.endT))*hostLen<gap+.025);
+       if(!occupied)addDetail(gap-.009,c.height,.018,sign*(len/2+gap/2),facadeY,frontZ,frontMat);
+      }
+     }
+    }
+   }
+   bodyMat.dispose();frontMat.dispose();if(fill!==cabinetSelected)fill.dispose();
   }
   // Automatic backsplash: attached to the host wall, from worktop to the
   // underside of upper cupboards (or a standard 62 cm rise), excluding windows.
@@ -1242,11 +1291,21 @@ export class FloorAR {
      add(new THREE.BoxGeometry(o.width*.94,o.height*.94,.028),steel,0,o.height/2,front);
      add(new THREE.CylinderGeometry(.009,.009,.35,8),silver,o.width*.38,o.height*.72,front+.04);
     }
-   }else if(['dishwasher','washer','oven'].includes(o.subtype)){
-    const body=material(o.subtype==='oven'?0x33383a:0xe2e1dc,{metalness:.28,roughness:.31});
+    if(o.builtIn&&['matched','concealed'].includes(o.facadeMode)){
+     const finish=this.surfaceMaterial('front',resolveFinish(this.materialSettings,'base','front'),o.width,o.height);
+     add(new THREE.BoxGeometry(o.width*.985,o.height*.982,.025),finish,0,o.height/2,front+.055);
+     if(o.facadeMode==='concealed'){
+      for(const y of [.055,o.height-.055])add(new THREE.BoxGeometry(o.width*.90,.022,.035),finish,0,y,front+.076);
+      for(const x of [-o.width*.44,o.width*.44])add(new THREE.BoxGeometry(.020,o.height*.89,.035),finish,x,o.height/2,front+.076);
+     }
+     add(new THREE.CylinderGeometry(.008,.008,.25,10),silver,o.width*.37,o.height*.72,front+.10);
+     finish.dispose();
+    }
+   }else if(['dishwasher','washer','oven','microwave'].includes(o.subtype)){
+    const body=material(['oven','microwave'].includes(o.subtype)?0x33383a:0xe2e1dc,{metalness:.28,roughness:.31});
     const front=o.depth/2+.012;
     add(new THREE.BoxGeometry(o.width,o.height,o.depth),body,0,o.height/2,0);
-    if(o.subtype==='oven'){
+    if(['oven','microwave'].includes(o.subtype)){
      add(new THREE.BoxGeometry(o.width*.90,o.height*.66,.016),dark,0,o.height*.43,front);
      add(new THREE.BoxGeometry(o.width*.78,o.height*.50,.019),material(0x3b535b,{metalness:.3,roughness:.19}),0,o.height*.42,front+.016);
      add(new THREE.BoxGeometry(o.width*.70,.02,.026),silver,0,o.height*.85,front+.035);
@@ -1256,20 +1315,38 @@ export class FloorAR {
      add(new THREE.CylinderGeometry(o.width*.23,o.width*.23,.015,32),material(0x7b969b,{metalness:.25,roughness:.20}),0,o.height*.54,front+.037,Math.PI/2);
      add(new THREE.BoxGeometry(o.width*.9,.12,.024),steel,0,o.height*.91,front+.025);
      for(let i=0;i<3;i++)add(new THREE.CylinderGeometry(.014,.014,.014,10),dark,-o.width*.33+i*.065,o.height*.91,front+.046,Math.PI/2);
+     if(['matched','concealed'].includes(o.facadeMode)){
+      const host=this.items.find(c=>c.id===o.hostId),finishId=resolveFinish(this.materialSettings,host?.subtype,'front');
+      const finish=this.surfaceMaterial('front',finishId,o.width,o.height);
+      add(new THREE.BoxGeometry(o.width*.99,o.height*.98,.025),finish,0,o.height/2,front+.066);
+      if(o.facadeMode==='concealed'){
+       for(const y of [.055,o.height-.055])add(new THREE.BoxGeometry(o.width*.92,.020,.028),finish,0,y,front+.086);
+       for(const x of [-o.width*.45,o.width*.45])add(new THREE.BoxGeometry(.018,o.height*.88,.028),finish,x,o.height/2,front+.086);
+      }
+      add(new THREE.CylinderGeometry(.008,.008,.27,10),silver,o.width*.36,o.height*.72,front+.106);
+      finish.dispose();
+     }
     }
     // No appliance cap: the uncut countertop above both machines is the cap.
     body.dispose();
    }else if(o.subtype==='hood'){
-    const wide=o.width,body=material(o.model==='concealed'?0xe6dfd1:0xaebabb,{metalness:.55,roughness:.24});
+    const wide=o.width,body=material(['concealed','cabinet-framed'].includes(o.model)?0xe6dfd1:0xaebabb,{metalness:.55,roughness:.24});
     if(o.model==='chimney'){
      add(new THREE.BoxGeometry(wide,.085,.52),body,0,.05,0);
      add(new THREE.BoxGeometry(wide*.43,.42,.25),body,0,.25,-.10);
     }else if(o.model==='angled'){
      const face=add(new THREE.BoxGeometry(wide,.40,.045),dark,0,.20,.10);face.rotation.x=-.38;
      add(new THREE.BoxGeometry(wide,.08,.42),body,0,.05,-.07);
-    }else if(o.model==='concealed'){
+    }else if(['concealed','cabinet-framed'].includes(o.model)){
      add(new THREE.BoxGeometry(wide,.28,.42),body,0,.14,-.08);
      add(new THREE.BoxGeometry(wide*.86,.018,.23),silver,0,.015,.06);
+     const finish=this.surfaceMaterial('front',resolveFinish(this.materialSettings,'upper','front'),wide,.28);
+     add(new THREE.BoxGeometry(wide,.265,.022),finish,0,.16,.15);
+     if(o.model==='cabinet-framed'){
+      for(const x of [-wide*.45,wide*.45])add(new THREE.BoxGeometry(.025,.25,.03),finish,x,.16,.169);
+      for(const y of [.055,.265])add(new THREE.BoxGeometry(wide*.94,.025,.03),finish,0,y,.169);
+     }
+     finish.dispose();
     }else{
      add(new THREE.BoxGeometry(wide,.12,.46),body,0,.10,0);
      add(new THREE.BoxGeometry(wide*.83,.025,.36),silver,0,.025,.04);

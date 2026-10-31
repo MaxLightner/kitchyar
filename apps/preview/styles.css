@@ -381,6 +381,15 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .front-rule-fields .front-rule-toggle input{width:22px;min-height:22px;height:22px;accent-color:#436653}
 .front-rules-dialog .front-rule-hint{font-size:15px;color:#607467;line-height:1.8;margin:0}
 @media(max-width:440px){.front-rule-fields{grid-template-columns:1fr}.front-rule-scopes button{font-size:15px}.front-rules-dialog{padding:14px}}
+.cabinet-decor-panel,.equipment-facade-panel{border-top:1px solid #d3dcd1;margin-top:9px;padding-top:12px;display:grid;gap:11px}
+.cabinet-decor-panel strong,.equipment-facade-panel strong{font-size:16px;color:#36533f}
+.cabinet-decor-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.cabinet-decor-fields label{display:grid;gap:5px;font-size:15px;min-width:0}
+.cabinet-decor-fields select{max-width:100%;min-height:42px;padding:8px;border:1px solid #bdcabd;border-radius:8px;background:#fff;font-size:15px}
+.cabinet-decor-panel .check-row{display:flex;align-items:center;justify-content:space-between;font-size:15px}
+.cabinet-decor-panel .primary{padding:10px;min-height:42px}
+.equipment-facade-panel small{font-size:15px;color:#6b776e;line-height:1.6}
+@media(max-width:440px){.cabinet-decor-fields{grid-template-columns:1fr}}
 @media(max-width:730px){
  .object-editor{top:150px;max-height:calc(100svh - 310px)}
  .dialog{padding:16px}

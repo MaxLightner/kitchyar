@@ -1,5 +1,5 @@
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=facaderules29';
-import {renderPlanMeasurements} from './edit-handles.js?v=facaderules29';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=appearance30';
+import {renderPlanMeasurements} from './edit-handles.js?v=appearance30';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true}={}){
@@ -184,13 +184,14 @@ export function renderPreview(items,drawing,hover){
   }).join('');
   return '<g class="live-preview" pointer-events="none">'+lines+'</g>';
  }
- if(['fridge','stove','sink','dishwasher','washer','oven'].includes(tool)){
+ if(['fridge','stove','sink','dishwasher','washer','oven','microwave'].includes(tool)){
   const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0,valid=true;
   let installed=null;
   try{const result=placeEquipment(items,hover,tool);installed=result.items.find(o=>o.id===result.selectedId);}catch{valid=false;}
   if(tool==='fridge'){const snap=installed||snapFridgePoint(items,hover,spec.width,spec.depth);if(snap){p=snap;angle=snap.rotation;}}
   if(tool!=='fridge'&&!installed){
-   const ranked=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base').map(c=>{
+   const ranked=items.filter(c=>c.kind==='cabinet'&&
+    (tool==='microwave'?c.subtype==='tall':tool==='oven'?['base','tall'].includes(c.subtype):c.subtype==='base')).map(c=>{
     const len=lengthOf(c),q=projectOnWall(c,hover.x,hover.z);
     return {c,q,dist:q.distance};
    }).sort((a,b)=>a.dist-b.dist);
@@ -202,7 +203,7 @@ export function renderPreview(items,drawing,hover){
   return '<g class="live-preview" pointer-events="none"><polygon points="'+equipmentCorners(p.x,p.z,installed?.width||spec.width,installed?.depth||spec.depth,angle).map(q=>f(q.x)+','+f(q.z)).join(' ')+
    '" fill="'+(valid?'#8cd2c8':'#d9a09c')+'" fill-opacity=".64" stroke="'+(valid?'#d0873a':'#bd413d')+'" stroke-width=".04" stroke-dasharray=".06,.04"/></g>';
  }
- if((tool==='base'||tool==='upper')&&start){
+ if(['base','upper','tall'].includes(tool)&&start){
   const target=snapCabinetPoint(items,hover.x,hover.z,.8);
   const route=target?cabinetPath(items,start,target):null;
   if(!route)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".12" fill="#b85b4e"/></g>';
@@ -214,12 +215,12 @@ export function renderPreview(items,drawing,hover){
    let a=seg.startT+(i>0?dir*cabinetTurnTrim(items.find(o=>o.id===route.segments[i-1].wallId),w)/len:0),
     b=seg.endT-(i<route.segments.length-1?dir*cabinetTurnTrim(w,items.find(o=>o.id===route.segments[i+1].wallId))/len:0);
    let stopped=false;
-   if(tool==='upper')try{const old=b;b=limitCabinetEnd(items,w,a,b,{kind:'upper',height:drawing?.height??.72,elevation:drawing?.elevation??1.55});stopped=Math.abs(old-b)>.0001;}catch{b=a;stopped=true;}
+   if(['upper','tall'].includes(tool))try{const old=b;b=limitCabinetEnd(items,w,a,b,{kind:tool,height:tool==='tall'?2.15:drawing?.height??.72,elevation:tool==='tall'?.08:drawing?.elevation??1.55});stopped=Math.abs(old-b)>.0001;}catch{b=a;stopped=true;}
    if(Math.abs(b-a)*len<.03){if(stopped)break;continue;}
    const c={startT:Math.min(a,b),endT:Math.max(a,b),depth:tool==='upper'?.35:.6,side:seg.side};
    const fp=cabinetFootprint(c,w);
    drawings+='<polygon points="'+fp.corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
-    '" fill="'+(tool==='upper'?'#f1dcb2':'#88c4a8')+
+    '" fill="'+(tool==='upper'?'#f1dcb2':tool==='tall'?'#8b9fb0':'#88c4a8')+
     '" fill-opacity=".64" stroke="#d0873a" stroke-width=".035" stroke-dasharray=".08,.04"/>';
    if(stopped){marker={x:w.x1+(w.x2-w.x1)*b,z:w.z1+(w.z2-w.z1)*b};break;}
   }

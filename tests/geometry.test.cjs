@@ -325,7 +325,7 @@ test('new drawing confirmation/cancellation flow covers walls, cabinets and equi
  assert.match(app,/if\(action==='cancel-drawing'\)/);
  assert.match(app,/return placeAt\(point\)/);
  assert.match(app,/if\(mode==='2d'\)return hover\|\|null/);
- assert.match(app,/\['wall','base','upper'\]\.includes\(drawing\.tool\)/);
+ assert.match(app,/\['wall','base','upper','tall'\]\.includes\(drawing\.tool\)/);
  assert.match(css,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
  assert.match(app,/controls\.hidden=!drawing;/);
  assert.doesNotMatch(app,/controls\.hidden=!drawing\|\|single/);
@@ -832,4 +832,73 @@ test('front gap rule changes 3D panel size, and invalid rule combinations are re
  const changed=items.find(f=>f.id===front.id);
  assert.ok(G.frontPose(changed,c).width<original-.006);
  assert.throws(()=>G.configureFrontRules(items,{...G.DEFAULT_FRONT_RULES,minDoorWidth:.70,maxDoorWidth:.55}),/حداقل/);
+});
+test('decorative cabinet trim has validated per-cabinet and connected-group settings',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:1.2,z:0}).items;
+ items=G.placeCabinet(items,{x:1.2,z:0},{x:2.2,z:0}).items;
+ items=G.placeCabinet(items,{x:3,z:0},{x:4,z:0}).items;
+ const [first,second,third]=items.filter(x=>x.kind==='cabinet');
+ const old=structuredClone(items);
+ items=G.styleCabinetDecor(items,first.id,{toeKick:'flush',endPanel:'framed',crown:'modern',wallFiller:'auto',pilaster:'slim',trim:'both'},{scope:'connected'}).items;
+ assert.equal(items.find(x=>x.id===second.id).decor.trim,'both');
+ assert.equal(items.find(x=>x.id===third.id).decor,undefined);
+ items=G.styleCabinetDecor(items,second.id,{crown:'classic'},{scope:'single'}).items;
+ assert.equal(items.find(x=>x.id===first.id).decor.crown,'modern');
+ assert.equal(items.find(x=>x.id===second.id).decor.crown,'classic');
+ assert.equal(old.find(x=>x.id===first.id).decor,undefined,'source data remains immutable');
+ assert.throws(()=>G.styleCabinetDecor(items,first.id,{toeKick:'invalid'}),/معتبر نیست/);
+});
+test('full-height tower houses oven plus microwave in distinct heights and restores fronts after removal',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:.95,z:0},{kind:'tall'}).items;
+ const tower=items.find(x=>x.subtype==='tall');
+ assert.equal(tower.height,2.15);
+ items=G.placeFrontLayout(items,tower.id,'doors').items;
+ items=G.placeEquipment(items,{x:.55,z:.32},'oven').items;
+ items=G.placeEquipment(items,{x:.55,z:.32},'microwave').items;
+ const oven=items.find(e=>e.subtype==='oven'),micro=items.find(e=>e.subtype==='microwave');
+ assert.ok(oven.builtIn&&micro.builtIn);
+ assert.equal(oven.hostId,tower.id);assert.equal(micro.hostId,tower.id);
+ assert.ok(oven.elevation+oven.height<micro.elevation,'oven and microwave do not overlap vertically');
+ assert.equal(G.countertopCutouts(items,tower).length,0);
+ const front=items.filter(f=>f.kind==='front'&&f.hostId===tower.id);
+ assert.ok(front.some(f=>f.topT*tower.height+tower.elevation<=oven.elevation+.001));
+ assert.ok(front.some(f=>f.bottomT*tower.height+tower.elevation>=micro.elevation+micro.height-.001));
+ assert.ok(front.every(f=>f.topT*tower.height+tower.elevation<=oven.elevation+.001||
+  f.bottomT*tower.height+tower.elevation>=oven.elevation+oven.height-.001));
+ assert.throws(()=>G.editCabinet(items,tower.id,{height:1.8}),/ارتفاع ستون|ستون تمام/);
+ items=G.removeObject(items,micro.id).items;
+ assert.ok(items.filter(f=>f.kind==='front'&&f.hostId===tower.id).some(f=>
+  f.bottomT*tower.height+tower.elevation<=micro.elevation+.001&&
+  f.topT*tower.height+tower.elevation>=micro.elevation+micro.height-.001),
+  'removed microwave opening is rebuilt as a cabinet door');
+});
+test('integrated dishwasher/washing machine facade survives movement and does not cut stone',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:6,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:5.8,z:0}).items;
+ const host=items.find(c=>c.kind==='cabinet');
+ items=G.placeEquipment(items,{x:1.2,z:.32},'dishwasher').items;
+ const machine=items.find(e=>e.subtype==='dishwasher');
+ items=G.styleEquipmentFacade(items,machine.id,'matched').items;
+ assert.equal(items.find(e=>e.id===machine.id).facadeMode,'matched');
+ items=G.moveEquipment(items,machine.id,{x:3,z:.32}).items;
+ assert.equal(items.find(e=>e.id===machine.id).facadeMode,'matched');
+ assert.equal(G.countertopCutouts(items,host).length,0);
+ items=G.styleEquipmentFacade(items,machine.id,'concealed').items;
+ assert.equal(items.find(e=>e.id===machine.id).facadeMode,'concealed');
+ assert.throws(()=>G.styleEquipmentFacade(items,machine.id,'invalid'),/قابل تغییر نیست/);
+});
+test('drawing one long tall cabinet run creates multiple valid full-height columns',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ const wall=items.find(o=>o.kind==='wall');
+ items=G.placeCabinetRoute(items,{x:.2,z:0,hostId:wall.id,side:1},{x:2.75,z:0,hostId:wall.id},{kind:'tall'}).items;
+ const towers=items.filter(c=>c.subtype==='tall');
+ assert.equal(towers.length,3);
+ assert.ok(towers.every(c=>G.lengthOf(c)>=.45&&G.lengthOf(c)<=.90+1e-5&&c.height>=1.8));
+ assert.ok(towers.every(c=>c.cornerGroup===towers[0].cornerGroup));
 });
