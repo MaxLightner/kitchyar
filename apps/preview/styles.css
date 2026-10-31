@@ -365,6 +365,22 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .cut-details{padding-inline-start:24px;font-size:15px;line-height:1.9}
 .dialog-actions{display:flex;gap:8px;flex-wrap:wrap}
 .dialog-actions button{flex:1 1 125px;min-width:0}
+.front-tools-actions{display:flex;flex-wrap:wrap;gap:8px}
+.front-tools-actions button{flex:1 1 210px;min-height:42px}
+.front-rule-open{width:100%;padding:11px;margin:8px 0;border:1px solid #91a79a;background:#ecf5ee;color:#344d3b;border-radius:9px;font-size:15px}
+.front-rules-dialog{width:min(620px,calc(100vw - 28px));max-height:90svh;overflow-y:auto}
+.front-rules-dialog .style-dialog-head h2{margin:0}
+.front-rule-scopes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.front-rule-scopes button{padding:10px 5px;min-height:42px;font-size:15px}
+.front-rule-scopes button.active{color:#fff;background:#436653;border-color:#436653}
+.front-rule-scopes button:disabled{opacity:.45;cursor:not-allowed}
+.front-rule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.front-rule-fields label{display:grid;align-content:start;gap:5px;font-size:15px;color:#425347}
+.front-rule-fields input,.front-rule-fields select{width:100%;min-width:0;min-height:42px;padding:9px;border:1px solid #c9d1c9;border-radius:8px;background:#fff;font-size:16px;color:#314233}
+.front-rule-fields .front-rule-toggle{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;background:#eff3ee;border-radius:8px;padding:8px 11px;gap:9px}
+.front-rule-fields .front-rule-toggle input{width:22px;min-height:22px;height:22px;accent-color:#436653}
+.front-rules-dialog .front-rule-hint{font-size:15px;color:#607467;line-height:1.8;margin:0}
+@media(max-width:440px){.front-rule-fields{grid-template-columns:1fr}.front-rule-scopes button{font-size:15px}.front-rules-dialog{padding:14px}}
 @media(max-width:730px){
  .object-editor{top:150px;max-height:calc(100svh - 310px)}
  .dialog{padding:16px}

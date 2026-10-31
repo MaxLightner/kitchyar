@@ -53,5 +53,5 @@ export const resolveFinish=(palette,kind,part='front')=>{
 export const materialFor=(category,id)=>MATERIALS[category]?.find(entry=>entry.id===id)||
  MATERIALS[category]?.find(entry=>entry.id===DEFAULT_MATERIALS[category]);
 export const assetUrl=file=>{
- const url=new URL(file,import.meta.url);url.searchParams.set('v','finishes28');return url.href;
+ const url=new URL(file,import.meta.url);url.searchParams.set('v','facaderules29');return url.href;
 };

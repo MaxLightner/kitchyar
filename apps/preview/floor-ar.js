@@ -3,9 +3,9 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=finishes28';
-import {neighborGaps} from './edit-handles.js?v=finishes28';
-import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=finishes28';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=facaderules29';
+import {neighborGaps} from './edit-handles.js?v=facaderules29';
+import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=facaderules29';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -604,8 +604,8 @@ export class FloorAR {
    const host=items.find(x=>x.id===o.hostId),pose=frontPose(o,host);
    if(!pose)return;
    box(pose.width,pose.height,.025,pose.x,pose.y,pose.z,pose.angle);
-   label('عرض '+(pose.width+.006).toFixed(2)+' m',pose.x,pose.y+pose.height/2+.17,pose.z);
-   label('ارتفاع '+(pose.height+.006).toFixed(2)+' m',pose.x+.18,pose.y,pose.z+.14);
+   label('عرض '+(pose.width+(o.gap??.003)).toFixed(2)+' m',pose.x,pose.y+pose.height/2+.17,pose.z);
+   label('ارتفاع '+(pose.height+(o.gap??.003)).toFixed(2)+' m',pose.x+.18,pose.y,pose.z+.14);
   }else if(o.kind==='cabinet'){
    const len=Math.hypot(o.x2-o.x1,o.z2-o.z1),angle=Math.atan2(o.z2-o.z1,o.x2-o.x1);
    box(len,o.height,o.depth,(o.x1+o.x2)/2,o.elevation+o.height/2,(o.z1+o.z2)/2,angle);

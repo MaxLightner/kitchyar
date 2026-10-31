@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=finishes28';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=facaderules29';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -200,7 +200,8 @@ export function renderFrontElevation(items,cabinet,selectedId=null,drag=null){
  };
  let graphic='<rect x="'+n(left)+'" y="'+n(sy(1))+'" width="'+n(len*scale)+'" height="'+n(cabinet.height*scale)+'" rx="2" fill="#d7d4c9" stroke="#777e74"/>';
  for(const o of panels){
-  const x=sx(o.startT)+1,y=sy(o.topT)+1,w=(o.endT-o.startT)*len*scale-2,h=(o.topT-o.bottomT)*cabinet.height*scale-2,
+  const inset=Math.max(.5,(o.gap??.003)*scale/2),
+   x=sx(o.startT)+inset,y=sy(o.topT)+inset,w=(o.endT-o.startT)*len*scale-2*inset,h=(o.topT-o.bottomT)*cabinet.height*scale-2*inset,
    selected=o.id===selectedId,color=colors[o.finish]||colors.cream;
   const horizontal=o.hinge==='top';
   const knobX=o.subtype==='drawer'||horizontal?x+w/2:o.hinge==='left'?x+w-13:x+13;
