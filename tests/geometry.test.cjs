@@ -228,7 +228,7 @@ test('cabinet installed length has stable 1 cm start/end resizing',async()=>{
  items=G.placeCabinet(items,{x:.5,z:0},{x:1.5,z:0},{kind:'base'}).items;
  const c=items.find(o=>o.kind==='cabinet');
  const adjusted=H.resizeFromHandle(items,c.id,'end',{along:1.647}).items.find(o=>o.id===c.id);
- assert.equal((adjusted.endT-adjusted.startT)*5,1.15);
+ assert.ok(Math.abs((adjusted.endT-adjusted.startT)*5-1.15)<1e-8);
  assert.equal(adjusted.startT,c.startT);
 });
 test('live resize guides locate nearest cabinet or wall corner',async()=>{
