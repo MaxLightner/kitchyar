@@ -25,3 +25,15 @@
 @media(max-width:600px){.xr-bottom{padding:9px}.xr-overlay button{font-size:11px;padding:9px}.xr-overlay label{font-size:10px}}
 .xr-build{border-top:1px solid #b8cfb849;padding-top:10px;display:flex;flex-direction:column;gap:8px}
 .xr-build select{background:#f5f8f2;border:0;border-radius:8px;padding:9px;color:#354b39;font:inherit;pointer-events:auto}
+
+
+/* Physically based viewport: an isolated visual layer below the editor's hit canvas. */
+.pbr-surface{position:absolute;inset:0;overflow:hidden;background:#e5eae3;pointer-events:none}
+.pbr-surface canvas{display:block;width:100%;height:100%}
+.scene-canvas{z-index:1}
+.lighting-panel{position:absolute;left:72px;top:22px;z-index:6;width:min(290px,calc(100% - 88px));background:#fffffff5;border:1px solid #dce5d8;border-radius:16px;padding:14px;box-shadow:0 15px 42px #24372b2c;display:grid;gap:9px;backdrop-filter:blur(16px)}
+.lighting-panel label{display:grid;grid-template-columns:100px minmax(0,1fr);align-items:center;gap:8px;font-size:11px;color:#4e6351}
+.lighting-panel input{min-width:0;width:100%;accent-color:#5b8a65}
+.lighting-panel small{color:#819383;line-height:1.7}
+.side-actions,.canvas-label,.tool-help,.mini-map,.dock-wrap,.inspector{z-index:3}
+@media(max-width:600px){.lighting-panel{left:55px;top:12px;width:min(265px,calc(100% - 70px));padding:10px}.lighting-panel label{grid-template-columns:90px minmax(0,1fr)}}
