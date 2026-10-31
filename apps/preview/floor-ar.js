@@ -10,6 +10,7 @@ export class FloorAR {
   Object.assign(this,{root,update,exit,session:null,renderer:null,locked:false,current:null,origin:null});
   this.scanner=new FloorScanner();this.rig=new AnchorStabilizer();this.sources=[];this.anchors=[];
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
+   this.items=[];this.selectedId=null;this.drawing=null;
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
@@ -33,6 +34,12 @@ export class FloorAR {
    await this.renderer.xr.setSession(this.session);
    this.space=this.renderer.xr.getReferenceSpace();
    this.floorGroup=new THREE.Group();this.scene.add(this.floorGroup);
+    this.scene.add(new THREE.HemisphereLight(0xffffff,0x7d8b80,2.0));
+    const sun=new THREE.DirectionalLight(0xfff4e2,2.1);sun.position.set(-3,6,4);this.scene.add(sun);
+    this.objectGroup=new THREE.Group();this.floorGroup.add(this.objectGroup);
+    this.previewLine=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0xffd16e,depthTest:false,linewidth:2}));
+    this.previewLine.visible=false;this.previewLine.renderOrder=20;this.floorGroup.add(this.previewLine);
+    this.rebuildObjects();
    this.net=createFloorNet();this.floorGroup.add(this.net);
    this.crosses=new THREE.Group();this.scene.add(this.crosses);
    const cross=new THREE.BufferGeometry().setFromPoints([
@@ -154,6 +161,7 @@ export class FloorAR {
     this.current=floorCandidates(center,this.space,viewer)
       .find(h=>Math.abs(h.point.y-this.origin.y)<.055)?.point||null;
     this.updateAnchors(frame,time,center,viewer);
+     this.updatePreview();
    }
   }
   if(time-this.lastReport>350){
@@ -191,15 +199,85 @@ export class FloorAR {
   }
   this.lastTime=time;
  }
+ pick(){
+  if(!this.locked||!this.current||!this.floorGroup)return null;
+  this.floorGroup.updateWorldMatrix(true,false);
+  const v=this.floorGroup.worldToLocal(this.current.clone());
+  return {x:v.x,z:v.z};
+ }
+ setItems(items,selectedId=null){this.items=structuredClone(items||[]);this.selectedId=selectedId;this.rebuildObjects();}
+ setDrawing(start,kind){this.drawing=start?{start,kind}:null;if(!start&&this.previewLine)this.previewLine.visible=false;}
+ updatePreview(){
+  if(!this.previewLine||!this.drawing)return;
+  const end=this.pick();if(!end)return;
+  this.previewLine.geometry.dispose();
+  this.previewLine.geometry=new THREE.BufferGeometry().setFromPoints([
+   new THREE.Vector3(this.drawing.start.x,.08,this.drawing.start.z),new THREE.Vector3(end.x,.08,end.z)]);
+  this.previewLine.visible=true;
+ }
+ rebuildObjects(){
+  if(!this.objectGroup)return;
+  for(const mesh of [...this.objectGroup.children]){
+   this.objectGroup.remove(mesh);
+   mesh.traverse(n=>{n.geometry?.dispose();if(n.material)for(const m of (Array.isArray(n.material)?n.material:[n.material]))m.dispose();});
+  }
+  const material=(color,extra={})=>new THREE.MeshStandardMaterial({color,roughness:.65,...extra});
+  const plaster=material(0xd7dbd1),selected=material(0x65ac8e),frame=material(0xf0eee6);
+  const glass=new THREE.MeshPhysicalMaterial({color:0x9dcede,transparent:true,opacity:.48,roughness:.18,depthWrite:false,side:THREE.DoubleSide});
+  const wood=material(0x8a6d50),base=material(0xbda995),upper=material(0xe2ded4);
+  const box=(owner,from,to,y0,y1,width,angle,cx,cz,mat)=>{
+   if(to-from<.002||y1-y0<.002)return;
+   const mesh=new THREE.Mesh(new THREE.BoxGeometry(to-from,y1-y0,width),mat.clone());
+   mesh.position.set(cx,(y0+y1)/2,cz);mesh.rotation.y=-angle;mesh.userData.objectId=owner.id;this.objectGroup.add(mesh);
+  };
+  for(const w of this.items.filter(x=>x.kind==='wall')){
+   const dx=w.x2-w.x1,dz=w.z2-w.z1,len=Math.hypot(dx,dz);if(len<.1)continue;
+   const angle=Math.atan2(dz,dx),ux=dx/len,uz=dz/len;
+   const piece=(a,b,y0,y1,width,mat)=>{
+    const t=(a+b)/2;box(w,a,b,y0,y1,width,angle,w.x1+t*ux,w.z1+t*uz,mat);
+   };
+   const fill=w.id===this.selectedId?selected:plaster;
+   const openings=this.items.filter(o=>o.kind==='opening'&&o.hostId===w.id)
+    .map(o=>({...o,a:o.hostT*len-o.width/2,b:o.hostT*len+o.width/2})).sort((a,b)=>a.a-b.a);
+   let last=0;
+   for(const o of openings){
+    piece(last,o.a,0,w.height,w.thickness,fill);
+    piece(o.a,o.b,0,o.sill,w.thickness,fill);
+    piece(o.a,o.b,o.sill+o.height,w.height,w.thickness,fill);
+    const t=Math.max(w.thickness+.018,.065),edge=.045;
+    piece(o.a,o.a+edge,o.sill,o.sill+o.height,t,frame);
+    piece(o.b-edge,o.b,o.sill,o.sill+o.height,t,frame);
+    piece(o.a,o.b,o.sill+o.height-edge,o.sill+o.height,t,frame);
+    if(o.style==='fixed'){
+     piece(o.a,o.b,o.sill,o.sill+edge,t,frame);
+     piece(o.a+edge,o.b-edge,o.sill+edge,o.sill+o.height-edge,.015,glass);
+    }else piece(o.a+edge,o.b-edge,0,o.height,.047,wood);
+    last=o.b;
+   }
+   piece(last,len,0,w.height,w.thickness,fill);
+   if(w.id===this.selectedId)for(const p of [{x:w.x1,z:w.z1},{x:w.x2,z:w.z2}]){
+    const dot=new THREE.Mesh(new THREE.SphereGeometry(.065,10,8),selected.clone());
+    dot.position.set(p.x,.08,p.z);this.objectGroup.add(dot);
+   }
+  }
+  for(const c of this.items.filter(x=>x.kind==='cabinet')){
+   const len=Math.hypot(c.x2-c.x1,c.z2-c.z1);if(len<.3)continue;
+   const angle=Math.atan2(c.z2-c.z1,c.x2-c.x1),y0=c.elevation??.1;
+   box(c,0,len,y0,y0+c.height,c.depth,angle,(c.x1+c.x2)/2,(c.z1+c.z2)/2,
+    c.id===this.selectedId?selected:c.subtype==='upper'?upper:base);
+  }
+  for(const m of [plaster,selected,frame,glass,wood,base,upper])m.dispose();
+ }
+
  async stop(){if(this.session)try{await this.session.end();}catch{this.cleanup();}}
  cleanup(){
   this.hitSource?.cancel();for(const s of this.sources)try{s.cancel();}catch{}
   this.renderer?.setAnimationLoop(null);this.renderer?.dispose();this.renderer?.domElement.remove();
-  this.renderer=null;this.session=null;this.exit?.();
+  this.renderer=null;this.session=null;this.objectGroup=null;this.previewLine=null;this.exit?.();
  }
 }
 function createFloorNet(){
- const fragment='precision highp float;varying vec2 gridUv;uniform float opacity;uniform float reveal;uniform float pulse;void main(){vec2 cells=gridUv*24.0;vec2 dx=max(fwidth(cells),vec2(0.0001));vec2 line=abs(fract(cells+0.5)-0.5)/dx;float px=min(line.x,line.y);float core=1.0-smoothstep(0.7,1.65,px);float glow=1.0-smoothstep(1.2,5.2,px);float radius=length((gridUv-0.5)*6.0);float edge=1.0-smoothstep(reveal-0.06,reveal+0.06,radius);float rim=(1.0-smoothstep(0.025,0.11,abs(radius-reveal)))*(1.0-step(2.95,reveal));float alpha=clamp((0.72*core+0.32*glow)*opacity*edge+rim*0.65*pulse,0.0,0.95);gl_FragColor=vec4(mix(vec3(0.20,0.57,0.52),vec3(0.55,0.97,0.83),max(core,rim)),alpha);}';
+ const fragment='precision highp float;varying vec2 gridUv;uniform float opacity;uniform float reveal;uniform float pulse;void main(){vec2 cells=gridUv*60.0;vec2 dx=max(fwidth(cells),vec2(0.0001));vec2 line=abs(fract(cells+0.5)-0.5)/dx;float px=min(line.x,line.y);float core=1.0-smoothstep(0.7,1.65,px);float glow=1.0-smoothstep(1.2,5.2,px);float radius=length((gridUv-0.5)*6.0);float edge=1.0-smoothstep(reveal-0.06,reveal+0.06,radius);float rim=(1.0-smoothstep(0.025,0.11,abs(radius-reveal)))*(1.0-step(2.95,reveal));float alpha=clamp((0.72*core+0.32*glow)*opacity*edge+rim*0.65*pulse,0.0,0.95);gl_FragColor=vec4(mix(vec3(0.20,0.57,0.52),vec3(0.55,0.97,0.83),max(core,rim)),alpha);}';
  const net=new THREE.Mesh(new THREE.PlaneGeometry(6,6),new THREE.ShaderMaterial({
   transparent:true,depthWrite:false,side:THREE.DoubleSide,extensions:{derivatives:true},
   uniforms:{opacity:{value:.85},reveal:{value:1},pulse:{value:0}},

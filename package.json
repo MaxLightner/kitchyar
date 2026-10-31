@@ -1,10 +1,10 @@
 {
   "name": "kitchyar",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
-  "description": "Kitchyar UI rebuild: welcome, projects, AR-first editor, pinned Chido floor scanner",
+  "description": "Kitchyar: Chido WebXR floor scanning and Archiyar-derived semantic kitchen wall editor",
   "scripts": {
-    "check": "node --check apps/preview/app.js && node --check apps/preview/floor-ar.js && node --test tests/ui.test.cjs"
+    "check": "node --check apps/preview/app.js && node --check apps/preview/floor-ar.js && node --check apps/preview/geometry.js && node --check apps/preview/plan-view.js && node --test tests/*.test.cjs"
   }
 }
