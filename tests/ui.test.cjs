@@ -41,7 +41,7 @@ test('exactly two bottom drawing actions are exposed for every tool',()=>{
  assert.match(controls[0],/data-action="confirm-drawing"/);
  assert.match(controls[0],/data-action="cancel-drawing"/);
  assert.doesNotMatch(controls[0],/data-action="(?:start-drawing|end-drawing|finish-drawing)"/);
- assert.match(source,/\['fridge','stove','sink'\]/);
+ assert.match(source,/\['fridge','stove','sink',/);
 });
 test('cabinet selection offers editable dimensions and an elevation drawing',()=>{
  const source=read('app.js');

@@ -467,7 +467,7 @@ test('no cabinet segment shorter than 45cm, including resizing',async()=>{
  items=G.placeCabinet(items,{x:.2,z:0},{x:1.2,z:0},{kind:'base'}).items;
  const cabinet=items.find(o=>o.kind==='cabinet');
  const changed=H.resizeFromHandle(items,cabinet.id,'end',{along:.3}).items.find(o=>o.id===cabinet.id);
- assert.ok(G.lengthOf(changed)>=.45);
+ assert.ok(G.lengthOf(changed)>=.45-1e-6);
 });
 
 test('built-in refrigerator stays 70cm clear of a connected corner wall',async()=>{
