@@ -38,10 +38,54 @@ test('failed storage write cannot mutate memory', () => {
   assert.equal(repo.get(p.id).name, 'original');
 });
 test('model normalizes dimensions, colors and unknown kinds', () => {
-  const scene = core.normalizeScene({items: [{id: 'x', kind: 'volume', width: -3, depth: 0, height: 0.4, color: 'red'}, {id: 'y', kind: 'wall'}]});
+  const scene = core.normalizeScene({items: [{id: 'x', kind: 'volume', width: -3, depth: 0, height: 0.4, color: 'red'}, {id: 'y', kind: 'gizmo'}]});
   assert.equal(scene.items.length, 1);
   assert.equal(scene.items[0].width, 0.1);
   assert.equal(scene.items[0].color, '#b4bdac');
+});
+test('walls and semantic windows cut through a wall and reject invalid placement', () => {
+  const wall=core.createWall({x:0,z:0},{x:3,z:0});
+  assert.equal(core.length(wall),3);
+  const window=core.createOpening(wall,'window',1.5);
+  assert.equal(window.wallId,wall.id);
+  assert.equal(window.openingType,'window');
+  const scene=core.normalizeScene({items:[wall,window]});
+  assert.equal(core.validateScene(scene),true);
+  assert.match(core.canPlaceOpening({...window,width:4},wall,scene.items),/خارج/);
+  const second=core.createOpening(wall,'door',1.7);
+  assert.match(core.canPlaceOpening(second,wall,scene.items),/تداخل/);
+  assert.throws(()=>core.validateScene({items:[wall,{...window,sill:2.5}]}),/ارتفاع/);
+  assert.throws(()=>core.validateScene({items:[{...wall,x2:.1},window]}));
+});
+test('cabinet runs are continuous without fabricated units and preserve elevation', () => {
+  const base=core.createCabinetRun({x:0,z:0},{x:3,z:0},'base');
+  const upper=core.createCabinetRun({x:0,z:0},{x:3,z:0},'wall');
+  assert.equal(core.length(base),3);
+  assert.equal(base.runType,'base');
+  assert.equal(base.elevation,0);
+  assert.ok(upper.elevation>1);
+  assert.equal(upper.runType,'wall');
+  assert.equal('units' in base,false);
+  assert.equal(core.validateScene({items:[base,upper]}),true);
+  assert.equal(core.normalizeItem({...upper,elevation:1.75}).elevation,1.75);
+});
+test('duplicate and import remap window host references', () => {
+  const repo=core.createRepository(storage()),p=repo.create('با دیوار');
+  const wall=core.createWall({x:0,z:0},{x:4,z:0}),window=core.createOpening(wall,'window',2);
+  repo.update(p.id,{scene:{items:[wall,window]}});
+  for(const duplicate of [repo.duplicate(p.id),repo.importProject(repo.exportProject(p.id))]){
+    const [host,opening]=duplicate.scene.items;
+    assert.notEqual(host.id,wall.id);
+    assert.equal(opening.wallId,host.id);
+    assert.equal(core.validateScene(duplicate.scene),true);
+  }
+});
+test('scene calibration metadata is separate from metric model dimensions', () => {
+  const wall=core.createWall({x:0,z:0},{x:3,z:0});
+  const scene=core.normalizeScene({items:[wall],calibration:{originX:10,rotation:40,baselineMeters:2}});
+  assert.equal(scene.items[0].x2,3);
+  assert.equal(scene.calibration.originX,10);
+  assert.equal(scene.calibration.baselineMeters,2);
 });
 test('project JSON backup restores a new independent project', () => {
   const repo=core.createRepository(storage()),p=repo.create('Kitchen');

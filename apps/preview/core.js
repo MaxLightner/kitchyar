@@ -7,7 +7,7 @@
   'use strict';
   const STORAGE_KEY = 'kitchyar.projects.v1';
   const SCHEMA_VERSION = 1;
-  const MAX_ITEMS = 150;
+  const MAX_ITEMS = 350;
   const MAX_BYTES = 2_000_000;
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const cleanName = (value) => String(value || '').trim().slice(0, 65) || 'پروژه بدون نام';
@@ -16,20 +16,93 @@
   const now = () => new Date().toISOString();
   const finite = (v, fallback) => Number.isFinite(Number(v)) ? Number(v) : fallback;
 
+  const length = (v) => Math.hypot(v.x2 - v.x1, v.z2 - v.z1);
+  const rounded = (v) => Math.round(v * 1000) / 1000;
+  const xy = (raw) => ({
+    x1: clamp(finite(raw.x1, 0), -100, 100), z1: clamp(finite(raw.z1, 0), -100, 100),
+    x2: clamp(finite(raw.x2, 1), -100, 100), z2: clamp(finite(raw.z2, 0), -100, 100),
+  });
   function normalizeItem(raw) {
-    if (!raw || raw.kind !== 'volume' || typeof raw.id !== 'string') return null;
-    return {
-      id: raw.id.slice(0, 80), kind: 'volume',
-      label: String(raw.label || 'آبجکت نمونه').slice(0, 60),
-      x: clamp(finite(raw.x, 0), -100, 100), z: clamp(finite(raw.z, 0), -100, 100),
-      width: clamp(finite(raw.width, 0.8), 0.1, 10),
-      depth: clamp(finite(raw.depth, 0.6), 0.1, 10),
-      height: clamp(finite(raw.height, 0.85), 0.1, 10),
-      color: /^#[0-9a-f]{6}$/i.test(raw.color) ? raw.color : '#b4bdac',
-    };
+    if (!raw || typeof raw.id !== 'string') return null;
+    const common = {id: raw.id.slice(0, 80), kind: raw.kind,
+      label: String(raw.label || 'آبجکت').slice(0, 60),
+      color: /^#[0-9a-f]{6}$/i.test(raw.color) ? raw.color : '#b4bdac'};
+    if (raw.kind === 'volume') return {...common, x: clamp(finite(raw.x, 0), -100, 100),
+      z: clamp(finite(raw.z, 0), -100, 100),
+      width: clamp(finite(raw.width, 0.8), .1, 10),
+      depth: clamp(finite(raw.depth, .6), .1, 10),
+      height: clamp(finite(raw.height, .85), .1, 10)};
+    if (raw.kind === 'wall') return {...common, ...xy(raw),
+      thickness: clamp(finite(raw.thickness, .15), .06, .6),
+      height: clamp(finite(raw.height, 2.8), 1.8, 6)};
+    if (raw.kind === 'opening' && typeof raw.wallId === 'string') return {...common,
+      wallId: raw.wallId.slice(0, 80), openingType: raw.openingType === 'door' ? 'door' : 'window',
+      offset: clamp(finite(raw.offset, .5), 0, 100),
+      width: clamp(finite(raw.width, 1), .35, 5),
+      height: clamp(finite(raw.height, 1.2), .4, 3),
+      sill: clamp(finite(raw.sill, .9), 0, 5)};
+    if (raw.kind === 'cabinetRun') return {...common, ...xy(raw),
+      runType: raw.runType === 'wall' ? 'wall' : 'base',
+      depth: clamp(finite(raw.depth, raw.runType === 'wall' ? .35 : .6), .2, 1.2),
+      height: clamp(finite(raw.height, raw.runType === 'wall' ? .72 : .85), .3, 2.5),
+      elevation: clamp(finite(raw.elevation, raw.runType === 'wall' ? 1.45 : 0), 0, 4),
+      wallId: typeof raw.wallId === 'string' ? raw.wallId.slice(0,80) : null};
+    return null;
+  }
+  const DEFAULT_CALIBRATION = {originX: 0, originZ: 0, rotation: 0, baselineMeters: 1, measuredMeters: null};
+  function normalizeCalibration(raw) {
+    return {originX: clamp(finite(raw?.originX, 0), -100, 100),
+      originZ: clamp(finite(raw?.originZ, 0), -100, 100),
+      rotation: clamp(finite(raw?.rotation, 0), -360, 360),
+      baselineMeters: clamp(finite(raw?.baselineMeters, 1), .1, 20),
+      measuredMeters: raw?.measuredMeters == null ? null : clamp(finite(raw.measuredMeters, 1), .1, 20)};
+  }
+  function canPlaceOpening(opening, wall, siblings = []) {
+    if (!wall || wall.kind !== 'wall') return 'دیوار میزبان موجود نیست.';
+    const l = length(wall), gap = .08;
+    if (l < .5) return 'طول دیوار کافی نیست.';
+    if (opening.offset - opening.width / 2 < gap - 1e-6 ||
+        opening.offset + opening.width / 2 > l - gap + 1e-6) return 'بازشو از محدوده دیوار خارج می‌شود.';
+    if (opening.sill + opening.height > wall.height + 1e-6) return 'ارتفاع بازشو از ارتفاع دیوار بیشتر است.';
+    for (const other of siblings) {
+      if (other.id !== opening.id && other.kind === 'opening' && other.wallId === wall.id &&
+          Math.abs(other.offset - opening.offset) < (other.width + opening.width) / 2 + gap - 1e-6)
+        return 'بازشو با بازشوی دیگر تداخل دارد.';
+    }
+    return null;
+  }
+  function validateScene(scene) {
+    const items = scene?.items || [];
+    for (const item of items) {
+      if ((item.kind === 'wall' || item.kind === 'cabinetRun') && length(item) < .3)
+        throw Error('طول دیوار یا ردیف کابینت باید حداقل ۳۰ سانتی‌متر باشد.');
+      if (item.kind === 'opening') {
+        const error = canPlaceOpening(item,items.find(w=>w.id === item.wallId),items);
+        if (error) throw Error(error);
+      }
+    }
+    return true;
   }
   function normalizeScene(raw) {
-    return {items: Array.isArray(raw?.items) ? raw.items.slice(0, MAX_ITEMS).map(normalizeItem).filter(Boolean) : []};
+    return {items: Array.isArray(raw?.items) ? raw.items.slice(0, MAX_ITEMS).map(normalizeItem).filter(Boolean) : [],
+      calibration: normalizeCalibration(raw?.calibration)};
+  }
+  function createWall(a, b) {
+    return normalizeItem({id:id(),kind:'wall',label:'دیوار',x1:rounded(a.x),z1:rounded(a.z),
+      x2:rounded(b.x),z2:rounded(b.z),height:2.8,thickness:.15,color:'#d6dfd0'});
+  }
+  function createCabinetRun(a, b, type = 'base') {
+    const wall = type === 'wall';
+    return normalizeItem({id:id(),kind:'cabinetRun',label:wall?'کابینت هوایی':'کابینت زمینی',
+      x1:rounded(a.x),z1:rounded(a.z),x2:rounded(b.x),z2:rounded(b.z),runType:type,
+      depth:wall?.35:.6,height:wall?.72:.85,elevation:wall?1.45:0,
+      color:wall?'#a7bda6':'#8faaa0'});
+  }
+  function createOpening(wall,type='window',offset=length(wall)/2) {
+    const door = type === 'door';
+    const margin = .08, width = Math.min(door?.9:1.2, length(wall) - margin * 2);
+    return normalizeItem({id:id(),kind:'opening',wallId:wall.id,openingType:type,label:door?'در':'پنجره',
+      offset:rounded(offset),width,height:door?2.1:1.2,sill:door?0:.9,color:door?'#ac9b85':'#87aab4'});
   }
   function normalizeProject(raw) {
     if (!raw || typeof raw.id !== 'string') return null;
@@ -86,7 +159,9 @@
       const original = get(pid);
       if (!original) throw Error('پروژه پیدا نشد.');
       const p = {...original, id: id(), name: cleanName(`${original.name} — کپی`), createdAt: now(), updatedAt: now(), revision: 0};
-      p.scene.items = p.scene.items.map((item) => ({...item, id: id()}));
+      const ids = new Map(p.scene.items.map(item=>[item.id,id()]));
+      p.scene.items = p.scene.items.map(item=>({...item,id:ids.get(item.id),
+        ...(item.wallId?{wallId:ids.get(item.wallId)||item.wallId}:{})}));
       persist([...load(), p]); return copy(p);
     }
     function remove(pid) { if (!get(pid)) throw Error('پروژه پیدا نشد.'); persist(load().filter((p) => p.id !== pid)); }
@@ -103,10 +178,14 @@
       const incoming=normalizeProject(data.project);
       if (!incoming) throw Error('اطلاعات پروژه ناقص است.');
       const p={...incoming,id:id(),name:cleanName(incoming.name+' — واردشده'),updatedAt:now(),createdAt:now(),revision:0};
-      p.scene.items=p.scene.items.map(item=>({...item,id:id()}));
+      const ids=new Map(p.scene.items.map(item=>[item.id,id()]));
+      p.scene.items=p.scene.items.map(item=>({...item,id:ids.get(item.id),
+        ...(item.wallId?{wallId:ids.get(item.wallId)||item.wallId}:{})}));
       persist([...load(),p]);return copy(p);
     }
     return {list, get, create, update, duplicate, remove, exportProject, importProject};
   }
-  return {STORAGE_KEY, SCHEMA_VERSION, createRepository, normalizeScene, blankProject, sampleVolume, copy};
+  return {STORAGE_KEY, SCHEMA_VERSION, createRepository, normalizeScene, normalizeItem, normalizeCalibration,
+    blankProject, sampleVolume, createWall, createOpening, createCabinetRun, canPlaceOpening,
+    validateScene, length, rounded, copy, DEFAULT_CALIBRATION};
 });
