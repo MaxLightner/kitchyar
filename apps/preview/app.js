@@ -309,7 +309,9 @@ function controlPoint(){
  return null;
 }
 function finishLine(){
- drawing=null;hover=null;floor?.setDrawing(null);showScene();
+ drawing=null;hover=null;activeTool=null;
+ document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
+ floor?.setDrawing(null);showScene();
 }
 function applySelection(){
  const obj=currentItems().find(x=>x.id===selection);if(!obj)return;
@@ -328,6 +330,12 @@ function applySelection(){
  if(result)commitChange(result);
 }
 document.addEventListener('input',e=>{
+ const field=e.target.closest('[data-setting]');
+ if(field){
+  if(field.type==='checkbox'||(field.value!==''&&Number.isFinite(Number(field.value))))
+   settings[field.dataset.setting]=field.type==='checkbox'?field.checked:Number(field.value);
+  return;
+ }
  const slider=e.target.closest('[data-render]');if(!slider)return;
  const p=currentProject();if(!p)return;p.scene??={items:[]};p.scene.render??={...defaultRender};
  p.scene.render[slider.dataset.render]=Number(slider.value);floor?.setLighting(renderSettings());
@@ -525,7 +533,11 @@ document.addEventListener('click',async e=>{
    return placeAt(point);
   }
   if(action==='cancel-drawing'){finishLine();return;}
-  if(action==='select'){drawing=null;selection=null;showScene();return;}
+  if(action==='select'){
+   drawing=null;selection=null;activeTool=null;
+   document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
+   showScene();return;
+  }
   if(action==='undo'){undoChange();return;}
   if(action==='redo'){undoChange(true);return;}
   if(action==='equipment-model'){

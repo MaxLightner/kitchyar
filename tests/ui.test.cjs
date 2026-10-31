@@ -50,3 +50,10 @@ test('cabinet selection offers editable dimensions and an elevation drawing',()=
  assert.match(source,/upperHeight/);
  assert.match(read('edit-handles.js'),/renderCabinetElevation/);
 });
+
+test('tool dimensions update as the user types, before focus leaves the field',()=>{
+ const source=read('app.js');
+ assert.match(source,/const field=e\.target\.closest\('\[data-setting\]'\);/);
+ assert.match(source,/settings\[field\.dataset\.setting\]=field\.type/);
+ assert.match(source,/activeTool=null;[\s\S]*?floor\?\.setDrawing\(null\);showScene\(\)/);
+});
