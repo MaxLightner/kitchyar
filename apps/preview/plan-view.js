@@ -45,7 +45,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   const corners=equipmentCorners(e.x,e.z,e.width,e.depth,e.rotation||0);
   out+='<g data-item-id="'+safe(e.id)+'" opacity=".96"><polygon points="'+corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
    '" fill="'+(e.subtype==='fridge'?'#cbd2d3':e.subtype==='stove'?'#424a4a':e.subtype==='hood'?'#a8b2ac':e.subtype==='oven'?'#464b4c':'#bdc9ca')+
-   '" stroke="'+(e.id===selectedId?'#329e7f':'#5c7373')+'" stroke-width=".028"/>'+
+   '" fill-opacity="'+(e.subtype==='hood'?'.16':'1')+'" stroke="'+(e.id===selectedId?'#329e7f':'#5c7373')+'" stroke-width=".028"/>'+
    '<g transform="translate('+f(e.x)+' '+f(e.z)+') rotate('+f((e.rotation||0)*180/Math.PI)+')">';
   if(['dishwasher','washer','oven'].includes(e.subtype)){
    if(e.subtype==='oven')out+='<rect x="'+f(-e.width*.42)+'" y="'+f(-e.depth*.39)+'" width="'+f(e.width*.84)+'" height="'+f(e.depth*.78)+'" rx=".035" fill="#34494b" stroke="#e5e8e2" stroke-width=".02"/>';

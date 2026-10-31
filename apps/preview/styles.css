@@ -296,3 +296,10 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .editor-root.ar-live .elevation-panel{background:#faf9f1f5;border:2px solid #8abda8;box-shadow:0 10px 32px #102b2459}
 .editor-root.ar-live #elevation-view .elevation-handle{stroke-width:3;filter:drop-shadow(0 0 4px #ffffff)}
 @media(max-width:730px){.editor-root.ar-live .elevation-panel{top:119px;right:8px;max-height:37svh;overflow:auto;width:min(305px,calc(100vw - 16px))}.calibration-toggle{bottom:116px}.scan-confirm{bottom:161px}}
+
+/* Mobile equipment picker and model editor stay usable with six appliances. */
+.tool-sheet{display:block;max-height:37svh;overflow-y:auto;overscroll-behavior:contain}
+.tool-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.tool-choices button{min-width:0;white-space:normal;line-height:1.4;font-size:15px;min-height:39px}
+.object-editor{max-height:calc(100svh - 335px);overflow-y:auto;overscroll-behavior:contain}
+@media(max-width:730px){.tool-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.tool-sheet{max-height:32svh;padding:9px}.object-editor{top:125px;max-height:calc(100svh - 265px)}.editor-root.ar-live .object-editor{top:auto;bottom:119px;max-height:31svh}.editor-root.ar-live .elevation-panel{max-height:31svh}}
