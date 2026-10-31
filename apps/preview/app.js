@@ -65,6 +65,7 @@
   function manipulate(pid,values) {
     const item=project.scene.items.find(i=>i.id===pid);
     if(!item)return;
+    if(item.kind==='wall')Core.propagateWallNodes(project.scene.items,item,values);
     Object.assign(item,values);
     const el=document.getElementById('save-status');if(el)el.textContent='ویرایش در جریان...';
     renderer?.render(project.scene.items,view,selectedId);
@@ -79,7 +80,10 @@
   function createShape(kind,a,b) {
     const before=Core.copy(project.scene.items);
     const item=kind==='wall'?Core.createWall(a,b):Core.createCabinetRun(a,b,kind==='base'?'base':'wall');
-    project.scene.items.push(item);selectedId=item.id;
+    if(kind==='wall'){
+      const joined=Core.connectWall(project.scene.items,item);
+      project.scene.items=joined.items;selectedId=joined.selectedId;
+    }else{project.scene.items.push(item);selectedId=item.id;}
     try{commit(before);}catch(error){project.scene.items=before;selectedId=null;refreshScene();toast(error.message);}
   }
   function createOpening(wid,offset,type) {
