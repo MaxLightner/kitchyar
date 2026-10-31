@@ -281,3 +281,8 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .plan-svg .resize-handle:active{cursor:grabbing}
 .scan-confirm[hidden],.scan-card[hidden]{display:none}
 @media(max-width:730px){.bottom-panel .draw-controls button{min-height:46px;flex:auto;padding:9px 6px}}
+
+/* Stable finger drags: browser gestures must not cancel a selected model handle. */
+.editor-scene,.editor-scene .plan-host,.editor-scene .plan-svg,#elevation-view{touch-action:none;overscroll-behavior:contain}
+.plan-svg .ab-touch,.plan-svg .resize-handle,#elevation-view .elevation-handle{cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
+.plan-svg .ab-touch:active,.plan-svg .resize-handle:active,#elevation-view .elevation-handle:active{cursor:grabbing}

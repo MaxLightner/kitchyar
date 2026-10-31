@@ -1,11 +1,14 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render15';
-import {renderPlanMeasurements} from './edit-handles.js?v=render15';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render17';
+import {renderPlanMeasurements} from './edit-handles.js?v=render17';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null}={}){
  const walls=items.filter(x=>x.kind==='wall'),cabinets=items.filter(x=>x.kind==='cabinet');
  const gridId=mini?'mini-grid-k':'main-grid-k';
  const cal=calibration?.a&&calibration?.b?calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}};
+ const rect=typeof document!=='undefined'?document.getElementById('plan-host')?.getBoundingClientRect():null;
+ const pixelsPerMetre=rect?Math.max(20,Math.min(rect.width/10,rect.height/8)):100;
+ const touchRadius=Math.max(.24,29/pixelsPerMetre),visibleRadius=Math.max(.105,12/pixelsPerMetre);
  const angle=Math.atan2(cal.b.z-cal.a.z,cal.b.x-cal.a.x)*180/Math.PI;
  const rotation='translate('+f(cal.a.x)+' '+f(cal.a.z)+') rotate('+f(angle)+') translate('+f(-cal.a.x)+' '+f(-cal.a.z)+')';
  let out='<svg '+(mini?'class="mini-svg"':'id="plan-view" class="plan-svg"')+
@@ -40,25 +43,35 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
  }
  for(const e of items.filter(x=>x.kind==='equipment')){
   const corners=equipmentCorners(e.x,e.z,e.width,e.depth,e.rotation||0);
-  out+='<g data-item-id="'+safe(e.id)+'" opacity=".94"><polygon points="'+corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
-   '" fill="'+(e.subtype==='fridge'?'#cbd2d3':e.subtype==='stove'?'#45484a':'#9bc7c6')+
-   '" stroke="'+(e.id===selectedId?'#329e7f':'#5c7373')+'" stroke-width=".028"/>';
+  out+='<g data-item-id="'+safe(e.id)+'" opacity=".96"><polygon points="'+corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
+   '" fill="'+(e.subtype==='fridge'?'#cbd2d3':e.subtype==='stove'?'#424a4a':'#bdc9ca')+
+   '" stroke="'+(e.id===selectedId?'#329e7f':'#5c7373')+'" stroke-width=".028"/>'+
+   '<g transform="translate('+f(e.x)+' '+f(e.z)+') rotate('+f((e.rotation||0)*180/Math.PI)+')">';
   if(e.subtype==='stove'){
-   const burner=e.model==='induction'?'#85c5bf':'#dbe3df';
-   for(const offset of [-.15,.15])for(const dz of [-.12,.12])out+='<circle cx="'+f(e.x+offset)+'" cy="'+f(e.z+dz)+'" r=".075" stroke="'+burner+'" fill="none" stroke-width=".018"/>';
-   if(e.model==='gas5')out+='<circle cx="'+f(e.x)+'" cy="'+f(e.z)+'" r=".09" stroke="'+burner+'" fill="none" stroke-width=".018"/>';
+   const induction=e.induction||e.model==='induction',count=e.model==='gas2'?2:e.model==='gas3'?3:e.model==='gas5'?5:4;
+   const x=e.width*.255,z=e.depth*.225,ring=induction?'#85c5bf':'#dbe3df';
+   const burners=count===2?[[-x,0],[x,0]]:count===3?[[-x,-z],[x,-z],[0,z]]:
+    count===5?[[-x,-z],[-x,z],[x,-z],[x,z],[0,0]]:[[-x,-z],[-x,z],[x,-z],[x,z]];
+   for(const [bx,bz] of burners)out+='<circle cx="'+f(bx)+'" cy="'+f(bz)+'" r="'+f(bx===0&&bz===0?.074:.056)+'" stroke="'+ring+'" fill="none" stroke-width=".016"/>';
   }else if(e.subtype==='sink'){
-   const double=e.model==='double',left=e.x-e.width*.36,top=e.z-e.depth*.32;
-   if(double)for(const i of [0,1])out+='<rect x="'+f(left+i*e.width*.36)+'" y="'+f(top)+'" width="'+f(e.width*.34)+'" height="'+f(e.depth*.64)+'" rx=".04" fill="#4d8585" stroke="#e3f4f0" stroke-width=".022"/>';
-   else{
-    out+='<rect x="'+f(left)+'" y="'+f(top)+'" width="'+f(e.width*(e.model==='drainer'?.48:.72))+'" height="'+f(e.depth*.64)+'" rx=".055" fill="#4d8585" stroke="#e3f4f0" stroke-width=".03"/>';
-    if(e.model==='drainer')for(const i of [0,1,2])out+='<line x1="'+f(e.x+e.width*(.19+i*.065))+'" x2="'+f(e.x+e.width*(.19+i*.065))+'" y1="'+f(top)+'" y2="'+f(top+e.depth*.64)+'" stroke="#e3f4f0" stroke-width=".018"/>';
+   const double=e.model==='double',drainer=e.model==='drainer';
+   const bowlWidth=double?Math.min(.44,(e.width-.17)/2):Math.min(.48,e.width-(drainer?.20:.13));
+   const xs=double?[-(bowlWidth+.03)/2,(bowlWidth+.03)/2]:[drainer?-e.width*.15:0];
+   for(const x of xs){
+    out+='<rect x="'+f(x-bowlWidth/2)+'" y="'+f(-e.depth*.30)+'" width="'+f(bowlWidth)+'" height="'+f(e.depth*.60)+'" rx=".065" fill="#4d8585" stroke="#e9f5f2" stroke-width=".029"/>'+
+     '<rect x="'+f(x-bowlWidth*.43)+'" y="'+f(-e.depth*.255)+'" width="'+f(bowlWidth*.86)+'" height="'+f(e.depth*.51)+'" rx=".050" fill="#668f91" stroke="#a4bdbe" stroke-width=".012"/>'+
+     '<circle cx="'+f(x)+'" cy="0" r=".026" fill="#3b5a5d" stroke="#b9d4d3" stroke-width=".012"/>';
    }
+   if(drainer)for(let i=0;i<4;i++)out+='<line x1="'+f(e.width*(.15+i*.05))+'" x2="'+f(e.width*(.15+i*.05))+'" y1="'+f(-e.depth*.27)+'" y2="'+f(e.depth*.27)+'" stroke="#e3f4f0" stroke-width=".018"/>';
   }else if(e.subtype==='fridge'){
-   if(e.model==='side')out+='<line x1="'+f(e.x)+'" x2="'+f(e.x)+'" y1="'+f(e.z-e.depth*.47)+'" y2="'+f(e.z+e.depth*.47)+'" stroke="#637a7c" stroke-width=".03"/>';
-   if(e.model==='combination')out+='<line x1="'+f(e.x-e.width*.47)+'" x2="'+f(e.x+e.width*.47)+'" y1="'+f(e.z+e.depth*.1)+'" y2="'+f(e.z+e.depth*.1)+'" stroke="#637a7c" stroke-width=".03"/>';
+   if(e.builtIn){
+    for(const x of [-(e.width/2+.04),e.width/2+.04])
+     out+='<rect x="'+f(x-.015)+'" y="'+f(-e.depth/2-.05)+'" width=".03" height="'+f(e.depth+.10)+'" fill="#d7b99a" stroke="#8a795f" stroke-width=".014"/>';
+   }
+   if(e.model==='side')out+='<line x1="0" x2="0" y1="'+f(-e.depth*.47)+'" y2="'+f(e.depth*.47)+'" stroke="#637a7c" stroke-width=".03"/>';
+   if(e.model==='combination')out+='<line x1="'+f(-e.width*.47)+'" x2="'+f(e.width*.47)+'" y1="'+f(e.depth*.10)+'" y2="'+f(e.depth*.10)+'" stroke="#637a7c" stroke-width=".03"/>';
   }
-  out+='</g>';
+  out+='</g></g>';
  }
  if(!mini)for(const o of items.filter(x=>x.kind==='opening')){
   const w=walls.find(x=>x.id===o.hostId);if(!w)continue;
@@ -70,8 +83,8 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    out+='<g class="ab-calibration" aria-label="جهت شبکه A و B">'+
     '<line x1="'+f(cal.a.x)+'" y1="'+f(cal.a.z)+'" x2="'+f(cal.b.x)+'" y2="'+f(cal.b.z)+'" stroke="#d39d54" stroke-width=".027" stroke-dasharray=".075,.035" pointer-events="none"/>';
    for(const which of ['a','b']){const p=cal[which],color=which==='a'?'#e4a75d':'#4cafa3';
-    out+='<g data-calibration="'+which+'" class="ab-touch"><circle cx="'+f(p.x)+'" cy="'+f(p.z)+'" r=".24" fill="transparent"/>'+
-     '<circle cx="'+f(p.x)+'" cy="'+f(p.z)+'" r=".10" fill="'+color+'" stroke="#fff" stroke-width=".025" pointer-events="none"/>'+
+    out+='<g data-calibration="'+which+'" class="ab-touch"><circle cx="'+f(p.x)+'" cy="'+f(p.z)+'" r="'+f(touchRadius)+'" fill="transparent"/>'+
+     '<circle cx="'+f(p.x)+'" cy="'+f(p.z)+'" r="'+f(visibleRadius)+'" fill="'+color+'" stroke="#fff" stroke-width=".025" pointer-events="none"/>'+
      '<g transform="translate('+f(p.x)+' '+f(p.z)+') scale(.010)" pointer-events="none">'+
      '<text x="0" y="5" font-size="15px" font-weight="bold" text-anchor="middle" fill="#243c34">'+which.toUpperCase()+'</text></g></g>';
    }
@@ -81,8 +94,8 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
  if(selection&&['wall','cabinet'].includes(selection.kind)&&!mini){
   for(const [side,x,z] of [['start',selection.x1,selection.z1],['end',selection.x2,selection.z2]]){
    out+='<g class="resize-handle" data-handle="'+side+'" data-item-id="'+safe(selection.id)+'">'+
-     '<circle cx="'+f(x)+'" cy="'+f(z)+'" r=".22" fill="transparent"/>'+
-     '<circle cx="'+f(x)+'" cy="'+f(z)+'" r=".105" fill="#51b090" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';
+     '<circle cx="'+f(x)+'" cy="'+f(z)+'" r="'+f(touchRadius)+'" fill="transparent"/>'+
+     '<circle cx="'+f(x)+'" cy="'+f(z)+'" r="'+f(visibleRadius)+'" fill="#51b090" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';
   }
  }
  if(selection&&selection.kind==='opening'&&!mini){
@@ -93,8 +106,8 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    for(const [side,d] of [['left',center-selection.width/2],['centre',center],['right',center+selection.width/2]]){
     const cx=f(host.x1+dx*d),cz=f(host.z1+dz*d);
      out+='<g class="resize-handle" data-open-handle="'+side+'" data-item-id="'+safe(selection.id)+'">'+
-      '<circle cx="'+cx+'" cy="'+cz+'" r=".22" fill="transparent"/>'+
-      '<circle cx="'+cx+'" cy="'+cz+'" r=".09" fill="'+(side==='centre'?'#d8a15b':'#51b090')+'" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';
+      '<circle cx="'+cx+'" cy="'+cz+'" r="'+f(touchRadius)+'" fill="transparent"/>'+
+      '<circle cx="'+cx+'" cy="'+cz+'" r="'+f(visibleRadius)+'" fill="'+(side==='centre'?'#d8a15b':'#51b090')+'" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';
    }
   }
  }
@@ -121,15 +134,16 @@ export function renderPreview(items,drawing,hover){
  const wallMode=tool==='wall',openingMode=tool==='window'||tool==='door';
  if(['fridge','stove','sink'].includes(tool)){
   const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0,valid=true;
-  try{placeEquipment(items,hover,tool);}catch{valid=false;}
-  if(tool==='fridge'){const snap=snapFridgePoint(items,hover,spec.width,spec.depth);if(snap){p=snap;angle=snap.rotation;}}
+  let installed=null;
+  try{const result=placeEquipment(items,hover,tool);installed=result.items.at(-1);}catch{valid=false;}
+  if(tool==='fridge'){const snap=installed||snapFridgePoint(items,hover,spec.width,spec.depth);if(snap){p=snap;angle=snap.rotation;}}
   if(tool!=='fridge'){
    const ranked=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base').map(c=>{
     const len=lengthOf(c),q=projectOnWall(c,hover.x,hover.z);
     return {c,q,dist:q.distance};
    }).sort((a,b)=>a.dist-b.dist);
    const near=ranked[0];
-   if(!near||near.dist>near.c.depth/2+.2)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".10" fill="#c35a4b"/></g>';
+   if(!near||near.dist>near.c.depth/2+.2)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r="'+f(visibleRadius)+'" fill="#c35a4b"/></g>';
    p={x:near.q.x,z:near.q.z};angle=Math.atan2(near.c.z2-near.c.z1,near.c.x2-near.c.x1)+(near.c.side===-1?Math.PI:0);
   }
   return '<g class="live-preview" pointer-events="none"><polygon points="'+equipmentCorners(p.x,p.z,spec.width,spec.depth,angle).map(q=>f(q.x)+','+f(q.z)).join(' ')+
@@ -190,7 +204,7 @@ export function renderPreview(items,drawing,hover){
    }
   }
  }
- if(!corners)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".09" fill="#a14b44" opacity=".65"/></g>';
+ if(!corners)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r="'+f(visibleRadius)+'" fill="#a14b44" opacity=".65"/></g>';
  return '<g class="live-preview" pointer-events="none"><polygon points="'+corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
   '" fill="'+(tool==='upper'?'#f1dcb2':'#88c4a8')+'" fill-opacity=".6" stroke="#d0873a" stroke-width=".035" stroke-dasharray=".08,.04"/>'+
   '<circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".07" fill="#f0ac50" stroke="white" stroke-width=".02"/></g>';

@@ -295,14 +295,16 @@ test('sink-to-stove gap is at least 45 cm measured from object edges',async()=>{
  items=G.editEquipment(items,sink.id,{model:'double'}).items;
  assert.equal(items.find(x=>x.id===sink.id).model,'double');
 });
-test('fridge snaps behind a wall face and rejects cabinet collision',async()=>{
+test('fridge integrates into a cabinet run, keeping both side cabinets',async()=>{
  G||=await import('../apps/preview/geometry.js');
  let items=G.placeWall([],{x:0,z:0},{x:6,z:0}).items;
  items=G.placeCabinet(items,{x:.2,z:0},{x:2,z:0},{kind:'base'}).items;
- assert.throws(()=>G.placeEquipment(items,{x:1,z:.75},'fridge'),/کابینت برخورد/);
+ const integrated=G.placeEquipment(items,{x:1,z:.40},'fridge');
+ assert.equal(integrated.items.find(x=>x.subtype==='fridge').builtIn,true);
+ assert.equal(integrated.items.filter(x=>x.kind==='cabinet'&&x.subtype==='base').length,2);
  const done=G.placeEquipment(items,{x:3,z:.8},'fridge');
  const fridge=done.items.find(x=>x.subtype==='fridge');
- assert.ok(fridge.z>.4 && fridge.z<.5,'rear face snaps to wall surface');
+ assert.ok(fridge.z>.4 && fridge.z<.5,'free fridge still snaps to the wall');
 });
 test('UI renders bottom controls, direct A/B drag, live corner ghost, and equipment model picker',()=>{
  const app=source('app.js'),floor=source('floor-ar.js'),plan=source('plan-view.js'),css=source('styles.css');
@@ -374,4 +376,32 @@ test('touch handles have large targets for selected cabinets and height editing'
  assert.match(floor,/mark\('top'/);
  assert.match(floor,/mark\('bottom'/);
  assert.match(floor,/distance=43/);
+});
+
+test('new stove sizes, induction toggle and sink widths are separately editable',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:8,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:7.8,z:0},{kind:'base'}).items;
+ items=G.placeEquipment(items,{x:1,z:.3},'stove').items;
+ const stove=items.find(o=>o.subtype==='stove');
+ assert.equal(stove.model,'gas5');
+ assert.ok(stove.height<=.05);
+ items=G.editEquipment(items,stove.id,{model:'gas2',induction:true}).items;
+ assert.equal(items.find(o=>o.id===stove.id).width,.32);
+ assert.equal(items.find(o=>o.id===stove.id).induction,true);
+ items=G.placeEquipment(items,{x:4,z:.3},'sink').items;
+ const sink=items.find(o=>o.subtype==='sink');
+ items=G.editEquipment(items,sink.id,{sinkSize:120,model:'double'}).items;
+ assert.equal(items.find(o=>o.id===sink.id).width,1.20);
+ assert.equal(items.find(o=>o.id===sink.id).model,'double');
+});
+test('cabinet strokes close small corner gaps, and ignore tiny stray segments',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+ items=G.placeWall(items,{x:3,z:0},{x:3,z:3}).items;
+ const a=G.snapCabinetPoint(items,.4,.05),b=G.snapCabinetPoint(items,2.79,.04);
+ const done=G.placeCabinetRoute(items,a,b,{kind:'base'});
+ const cabinet=done.items.find(o=>o.kind==='cabinet');
+ assert.ok(cabinet.endT*G.lengthOf(items[0])>2.83);
+ assert.throws(()=>G.placeCabinetRoute(items,G.snapCabinetPoint(items,2.49,0),G.snapCabinetPoint(items,2.78,0),{kind:'base'}),/مسیر کابینت کوتاه/);
 });

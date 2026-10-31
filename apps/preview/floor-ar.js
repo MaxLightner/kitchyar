@@ -3,8 +3,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render15';
-import {neighborGaps} from './edit-handles.js?v=render15';
+import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render17';
+import {neighborGaps} from './edit-handles.js?v=render17';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -13,7 +13,7 @@ export class FloorAR {
   this.scanner=new FloorScanner();this.rig=new AnchorStabilizer();this.sources=[];this.anchors=[];
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
    this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;this.calibrationOffset=null;this.savedCalibration=null;
-   this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10};
+   this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10,taskLighting:true,taskIntensity:1.8};
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
@@ -405,7 +405,7 @@ export class FloorAR {
    this.floorGroup.updateWorldMatrix(true,true);
    const cameraView=new THREE.Matrix4().fromArray(view.transform.inverse.matrix),
     projection=new THREE.Matrix4().fromArray(view.projectionMatrix);
-   let nearest=null,distance=54;
+   let nearest=null,distance=65;
    for(const [name,mark] of [['a',this.markA],['b',this.markB]]){
     if(!mark?.visible)continue;
     for(const height of [0,.16]){
@@ -458,7 +458,7 @@ export class FloorAR {
    this.floorGroup.updateWorldMatrix(true,true);
    const cameraView=new THREE.Matrix4().fromArray(view.transform.inverse.matrix),
     projection=new THREE.Matrix4().fromArray(view.projectionMatrix);
-   let nearest=null,distance=43;
+   let nearest=null,distance=60;
    for(const marker of this.editGroup.children){
     const pos=marker.getWorldPosition(new THREE.Vector3()).applyMatrix4(cameraView).applyMatrix4(projection);
     if(pos.z<-.8||pos.z>1.1||Math.abs(pos.x)>1.2||Math.abs(pos.y)>1.2)continue;
@@ -583,7 +583,8 @@ export class FloorAR {
  setItems(items,selectedId=null){this.items=structuredClone(items||[]);this.selectedId=selectedId;this.rebuildObjects();}
  setLighting(options={}){
   const before=this.renderSettings||{},next={...before,...options};
-  const changed=next.aoStrength!==before.aoStrength||next.reflection!==before.reflection;
+  const changed=next.aoStrength!==before.aoStrength||next.reflection!==before.reflection||
+   next.taskLighting!==before.taskLighting||next.taskIntensity!==before.taskIntensity;
   this.renderSettings=next;
   if(this.sun){
    const az=THREE.MathUtils.degToRad(next.sunAzimuth),el=THREE.MathUtils.degToRad(next.sunElevation);
@@ -778,6 +779,18 @@ export class FloorAR {
    box(c,0,len,y0,y0+c.height,c.depth,angle,(c.x1+c.x2)/2,(c.z1+c.z2)/2,
     c.id===this.selectedId?cabinetSelected:c.subtype==='upper'?upper:base);
   }
+  if(this.renderSettings.taskLighting){
+   for(const c of this.items.filter(x=>x.kind==='cabinet'&&x.subtype==='upper').slice(0,6)){
+    const x=(c.x1+c.x2)/2,z=(c.z1+c.z2)/2;
+    const lamp=new THREE.PointLight(0xffebc5,this.renderSettings.taskIntensity??1.8,3,2);
+    lamp.position.set(x,Math.max(.3,c.elevation-.07),z);lamp.castShadow=false;
+    this.objectGroup.add(lamp);
+    const line=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.2,Math.hypot(c.x2-c.x1,c.z2-c.z1)*.85),.012,.025),
+     new THREE.MeshBasicMaterial({color:0xffecc8,transparent:true,opacity:.94}));
+    line.position.set(x,c.elevation-.017,z);line.rotation.y=-Math.atan2(c.z2-c.z1,c.x2-c.x1);
+    line.userData.objectId=c.id;this.objectGroup.add(line);
+   }
+  }
   for(const o of this.items.filter(x=>x.kind==='equipment')){
    const root=new THREE.Group();root.position.set(o.x,o.elevation||0,o.z);root.rotation.y=-(o.rotation||0);
    root.userData.objectId=o.id;this.objectGroup.add(root);
@@ -789,6 +802,14 @@ export class FloorAR {
     mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.objectId=o.id;root.add(mesh);return mesh;
    };
    if(o.subtype==='fridge'){
+    if(o.builtIn){
+     const surround=material(0xd9d1c3,{roughness:.38,metalness:.03});
+     const top=Math.max(o.height+.16,2.15),edge=.028,span=o.width+.12;
+     add(new THREE.BoxGeometry(edge,top,o.depth+.12),surround,-span/2,top/2,0);
+     add(new THREE.BoxGeometry(edge,top,o.depth+.12),surround,span/2,top/2,0);
+     add(new THREE.BoxGeometry(span,.14,o.depth+.12),surround,0,top-.07,0);
+     surround.dispose();
+    }
     add(new THREE.BoxGeometry(o.width,o.height,o.depth),steel,0,o.height/2,0);
     const front=o.depth/2+.02;
     if(o.model==='side'){
@@ -805,30 +826,48 @@ export class FloorAR {
      add(new THREE.CylinderGeometry(.009,.009,.35,8),silver,o.width*.38,o.height*.72,front+.04);
     }
    }else if(o.subtype==='stove'){
-    add(new THREE.BoxGeometry(o.width,o.height*.65,o.depth),dark,0,o.height*.35,0);
-    const induction=o.model==='induction';
-    add(new THREE.BoxGeometry(o.width*.96,.009,o.depth*.94),induction?dark:steel,0,o.height*.72,0);
-    const positions=[[-.145,-.115],[-.145,.115],[.145,-.115],[.145,.115]];
-    if(o.model==='gas5')positions.push([0,0]);
-    for(const [x,z] of positions){
-     const burner=add(new THREE.TorusGeometry(o.model==='gas5'&&x===0&&z===0?.09:.075,induction?.004:.009,8,20),
-      induction?silver:dark,x,o.height*.82,z,-Math.PI/2);burner.castShadow=false;
+    const induction=Boolean(o.induction||o.model==='induction'),count=
+     o.model==='gas2'?2:o.model==='gas3'?3:o.model==='gas5'?5:4;
+    const slab=.025;
+    add(new THREE.BoxGeometry(o.width,slab,o.depth),dark,0,slab/2,0);
+    add(new THREE.BoxGeometry(o.width*.96,.007,o.depth*.94),induction?dark:steel,0,slab+.003,0);
+    const x=o.width*.255,z=o.depth*.225;
+    const positions=count===2?[[-x,0],[x,0]]:count===3?[[-x,-z],[x,-z],[0,z]]:
+     count===5?[[-x,-z],[-x,z],[x,-z],[x,z],[0,0]]:[[-x,-z],[-x,z],[x,-z],[x,z]];
+    for(const [bx,bz] of positions){
+     const burner=add(new THREE.TorusGeometry(bx===0&&bz===0?.073:.058,induction?.0035:.007,8,20),
+      induction?silver:dark,bx,slab+.009,bz,-Math.PI/2);burner.castShadow=false;
     }
-    if(!induction)for(const x of [-.18,-.06,.06,.18])
-     add(new THREE.CylinderGeometry(.018,.018,.02,10),dark,x,o.height*.79,o.depth*.44);
+    if(!induction)for(let i=0;i<Math.min(count,5);i++)
+     add(new THREE.CylinderGeometry(.012,.012,.012,10),dark,
+      (i-(Math.min(count,5)-1)/2)*.060,slab+.008,o.depth*.42);
    }else if(o.subtype==='sink'){
-    add(new THREE.BoxGeometry(o.width,.028,o.depth),silver,0,.014,0);
-    const double=o.model==='double';
-    const basins=double?[[-o.width*.19,o.width*.32],[o.width*.19,o.width*.32]]:
-     [[o.model==='drainer'?-o.width*.13:0,o.width*(o.model==='drainer'?.47:.72)]];
-    for(const [x,w] of basins){
-     add(new THREE.BoxGeometry(w,.016,o.depth*.65),dark,x,.028,0);
-     add(new THREE.BoxGeometry(w*.91,.012,o.depth*.58),steel,x,.034,0);
+    const double=o.model==='double',drainer=o.model==='drainer';
+    const bowlDepth=o.depth*.59,usable=o.width-(drainer?.20:.13);
+    const bowlWidth=double?Math.min(.44,(usable-.045)/2):Math.min(.48,usable);
+    const xs=double?[-(bowlWidth+.03)/2,(bowlWidth+.03)/2]:[drainer?-o.width*.15:0];
+    const plate=new THREE.Shape();
+    plate.moveTo(-o.width/2,-o.depth/2);plate.lineTo(o.width/2,-o.depth/2);
+    plate.lineTo(o.width/2,o.depth/2);plate.lineTo(-o.width/2,o.depth/2);plate.closePath();
+    for(const bx of xs){
+     const path=new THREE.Path(),l=bx-bowlWidth/2,r=bx+bowlWidth/2,b=-bowlDepth/2,t=bowlDepth/2;
+     path.moveTo(l,b);path.lineTo(l,t);path.lineTo(r,t);path.lineTo(r,b);path.closePath();
+     plate.holes.push(path);
     }
-    if(o.model==='drainer')for(const x of [.17,.235,.3])
-     add(new THREE.BoxGeometry(.012,.006,o.depth*.62),silver,o.width*x,.041,0);
-    add(new THREE.CylinderGeometry(.014,.014,.19,12),silver,0,.115,-o.depth*.35);
-    const arc=add(new THREE.TorusGeometry(.085,.014,8,18,Math.PI),silver,0,.21,-o.depth*.35);
+    const deck=add(new THREE.ShapeGeometry(plate),silver,0,.012,0,-Math.PI/2);
+    deck.material.side=THREE.DoubleSide;
+    for(const bx of xs){
+     add(new THREE.BoxGeometry(bowlWidth-.012,.01,bowlDepth-.012),dark,bx,-.115,0);
+     for(const sign of [-1,1]){
+      add(new THREE.BoxGeometry(.010,.12,bowlDepth),steel,bx+sign*bowlWidth/2,-.052,0);
+      add(new THREE.BoxGeometry(bowlWidth,.12,.010),steel,bx,-.052,sign*bowlDepth/2);
+     }
+     add(new THREE.TorusGeometry(.027,.007,8,18),dark,bx,-.105,0,-Math.PI/2);
+    }
+    if(drainer)for(const n of [1,2,3,4])
+     add(new THREE.BoxGeometry(.008,.005,o.depth*.61),silver,o.width*(.10+n*.045),.018,0);
+    add(new THREE.CylinderGeometry(.011,.011,.20,12),silver,0,.11,-o.depth*.39);
+    const arc=add(new THREE.TorusGeometry(.078,.012,8,18,Math.PI),silver,0,.21,-o.depth*.39);
     arc.rotation.z=Math.PI/2;
    }
    for(const m of [steel,dark,silver])m.dispose();

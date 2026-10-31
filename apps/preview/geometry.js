@@ -139,6 +139,18 @@ export function cabinetPath(items,start,target){
  return best;
 }
 export function cabinetTurnTrim(a,b){return Math.max(.14,(a?.thickness||.12)/2+.05,(b?.thickness||.12)/2+.05);}
+/* Stop a near-corner stroke cleanly against the adjoining wall. A 10–35 cm
+   accidental scrap is not installed as a separate cabinet. */
+function finishAtCorner(items,w,t){
+ const len=lengthOf(w),atStart=t<.5,endpoint=atStart?0:1;
+ if(Math.abs(t-endpoint)*len>.36)return t;
+ const x=atStart?w.x1:w.x2,z=atStart?w.z1:w.z2;
+ const neighbor=items.find(other=>wall(other)&&other.id!==w.id&&
+  (Math.hypot(other.x1-x,other.z1-z)<.025||Math.hypot(other.x2-x,other.z2-z)<.025));
+ if(!neighbor)return t;
+ const inset=Math.min(.27,cabinetTurnTrim(w,neighbor))/len;
+ return atStart?inset:1-inset;
+}
 export function placeCabinetRoute(source,start,target,opts={}){
  const route=cabinetPath(source,start,target);
  if(!route)throw Error('مسیر کابینت باید روی دیوارهای متصل باشد.');
@@ -149,8 +161,11 @@ export function placeCabinetRoute(source,start,target,opts={}){
   if(!dir)continue;
   let a=seg.startT,b=seg.endT;
   if(i>0)a+=dir*cabinetTurnTrim(byId(items,route.segments[i-1].wallId),w)/len;
+  else a=finishAtCorner(items,w,a);
   if(i<route.segments.length-1)b-=dir*cabinetTurnTrim(w,byId(items,route.segments[i+1].wallId))/len;
-  if(Math.abs(b-a)*len<.30)continue;
+  else b=finishAtCorner(items,w,b);
+  const nearEdge=Math.min(a,1-a,b,1-b)*len<.40;
+  if(Math.abs(b-a)*len<(nearEdge?.42:.30))continue;
   const pt=t=>({x:w.x1+(w.x2-w.x1)*t,z:w.z1+(w.z2-w.z1)*t});
   const result=placeCabinet(items,{...pt(a),hostId:w.id,side:seg.side},pt(b),
    {...opts,side:seg.side,cornerGroup:group});
@@ -273,14 +288,17 @@ export function cabinetFootprint(c,w){
 }
 export const EQUIPMENT_MODELS=Object.freeze({
  fridge:[{id:'single',label:'تک‌درب'},{id:'side',label:'سایدبای‌ساید'},{id:'combination',label:'فریزر پایین'}],
- stove:[{id:'gas4',label:'گاز ۴ شعله'},{id:'gas5',label:'گاز ۵ شعله'},{id:'induction',label:'صفحه القایی'}],
- sink:[{id:'single',label:'تک‌لگن'},{id:'double',label:'دولگن'},{id:'drainer',label:'لگن و آبچکان'}]
+ stove:[{id:'gas5',label:'۵ شعله'},{id:'gas3',label:'۳ شعله'},{id:'gas2',label:'۲ شعله'},
+  {id:'gas4',label:'۴ شعله (قدیمی)'},{id:'induction',label:'القایی (قدیمی)'}],
+ sink:[{id:'single',label:'تک‌کاسه'},{id:'double',label:'دوکاسه'},{id:'drainer',label:'آبچکان (قدیمی)'}]
 });
 export const EQUIPMENT_SPECS=Object.freeze({
  fridge:{name:'یخچال',width:.82,depth:.72,height:1.90,elevation:0},
- stove:{name:'اجاق گاز',width:.60,depth:.55,height:.10,elevation:.86},
- sink:{name:'سینک',width:.60,depth:.54,height:.12,elevation:.86}
+ stove:{name:'اجاق گاز',width:.75,depth:.52,height:.045,elevation:.86},
+ sink:{name:'سینک',width:.60,depth:.54,height:.045,elevation:.86}
 });
+const STOVE_WIDTHS={gas2:.32,gas3:.45,gas4:.60,gas5:.75,induction:.60};
+const SINK_WIDTHS={60:.60,90:.90,120:1.20};
 export function equipmentPosition(o,items){
  if(o.subtype==='fridge'||!o.hostId)return {x:o.x,z:o.z,rotation:o.rotation||0,elevation:0};
  const c=byId(items,o.hostId);if(!c||c.kind!=='cabinet')return null;
@@ -393,21 +411,71 @@ export function snapFridgePoint(items,point,width=.82,depth=.72){
  return {x:near.x-uz*offset*sign,z:near.z+ux*offset*sign,
   rotation:Math.atan2(uz,ux)+(sign<0?Math.PI:0)};
 }
+/* A fridge may replace a section of a cabinet run. All changes are transactional:
+   narrow corner scraps disappear, valid side cabinets remain, and hosted appliances move with them. */
+function embedFridge(items,obj,point){
+ const near=nearestWall(items,point.x,point.z,.95);if(!near)return false;
+ const w=near.wall,len=lengthOf(w),along=near.t*len,base=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===w.id);
+ const nearest=base.map(c=>({c,d:Math.max(c.startT*len-along,0,along-c.endT*len)})).sort((a,b)=>a.d-b.d)[0];
+ if(!nearest||nearest.d>.66||len<obj.width+.22)return false;
+ const chosen=nearest.c,side=chosen.side||1,ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
+ const nx=-uz*side,nz=ux*side,half=(obj.width+.055)/2;
+ const mid=Math.max(half+.10,Math.min(len-half-.10,along));
+ const cutLeft=mid-half,cutRight=mid+half,cutL=cutLeft/len,cutR=cutRight/len;
+ const replacing=items.filter(c=>c.kind==='cabinet'&&c.hostId===w.id&&c.side===side&&
+  Math.min(c.endT,cutR)-Math.max(c.startT,cutL)>.001&&
+  c.elevation<obj.height+.035);
+ if(!replacing.length){
+  const left=base.some(c=>c.side===side&&Math.abs(c.endT*len-cutLeft)<.22);
+  const right=base.some(c=>c.side===side&&Math.abs(c.startT*len-cutRight)<.22);
+  if(!left||!right)return false;
+ }
+ for(const c of replacing){
+  const hosted=items.filter(e=>e.kind==='equipment'&&e.hostId===c.id);
+  const segments=[];
+  const add=(startT,endT)=>{
+   if((endT-startT)*len<.30)return;
+   const piece={...c,id:segments.length?uid():c.id,startT,endT};
+   segments.push(piece);
+  };
+  add(c.startT,Math.min(c.endT,cutL));
+  add(Math.max(c.startT,cutR),c.endT);
+  for(const e of hosted){
+   const centre=(c.startT+(c.endT-c.startT)*(e.offsetT??.5))*len;
+   if(centre+e.width/2>cutLeft-.02&&centre-e.width/2<cutRight+.02)
+    throw Error('محل یخچال با سینک یا گاز نصب‌شده تداخل دارد.');
+   const target=segments.find(p=>centre/len>=p.startT&&centre/len<=p.endT);
+   if(!target)throw Error('کابینت زیر تجهیزات برای یخچال کافی نیست.');
+   e.hostId=target.id;e.offsetT=(centre/len-target.startT)/(target.endT-target.startT);
+  }
+  const ix=items.findIndex(x=>x.id===c.id);items.splice(ix,1,...segments);
+  for(const piece of segments)syncCabinet(items,piece);
+ }
+ obj.x=w.x1+ux*mid+nx*(w.thickness/2+obj.depth/2+.02);
+ obj.z=w.z1+uz*mid+nz*(w.thickness/2+obj.depth/2+.02);
+ obj.rotation=Math.atan2(uz,ux)+(side<0?Math.PI:0);
+ obj.builtIn=true;obj.surround={wallId:w.id,side,clearance:.055};
+ validateCabinets(items,w);
+ return true;
+}
 export function placeEquipment(source,point,subtype){
  const spec=EQUIPMENT_SPECS[subtype],items=copy(source);
  if(!spec||!finite(point?.x,point?.z))throw Error('محل تجهیزات معتبر نیست.');
  const obj={id:uid(),kind:'equipment',subtype,name:spec.name,width:spec.width,
   depth:spec.depth,height:spec.height,elevation:spec.elevation,x:point.x,z:point.z,rotation:0,
-  model:EQUIPMENT_MODELS[subtype][0].id};
+  model:EQUIPMENT_MODELS[subtype][0].id,...(subtype==='stove'?{induction:false}:{}),
+  ...(subtype==='sink'?{sinkSize:60}:{})};
  if(subtype==='fridge'){
   Object.assign(obj,snapFridgePoint(items,point,obj.width,obj.depth));
+  embedFridge(items,obj,point);
   for(const w of items.filter(wall)){
    if(polygonOverlap(equipmentFootprint(obj),wallFootprint(w)))throw Error('یخچال نباید داخل دیوار قرار بگیرد.');
   }
   for(const c of items.filter(o=>o.kind==='cabinet')){
    const host=byId(items,c.hostId);
-   if(host&&polygonOverlap(equipmentFootprint(obj),cabinetFootprint(c,host).corners))
-    throw Error('یخچال با کابینت برخورد دارد؛ روی کفِ آزاد قرار بده.');
+   if(host&&Math.min(obj.height,c.elevation+c.height)-Math.max(0,c.elevation)>.015&&
+     polygonOverlap(equipmentFootprint(obj),cabinetFootprint(c,host).corners))
+    throw Error('یخچال با کابینت برخورد دارد؛ آن را داخل فضای کابینت یا روی کف آزاد بگذار.');
   }
   for(const e of items.filter(o=>o.kind==='equipment'))
    if(polygonOverlap(equipmentFootprint(obj),equipmentFootprint(e)))
@@ -429,12 +497,21 @@ export function placeEquipment(source,point,subtype){
  }
  items.push(obj);validateEquipmentSpacing(items);return {items,selectedId:obj.id};
 }
-export function editEquipment(source,id,{width,depth,height,model}={}){
+export function editEquipment(source,id,{width,depth,height,model,induction,sinkSize}={}){
  const items=copy(source),e=byId(items,id);
  if(!e||e.kind!=='equipment')throw Error('تجهیزات انتخاب نشده‌اند.');
+ if(model!==undefined){
+  if(!EQUIPMENT_MODELS[e.subtype]?.some(m=>m.id===model))throw Error('مدل تجهیزات نامعتبر است.');
+  e.model=model;
+  if(e.subtype==='stove'&&width===undefined)e.width=STOVE_WIDTHS[model]??e.width;
+ }
+ if(induction!==undefined&&e.subtype==='stove')e.induction=Boolean(induction);
+ if(sinkSize!==undefined&&e.subtype==='sink'){
+  const v=Number(sinkSize);if(!SINK_WIDTHS[v])throw Error('عرض سینک باید ۶۰، ۹۰ یا ۱۲۰ سانتی‌متر باشد.');
+  e.sinkSize=v;if(width===undefined)e.width=SINK_WIDTHS[v];
+ }
  e.width=Number(width??e.width);e.depth=Number(depth??e.depth);e.height=Number(height??e.height);
- if(model!==undefined){if(!EQUIPMENT_MODELS[e.subtype]?.some(m=>m.id===model))throw Error('مدل تجهیزات نامعتبر است.');e.model=model;}
- if(!finite(e.width,e.depth,e.height)||e.width<.3||e.width>2||e.depth<.2||e.depth>1.3||e.height<.04||e.height>2.7)
+ if(!finite(e.width,e.depth,e.height)||e.width<.3||e.width>2||e.depth<.2||e.depth>1.3||e.height<.025||e.height>2.7)
   throw Error('ابعاد تجهیزات نامعتبر است.');
  if(e.hostId){
   const host=byId(items,e.hostId);

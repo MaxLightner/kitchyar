@@ -57,3 +57,19 @@ test('tool dimensions update as the user types, before focus leaves the field',(
  assert.match(source,/settings\[field\.dataset\.setting\]=field\.type/);
  assert.match(source,/activeTool=null;[\s\S]*?floor\?\.setDrawing\(null\);showScene\(\)/);
 });
+
+test('mobile drawing handles use pixel proximity and retain finger offset',()=>{
+ const app=read('app.js'),plan=read('plan-view.js'),floor=read('floor-ar.js');
+ assert.match(app,/function pickPlanCalibration/);
+ assert.match(app,/function pickPlanHandle/);
+ assert.match(app,/dx:anchor\.x-/);
+ assert.match(plan,/touchRadius=Math\.max/);
+ assert.match(floor,/distance=65/);
+});
+test('kitchen fixtures and task lighting expose their independent controls',()=>{
+ const app=read('app.js'),floor=read('floor-ar.js');
+ assert.match(app,/data-action="sink-size"/);
+ assert.match(app,/data-equipment-induction/);
+ assert.match(app,/data-render="taskLighting"/);
+ assert.match(floor,/THREE\.PointLight/);
+});
