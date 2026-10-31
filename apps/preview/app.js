@@ -79,12 +79,14 @@
   function cancelMove(before){project.scene.items=before;refreshScene();}
   function createShape(kind,a,b) {
     const before=Core.copy(project.scene.items);
-    const item=kind==='wall'?Core.createWall(a,b):Core.createCabinetRun(a,b,kind==='base'?'base':'wall');
-    if(kind==='wall'){
-      const joined=Core.connectWall(project.scene.items,item);
-      project.scene.items=joined.items;selectedId=joined.selectedId;
-    }else{project.scene.items.push(item);selectedId=item.id;}
-    try{commit(before);}catch(error){project.scene.items=before;selectedId=null;refreshScene();toast(error.message);}
+    try{
+      const item=kind==='wall'?Core.createWall(a,b):Core.createCabinetRun(a,b,kind==='base'?'base':'wall');
+      if(kind==='wall'){
+        const joined=Core.connectWall(project.scene.items,item);
+        project.scene.items=joined.items;selectedId=joined.selectedId;
+      }else{project.scene.items.push(item);selectedId=item.id;}
+      commit(before);
+    }catch(error){project.scene.items=before;selectedId=null;refreshScene();toast(error.message);}
   }
   function createOpening(wid,offset,type) {
     const wall=project.scene.items.find(i=>i.id===wid);if(!wall)return;
