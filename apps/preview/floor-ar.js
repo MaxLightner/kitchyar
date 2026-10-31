@@ -10,35 +10,58 @@ export class FloorAR {
   Object.assign(this,{root,update,exit,session:null,renderer:null,locked:false,current:null,origin:null});
   this.scanner=new FloorScanner();this.rig=new AnchorStabilizer();this.sources=[];this.anchors=[];
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
-   this.items=[];this.selectedId=null;this.drawing=null;
+   this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;
+   this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10};
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
    progress:Math.min(100,Math.round(this.scanner.observations.length/3*100)),
    valid:this.scanner.validHits,inliers:this.scanner.inlierHits,raw:this.scanner.rawHits,
-   anchors:this.anchors.length,...extra});
+   anchors:this.anchors.length,depth:this.renderer?.xr?.hasDepthSensing?.()||false,...extra});
  }
  async start(){
   if(this.session)return;
   if(!navigator.xr||!isSecureContext)throw Error('این مرورگر از AR پشتیبانی نمی‌کند. برای اسکن کف از Chrome اندروید و ARCore استفاده کن.');
   // Preserve click activation: requestSession is the first asynchronous operation.
-  const requesting=requestARSession(navigator.xr,this.root,false,{});
+  const requesting=requestARSession(navigator.xr,this.root,false,{depth:true,light:true});
   this.session=await requesting;
   try{
    this.scene=new THREE.Scene();this.camera=new THREE.PerspectiveCamera();
    this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
    this.renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.5));
+   this.renderer.shadowMap.enabled=true;
+   this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+   this.renderer.toneMapping=THREE.ACESFilmicToneMapping;
+   this.renderer.toneMappingExposure=1.15;
    this.renderer.xr.enabled=true;this.renderer.xr.setReferenceSpaceType('local');
    this.renderer.domElement.className='xr-canvas';
    this.root.querySelector('.editor-scene').prepend(this.renderer.domElement);
    await this.renderer.xr.setSession(this.session);
    this.space=this.renderer.xr.getReferenceSpace();
    this.floorGroup=new THREE.Group();this.scene.add(this.floorGroup);
-    this.scene.add(new THREE.HemisphereLight(0xffffff,0x7d8b80,2.0));
-    const sun=new THREE.DirectionalLight(0xfff4e2,2.1);sun.position.set(-3,6,4);this.scene.add(sun);
+    this.ambient=new THREE.HemisphereLight(0xffffff,0x7d8b80,1.0);this.scene.add(this.ambient);
+    this.sun=new THREE.DirectionalLight(0xfff4e2,2.1);
+    this.sun.castShadow=true;this.sun.shadow.mapSize.set(2048,2048);
+    this.sun.shadow.camera.left=-6;this.sun.shadow.camera.right=6;
+    this.sun.shadow.camera.top=6;this.sun.shadow.camera.bottom=-6;
+    this.sun.shadow.camera.near=.1;this.sun.shadow.camera.far=22;
+    this.sun.shadow.bias=-.00015;this.sun.shadow.normalBias=.018;
+    this.sun.shadow.radius=3;this.sun.target.position.set(0,0,0);
+    this.floorGroup.add(this.sun,this.sun.target);this.setLighting(this.renderSettings);
     this.objectGroup=new THREE.Group();this.floorGroup.add(this.objectGroup);
-    this.previewLine=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0xffd16e,depthTest:false,linewidth:2}));
-    this.previewLine.visible=false;this.previewLine.renderOrder=20;this.floorGroup.add(this.previewLine);
+    this.previewGroup=new THREE.Group();this.previewGroup.visible=false;
+    this.previewGroup.renderOrder=20;this.floorGroup.add(this.previewGroup);
+    this.whiteFloor=new THREE.Mesh(new THREE.PlaneGeometry(6,6),new THREE.MeshStandardMaterial({
+     color:0xffffff,transparent:true,opacity:.50,depthWrite:false,roughness:1,metalness:0,side:THREE.DoubleSide
+    }));
+    this.whiteFloor.rotation.x=-Math.PI/2;this.whiteFloor.position.y=.001;
+    this.whiteFloor.receiveShadow=true;this.whiteFloor.visible=false;this.floorGroup.add(this.whiteFloor);
+    this.shadowFloor=new THREE.Mesh(new THREE.PlaneGeometry(6,6),new THREE.ShadowMaterial({opacity:.27,transparent:true,depthWrite:false}));
+    this.shadowFloor.rotation.x=-Math.PI/2;this.shadowFloor.position.y=.002;
+    this.shadowFloor.receiveShadow=true;this.shadowFloor.visible=false;this.floorGroup.add(this.shadowFloor);
+    this.reflectionRT=new THREE.WebGLCubeRenderTarget(64,{generateMipmaps:true,minFilter:THREE.LinearMipmapLinearFilter});
+    this.reflectionCamera=new THREE.CubeCamera(.1,20,this.reflectionRT);
+    this.reflectionCamera.position.set(0,1.4,0);this.floorGroup.add(this.reflectionCamera);
     this.rebuildObjects();
    this.net=createFloorNet();this.floorGroup.add(this.net);
    this.crosses=new THREE.Group();this.scene.add(this.crosses);
@@ -70,8 +93,16 @@ export class FloorAR {
   for(const a of this.anchors)try{a.anchor.delete();}catch{}this.anchors=[];
   this.hitSource?.cancel();
   for(const s of this.sources)try{s.cancel();}catch{}this.sources=[];
-  this.net.visible=false;this.ruler.visible=false;this.marks.forEach(m=>m.visible=false);
+  this.net.visible=false;this.whiteFloor.visible=false;this.shadowFloor.visible=false;
+  this.previewGroup.visible=false;this.ruler.visible=false;this.marks.forEach(m=>m.visible=false);
   const viewer=await this.session.requestReferenceSpace('viewer');
+  this.lowerHitSource?.cancel?.();this.lowerHitSource=null;
+  if(window.XRRigidTransform){try{
+   const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1),new THREE.Vector3(0,-.38,-1).normalize());
+   const lower=viewer.getOffsetReferenceSpace(new XRRigidTransform({}, {x:q.x,y:q.y,z:q.z,w:q.w}));
+   this.lowerHitSource=await this.session.requestHitTestSource({space:lower,entityTypes:['plane']});
+  }catch(error){console.debug('Lower reticle hit-test unavailable',error);}}
+
   this.hitSource=await this.session.requestHitTestSource({space:viewer,entityTypes:['plane']});
   if(window.XRRigidTransform){
    for(const [x,y] of RAYS){
@@ -91,6 +122,7 @@ export class FloorAR {
   this.floorGroup.position.copy(this.origin);
   this.net.material.uniforms.reveal.value=2.8;this.net.material.uniforms.pulse.value=0;
   this.net.material.uniforms.opacity.value=.39;this.net.visible=true;
+  this.whiteFloor.visible=true;this.shadowFloor.visible=true;
   this.marks.forEach(m=>m.visible=false);
   this.candidates=[this.origin.clone(),...this.scanner.observations.map(p=>p.clone())];
   this.report('کف تثبیت شد. اکنون نقاط A و B را ثبت کن.',{progress:100});
@@ -158,16 +190,37 @@ export class FloorAR {
      this.net.material.uniforms.pulse.value=1;
     }
    }else{
-    this.current=floorCandidates(center,this.space,viewer)
-      .find(h=>Math.abs(h.point.y-this.origin.y)<.055)?.point||null;
+    const lower=this.lowerHitSource?frame.getHitTestResults(this.lowerHitSource):center;
+    this.current=floorCandidates(lower,this.space,viewer)
+      .find(h=>Math.abs(h.point.y-this.origin.y)<.055)?.point||
+      floorCandidates(center,this.space,viewer).find(h=>Math.abs(h.point.y-this.origin.y)<.055)?.point||null;
+    this.targetLocal=null;
+    const kind=this.drawing?.kind;
+    if(kind&&['upper','base','window','door'].includes(kind)){
+     const wallHit=this.raycastWall(pose,kind==='upper');
+     if(wallHit)this.targetLocal=wallHit;
+     else if(kind==='upper')this.current=null;
+    }
     this.updateAnchors(frame,time,center,viewer);
-     this.updatePreview();
+    this.updatePreview();
    }
   }
   if(time-this.lastReport>350){
    this.report(!this.locked?(this.scanner.ready?'کف آماده است؛ «تثبیت این کف» را بزن.':'نشانگر را روی کف حرکت بده.'):
-    (this.current?'سطح معتبر است؛ نقطه مرجع را ثبت کن.':'مرجع حفظ شده؛ سطح معتبر زیر نشانگر نیست.'),{tracking:true});
+    (this.current||this.targetLocal?'نشانگر روی سطح معتبر است؛ نقطه را ثبت کن.':'سطح معتبری زیر نشانگر نیست.'),{tracking:true});
    this.lastReport=time;
+  }
+  if(this.reflectionDirty&&this.reflectionCamera&&this.locked){
+   this.reflectionDirty=false;
+   const old=this.renderer.xr.enabled;this.renderer.xr.enabled=false;
+   try{
+    this.previewGroup.visible=false;
+    const cabinets=this.objectGroup.children.filter(n=>n.userData?.cabinet);
+    cabinets.forEach(n=>n.visible=false);
+    this.reflectionCamera.update(this.renderer,this.scene);
+    cabinets.forEach(n=>n.visible=true);
+   }catch(error){console.debug('Reflection probe unavailable',error);}
+   finally{this.renderer.xr.enabled=old;}
   }
   this.renderer.render(this.scene,this.camera);
  }
@@ -199,21 +252,94 @@ export class FloorAR {
   }
   this.lastTime=time;
  }
+ raycastWall(pose,upper){
+  if(!this.objectGroup||!this.floorGroup)return null;
+  const q=pose.transform.orientation,p=pose.transform.position;
+  const direction=new THREE.Vector3(0,upper?.38:-.38,-1).normalize()
+   .applyQuaternion(new THREE.Quaternion(q.x,q.y,q.z,q.w));
+  const raycaster=new THREE.Raycaster(new THREE.Vector3(p.x,p.y,p.z),direction,.05,12);
+  this.floorGroup.updateWorldMatrix(true,true);
+  const walls=[];
+  this.objectGroup.traverse(n=>{if(n.isMesh&&n.userData.wall)walls.push(n);});
+  const hit=raycaster.intersectObjects(walls,false)[0];
+  if(!hit)return null;
+  const local=this.floorGroup.worldToLocal(hit.point.clone());
+  return {x:local.x,z:local.z};
+ }
  pick(){
-  if(!this.locked||!this.current||!this.floorGroup)return null;
+  if(!this.locked||!this.floorGroup)return null;
+  if(this.targetLocal)return {...this.targetLocal};
+  if(!this.current)return null;
   this.floorGroup.updateWorldMatrix(true,false);
   const v=this.floorGroup.worldToLocal(this.current.clone());
   return {x:v.x,z:v.z};
  }
  setItems(items,selectedId=null){this.items=structuredClone(items||[]);this.selectedId=selectedId;this.rebuildObjects();}
- setDrawing(start,kind){this.drawing=start?{start,kind}:null;if(!start&&this.previewLine)this.previewLine.visible=false;}
+ setLighting(options={}){
+  const before=this.renderSettings||{},next={...before,...options};
+  const changed=next.aoStrength!==before.aoStrength||next.reflection!==before.reflection;
+  this.renderSettings=next;
+  if(this.sun){
+   const az=THREE.MathUtils.degToRad(next.sunAzimuth),el=THREE.MathUtils.degToRad(next.sunElevation);
+   const r=8;this.sun.position.set(r*Math.cos(el)*Math.cos(az),r*Math.sin(el),r*Math.cos(el)*Math.sin(az));
+   this.sun.intensity=next.sunIntensity;this.sun.target.position.set(0,0,0);
+   this.sun.shadow.needsUpdate=true;this.ambient.intensity=next.ambientIntensity;
+  }
+  if(changed)this.rebuildObjects();
+ }
+ setDrawing(start,kind){
+  this.drawing=kind?{start,kind}:null;
+  if(!kind&&this.previewGroup)this.previewGroup.visible=false;
+ }
  updatePreview(){
-  if(!this.previewLine||!this.drawing)return;
-  const end=this.pick();if(!end)return;
-  this.previewLine.geometry.dispose();
-  this.previewLine.geometry=new THREE.BufferGeometry().setFromPoints([
-   new THREE.Vector3(this.drawing.start.x,.08,this.drawing.start.z),new THREE.Vector3(end.x,.08,end.z)]);
-  this.previewLine.visible=true;
+  if(!this.previewGroup)return;
+  const group=this.previewGroup;
+  while(group.children.length){const c=group.children[0];group.remove(c);c.geometry?.dispose();c.material?.dispose();}
+  if(!this.drawing){group.visible=false;return;}
+  const p=this.pick();if(!p){group.visible=false;return;}
+  const kind=this.drawing.kind,a=this.drawing.start;
+  let from=a||p,to=p,width,level=0,height,colour;
+  if(kind==='wall'){if(!a)to={x:p.x+1.1,z:p.z};width=.12;height=2.8;colour=0x67cba7;}
+  else{
+   const host=a?.hostId?this.items.find(w=>w.id===a.hostId):
+    nearestWallLocal(this.items,p.x,p.z);
+   if(!host){group.visible=false;return;}
+   const len=Math.hypot(host.x2-host.x1,host.z2-host.z1);
+   const project=(point)=>{
+    const t=THREE.MathUtils.clamp(((point.x-host.x1)*(host.x2-host.x1)+(point.z-host.z1)*(host.z2-host.z1))/(len*len),0,1);
+    return {x:host.x1+t*(host.x2-host.x1),z:host.z1+t*(host.z2-host.z1),t};
+   };
+   const projected=project(p);
+   if(kind==='window'||kind==='door'){
+    from=projected;to=project({x:p.x+(host.x2-host.x1)/len*(kind==='door'?.9:1.2),
+     z:p.z+(host.z2-host.z1)/len*(kind==='door'?.9:1.2)});
+    const half=(kind==='door'?.45:.6)/len,mid=projected.t;
+    from=project({x:host.x1+(host.x2-host.x1)*Math.max(0,mid-half),
+     z:host.z1+(host.z2-host.z1)*Math.max(0,mid-half)});
+    to=project({x:host.x1+(host.x2-host.x1)*Math.min(1,mid+half),
+     z:host.z1+(host.z2-host.z1)*Math.min(1,mid+half)});
+    width=Math.max(.10,host.thickness+.03);level=kind==='door'?0:.9;height=kind==='door'?2.1:1.2;colour=kind==='door'?0xdba76f:0x73c9df;
+   }else{
+    from=a?project(a):project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
+    to=project(p);
+    if(!a&&Math.hypot(to.x-from.x,to.z-from.z)<.3){
+     from=project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
+    }
+    width=kind==='upper'?.35:.60;level=kind==='upper'?1.55:.08;height=kind==='upper'?.72:.78;colour=kind==='upper'?0xe5c79a:0xbca289;
+    const nx=-(host.z2-host.z1)/len*(a?.side||1),nz=(host.x2-host.x1)/len*(a?.side||1);
+    const offset=host.thickness/2+.004+width/2;
+    from={x:from.x+nx*offset,z:from.z+nz*offset};
+    to={x:to.x+nx*offset,z:to.z+nz*offset};
+   }
+  }
+  const dx=to.x-from.x,dz=to.z-from.z,length=Math.hypot(dx,dz);
+  if(length<.04){group.visible=false;return;}
+  const mat=new THREE.MeshPhysicalMaterial({color:colour,transparent:true,opacity:.48,depthWrite:false,
+   roughness:.4,metalness:.08,side:THREE.DoubleSide});
+  const ghost=new THREE.Mesh(new THREE.BoxGeometry(length,height,width),mat);
+  ghost.position.set((from.x+to.x)/2,level+height/2,(from.z+to.z)/2);
+  ghost.rotation.y=-Math.atan2(dz,dx);ghost.renderOrder=20;ghost.userData.preview=true;
+  group.add(ghost);group.visible=true;
  }
  rebuildObjects(){
   if(!this.objectGroup)return;
@@ -224,11 +350,20 @@ export class FloorAR {
   const material=(color,extra={})=>new THREE.MeshStandardMaterial({color,roughness:.65,...extra});
   const plaster=material(0xd7dbd1),selected=material(0x65ac8e),frame=material(0xf0eee6);
   const glass=new THREE.MeshPhysicalMaterial({color:0x9dcede,transparent:true,opacity:.48,roughness:.18,depthWrite:false,side:THREE.DoubleSide});
-  const wood=material(0x8a6d50),base=material(0xbda995),upper=material(0xe2ded4);
+  const wood=material(0x8a6d50);
+  const cabinet=(color)=>new THREE.MeshPhysicalMaterial({
+   color,roughness:.36,metalness:.08,clearcoat:.10,clearcoatRoughness:.22,
+   envMap:this.reflectionRT?.texture,envMapIntensity:this.renderSettings.reflection
+  });
+  const base=cabinet(0xbda995),upper=cabinet(0xe2ded4);
+  const cabinetSelected=cabinet(0x65ac8e);
   const box=(owner,from,to,y0,y1,width,angle,cx,cz,mat)=>{
    if(to-from<.002||y1-y0<.002)return;
    const mesh=new THREE.Mesh(new THREE.BoxGeometry(to-from,y1-y0,width),mat.clone());
-   mesh.position.set(cx,(y0+y1)/2,cz);mesh.rotation.y=-angle;mesh.userData.objectId=owner.id;this.objectGroup.add(mesh);
+   mesh.position.set(cx,(y0+y1)/2,cz);mesh.rotation.y=-angle;
+   mesh.userData.objectId=owner.id;mesh.userData.wall=owner.kind==='wall';
+   mesh.userData.cabinet=owner.kind==='cabinet';
+   mesh.castShadow=true;mesh.receiveShadow=true;this.objectGroup.add(mesh);
   };
   for(const w of this.items.filter(x=>x.kind==='wall')){
    const dx=w.x2-w.x1,dz=w.z2-w.z1,len=Math.hypot(dx,dz);if(len<.1)continue;
@@ -257,7 +392,7 @@ export class FloorAR {
      pivot.rotation.y=-angle+(o.mirrored?1:-1)*(o.openFraction||0)*Math.PI/2;
      const panel=new THREE.Mesh(new THREE.BoxGeometry(o.width-edge,o.height,.047),wood.clone());
      panel.position.set((o.width-edge)/2,o.height/2,0);
-     pivot.add(panel);this.objectGroup.add(pivot);
+     panel.castShadow=true;panel.receiveShadow=true;pivot.add(panel);this.objectGroup.add(pivot);
     }
     last=o.b;
    }
@@ -271,16 +406,53 @@ export class FloorAR {
    const len=Math.hypot(c.x2-c.x1,c.z2-c.z1);if(len<.3)continue;
    const angle=Math.atan2(c.z2-c.z1,c.x2-c.x1),y0=c.elevation??.1;
    box(c,0,len,y0,y0+c.height,c.depth,angle,(c.x1+c.x2)/2,(c.z1+c.z2)/2,
-    c.id===this.selectedId?selected:c.subtype==='upper'?upper:base);
+    c.id===this.selectedId?cabinetSelected:c.subtype==='upper'?upper:base);
   }
-  for(const m of [plaster,selected,frame,glass,wood,base,upper])m.dispose();
+  for(const m of [plaster,selected,frame,glass,wood,base,upper,cabinetSelected])m.dispose();
+  this.applyRaycastAO();
+  this.reflectionDirty=true;
  }
+ /* Geometry-based ambient occlusion: hemisphere rays against actual neighboring meshes.
+    Computed only when geometry or AO strength changes, never per XR frame. */
+ applyRaycastAO(){
+  if(!this.objectGroup)return;
+  this.floorGroup?.updateWorldMatrix(true,true);
+  const meshes=[];
+  this.objectGroup.traverse(n=>{if(n.isMesh&&n.geometry?.attributes?.normal)meshes.push(n);});
+  const cast=meshes.filter(m=>!m.material.transparent),ray=new THREE.Raycaster();
+  const up=new THREE.Vector3(),normal=new THREE.Vector3(),tangent=new THREE.Vector3(),bitangent=new THREE.Vector3();
+  const axes=[[0,0],[.74,0],[-.74,0],[0,.74],[0,-.74],[.48,.48],[-.48,-.48]];
+  const strength=THREE.MathUtils.clamp(this.renderSettings?.aoStrength??.65,0,1);
+  for(const mesh of cast){
+   const geo=mesh.geometry,position=geo.getAttribute('position'),normals=geo.getAttribute('normal');
+   const colours=[];
+   const nearby=cast.filter(other=>other!==mesh);
+   for(let i=0;i<position.count;i++){
+    const world=new THREE.Vector3().fromBufferAttribute(position,i).applyMatrix4(mesh.matrixWorld);
+    normal.fromBufferAttribute(normals,i).transformDirection(mesh.matrixWorld).normalize();
+    const ref=Math.abs(normal.y)>.91?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0);
+    tangent.crossVectors(normal,ref).normalize();bitangent.crossVectors(normal,tangent).normalize();
+    let blocked=0;
+    for(const [x,y] of axes){
+     const dir=normal.clone().addScaledVector(tangent,x).addScaledVector(bitangent,y).normalize();
+     ray.set(world.clone().addScaledVector(normal,.018),dir);ray.near=.005;ray.far=.66;
+     const hit=ray.intersectObjects(nearby,false)[0];
+     if(hit)blocked+=1-hit.distance/.66;
+    }
+    const ao=THREE.MathUtils.clamp(1-strength*(blocked/axes.length)*.95,.48,1);
+    colours.push(ao,ao,ao);
+   }
+   geo.setAttribute('color',new THREE.Float32BufferAttribute(colours,3));
+   mesh.material.vertexColors=true;mesh.material.needsUpdate=true;
+  }
+ }
+
 
  async stop(){if(this.session)try{await this.session.end();}catch{this.cleanup();}}
  cleanup(){
-  this.hitSource?.cancel();for(const s of this.sources)try{s.cancel();}catch{}
-  this.renderer?.setAnimationLoop(null);this.renderer?.dispose();this.renderer?.domElement.remove();
-  this.renderer=null;this.session=null;this.objectGroup=null;this.previewLine=null;this.exit?.();
+  this.hitSource?.cancel();this.lowerHitSource?.cancel?.();for(const s of this.sources)try{s.cancel();}catch{}
+  this.renderer?.setAnimationLoop(null);this.reflectionRT?.dispose();this.renderer?.dispose();this.renderer?.domElement.remove();
+  this.renderer=null;this.session=null;this.objectGroup=null;this.previewGroup=null;this.exit?.();
  }
 }
 function createFloorNet(){
@@ -292,4 +464,16 @@ function createFloorNet(){
   fragmentShader:fragment
  }));
  net.rotation.x=-Math.PI/2;net.position.y=.004;return net;
+}
+
+function nearestWallLocal(items,x,z,tolerance=.65){
+ let best=null,d=tolerance;
+ for(const w of items)if(w.kind==='wall'){
+  const len=(w.x2-w.x1)**2+(w.z2-w.z1)**2;
+  if(len<.01)continue;
+  const t=THREE.MathUtils.clamp(((x-w.x1)*(w.x2-w.x1)+(z-w.z1)*(w.z2-w.z1))/len,0,1);
+  const dist=Math.hypot(x-w.x1-t*(w.x2-w.x1),z-w.z1-t*(w.z2-w.z1));
+  if(dist<d){best=w;d=dist;}
+ }
+ return best;
 }

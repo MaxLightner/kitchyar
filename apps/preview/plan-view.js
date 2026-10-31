@@ -1,4 +1,4 @@
-import {lengthOf} from './geometry.js';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint} from './geometry.js';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null}={}){
@@ -26,9 +26,13 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   }
  }
  for(const c of cabinets){
-  out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
-   '" stroke="'+(c.id===selectedId?'#2c9478':c.subtype==='upper'?'#b7aaa1':'#9a826c')+
-   '" stroke-width="'+f(c.depth)+'" opacity="'+(c.subtype==='upper'?'.55':'.92')+'"/>';
+  const w=walls.find(x=>x.id===c.hostId),fp=w?cabinetFootprint(c,w):null;
+  if(fp){
+   out+='<polygon data-item-id="'+safe(c.id)+'" points="'+fp.corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
+    '" fill="'+(c.id===selectedId?'#70bd9e':c.subtype==='upper'?'#dfd5c5':'#b5a08b')+
+    '" fill-opacity="'+(c.subtype==='upper'?'.6':'.9')+'" stroke="#786e64" stroke-width=".025"/>';
+  }else out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
+   '" stroke="#ab9382" stroke-width="'+f(c.depth)+'" opacity=".65"/>';
  }
  const selection=items.find(x=>x.id===selectedId);
  if(selection&&['wall','cabinet'].includes(selection.kind)&&!mini){
@@ -48,14 +52,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    }
   }
  }
- if(drawing&&!mini){
-  out+='<circle cx="'+f(drawing.x)+'" cy="'+f(drawing.z)+'" r=".085" fill="#dc9d58" stroke="white" stroke-width=".035" pointer-events="none"/>';
-  if(hover){
-   out+='<line x1="'+f(drawing.x)+'" y1="'+f(drawing.z)+'" x2="'+f(hover.x)+'" y2="'+f(hover.z)+
-    '" stroke="#d89954" stroke-width=".05" stroke-dasharray=".13,.08" pointer-events="none"/>';
-  }
- }
- if(hover&&!mini)out+='<circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".05" fill="#edb568" pointer-events="none"/>';
+ if(drawing&&!mini)out+=renderPreview(items,drawing,hover);
  return out+'</svg>';
 }
 export function planPoint(svg,event){
@@ -63,4 +60,45 @@ export function planPoint(svg,event){
  const matrix=svg.getScreenCTM();if(!matrix)return null;
  const local=pt.matrixTransform(matrix.inverse());
  return {x:local.x,z:local.y};
+}
+
+/* Full-footprint SVG ghost rendered before either point is committed. */
+export function renderPreview(items,drawing,hover){
+ if(!drawing||!hover)return '';
+ const tool=drawing.tool,start=drawing.start;
+ const wallMode=tool==='wall',openingMode=tool==='window'||tool==='door';
+ const width=wallMode?.12:openingMode?.12:tool==='upper'?.35:.60;
+ let corners=null;
+ const rect=(a,b,depth,offset=0)=>{
+  const len=Math.hypot(b.x-a.x,b.z-a.z);if(len<.0001)return null;
+  const nx=-(b.z-a.z)/len,nz=(b.x-a.x)/len;
+  return [a,b].map(p=>({x:p.x+nx*(offset-depth/2),z:p.z+nz*(offset-depth/2)}))
+   .concat([b,a].map(p=>({x:p.x+nx*(offset+depth/2),z:p.z+nz*(offset+depth/2)})));
+ };
+ if(wallMode){
+  const a=start||{x:hover.x-.55,z:hover.z},b=start?hover:{x:hover.x+.55,z:hover.z};
+  corners=rect(a,b,width);
+ }else{
+  const host=start?.hostId?items.find(x=>x.id===start.hostId):nearestWall(items,hover.x,hover.z,.6)?.wall;
+  if(host){
+   const len=lengthOf(host);
+   if(openingMode){
+    const p=projectOnWall(host,hover.x,hover.z),centre=p.t*len,half=tool==='door'?.45:.6;
+    const ux=(host.x2-host.x1)/len,uz=(host.z2-host.z1)/len;
+    corners=rect({x:host.x1+ux*Math.max(.1,centre-half),z:host.z1+uz*Math.max(.1,centre-half)},
+     {x:host.x1+ux*Math.min(len-.1,centre+half),z:host.z1+uz*Math.min(len-.1,centre+half)},width);
+   }else{
+    const a=start?projectOnWall(host,start.x,start.z).t:Math.max(0,projectOnWall(host,hover.x,hover.z).t-1/len);
+    const b=start?projectOnWall(host,hover.x,hover.z).t:Math.min(1,a+1/len);
+    if(Math.abs(b-a)*len>.02){
+     const cabinet={startT:Math.min(a,b),endT:Math.max(a,b),depth:width,side:start?.side||1};
+     corners=cabinetFootprint(cabinet,host).corners;
+    }
+   }
+  }
+ }
+ if(!corners)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".09" fill="#a14b44" opacity=".65"/></g>';
+ return '<g class="live-preview" pointer-events="none"><polygon points="'+corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
+  '" fill="'+(tool==='upper'?'#f1dcb2':'#88c4a8')+'" fill-opacity=".6" stroke="#d0873a" stroke-width=".035" stroke-dasharray=".08,.04"/>'+
+  '<circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".07" fill="#f0ac50" stroke="white" stroke-width=".02"/></g>';
 }

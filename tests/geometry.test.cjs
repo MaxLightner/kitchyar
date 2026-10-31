@@ -59,14 +59,31 @@ test('door and fixed window are host-bound and overlap-safe',async()=>{
  assert.throws(()=>G.editOpening(items,items[2].id,{width:4.8}),/خارج|ناسازگار/);
  assert.equal(items.filter(x=>x.kind==='opening').length,2);
 });
-test('ground and upper cabinet are continuous parametric runs',async()=>{
+test('cabinet creation requires a hosting wall and sits outside its thickness',async()=>{
  G||=await import('../apps/preview/geometry.js');
- let items=G.placeCabinet([],{x:0,z:0},{x:2,z:0},{kind:'base'}).items;
- items=G.placeCabinet(items,{x:2.04,z:.02},{x:3.5,z:0},{kind:'base'}).items;
- items=G.placeCabinet(items,{x:0,z:.7},{x:2,z:.7},{kind:'upper'}).items;
- assert.equal(items[1].x1,2);
- assert.equal(items[2].subtype,'upper');
- assert.ok(items[2].elevation>items[0].elevation);
+ assert.throws(()=>G.placeCabinet([],{x:0,z:0},{x:2,z:0}),/دیوار/);
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.4,z:.05},{x:2,z:.05},{kind:'base'}).items;
+ const c=items.find(x=>x.kind==='cabinet'),w=items.find(x=>x.kind==='wall');
+ assert.equal(c.hostId,w.id);
+ const fp=G.cabinetFootprint(c,w);
+ assert.ok(fp.corners.every(p=>Math.abs(p.z)>=w.thickness/2));
+ assert.equal(c.subtype,'base');
+ assert.throws(()=>G.placeCabinet(items,{x:2,z:.05},{x:3,z:1.2}),/همان دیوار/);
+});
+test('hosted upper cabinets use wall-relative position and respect openings',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ const host=items[0].id;
+ items=G.placeOpening(items,host,3,0,{style:'fixed',sill:.9}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:1.8,z:0},{kind:'base'}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:1.8,z:0},{kind:'upper'}).items;
+ assert.equal(items.filter(x=>x.kind==='cabinet').length,2);
+ assert.ok(items.at(-1).elevation>items.at(-2).elevation);
+ assert.throws(()=>G.placeCabinet(items,{x:2.3,z:0},{x:3.5,z:0},{kind:'upper'}),/پنجره|تداخل/);
+ const c=items.at(-2),oldZ=c.z1;
+ items=G.moveEndpoint(items,host,true,0,.3).items;
+ assert.notEqual(items.find(x=>x.id===c.id).z1,oldZ);
 });
 test('AR locked grid retains the 10 cm geometry',()=>{
  const floor=source('floor-ar.js');
@@ -88,13 +105,17 @@ test('new dock tools keep the same three screen editor route',()=>{
  assert.match(app,/function commitChange/);assert.match(app,/function undoChange/);
 });
 
-test('adjacent cabinets share an editable joint',async()=>{
+test('same-layer cabinets do not overlap, handles stay on their host',async()=>{
  G||=await import('../apps/preview/geometry.js');
- let items=G.placeCabinet([],{x:0,z:0},{x:2,z:0},{kind:'base'}).items;
- items=G.placeCabinet(items,{x:2.05,z:0},{x:3.6,z:0},{kind:'base'}).items;
- assert.equal(items[0].endNodeId,items[1].startNodeId);
- items=G.moveCabinetEndpoint(items,items[0].id,false,2.4,.2).items;
- assert.deepEqual([items[1].x1,items[1].z1],[2.4,.2]);
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0},{x:2,z:0},{kind:'base'}).items;
+ assert.throws(()=>G.placeCabinet(items,{x:1.8,z:0},{x:3,z:0},{kind:'base'}),/تداخل/);
+ items=G.placeCabinet(items,{x:2,z:0},{x:3.6,z:0},{kind:'base'}).items;
+ const c=items.at(-1);
+ assert.throws(()=>G.moveCabinetEndpoint(items,c.id,true,2,.9),/همان دیوار/);
+ const moved=G.moveCabinetEndpoint(items,c.id,false,4,0).items;
+ assert.equal(Number(moved.at(-1).endT.toFixed(2)),.8);
+ assert.throws(()=>G.editWall(items,items[0].id,{length:.7}),/ناسازگار/);
 });
 test('door hinge and opening angle stay attached to the wall',async()=>{
  G||=await import('../apps/preview/geometry.js');
@@ -105,4 +126,27 @@ test('door hinge and opening angle stay attached to the wall',async()=>{
  assert.equal(items.find(x=>x.id===id).openFraction,.8);
  assert.equal(items.find(x=>x.id===id).mirrored,true);
  assert.throws(()=>G.editOpening(items,id,{openFraction:1.4}),/زاویه/);
+});
+
+test('renderer has real ray-tested AO, directional shadows, reflection probe and white overlay',()=>{
+ const floor=source('floor-ar.js');
+ assert.match(floor,/shadowMap\.enabled=true/);
+ assert.match(floor,/DirectionalLight/);
+ assert.match(floor,/applyRaycastAO\(\)/);
+ assert.match(floor,/intersectObjects\(nearby,false\)/);
+ assert.match(floor,/envMapIntensity:this\.renderSettings\.reflection/);
+ assert.match(floor,/opacity:\.50/);
+ assert.match(floor,/this\.whiteFloor\.visible=true/);
+ assert.match(floor,/this\.shadowFloor\.visible=true/);
+ assert.match(floor,/this\.previewGroup=new THREE\.Group/);
+ assert.match(floor,/upper\?\.38:-\.38/);
+});
+test('UI font sizes are at least 15px and drawing buttons share side controls',()=>{
+ const css=source('styles.css'),app=source('app.js');
+ for(const match of css.matchAll(/font(?:-size)?:\s*(\d+(?:\.\d+)?)px/g))
+  assert.ok(Number(match[1])>=15,'font below 15px: '+match[0]);
+ for(const action of ['record-start','record-end','cancel-start','finish-line'])
+  assert.match(app,new RegExp('data-action="'+action+'"'));
+ assert.match(app,/id="draw-controls"/);
+ assert.match(app,/data-render="sunAzimuth"/);
 });
