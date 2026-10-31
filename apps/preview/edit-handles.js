@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint} from './geometry.js?v=render18';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=render20';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -38,6 +38,13 @@ export function resizeFromHandle(items,id,side,position){
   const result=editOpening(items,id,{width:snapCm(right-left),height:snapCm(height),sill:snapCm(sill),metresFromStart:(left+right)/2});
   return result;
  }
+ if(object.kind==='front'){
+  const host=byId(items,object.hostId);
+  if(!host)throw Error('کابینت میزبان پیدا نشد.');
+  if(side==='right')return editFront(items,id,{width:snapCm(position.along-object.startT*lengthOf(host))});
+  if(side==='top')return editFront(items,id,{height:snapCm(position.y-(host.elevation+object.bottomT*host.height))});
+  throw Error('دستگیره نمای کابینت معتبر نیست.');
+ }
  if(object.kind==='cabinet'){
   const host=byId(items,object.hostId);if(!host)throw Error('دیوار میزبان پیدا نشد.');
   if(side==='top')return editCabinet(items,id,{height:Math.max(.25,snapCm(position.y-object.elevation))});
@@ -68,6 +75,12 @@ export function handlePosition(items,id,side){
   if(side==='centre')return {along:(e.left+e.right)/2,y:o.sill+o.height/2};
   if(side==='top')return {along:(e.left+e.right)/2,y:o.sill+o.height};
   if(side==='bottom')return {along:(e.left+e.right)/2,y:o.sill};
+ }
+ if(o.kind==='front'){
+  const host=byId(items,o.hostId);if(!host)return null;
+  const len=lengthOf(host);
+  return {along:len*(side==='right'?o.endT:(o.startT+o.endT)/2),
+   y:(host.elevation??.08)+host.height*(side==='top'?o.topT:(o.bottomT+o.topT)/2)};
  }
  if(o.kind==='cabinet'){
   const w=byId(items,o.hostId);if(!w)return null;
@@ -165,4 +178,44 @@ export function renderCabinetElevation(items,cabinet,drag=null){
   (measured?'<line x1="252" x2="252" y1="'+n(top)+'" y2="'+n(bottom)+'" class="measure-line"/>'+
    '<line x1="270" x2="270" y1="'+n(bottom)+'" y2="'+ground+'" class="measure-line"/>':'')+
   '</svg>';
+}
+
+
+/* Facade-first elevation. Every door/drawer is a selectable object; the selected
+   panel has touch-sized, 1 cm snapped width and height seam grips. */
+export function renderFrontElevation(items,cabinet,selectedId=null,drag=null){
+ if(!cabinet||cabinet.kind!=='cabinet')return '';
+ const panels=items.filter(o=>o.kind==='front'&&o.hostId===cabinet.id);
+ if(!panels.length)return renderCabinetElevation(items,cabinet,drag);
+ const len=lengthOf(cabinet),scale=Math.min(104,Math.max(72,148/Math.max(.45,cabinet.height)));
+ const svgWidth=Math.max(320,Math.ceil(len*scale+42)),left=22,bottom=187;
+ const sx=t=>left+t*len*scale,sy=t=>bottom-t*cabinet.height*scale;
+ const colors={cream:'#e8d9bf',wood:'#ac875d',graphite:'#535a61'};
+ const handle=(o,side,x,y,color)=>{
+  if(o.id!==selectedId)return '';
+  return '<g class="elevation-handle front-resize-grip" data-open-handle="'+side+'" data-item-id="'+esc(o.id)+'" tabindex="0" role="button" aria-label="تغییر '+(side==='right'?'عرض':'ارتفاع')+' با کشیدن">'+
+   '<circle cx="'+n(x)+'" cy="'+n(y)+'" r="14" fill="transparent"/>'+
+   '<circle cx="'+n(x)+'" cy="'+n(y)+'" r="8" fill="'+color+'" stroke="#fff" stroke-width="2"/>'+
+   '</g>';
+ };
+ let graphic='<rect x="'+n(left)+'" y="'+n(sy(1))+'" width="'+n(len*scale)+'" height="'+n(cabinet.height*scale)+'" rx="2" fill="#d7d4c9" stroke="#777e74"/>';
+ for(const o of panels){
+  const x=sx(o.startT)+1,y=sy(o.topT)+1,w=(o.endT-o.startT)*len*scale-2,h=(o.topT-o.bottomT)*cabinet.height*scale-2,
+   selected=o.id===selectedId,color=colors[o.finish]||colors.cream;
+  const knobX=o.subtype==='drawer'?x+w/2:o.hinge==='left'?x+w-13:x+13;
+  graphic+='<g class="front-panel-elevation" data-item-id="'+esc(o.id)+'" tabindex="0" role="button" aria-label="'+(o.subtype==='drawer'?'کشو':'درب')+' '+n((o.endT-o.startT)*len)+' متر">'+
+   '<rect x="'+n(x)+'" y="'+n(y)+'" width="'+n(w)+'" height="'+n(h)+'" rx="1.4" fill="'+color+'" stroke="'+(selected?'#168b6a':'#7e7b73')+'" stroke-width="'+(selected?'2.6':'.9')+'"/>'+
+   (o.style==='frame'?'<rect x="'+n(x+5)+'" y="'+n(y+5)+'" width="'+n(Math.max(1,w-10))+'" height="'+n(Math.max(1,h-10))+'" rx="1" fill="none" stroke="#847e72" stroke-width="1.2"/>':'')+
+   (o.handleStyle==='hidden'?'':o.handleStyle==='knob'?
+    '<circle cx="'+n(knobX)+'" cy="'+n(y+h*.52)+'" r="3.5" fill="#777b7a"/>':
+    '<rect x="'+n(knobX-(o.subtype==='drawer'?Math.min(18,w*.24):2))+'" y="'+n(y+(o.subtype==='drawer'?Math.min(13,h*.22):h*.30))+
+    '" width="'+n(o.subtype==='drawer'?Math.min(36,w*.48):4)+'" height="'+n(o.subtype==='drawer'?4:Math.min(29,h*.40))+'" rx="2" fill="#737e7e"/>')+
+   '<title>'+esc(o.name)+' · '+n((o.endT-o.startT)*len)+' × '+n((o.topT-o.bottomT)*cabinet.height)+' متر</title></g>';
+  graphic+=handle(o,'right',x+w,y+h/2,'#36bd92')+handle(o,'top',x+w/2,y,'#e5a955');
+  if(w>43&&h>42)graphic+='<text x="'+n(x+w/2)+'" y="'+n(y+h-9)+'" text-anchor="middle" class="front-elevation-dimension" pointer-events="none">'+n((o.endT-o.startT)*len)+'m</text>';
+ }
+ return '<div class="elevation-title"><strong>تقسیم‌بندی درب و کشو</strong><span>هر نما را لمس کن · دستگیره‌ها با اسنپ ۱ سانتی‌متر</span></div>'+
+  '<div class="front-elevation-scroll"><svg id="elevation-view" data-ppm="'+n(scale)+'" viewBox="0 0 '+svgWidth+' 213" style="width:'+svgWidth+'px;max-width:none" role="img" aria-label="نمای روبروی درب‌ها و کشوهای کابینت">'+
+  '<line x1="15" x2="'+(svgWidth-7)+'" y1="'+(bottom+6)+'" y2="'+(bottom+6)+'" stroke="#9c9d8d" stroke-width="2"/>'+
+  graphic+'<text x="'+n(svgWidth/2)+'" y="206" text-anchor="middle" class="front-elevation-dimension">طول '+n(len)+' متر · '+panels.length+' نما</text></svg></div>';
 }

@@ -303,3 +303,16 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .tool-choices button{min-width:0;white-space:normal;line-height:1.4;font-size:15px;min-height:39px}
 .object-editor{max-height:calc(100svh - 335px);overflow-y:auto;overscroll-behavior:contain}
 @media(max-width:730px){.tool-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.tool-sheet{max-height:32svh;padding:9px}.object-editor{top:125px;max-height:calc(100svh - 265px)}.editor-root.ar-live .object-editor{top:auto;bottom:119px;max-height:31svh}.editor-root.ar-live .elevation-panel{max-height:31svh}}
+
+/* Facade-first editor: touchable 3D-derived elevation, readable on mobile. */
+.front-elevation-scroll{max-width:100%;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;touch-action:pan-x;scrollbar-width:thin;border-radius:8px;background:#eff1eb}
+.front-elevation-scroll #elevation-view{display:block;height:213px;touch-action:none}
+.front-elevation-dimension{font:700 15px Tahoma,Arial,sans-serif;fill:#3c5d50;pointer-events:none}
+.front-panel-elevation{cursor:pointer;touch-action:none}
+.front-panel-elevation:hover>rect{stroke:#41a783;stroke-width:2.5}
+.front-resize-grip{cursor:grab;touch-action:none}
+.front-resize-grip:active{cursor:grabbing}
+.object-fields select{min-height:42px;min-width:0;font-size:15px;border-radius:8px;padding:7px;background:#fffdf7;color:#27493d;border:1px solid #b0c5b8}
+.elevation-title span{font-size:max(13px,1em)}
+
+.preview-elevation-flag{font:700 15px Tahoma,Arial,sans-serif;color:#866237;background:#fff1d8;border-radius:8px;padding:5px 9px;margin-bottom:6px}

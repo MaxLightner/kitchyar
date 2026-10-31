@@ -73,3 +73,29 @@ test('kitchen fixtures and task lighting expose their independent controls',()=>
  assert.match(app,/data-render="taskLighting"/);
  assert.match(floor,/THREE\.PointLight/);
 });
+
+test('facade editor offers preview, selectable doors and centimetre grips in both modes',()=>{
+ const app=read('app.js'),plan=read('plan-view.js'),floor=read('floor-ar.js'),handles=read('edit-handles.js');
+ assert.match(app,/front-doors/);assert.match(app,/front-drawers3/);
+ assert.match(app,/front-drawers4/);assert.match(app,/front-mixed/);
+ assert.match(app,/data-edit-front/);
+ assert.match(app,/پیش‌نمایش · هنوز ثبت نشده/);
+ assert.match(plan,/front-plan/);assert.match(plan,/planFronts/);
+ assert.match(floor,/kind\.startsWith\('front-'\)/);
+ assert.match(floor,/surface\.userData\.objectId=panel\.id/);
+ assert.match(handles,/renderFrontElevation/);
+ assert.match(handles,/front-resize-grip/);
+ assert.match(handles,/editFront\(items,id/);
+});
+test('base kitchen envelope has countertop and recessed plinth from initial placement',()=>{
+ const floor=read('floor-ar.js'),plan=read('plan-view.js');
+ assert.match(floor,/new THREE\.BoxGeometry\(len\+\.035,\.035,c\.depth\+\.04\)/);
+ assert.match(floor,/const toe=new THREE\.Mesh/);
+ assert.match(plan,/countertop-plan/);
+});
+test('new facade styles keep all explicit text at 13 px or larger',()=>{
+ const css=read('styles.css');
+ const sizes=[...css.matchAll(/font-size\s*:\s*([\d.]+)px/g)].map(m=>Number(m[1]));
+ assert.ok(sizes.every(n=>n>=13));
+ assert.match(css,/front-elevation-dimension/);
+});

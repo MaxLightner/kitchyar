@@ -312,6 +312,139 @@ const FRIDGE_DIMENSIONS={single:{18:[.72,.68,1.75],22:[.76,.70,1.83],24:[.82,.72
 export const fridgeDimensions=(model='single',feet=24)=>FRIDGE_DIMENSIONS[model]?.[feet]||FRIDGE_DIMENSIONS.single[24];
 const BUILT_IN_TYPES=new Set(['dishwasher','washer','oven']);
 export const MIN_CABINET_LENGTH=.45;
+
+/* Facade-first design: semantic door/drawer rectangles precede internal carcass units.
+   All coordinates are fractions of the host cabinet; rendering is derived from them. */
+export const FRONT_PRESETS=Object.freeze({
+ doors:{label:'درب هوشمند',type:'door'},
+ drawers3:{label:'سه کشو',type:'drawer',rows:3},
+ drawers4:{label:'چهار کشو',type:'drawer',rows:4},
+ mixed:{label:'کشوی بالا + درب پایین',type:'mixed'}
+});
+export function nearestCabinet(items,point,tolerance=.24){
+ if(!finite(point?.x,point?.z))return null;
+ const found=items.filter(o=>o.kind==='cabinet').map(c=>{
+  const len=lengthOf(c),dx=c.x2-c.x1,dz=c.z2-c.z1;
+  const t=Math.max(0,Math.min(1,((point.x-c.x1)*dx+(point.z-c.z1)*dz)/(len*len)));
+  const d=Math.hypot(point.x-c.x1-dx*t,point.z-c.z1-dz*t);
+  return {cabinet:c,t,d};
+ }).filter(o=>o.d<=o.cabinet.depth/2+tolerance)
+  .sort((a,b)=>a.d-b.d);
+ return found[0]||null;
+}
+export function frontPose(front,c){
+ if(!c||c.kind!=='cabinet')return null;
+ const len=lengthOf(c),ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len;
+ const side=c.side||1,nx=-uz*side,nz=ux*side;
+ const mid=(front.startT+front.endT)/2,face=c.depth/2+.014;
+ return {x:c.x1+ux*len*mid+nx*face,z:c.z1+uz*len*mid+nz*face,
+  y:(c.elevation??.08)+c.height*(front.bottomT+front.topT)/2,
+  angle:Math.atan2(uz,ux),side,width:Math.max(.10,(front.endT-front.startT)*len-.006),
+  height:Math.max(.08,(front.topT-front.bottomT)*c.height-.006),thickness:.019};
+}
+export function planFronts(items,c,preset='doors'){
+ const config=FRONT_PRESETS[preset];
+ if(!config||c?.kind!=='cabinet')throw Error('برای نصب نما باید کابینت و طرح معتبر انتخاب شود.');
+ if(c.subtype==='upper'&&preset!=='doors')throw Error('کشو فقط روی کابینت زمینی نصب می‌شود.');
+ const length=lengthOf(c);
+ let bays=Math.max(1,Math.ceil(length/.83));
+ while(bays>1&&length/bays<MIN_CABINET_LENGTH)bays--;
+ const make=(kind,bay,part,left,right,bottom,top,hinge='none')=>({
+  id:uid(),kind:'front',subtype:kind,name:kind==='door'?'درب کابینت':'کشوی کابینت',
+  hostId:c.id,preset,bay,part,startT:left,endT:right,bottomT:bottom,topT:top,
+  hinge,finish:'cream',style:'flat',handleStyle:'bar',gap:.003
+ });
+ const result=[];
+ for(let i=0;i<bays;i++){
+  const a=i/bays,b=(i+1)/bays,span=(b-a)*length;
+  const fixture=items.some(e=>e.kind==='equipment'&&['sink','stove'].includes(e.subtype)&&
+   e.hostId===c.id&&e.offsetT>=a-1e-6&&e.offsetT<=b+1e-6);
+  const layout=fixture&&preset!=='doors'?'doors':preset;
+  const doors=(low,high)=>{
+   const leaves=span>.62?2:1;
+   for(let j=0;j<leaves;j++){
+    const left=a+(b-a)*j/leaves,right=a+(b-a)*(j+1)/leaves;
+    result.push(make('door',i,j,left,right,low,high,j===0?'left':'right'));
+   }
+  };
+  if(layout==='doors')doors(0,1);
+  else if(layout==='mixed'){
+   doors(0,.72);
+   result.push(make('drawer',i,2,a,b,.72,1));
+  }else{
+   const rows=FRONT_PRESETS[layout].rows;
+   for(let j=0;j<rows;j++)result.push(make('drawer',i,j,a,b,j/rows,(j+1)/rows));
+  }
+ }
+ return result;
+}
+function reflowFronts(items,c,preset=c?.frontPreset){
+ if(!FRONT_PRESETS[preset])return;
+ const previous=items.filter(o=>o.kind==='front'&&o.hostId===c.id)
+  .sort((a,b)=>a.bay-b.bay||a.part-b.part);
+ const fresh=planFronts(items,c,preset);
+ for(let i=0;i<fresh.length;i++)if(previous[i]&&previous[i].subtype===fresh[i].subtype){
+  fresh[i].id=previous[i].id;
+  fresh[i].finish=previous[i].finish||'cream';
+  fresh[i].style=previous[i].style||'flat';
+  fresh[i].handleStyle=previous[i].handleStyle||'bar';
+ }
+ for(let i=items.length-1;i>=0;i--)if(items[i].kind==='front'&&items[i].hostId===c.id)items.splice(i,1);
+ items.push(...fresh);
+ c.frontPreset=preset;
+}
+export function placeFrontLayout(source,cabinetId,preset='doors'){
+ const items=copy(source),c=byId(items,cabinetId);
+ if(!c||c.kind!=='cabinet')throw Error('ابتدا کابینت میزبان درب و کشو را انتخاب کن.');
+ if(!FRONT_PRESETS[preset])throw Error('مدل تقسیم‌بندی نما نامعتبر است.');
+ reflowFronts(items,c,preset);
+ validateFronts(items,c);
+ return {items,selectedId:items.find(o=>o.kind==='front'&&o.hostId===c.id)?.id||c.id};
+}
+export function editFront(source,id,{width,height,hinge,finish,style,handleStyle}={}){
+ const items=copy(source),f=byId(items,id),c=byId(items,f?.hostId);
+ if(f?.kind!=='front'||c?.kind!=='cabinet')throw Error('درب یا کشوی معتبر انتخاب نشده است.');
+ if(width!==undefined){
+  const val=Math.round(Number(width)*100)/100;
+  if(!Number.isFinite(val)||val<.15||val>1.2)throw Error('عرض نمای درب یا کشو معتبر نیست.');
+  const next=f.startT+val/lengthOf(c),old=f.endT;
+  // The shared vertical seam moves both adjacent leaves, with no crack or overlap.
+  const neighbor=items.find(g=>g.kind==='front'&&g.hostId===c.id&&g.id!==f.id&&
+   Math.abs(g.startT-old)<.002&&Math.min(f.topT,g.topT)-Math.max(f.bottomT,g.bottomT)>.08);
+  if(neighbor)neighbor.startT=next;
+  f.endT=next;
+ }
+ if(height!==undefined){
+  const val=Math.round(Number(height)*100)/100;
+  if(!Number.isFinite(val)||val<.10||val>c.height)throw Error('ارتفاع نمای درب یا کشو معتبر نیست.');
+  const next=f.bottomT+val/c.height,old=f.topT;
+  // A drawer rail is a shared horizontal seam, so the drawer above follows.
+  const neighbors=items.filter(g=>g.kind==='front'&&g.hostId===c.id&&g.id!==f.id&&
+   Math.abs(g.bottomT-old)<.002&&Math.min(f.endT,g.endT)-Math.max(f.startT,g.startT)>.08);
+  for(const neighbor of neighbors)neighbor.bottomT=next;
+  f.topT=next;
+ }
+ if(hinge!==undefined){if(f.subtype!=='door'||!['left','right'].includes(hinge))throw Error('جهت لولا نامعتبر است.');f.hinge=hinge;}
+ if(finish!==undefined){if(!['cream','wood','graphite'].includes(finish))throw Error('رنگ درب نامعتبر است.');f.finish=finish;}
+ if(style!==undefined){if(!['flat','frame'].includes(style))throw Error('سبک درب نامعتبر است.');f.style=style;}
+ if(handleStyle!==undefined){if(!['bar','knob','hidden'].includes(handleStyle))throw Error('دستگیره نامعتبر است.');f.handleStyle=handleStyle;}
+ c.frontPreset='custom';
+ validateFronts(items,c);
+ return {items,selectedId:id};
+}
+function validateFronts(items,c){
+ const fronts=items.filter(o=>o.kind==='front'&&o.hostId===c.id),len=lengthOf(c);
+ for(const f of fronts){
+  if(!finite(f.startT,f.endT,f.bottomT,f.topT)||f.startT<-.00001||f.endT>1.00001||
+   f.bottomT<-.00001||f.topT>1.00001||
+   (f.endT-f.startT)*len<.15-1e-6||(f.topT-f.bottomT)*c.height<.10-1e-6)
+   throw Error('ابعاد نمای درب یا کشو از محدوده کابینت بیرون است.');
+  for(const q of fronts)if(q!==f&&Math.min(q.endT,f.endT)-Math.max(q.startT,f.startT)>.004/len&&
+   Math.min(q.topT,f.topT)-Math.max(q.bottomT,f.bottomT)>.004/c.height)
+   throw Error('درب‌ها و کشوهای روی یک کابینت نمی‌توانند روی هم قرار بگیرند.');
+ }
+}
+
 export function equipmentPosition(o,items){
  if(o.subtype==='hood'){
   const stove=byId(items,o.linkedStoveId);
@@ -405,6 +538,7 @@ function validateCabinets(items,w){
     throw Error('کابینت با کابینت دیوار مجاور تداخل دارد.');
   }
   syncCabinet(items,c);
+  validateFronts(items,c);
  }
  syncEquipment(items);
 }
@@ -480,8 +614,18 @@ function embedFridge(items,obj,point){
    if(!target)throw Error('کابینت زیر تجهیزات برای یخچال کافی نیست.');
    e.hostId=target.id;e.offsetT=(centre/len-target.startT)/(target.endT-target.startT);
   }
-  const ix=items.findIndex(x=>x.id===c.id);items.splice(ix,1,...segments);
+  const oldFronts=items.filter(f=>f.kind==='front'&&f.hostId===c.id);
+  for(let j=items.length-1;j>=0;j--)if(items[j].kind==='front'&&items[j].hostId===c.id)items.splice(j,1);
+  items.splice(items.findIndex(x=>x.id===c.id),1,...segments);
   for(const piece of segments)syncCabinet(items,piece);
+  if(FRONT_PRESETS[c.frontPreset])for(const piece of segments)reflowFronts(items,piece);
+  else for(const f of oldFronts){
+   const originalStart=c.startT+(c.endT-c.startT)*f.startT,
+    originalEnd=c.startT+(c.endT-c.startT)*f.endT;
+   const piece=segments.find(p=>originalStart>=p.startT-.00001&&originalEnd<=p.endT+.00001);
+   if(piece){f.hostId=piece.id;f.startT=(originalStart-piece.startT)/(piece.endT-piece.startT);
+    f.endT=(originalEnd-piece.startT)/(piece.endT-piece.startT);items.push(f);}
+  }
  }
  obj.x=w.x1+ux*mid+nx*(w.thickness/2+obj.depth/2+.02);
  obj.z=w.z1+uz*mid+nz*(w.thickness/2+obj.depth/2+.02);
@@ -584,7 +728,7 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
     if(c.startT*len<center)c.endT=cutLeft/len;
     else c.startT=cutRight/len;
     if((c.endT-c.startT)*len<MIN_CABINET_LENGTH)items.splice(items.indexOf(c),1);
-    else syncCabinet(items,c);
+    else {syncCabinet(items,c);if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);}
    }
    e.x=hostWall.x1+ux*center+nx*(hostWall.thickness/2+e.depth/2+.02);
    e.z=hostWall.z1+uz*center+nz*(hostWall.thickness/2+e.depth/2+.02);
@@ -689,7 +833,9 @@ export function removeObject(source,id){
  if(target.subtype==='hood')throw Error('هود همیشه همراه گاز است؛ مدل آن را تغییر بده.');
  const deleted=new Set([id]);let changed=true;
  while(changed){changed=false;for(const o of source)if((o.hostId&&deleted.has(o.hostId)||o.linkedStoveId&&deleted.has(o.linkedStoveId))&&!deleted.has(o.id)){deleted.add(o.id);changed=true;}}
- return {items:copy(source).filter(o=>!deleted.has(o.id)),selectedId:null};
+ const items=copy(source).filter(o=>!deleted.has(o.id));
+ if(target.kind==='front'){const owner=byId(items,target.hostId);if(owner)owner.frontPreset='custom';}
+ return {items,selectedId:null};
 }
 
 export function editCabinet(source,id,{length,depth,height,elevation}){
@@ -698,6 +844,7 @@ export function editCabinet(source,id,{length,depth,height,elevation}){
  const len=lengthOf(w),target=Number(length??(c.endT-c.startT)*len);
  c.endT=c.startT+target/len;
  c.depth=Number(depth??c.depth);c.height=Number(height??c.height);c.elevation=Number(elevation??c.elevation);
+ if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
  validateCabinets(items,w);return {items,selectedId:id};
 }
 export function moveCabinetEndpoint(source,id,start,x,z){
@@ -706,5 +853,6 @@ export function moveCabinetEndpoint(source,id,start,x,z){
  const projected=projectOnWall(w,x,z);
  if(projected.distance>.65)throw Error('دستگیره کابینت باید روی همان دیوار بماند.');
  if(start)c.startT=projected.t;else c.endT=projected.t;
+ if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
  validateCabinets(items,w);return {items,selectedId:id};
 }

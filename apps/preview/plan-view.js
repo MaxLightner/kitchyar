@@ -1,5 +1,5 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render18';
-import {renderPlanMeasurements} from './edit-handles.js?v=render18';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose} from './geometry.js?v=render20';
+import {renderPlanMeasurements} from './edit-handles.js?v=render20';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true}={}){
@@ -38,8 +38,26 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    out+='<polygon data-item-id="'+safe(c.id)+'" points="'+fp.corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
     '" fill="'+(c.id===selectedId?'#70bd9e':c.subtype==='upper'?'#dfd5c5':'#b5a08b')+
     '" fill-opacity="'+(c.subtype==='upper'?'.6':'.9')+'" stroke="#786e64" stroke-width=".025"/>';
+   if(c.subtype==='base'){
+    out+='<polygon class="countertop-plan" data-item-id="'+safe(c.id)+'" points="'+fp.corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
+     '" fill="#eae0ce" fill-opacity=".84" stroke="#c5af8b" stroke-width=".035"/>';
+    out+='<line x1="'+f(fp.corners[2].x)+'" y1="'+f(fp.corners[2].z)+'" x2="'+f(fp.corners[3].x)+'" y2="'+f(fp.corners[3].z)+'" stroke="#806e55" stroke-width=".055" opacity=".66" pointer-events="none"/>';
+   }
   }else out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
    '" stroke="#ab9382" stroke-width="'+f(c.depth)+'" opacity=".65"/>';
+ }
+ for(const front of items.filter(x=>x.kind==='front')){
+  const cabinet=cabinets.find(c=>c.id===front.hostId),p=frontPose(front,cabinet);if(!p)continue;
+  const ux=Math.cos(p.angle),uz=Math.sin(p.angle),half=p.width/2;
+  const ax=p.x-ux*half,az=p.z-uz*half,bx=p.x+ux*half,bz=p.z+uz*half;
+  const color=front.finish==='wood'?'#97764f':front.finish==='graphite'?'#565b61':'#e7d9bf';
+  const offset=front.subtype==='drawer'?(front.bottomT+front.topT-.99)*.045:0;
+  const nx=-uz*p.side,nz=ux*p.side;
+  out+='<line class="front-plan" data-item-id="'+safe(front.id)+'" x1="'+f(ax+nx*offset)+'" y1="'+f(az+nz*offset)+
+   '" x2="'+f(bx+nx*offset)+'" y2="'+f(bz+nz*offset)+'" stroke="'+(front.id===selectedId?'#46c79b':color)+
+   '" stroke-width="'+(front.id===selectedId?'.085':'.045')+'"/>';
+  if(!mini)out+='<line data-item-id="'+safe(front.id)+'" x1="'+f(ax+nx*offset)+'" y1="'+f(az+nz*offset)+
+   '" x2="'+f(bx+nx*offset)+'" y2="'+f(bz+nz*offset)+'" stroke="transparent" stroke-width=".12" pointer-events="stroke"/>';
  }
  for(const e of items.filter(x=>x.kind==='equipment')){
   const corners=equipmentCorners(e.x,e.z,e.width,e.depth,e.rotation||0);
@@ -137,6 +155,22 @@ export function renderPreview(items,drawing,hover){
  if(!drawing||!hover)return '';
  const tool=drawing.tool,start=drawing.start;
  const wallMode=tool==='wall',openingMode=tool==='window'||tool==='door';
+ if(tool?.startsWith('front-')){
+  const c=items.find(o=>o.id===drawing.hostId&&o.kind==='cabinet')||nearestCabinet(items,hover)?.cabinet;
+  if(!c)return '<g class="live-preview"><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".10" fill="#c75e55"/></g>';
+  let proposed=[];try{proposed=planFronts(items,c,tool.slice(6));}catch{return '';}
+  const lines=proposed.map(o=>{
+   const p=frontPose(o,c),ux=Math.cos(p.angle),uz=Math.sin(p.angle),nx=-uz*p.side,nz=ux*p.side;
+   const half=p.width/2,depth=.055,points=[
+    [p.x-ux*half-nx*depth/2,p.z-uz*half-nz*depth/2],
+    [p.x+ux*half-nx*depth/2,p.z+uz*half-nz*depth/2],
+    [p.x+ux*half+nx*depth/2,p.z+uz*half+nz*depth/2],
+    [p.x-ux*half+nx*depth/2,p.z-uz*half+nz*depth/2]];
+   return '<polygon points="'+points.map(a=>f(a[0])+','+f(a[1])).join(' ')+
+    '" fill="'+(o.subtype==='drawer'?'#e7b264':'#53bea1')+'" fill-opacity=".75" stroke="#27856d" stroke-width=".016" stroke-dasharray=".09,.025"/>';
+  }).join('');
+  return '<g class="live-preview" pointer-events="none">'+lines+'</g>';
+ }
  if(['fridge','stove','sink','dishwasher','washer','oven'].includes(tool)){
   const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0,valid=true;
   let installed=null;

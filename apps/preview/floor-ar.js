@@ -3,8 +3,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment} from './geometry.js?v=render18';
-import {neighborGaps} from './edit-handles.js?v=render18';
+import {limitCabinetEnd,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose} from './geometry.js?v=render20';
+import {neighborGaps} from './edit-handles.js?v=render20';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -392,6 +392,15 @@ export class FloorAR {
     ['top',center,obj.sill+obj.height,0xf1b366],['centre',center,middle,0xffe2a5]])
     {const v=p(along,y);mark(side,v.x,v.y,v.z,c);}
    if(obj.style!=='door'){const v=p(center,obj.sill);mark('bottom',v.x,v.y,v.z,0xf1b366);}
+  }else if(obj.kind==='front'){
+   const host=items.find(x=>x.id===obj.hostId),pose=frontPose(obj,host);if(!pose)return;
+   const len=Math.hypot(host.x2-host.x1,host.z2-host.z1),ux=(host.x2-host.x1)/len,uz=(host.z2-host.z1)/len;
+   const p=(along,y)=>({x:host.x1+ux*along-uz*pose.side*(host.depth/2+.055),
+    y,z:host.z1+uz*along+ux*pose.side*(host.depth/2+.055)});
+   const mid=(obj.startT+obj.endT)*len/2,centreY=(host.elevation??.08)+host.height*(obj.bottomT+obj.topT)/2;
+   const right=p(obj.endT*len,centreY),top=p(mid,(host.elevation??.08)+host.height*obj.topT);
+   mark('right',right.x,right.y,right.z,0x48c9a2);
+   mark('top',top.x,top.y,top.z,0xf1b366);
   }else if(obj.kind==='cabinet'){
    const w=items.find(x=>x.id===obj.hostId);if(!w)return;
    const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
@@ -522,7 +531,8 @@ export class FloorAR {
   const w=o.kind==='wall'?o:this.items.find(x=>x.id===o.hostId);if(!w)return null;
   const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
   const nx=-uz,nz=ux,offset=o.kind==='opening'?this.cameraSideForWall(w)*(w.thickness/2+.06):
-   o.kind==='cabinet'?(o.side||1)*(w.thickness/2+.004+o.depth/2):0;
+   o.kind==='cabinet'?(o.side||1)*(w.thickness/2+.004+o.depth/2):
+   o.kind==='front'?(w.side||1)*(w.depth/2+.06):0;
   this.floorGroup.updateWorldMatrix(true,false);
   const inverse=this.floorGroup.matrixWorld.clone().invert();
   const from=ray.origin.clone().applyMatrix4(inverse),
@@ -588,6 +598,12 @@ export class FloorAR {
       at((right+gaps.after.at)/2,top+.52).x,top+.52,at((right+gaps.after.at)/2,top+.52).z);
     }
    }
+  }else if(o.kind==='front'){
+   const host=items.find(x=>x.id===o.hostId),pose=frontPose(o,host);
+   if(!pose)return;
+   box(pose.width,pose.height,.025,pose.x,pose.y,pose.z,pose.angle);
+   label('عرض '+(pose.width+.006).toFixed(2)+' m',pose.x,pose.y+pose.height/2+.17,pose.z);
+   label('ارتفاع '+(pose.height+.006).toFixed(2)+' m',pose.x+.18,pose.y,pose.z+.14);
   }else if(o.kind==='cabinet'){
    const len=Math.hypot(o.x2-o.x1,o.z2-o.z1),angle=Math.atan2(o.z2-o.z1,o.x2-o.x1);
    box(len,o.height,o.depth,(o.x1+o.x2)/2,o.elevation+o.height/2,(o.z1+o.z2)/2,angle);
@@ -676,6 +692,21 @@ export class FloorAR {
    const pin=new THREE.Mesh(new THREE.SphereGeometry(.075,12,9),
     new THREE.MeshBasicMaterial({color:0xffbd64,depthTest:false}));
    pin.position.set(snapped.x,.09,snapped.z);pin.renderOrder=25;group.add(pin);
+   group.visible=group.children.length>0;return;
+  }
+  if(kind.startsWith('front-')){
+   const host=this.items.find(c=>c.id===this.drawing.hostId&&c.kind==='cabinet')||
+    nearestCabinet(this.items,p)?.cabinet;
+   if(!host){group.visible=false;return;}
+   let panels=[];try{panels=planFronts(this.items,host,kind.slice(6));}catch{group.visible=false;return;}
+   for(const panel of panels){
+    const pose=frontPose(panel,host);if(!pose)continue;
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(pose.width,pose.height,.028),
+     new THREE.MeshPhysicalMaterial({color:panel.subtype==='drawer'?0xe6bc7b:0x6dcbaa,
+      opacity:.58,transparent:true,depthWrite:false,roughness:.34,side:THREE.DoubleSide}));
+    mesh.position.set(pose.x,pose.y,pose.z);mesh.rotation.y=-pose.angle;
+    mesh.renderOrder=22;group.add(mesh);
+   }
    group.visible=group.children.length>0;return;
   }
   if(EQUIPMENT_SPECS[kind]){
@@ -824,6 +855,53 @@ export class FloorAR {
    const angle=Math.atan2(c.z2-c.z1,c.x2-c.x1),y0=c.elevation??.1;
    box(c,0,len,y0,y0+c.height,c.depth,angle,(c.x1+c.x2)/2,(c.z1+c.z2)/2,
     c.id===this.selectedId?cabinetSelected:c.subtype==='upper'?upper:base);
+   if(c.subtype==='base'){
+    // At first placement, every base envelope has a stone worktop and recessed plinth.
+    const ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len,side=c.side||1;
+    const nx=-uz*side,nz=ux*side,cx=(c.x1+c.x2)/2,cz=(c.z1+c.z2)/2;
+    const top=new THREE.Mesh(new THREE.BoxGeometry(len+.035,.035,c.depth+.04),
+     new THREE.MeshPhysicalMaterial({color:0xf1eae0,roughness:.27,metalness:.04,
+      clearcoat:.18,envMap:this.reflectionRT?.texture,envMapIntensity:.10}));
+    top.position.set(cx,y0+c.height+.0175,cz);top.rotation.y=-angle;
+    top.castShadow=true;top.receiveShadow=true;top.userData.objectId=c.id;top.userData.cabinet=true;
+    this.objectGroup.add(top);
+    const toe=new THREE.Mesh(new THREE.BoxGeometry(len,.085,.09),
+     material(0x776d62,{metalness:.03,roughness:.68}));
+    toe.position.set(cx+nx*(c.depth/2-.064),Math.max(.042,y0-.035),cz+nz*(c.depth/2-.064));
+    toe.rotation.y=-angle;toe.castShadow=true;toe.receiveShadow=true;
+    toe.userData.objectId=c.id;toe.userData.cabinet=true;this.objectGroup.add(toe);
+   }
+  }
+  // Each facade is a semantic, selectable object independent of its future internal unit.
+  for(const panel of this.items.filter(o=>o.kind==='front')){
+   const host=this.items.find(c=>c.id===panel.hostId&&c.kind==='cabinet');
+   if(!host)continue;
+   const pose=frontPose(panel,host),finish=panel.finish==='wood'?0xad8658:
+    panel.finish==='graphite'?0x59616a:0xe8d9c1;
+   const root=new THREE.Group();root.position.set(pose.x,pose.y,pose.z);root.rotation.y=-pose.angle;
+   root.userData.objectId=panel.id;this.objectGroup.add(root);
+   const surface=new THREE.Mesh(new THREE.BoxGeometry(pose.width,pose.height,pose.thickness),
+    new THREE.MeshPhysicalMaterial({color:panel.id===this.selectedId?0x69c7a3:finish,roughness:.32,
+     metalness:.04,clearcoat:.10,clearcoatRoughness:.22,
+     envMap:this.reflectionRT?.texture,envMapIntensity:this.renderSettings.reflection}));
+   surface.castShadow=true;surface.receiveShadow=true;surface.userData.objectId=panel.id;
+   root.add(surface);
+   const visibleZ=(pose.side||1)*(.012+pose.thickness/2);
+   if(panel.style==='frame'&&pose.width>.20&&pose.height>.18){
+    const inset=new THREE.Mesh(new THREE.BoxGeometry(pose.width-.065,pose.height-.065,.007),
+     material(finish,{roughness:.46}));
+    inset.position.z=visibleZ*.82;inset.userData.objectId=panel.id;root.add(inset);
+   }
+   if(panel.handleStyle!=='hidden'){
+    const metal=material(0x8c9493,{metalness:.64,roughness:.25});
+    const isDrawer=panel.subtype==='drawer';
+    const handle=new THREE.Mesh(new THREE.CylinderGeometry(.009,.009,
+     isDrawer?Math.min(.28,pose.width*.48):Math.min(.24,pose.height*.53),10),metal);
+    if(isDrawer)handle.rotation.z=Math.PI/2;
+    handle.position.set(isDrawer?0:panel.hinge==='left'?pose.width/2-.055:-pose.width/2+.055,
+     isDrawer?pose.height*.19:0,visibleZ+.015*(pose.side||1));
+    handle.userData.objectId=panel.id;handle.castShadow=true;root.add(handle);
+   }
   }
   if(this.renderSettings.taskLighting){
    for(const c of this.items.filter(x=>x.kind==='cabinet'&&x.subtype==='upper').slice(0,6)){

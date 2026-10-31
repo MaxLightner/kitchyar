@@ -420,7 +420,7 @@ test('AR window manipulation projects touch deltas onto wall and displays elevat
  assert.match(floor,/dragScreenHandlePoint\(clientX,clientY,drag\)/);
  assert.match(floor,/this\.cameraSideForWall\(w\)\*\(w\.thickness\/2\+\.06\)/);
  assert.match(app,/floor\?\.dragScreenHandlePoint/);
- assert.match(app,/mode==='ar'&&selected\?\.kind==='opening'/);
+ assert.match(app,/elevation\.hidden=!\(isPlan\|\|mode==='ar'\)/);
  assert.match(app,/floor\?\.setEditPreview\(items,selection/);
 });
 test('floor calibration collapses and reopens both calibration panel and A/B grips',()=>{
@@ -480,4 +480,64 @@ test('built-in refrigerator stays 70cm clear of a connected corner wall',async()
  assert.ok(fridge.builtIn);
  assert.ok(fridge.x-fridge.width/2-.055/2>=.70-1e-6);
  assert.ok(result.items.filter(o=>o.kind==='cabinet').every(c=>G.lengthOf(c)>=.45));
+});
+
+test('facade-first planning supports doors, three drawers, four drawers and mixed layouts',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:3.9,z:0}).items;
+ const c=items.find(o=>o.kind==='cabinet');
+ for(const preset of ['doors','drawers3','drawers4','mixed']){
+  const result=G.placeFrontLayout(items,c.id,preset);
+  const fronts=result.items.filter(o=>o.kind==='front'&&o.hostId===c.id);
+  assert.ok(fronts.length>=4);
+  assert.ok(fronts.every(o=>o.startT>=0&&o.endT<=1&&o.bottomT>=0&&o.topT<=1));
+  assert.ok(fronts.every(o=>G.frontPose(o,c).width>=.15));
+  if(preset==='doors')assert.ok(fronts.every(o=>o.subtype==='door'));
+  if(preset==='drawers3'||preset==='drawers4')assert.ok(fronts.every(o=>o.subtype==='drawer'));
+  if(preset==='mixed')assert.ok(fronts.some(o=>o.subtype==='door')&&fronts.some(o=>o.subtype==='drawer'));
+  const again=G.placeFrontLayout(result.items,c.id,preset);
+  assert.equal(again.items.filter(o=>o.kind==='front').length,fronts.length,'preset replaces existing panels');
+ }
+});
+test('cabinet facade seam grip snaps to centimetres and adjusts adjoining door',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:2.9,z:0}).items;
+ const c=items.find(o=>o.kind==='cabinet');
+ items=G.placeFrontLayout(items,c.id,'doors').items;
+ const f=items.find(o=>o.kind==='front');
+ const neighbor=items.find(o=>o.kind==='front'&&Math.abs(o.startT-f.endT)<.00001&&
+  o.bottomT===f.bottomT&&o.id!==f.id);
+ assert.ok(neighbor,'split door has a partner');
+ const requested=Math.round(((f.endT-f.startT)*G.lengthOf(c)-.02)*100)/100;
+ const result=G.editFront(items,f.id,{width:requested,finish:'wood',handleStyle:'hidden'});
+ const changed=result.items.find(o=>o.id===f.id),next=result.items.find(o=>o.id===neighbor.id);
+ assert.ok(Math.abs((changed.endT-changed.startT)*G.lengthOf(c)-requested)<.00001);
+ assert.ok(Math.abs(changed.endT-next.startT)<.00001,'shared seam stays joined');
+ assert.equal(changed.finish,'wood');
+ assert.equal(changed.handleStyle,'hidden');
+ assert.throws(()=>G.editFront(items,f.id,{width:2}),/نما|درب|کشو/);
+});
+test('fronts follow cabinet resize and embedded refrigerator without breaking envelope',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5.5,z:0}).items;
+ items=G.placeCabinet(items,{x:.05,z:0,side:1},{x:5.45,z:0}).items;
+ const c=items.find(o=>o.kind==='cabinet');
+ items=G.placeFrontLayout(items,c.id,'mixed').items;
+ const resized=G.editCabinet(items,c.id,{length:5.2});
+ assert.ok(resized.items.some(o=>o.kind==='front'&&o.hostId===c.id));
+ const fridge=G.placeEquipment(items,{x:2.7,z:.34},'fridge').items;
+ assert.ok(fridge.some(o=>o.subtype==='fridge'&&o.builtIn));
+ assert.ok(fridge.filter(o=>o.kind==='cabinet').every(o=>G.lengthOf(o)>=.45));
+ assert.ok(fridge.some(o=>o.kind==='front'),'unaffected segments keep their facades');
+});
+test('cabinet upper front accepts doors but does not accept drawers',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+ items=G.placeCabinet(items,{x:.1,z:0,side:1},{x:2.9,z:0},{kind:'upper',elevation:1.55,height:.72}).items;
+ const c=items.find(o=>o.kind==='cabinet');
+ assert.equal(c.subtype,'upper');
+ assert.ok(G.placeFrontLayout(items,c.id,'doors').items.some(o=>o.kind==='front'));
+ assert.throws(()=>G.placeFrontLayout(items,c.id,'drawers3'),/زمینی/);
 });
