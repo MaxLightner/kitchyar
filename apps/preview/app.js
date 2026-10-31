@@ -219,6 +219,12 @@ function selectAt(point,target){
  }
  selection=hit?.id||null;showScene();
 }
+function initialPreviewForTool(tool){
+ if(tool==='wall')return {x:0,z:0};
+ const w=currentItems().find(x=>x.kind==='wall');
+ if(!w)return null;
+ return {x:(w.x1+w.x2)/2,z:(w.z1+w.z2)/2};
+}
 function placeAt(point){
  if(!drawing||!point)return;
  const items=currentItems(),tool=drawing.tool;
@@ -371,7 +377,7 @@ document.addEventListener('click',async e=>{
   if(action==='copy'){const p=projects.find(x=>x.id===id),time=new Date().toISOString();
    projects.unshift({...structuredClone(p),id:uid(),name:p.name+' — کپی',createdAt:time,updatedAt:time});
    save();dialogs.innerHTML='';projectPage();return;}
-  if(action==='tool'){drawing={tool:button.dataset.tool,start:null};selection=null;showScene();return;}
+  if(action==='tool'){drawing={tool:button.dataset.tool,start:null};selection=null;hover=initialPreviewForTool(drawing.tool);showScene();return;}
   if(action==='record-start'||action==='record-end'){
    const p=controlPoint();if(!p){tell('نشانگر هنوز روی سطح معتبر قرار نگرفته است.');return;}
    if(action==='record-start'&&drawing?.start){tell('نقطه شروع قبلاً ثبت شده است.');return;}
