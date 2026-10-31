@@ -188,8 +188,9 @@
       const w=Math.max(1,canvas.clientWidth),h=Math.max(1,canvas.clientHeight);
       const scale=Math.max(28,Math.min(86,Math.min(w/9.2,h/5.6)));
       const worldPixel=scale*.78*Math.SQRT2;
-      const targetY=.04*h/(worldPixel*Math.cos(Math.atan(.448)));
-      const eyeHeight=13*Math.tan(Math.atan(.448));
+      const elevation=Math.asin(.449);
+      const targetY=.04*h/(worldPixel*Math.cos(elevation));
+      const eyeHeight=13*Math.SQRT2*Math.tan(elevation);
       camera.position.set(13,targetY+eyeHeight,13);
       camera.lookAt(0,targetY,0);
       const halfW=w/worldPixel/2,halfH=h/worldPixel/2;
