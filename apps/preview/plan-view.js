@@ -1,5 +1,5 @@
-import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=render25';
-import {renderPlanMeasurements} from './edit-handles.js?v=render25';
+import {lengthOf,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=render26';
+import {renderPlanMeasurements} from './edit-handles.js?v=render26';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true}={}){
@@ -67,7 +67,10 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   if(!mini)out+='<line data-item-id="'+safe(front.id)+'" x1="'+f(ax+nx*offset)+'" y1="'+f(az+nz*offset)+
    '" x2="'+f(bx+nx*offset)+'" y2="'+f(bz+nz*offset)+'" stroke="transparent" stroke-width=".12" pointer-events="stroke"/>';
  }
- for(const e of items.filter(x=>x.kind==='equipment')){
+ // In top-down view the hob/sink must remain visible above a built-in oven,
+ // while overhead hoods are drawn first so they never mask the burners.
+ const equipmentPriority=e=>e.subtype==='hood'?0:['oven','fridge','dishwasher','washer'].includes(e.subtype)?1:2;
+ for(const e of items.filter(x=>x.kind==='equipment').sort((a,b)=>equipmentPriority(a)-equipmentPriority(b))){
   const corners=equipmentCorners(e.x,e.z,e.width,e.depth,e.rotation||0);
   out+='<g data-item-id="'+safe(e.id)+'" opacity=".96"><polygon points="'+corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
    '" fill="'+(e.subtype==='fridge'?'#cbd2d3':e.subtype==='stove'?'#424a4a':e.subtype==='hood'?'#a8b2ac':e.subtype==='oven'?'#464b4c':'#bdc9ca')+

@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=render25';
-import * as Geo from './geometry.js?v=render25';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render25';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render25';
+import {FloorAR} from './floor-ar.js?v=render26';
+import * as Geo from './geometry.js?v=render26';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render26';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render26';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
