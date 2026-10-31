@@ -243,6 +243,7 @@
       }
       if(!items.length&&!draft){ctx.fillStyle='#879588';ctx.textAlign='center';ctx.font='14px Tahoma, sans-serif';ctx.fillText('از ابزار معماری یا کابینت شروع کنید · کلیک و درگ',w/2,h*.25);}
       drawMap();
+      events.onSceneFrame?.(items,mode,selected,draft);
     }
     function localPoint(event,el=canvas){const r=el.getBoundingClientRect();return {x:event.clientX-r.left,y:event.clientY-r.top};}
     function pick(pos){
