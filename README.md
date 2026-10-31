@@ -1,45 +1,20 @@
-# Kitchyar / کیچیار
+# Kitchyar — UI-first rebuild
 
-Independent kitchen-design project. **Phase A–F interactive alpha**, not a manufacturing-ready kitchen editor.
+The old A–F experimental canvas/renderer code has been replaced. The active scope is deliberately limited to three screens:
 
-## Current capability
+1. Welcome
+2. Projects (local create, open, rename, duplicate, delete)
+3. AR-first Editor (floor scan and calibration UI; cabinetry and wall editing are future stages)
 
-- Welcome, project list and project operations (create, rename, duplicate, delete with confirmation, JSON backup).
-- Local-first, versioned project persistence and transparent failure on corrupt storage.
-- Shared metric plan and isometric 3D view, selection, resizing, mini-map, Undo/Redo.
-- Phase D: WebXR hit-test floor preview on supported Android Chrome/ARCore, explicit floor confirmation,
-  A/B measurement and display-only calibration; non-AR editor always remains available.
-- Phase E: click/drag metric walls; host-bound doors and windows; five selection handles for
-  windows in 3D, numeric inspector, wall openings in 3D geometry, collision and boundary checks.
-- Phase F: click/drag continuous base and upper cabinet runs, independent mounting elevation,
-  editable length/depth/height, **no premature unit segmentation**.
-- A one-click demo project from Welcome or Project Management.
-- Android APK hosts the same offline UI; **WebXR AR requires a separate supporting browser**.
+## Floor scan fidelity
 
-## Run
+The adapter imports the exact pinned Chido v0.5.7 FloorScanner, the same xr.js session request, and the same AnchorStabilizer from commit 0abbab05c15eed4f3922d1e1dc74b5c17b82e8be.
 
-```sh
-npm run check
-npm run preview
-```
+The integration also uses Chido's eight auxiliary hit-test rays, floor grid shader, height clustering, accepted hit markers, independent observations, floor confirmation, anchor acquisition and 10-cm A/B ticks.
 
-Then open `http://127.0.0.1:4173/`.
+**Limitations:** Native AR requires Android Chrome with ARCore/WebXR and HTTPS. Desktop browser previews cannot validate floor tracking or physical alignment. 2D/3D editor modes intentionally announce that they are not yet implemented.
 
-The GitHub Pages workflow publishes only `apps/preview` at `https://maxlightner.github.io/kitchyar/` **once Pages is enabled** for the repository. Private-repository Pages availability depends on the GitHub account plan; keep the repository private unless the owner explicitly approves publishing its source. The workflow alone cannot grant Pages entitlement.
+Preview: https://maxlightner.github.io/kitchyar/
+Check: npm run check
 
-The private repository's CI builds an Android APK. In an Android SDK environment, run
-`gradle -p apps/android assembleDebug` using Gradle 8.10.2 / Java 17. A real ARCore
-device was **not available** for this implementation; AR accuracy and camera permissions
-require physical device verification. The APK is an offline UI host, not a native ARCore renderer.
-
-## Architecture rules
-
-1. `apps/preview/core.js` is an isolated versioned project-domain module; the 2D/3D renderer does not own dimensions.
-2. Wall/opening/cabinet domain objects live in `apps/preview/core.js`. WebXR is an optional
-   adapter in `apps/preview/ar.js`; no Builder/Archyar/Chido application source was copied.
-3. Chido is the visual/interaction reference; Archyar the potential wall/AR source; Archyar Blender the semantic opening/handle reference.
-4. The ordinary web 3D view is an **isometric canvas visualization**, not a full perspective
-   PBR renderer. The separate WebXR adapter uses real metric 3D meshes on supported phones.
-
-Read [docs/PHASES_D_E_F.md](docs/PHASES_D_E_F.md) for completed vs pending acceptance gates,
-and [THIRD_PARTY.md](THIRD_PARTY.md) for the AR renderer dependency.
+The previous code remains recoverable in Git history and branch archive-pre-ui-rebuild-20261031. Existing browser data from the previous version was not deleted; the rebuild uses a new storage key.

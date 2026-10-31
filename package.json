@@ -1,11 +1,10 @@
 {
   "name": "kitchyar",
   "private": true,
-  "version": "0.1.0",
-  "description": "Kitchyar isolated project/UI baseline",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Kitchyar UI rebuild: welcome, projects, AR-first editor, pinned Chido floor scanner",
   "scripts": {
-    "test": "node --test tests/*.test.cjs",
-    "check": "node --check apps/preview/core.js && node --check apps/preview/scene.js && node --check apps/preview/real3d.js && node --check apps/preview/ar.js && node --check apps/preview/app.js && npm test",
-    "preview": "node scripts/serve.cjs"
+    "check": "node --check apps/preview/app.js && node --check apps/preview/floor-ar.js && node --test tests/ui.test.cjs"
   }
 }

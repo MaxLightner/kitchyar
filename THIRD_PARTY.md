@@ -1,13 +1,11 @@
-# Third-party code and licenses
+# Sources and licensing
 
-## three.js (AR viewer only)
+## Chido v0.5.7 — user-owned source
 
-- Source: https://github.com/mrdoob/three.js
-- Version pinned by URL: `0.168.0`
-- Runtime: `https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js`
-- License: MIT (https://github.com/mrdoob/three.js/blob/r168/LICENSE)
-- Usage: WebXR renderer, semantic mesh preview, hit-test floor visualization.
-- Modifications: none; loaded through a dynamic module import, not vendored.
-- Failure mode: the ordinary offline 2D/3D UI still works if the external module is unavailable.
+- Repository: https://github.com/MaxLightner/tolica-ar
+- Pinned commit: 0abbab05c15eed4f3922d1e1dc74b5c17b82e8be
+- Runtime imports: surfaces.js (floor scan), anchor-rig.js (stabilization), xr.js (session request), vendor/three.module.js and its relative dependencies
+- The Kitchyar UI and adapter are independent; the Chido scanner remains pinned and unmodified.
+- Review the Chido repository license before third-party distribution.
 
-No complete Chido, Archyar, Archyar Blender, or Builder source was copied into Kitchyar.
+No previous experimental Kitchyar canvas/PBR editor code is loaded in the rebuilt preview.
