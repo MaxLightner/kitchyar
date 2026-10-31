@@ -113,3 +113,8 @@ test('facade viewport scrolls selected front into view without hidden hit target
  assert.match(app,/const clip=el\.closest\('\.front-elevation-scroll'\)/);
  assert.match(css,/\.front-elevation-scroll\{direction:ltr\}/);
 });
+
+test('facade panel taps are not swallowed by nearby resize grips',()=>{
+ const app=read('app.js');
+ assert.match(app,/if\(e\.target\.closest\('\.front-panel-elevation'\)\)return null/);
+});

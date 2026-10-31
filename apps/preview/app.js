@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=render21';
-import * as Geo from './geometry.js?v=render21';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render21';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render21';
+import {FloorAR} from './floor-ar.js?v=render22';
+import * as Geo from './geometry.js?v=render22';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=render22';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=render22';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -533,6 +533,8 @@ function pickPlanCalibration(e){
 }
 function pickPlanHandle(e){
  if(mode!=='2d'||drawing||!e.target.closest('.editor-scene'))return null;
+ // A tap on a facade itself selects that panel, even beside another panel's grip.
+ if(e.target.closest('.front-panel-elevation'))return null;
  const candidates=document.querySelectorAll('#plan-view [data-handle],#plan-view [data-open-handle],#elevation-view [data-open-handle]');
  let hit=null,distance=47;
  for(const el of candidates){
