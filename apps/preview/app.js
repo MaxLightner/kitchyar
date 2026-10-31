@@ -56,8 +56,8 @@
     });
     renderer.render(project.scene.items,view,selectedId);updateInspector();
     const canvas=document.getElementById("scene-canvas");
-    window.KitchyarReal3D?.create(canvas,(message)=>{if(document.getElementById("scene-canvas")===canvas)document.getElementById("view-label").textContent=message;})
-      .then(instance=>{if(document.getElementById("scene-canvas")!==canvas){instance?.dispose();return;}pbr=instance;refreshScene();})
+    const pbrPromise=window.KitchyarReal3D?.create(canvas,(message)=>{if(document.getElementById("scene-canvas")===canvas)document.getElementById("view-label").textContent=message;});
+    pbrPromise?.then(instance=>{if(document.getElementById("scene-canvas")!==canvas){instance?.dispose();return;}pbr=instance;refreshScene();})
       .catch(e=>toast("WebGL: "+e.message));
   }
   function refreshScene() {renderer?.render(project.scene.items,view,selectedId);updateInspector();}
