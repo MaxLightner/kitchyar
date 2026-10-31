@@ -371,11 +371,11 @@ test('installed upper cabinets support 1cm top, sill and endpoint edits',async()
 test('touch handles have large targets for selected cabinets and height editing',()=>{
  const plan=source('plan-view.js'),app=source('app.js'),floor=source('floor-ar.js');
  assert.match(plan,/class="resize-handle"/);
- assert.match(plan,/r="\.22"/);
+ assert.match(plan,/touchRadius/);
  assert.match(app,/renderCabinetElevation/);
  assert.match(floor,/mark\('top'/);
  assert.match(floor,/mark\('bottom'/);
- assert.match(floor,/distance=43/);
+ assert.match(floor,/distance=60/);
 });
 
 test('new stove sizes, induction toggle and sink widths are separately editable',async()=>{
