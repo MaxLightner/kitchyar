@@ -3,7 +3,7 @@
   const Core = window.KitchyarCore;
   const app = document.getElementById('app'), modalRoot = document.getElementById('modal-root'), toastEl = document.getElementById('toast');
   let repo, project = null, selectedId = null, view = '3d', activeTool = null, drawTool = null, renderer = null;
-  let undo = [], redo = [], toastTimer;
+  let undo = [], redo = [], toastTimer, pbr = null;
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const formatDate = (v) => {try{return new Date(v).toLocaleDateString('fa-IR',{year:'numeric',month:'short',day:'numeric'});}catch{return '—';}};
   const icon = (char) => `<span aria-hidden="true">${char}</span>`;
@@ -48,12 +48,17 @@
     project=repo.get(pid);
     if(!project){toast('پروژه یافت نشد.');nav('#/projects');return;}
     selectedId=null;view='3d';activeTool=null;drawTool=null;undo=[];redo=[];
-    app.innerHTML=`<div class="workspace-shell"><header class="workspace-head"><button class="button sm back-to-projects" data-action="go-projects">← پروژه‌ها</button><div class="workspace-title"><strong id="active-project-title">${esc(project.name)}</strong><span id="save-status">ذخیره‌شده در دستگاه</span></div><div class="spacer"></div><div class="mode-switch" role="group" aria-label="نوع نما"><button data-action="view" data-view="2d">2D</button><button class="active" data-action="view" data-view="3d">3D</button><button data-action="ar" title="نیازمند گوشی سازگار و HTTPS">AR</button></div><button class="button sm" data-action="save">ذخیره</button></header><main class="workspace-main"><canvas id="scene-canvas" class="scene-canvas" aria-label="پلان و نمای ایزومتریک"></canvas><div class="canvas-label"><span class="status-dot"></span><span id="view-label">نمای سه‌بعدی · ایزومتریک</span></div><span class="tool-help" id="tool-help">از پنل پایین ابزار را انتخاب کنید؛ برای طراحی کلیک و درگ کنید.</span><div class="side-actions"><button class="button square" data-action="select-tool" title="انتخاب / خروج از ترسیم" aria-label="انتخاب">⌖</button><button class="button square" data-action="calibrate" title="کالیبراسیون و مبدأ اتاق" aria-label="کالیبراسیون">⊞</button><button class="button square" data-action="undo" title="بازگشت" aria-label="بازگشت">↶</button><button class="button square" data-action="redo" title="انجام دوباره" aria-label="انجام دوباره">↷</button></div><section class="inspector" id="inspector" hidden aria-label="ویژگی‌های آبجکت"></section><div class="mini-map" id="mini-map"><div class="map-header"><strong>پلان زنده</strong><button class="map-expand" data-action="toggle-map">بزرگ‌نمایی ↗</button></div><canvas id="map-canvas" aria-label="انتخاب آبجکت روی مینی‌مپ"></canvas><div class="map-footer">متر · واحد مشترک مدل</div></div><div class="dock-wrap"><div id="tool-sheet" class="tool-sheet" hidden></div><nav class="dock" aria-label="ابزارهای طراحی">${dockHtml()}</nav></div></main></div>`;
+    app.innerHTML=`<div class="workspace-shell"><header class="workspace-head"><button class="button sm back-to-projects" data-action="go-projects">← پروژه‌ها</button><div class="workspace-title"><strong id="active-project-title">${esc(project.name)}</strong><span id="save-status">ذخیره‌شده در دستگاه</span></div><div class="spacer"></div><div class="mode-switch" role="group" aria-label="نوع نما"><button data-action="view" data-view="2d">2D</button><button class="active" data-action="view" data-view="3d">3D</button><button data-action="ar" title="نیازمند گوشی سازگار و HTTPS">AR</button></div><button class="button sm" data-action="save">ذخیره</button></header><main class="workspace-main"><canvas id="scene-canvas" class="scene-canvas" aria-label="پلان و نمای ایزومتریک"></canvas><div class="canvas-label"><span class="status-dot"></span><span id="view-label">نمای سه‌بعدی · ایزومتریک</span></div><span class="tool-help" id="tool-help">از پنل پایین ابزار را انتخاب کنید؛ برای طراحی کلیک و درگ کنید.</span><div class="side-actions"><button class="button square" data-action="select-tool" title="انتخاب / خروج از ترسیم" aria-label="انتخاب">⌖</button><button class="button square" data-action="calibrate" title="کالیبراسیون و مبدأ اتاق" aria-label="کالیبراسیون">⊞</button><button class="button square" data-action="lighting" title="نور، رفلکشن و AO" aria-label="تنظیم رندر">☀</button><button class="button square" data-action="undo" title="بازگشت" aria-label="بازگشت">↶</button><button class="button square" data-action="redo" title="انجام دوباره" aria-label="انجام دوباره">↷</button></div><section class="inspector" id="inspector" hidden aria-label="ویژگی‌های آبجکت"></section><section class="lighting-panel" id="lighting-panel" hidden><div class="tool-sheet-head"><strong>نور و رندر سه‌بعدی</strong><button class="button sm ghost" data-action="lighting">×</button></div><label>جهت نور <input type="range" data-light="azimuth" min="0" max="360" value="135"></label><label>ارتفاع نور <input type="range" data-light="elevation" min="15" max="85" value="52"></label><label>شدت نور <input type="range" data-light="intensity" min=".5" max="5" step=".1" value="2.5"></label><label>اکلوژن <input type="range" data-light="ao" min="0" max="1.5" step=".05" value=".75"></label><label>بازتاب کابینت <input type="range" data-light="reflection" min="0" max="1" step=".05" value=".75"></label><small>بازتاب محیطی متریال، سایه واقعی و SSAO · تنظیمات موقت این جلسه</small></section><div class="mini-map" id="mini-map"><div class="map-header"><strong>پلان زنده</strong><button class="map-expand" data-action="toggle-map">بزرگ‌نمایی ↗</button></div><canvas id="map-canvas" aria-label="انتخاب آبجکت روی مینی‌مپ"></canvas><div class="map-footer">متر · واحد مشترک مدل</div></div><div class="dock-wrap"><div id="tool-sheet" class="tool-sheet" hidden></div><nav class="dock" aria-label="ابزارهای طراحی">${dockHtml()}</nav></div></main></div>`;
     renderer=window.KitchyarScene.createScene(document.getElementById('scene-canvas'),document.getElementById('map-canvas'),{
       onSelect: select,onManipulate: manipulate,onCommit: commitMove,onCancel:cancelMove,
       onCreate:createShape,onCreateOpening:createOpening,onHint:toast,
+      onSceneFrame:(items,mode,selection,draft)=>pbr?.render(items,mode,selection,draft),
     });
     renderer.render(project.scene.items,view,selectedId);updateInspector();
+    const canvas=document.getElementById("scene-canvas");
+    window.KitchyarReal3D?.create(canvas,(message)=>{if(document.getElementById("scene-canvas")===canvas)document.getElementById("view-label").textContent=message;})
+      .then(instance=>{if(document.getElementById("scene-canvas")!==canvas){instance?.dispose();return;}pbr=instance;refreshScene();})
+      .catch(e=>toast("WebGL: "+e.message));
   }
   function refreshScene() {renderer?.render(project.scene.items,view,selectedId);updateInspector();}
   function select(pid) {selectedId=pid;refreshScene();}
@@ -170,6 +175,7 @@
     modalRoot.innerHTML=`<div class="modal-cover"><section class="modal" role="dialog" aria-modal="true" aria-label="گزینه‌های پروژه"><h2>${esc(p.name)}</h2><div class="tool-grid"><button class="button" data-action="rename-project" data-id="${esc(pid)}">تغییر نام</button><button class="button" data-action="duplicate-project" data-id="${esc(pid)}">ایجاد کپی</button><button class="button" data-action="export-project" data-id="${esc(pid)}">نسخه پشتیبان JSON</button><button class="button danger" data-action="delete-project" data-id="${esc(pid)}">حذف پروژه</button></div><div class="modal-actions"><button class="button" data-action="close-modal">بستن</button></div></section></div>`;
   }
   function route() {
+    if(pbr){pbr.dispose();pbr=null;}renderer=null;
     try {
       if(!repo)repo=Core.createRepository(localStorage);
       repo.list();
@@ -194,14 +200,15 @@
       if(action==='duplicate-project'){repo.duplicate(pid);modalRoot.innerHTML='';renderProjects();return toast('نسخه جدید ساخته شد.');}
       if(action==='export-project')return downloadProject(pid);
       if(action==='delete-project')return modal({title:'حذف پروژه',message:'حذف پروژه از همین دستگاه برگشت‌پذیر نیست؛ قبل از حذف نسخه پشتیبان بگیرید.',value:null,confirm:'حذف',danger:true,onConfirm:()=>{repo.remove(pid);renderProjects();}});
-      if(action==='view'){view=btn.dataset.view;document.querySelectorAll('[data-action="view"]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));document.getElementById('view-label').textContent=view==='2d'?'پلان دوبعدی · مقیاس متریک':'نمای سه‌بعدی · ایزومتریک';return renderer?.render(project.scene.items,view,selectedId);}
+      if(action==='view'){view=btn.dataset.view;document.querySelectorAll('[data-action="view"]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));document.getElementById('view-label').textContent=view==='2d'?'پلان دوبعدی · مقیاس متریک':'نمای سه‌بعدی · PBR';return renderer?.render(project.scene.items,view,selectedId);}
       if(action==='ar') {
         if(!window.KitchyarAR)return toast('بخش AR هنوز بارگذاری نشده است.');
         return window.KitchyarAR.start(project.scene,()=>toast('جلسه AR بسته شد.'),toast,(scene,before)=>{
           project.scene=scene;commit(before);
         }).catch(e=>toast('AR: '+e.message));
       }
-      if(action==='calibrate')return calibrate();
+      if(action==='lighting'){const panel=document.getElementById('lighting-panel');if(panel)panel.hidden=!panel.hidden;return;}
+       if(action==='calibrate')return calibrate();
       if(action==='save-calibration'){
         const c={...project.scene.calibration};
         document.querySelectorAll('[data-calibration]').forEach(input=>c[input.dataset.calibration]=Number(input.value));
@@ -237,6 +244,7 @@
       if(action==='undo'||action==='redo')return changeHistory(action);
     }catch(error){toast(error.message);}
   });
+  document.addEventListener('input',(e)=>{if(e.target.dataset.light&&pbr){pbr.setLighting({[e.target.dataset.light]:Number(e.target.value)});}});
   document.addEventListener('change',(e)=>{
     if(e.target.id==='project-import'){
       const file=e.target.files?.[0];if(!file)return;
