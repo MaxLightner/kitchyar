@@ -338,6 +338,8 @@ document.addEventListener('click',async e=>{
   if(action==='mode'){
    const next=button.dataset.mode;if(next===mode)return;mode=next;
    document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));
+   document.querySelector('.scan-confirm').hidden=next!=='ar';
+   document.querySelector('[data-action="rescan"]').hidden=next!=='ar';
    if(next==='ar'){document.getElementById('scan-status').hidden=false;document.getElementById('scan-card').hidden=false;document.getElementById('scan-status').textContent='برای شروع اسکن، دوربین AR را فعال کن.';showScene();beginAR();}
    else {closeFloor();document.getElementById('scan-status').hidden=true;document.getElementById('scan-card').hidden=true;document.getElementById('scene-message').classList.add('visible');
     document.getElementById('scene-message').querySelector('h2').textContent=next==='2d'?'پلان دوبعدی':'نمای سه‌بعدی';
