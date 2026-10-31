@@ -14,7 +14,7 @@ The browser geometry module apps/preview/geometry.js ports the relevant semantic
 - Persistent 10 cm AR floor grid after floor confirmation.
 - All UI font sizes are at least 13 CSS pixels, including mobile.
 
-Editor defaults to AR. To test without an AR device, use the 2D editor or the desktop 3D orbital preview. AR places points with the centre hit-test crosshair after the floor is locked.
+Editor defaults to AR. After a tracked AR session has recognized and locked the floor, **3D** switches to a camera-free, wide-perspective view that keeps the same live WebXR pose, 1:1 building geometry and AR editing handles. Its Normal/Wide/Ultra choices have 60°/84°/100° horizontal FOV. The virtual camera takes the unmodified central XR viewer pose (including height) in every frame; only its projection changes. Returning to AR restores the real camera without restarting tracking. This uses an independent opaque WebGL canvas inside the supported WebXR DOM overlay; a browser without a full-screen overlay is told that tracked wide mode is unavailable. Without an AR session the existing orbital 3D preview remains available, but it is not described as tracked. AR places points with the centre hit-test crosshair after the floor is locked.
 
 ## Standalone cutting report
 
@@ -31,7 +31,7 @@ Editor defaults to AR. To test without an AR device, use the 2D editor or the de
 - Backsplashes are automatically meshed between worktops and upper cupboards, and omit intersecting openings. Users change only the backsplash material.
 - Dishwashers and washing machines now occupy an under-counter aperture within their existing cabinet run; they never split the cabinet or its continuous worktop. Only sinks and hobs generate worktop cutouts.
 - Installed equipment can be selected, moved, or deleted transactionally in 2D/AR. Moves recalculate cutouts and linked hoods; removing an appliance reflows facade panels into the emptied bay. Older fridge-style integrated bays are restored when removed.
-- `3D` now displays the same scene mesher and materials in a desktop orbit viewer without requiring ARCore.
+- `3D` uses the live tracked Wide View when AR is active and the floor is locked; otherwise, the existing desktop orbital preview uses the same scene mesher and materials without requiring ARCore.
 
 ### Finished surfaces and reusable kitchen styles
 

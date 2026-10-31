@@ -54,6 +54,18 @@ button{border:1px solid var(--line);border-radius:12px;padding:12px 16px;backgro
 .editor-root.ar-live .editor-scene{background:transparent}
 .editor-root.ar-live .scene-grid,.editor-root.ar-live .scene-message{display:none}
 .xr-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.wide-view-canvas{position:absolute;inset:0;z-index:2;width:100%;height:100%;pointer-events:none}
+.wide-view-canvas[hidden],.wide-view-settings[hidden]{display:none!important}
+.wide-view-settings{position:absolute;z-index:8;top:114px;right:12px;direction:rtl;display:grid;gap:7px;
+ background:#f8faf5ef;color:#2f4b3b;border:1px solid #a9c7b9;border-radius:13px;padding:10px;
+ box-shadow:0 8px 26px #183b2a29;max-width:calc(100vw - 24px)}
+.wide-view-settings strong{font-size:15px}
+.wide-view-settings small{font-size:15px;color:#486c5a}
+.wide-view-options{display:flex;gap:4px;direction:ltr}
+.wide-view-options button{border:1px solid #b7cdbf;background:#fff;color:#375341;border-radius:8px;padding:8px 9px;font-size:15px;cursor:pointer}
+.wide-view-options button.selected{background:#315c49;color:#fff;border-color:#315c49}
+@media(max-width:730px){.wide-view-settings{top:112px;left:8px;right:auto;padding:7px;gap:4px}
+ .wide-view-options button{padding:7px 6px}}
 .editor-header{position:absolute;inset:0 0 auto 0;height:66px;padding:0 16px;display:flex;align-items:center;gap:12px;z-index:5;background:#f7f3edec;border-bottom:1px solid #e0d8ce}
 .editor-header>button{white-space:nowrap;padding:9px 12px}
 .editor-back{background:transparent;border:0}

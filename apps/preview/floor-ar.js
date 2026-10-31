@@ -7,6 +7,7 @@ import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPa
 import {neighborGaps} from './edit-handles.js?v=report33';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=report33';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=report33';
+import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -17,6 +18,7 @@ export class FloorAR {
    this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;this.calibrationOffset=null;this.savedCalibration=null;this.calibrationVisible=true;
    this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10,taskLighting:true,taskIntensity:1.8};
    this.materialSettings={...DEFAULT_MATERIALS};this.tileLayout={...DEFAULT_TILE_LAYOUT};this.textureCache=new Map();
+   this.wideRenderer=null;this.wideCamera=null;this.wideActive=false;this.wideLevel='wide';
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
@@ -107,6 +109,70 @@ export class FloorAR {
    this.renderer.setAnimationLoop((time,frame)=>this.frame(time,frame));
    this.report('گوشی را به آرامی روی کف حرکت بده.');
   }catch(error){await this.stop();throw error;}
+ }
+ // The DOM-overlay renderer is intentionally independent of the immersive XR
+ // compositor. It uses the exact tracked world-space pose, never an orbit,
+ // moved camera, scaled room or a simulated zoom-out.
+ setWideView(level='wide'){
+  if(!Object.hasOwn(WIDE_FOV,level))throw Error('زاویه دید سه‌بعدی معتبر نیست.');
+  if(!this.session||!this.locked)throw Error('ابتدا AR را فعال و کف را تثبیت کن.');
+  if(this.session.domOverlayState?.type!=='screen')
+   throw Error('این مرورگر لایه تمام‌صفحه WebXR را برای نمای واید پشتیبانی نمی‌کند.');
+  if(!this.wideRenderer){
+   const sceneHost=this.root.querySelector('.editor-scene');
+   if(!sceneHost)throw Error('سطح نمایش سه‌بعدی پیدا نشد.');
+   const renderer=new THREE.WebGLRenderer({antialias:false,alpha:false,powerPreference:'low-power'});
+   renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.25));
+   renderer.outputColorSpace=THREE.SRGBColorSpace;
+   renderer.toneMapping=THREE.ACESFilmicToneMapping;
+   renderer.toneMappingExposure=1.15;
+   renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+   renderer.setClearColor(0xe9eee6,1);
+   renderer.domElement.className='wide-view-canvas';
+   renderer.domElement.setAttribute('aria-hidden','true');
+   renderer.domElement.hidden=true;
+   renderer.domElement.addEventListener('webglcontextlost',event=>{
+    event.preventDefault();this.disableWideView();
+    this.onWideViewError?.('مرورگر رندرر نمای واید را از دست داد؛ به AR برگرد.');
+   });
+   sceneHost.appendChild(renderer.domElement);
+   this.wideRenderer=renderer;
+   this.wideCamera=new THREE.PerspectiveCamera(60,1,.03,80);
+  }
+  this.wideLevel=level;this.wideActive=true;this.wideRenderer.domElement.hidden=false;
+  this.resizeWideView(true);
+  if(this.lastPose)copyTrackedView(this.wideCamera,this.lastPose);
+  return WIDE_FOV[level];
+ }
+ disableWideView(){
+  this.wideActive=false;
+  if(this.wideRenderer)this.wideRenderer.domElement.hidden=true;
+ }
+ resizeWideView(force=false){
+  if(!this.wideActive||!this.wideRenderer)return;
+  const rect=this.root.querySelector('.editor-scene').getBoundingClientRect();
+  const width=Math.max(1,Math.round(rect.width||innerWidth)),height=Math.max(1,Math.round(rect.height||innerHeight));
+  if(force||this.wideWidth!==width||this.wideHeight!==height){
+   this.wideWidth=width;this.wideHeight=height;
+   this.wideRenderer.setSize(width,height,false);
+   this.wideCamera.aspect=width/height;
+  }
+  this.wideCamera.fov=verticalFovFromHorizontal(WIDE_FOV[this.wideLevel],this.wideCamera.aspect);
+  this.wideCamera.updateProjectionMatrix();
+ }
+ drawWideView(pose){
+  if(!this.wideActive||!this.wideRenderer||!copyTrackedView(this.wideCamera,pose))return;
+  this.resizeWideView();
+  this.wideRenderer.render(this.scene,this.wideCamera);
+ }
+ activeViewMatrices(){
+  if(this.wideActive&&this.wideCamera){
+   this.wideCamera.updateMatrixWorld(true);
+   return {cameraView:this.wideCamera.matrixWorldInverse,projection:this.wideCamera.projectionMatrix};
+  }
+  const view=this.lastPose?.views?.[0];if(!view)return null;
+  return {cameraView:new THREE.Matrix4().fromArray(view.transform.inverse.matrix),
+   projection:new THREE.Matrix4().fromArray(view.projectionMatrix)};
  }
  async scan(){
   if(!this.session)return;
@@ -288,6 +354,10 @@ export class FloorAR {
    finally{this.renderer.xr.enabled=old;}
   }
   this.renderer.render(this.scene,this.camera);
+  if(this.wideActive){
+   try{this.drawWideView(pose);}
+   catch(error){this.disableWideView();this.onWideViewError?.('رندر سه‌بعدی واید روی این دستگاه ممکن نشد: '+(error?.message||error));}
+  }
  }
  updateAnchors(frame,time,center,viewer){
   for(const hit of floorCandidates(center,this.space,viewer)){
@@ -320,6 +390,12 @@ export class FloorAR {
  /* Exact viewport NDC = x:0 and y:-1/3 (lower third) or +1/3 (upper third).
     Inverse XR projection, not a hardcoded device-specific ray slope. */
  screenRay(pose,upper=false,x=0,y=null){
+  if(this.wideActive&&this.wideCamera){
+   const camera=this.wideCamera,ndc=new THREE.Vector3(x,y??(upper?1/3:-1/3),.5);
+   camera.updateMatrixWorld(true);
+   const direction=ndc.unproject(camera).sub(camera.position).normalize();
+   return new THREE.Ray(camera.position.clone(),direction);
+  }
   const view=pose?.views?.[0];if(!view)return null;
   const inverse=new THREE.Matrix4().fromArray(view.projectionMatrix).invert();
   const local=new THREE.Vector3(x,y??(upper?1/3:-1/3),-1).applyMatrix4(inverse).normalize();
@@ -425,11 +501,10 @@ export class FloorAR {
   if(!this.locked||!this.ruler?.visible||!this.lastPose||!this.renderer)return null;
   // Chido's screen-space hit testing tolerates fingers over the visible A/B badges,
   // even where a world-space XR ray misses their small physical spheres.
-  const view=this.lastPose.views?.[0],rect=this.renderer.domElement.getBoundingClientRect();
-  if(view&&rect.width&&rect.height){
+  const matrices=this.activeViewMatrices(),rect=this.renderer.domElement.getBoundingClientRect();
+  if(matrices&&rect.width&&rect.height){
    this.floorGroup.updateWorldMatrix(true,true);
-   const cameraView=new THREE.Matrix4().fromArray(view.transform.inverse.matrix),
-    projection=new THREE.Matrix4().fromArray(view.projectionMatrix);
+   const {cameraView,projection}=matrices;
    let nearest=null,distance=65;
    for(const [name,mark] of [['a',this.markA],['b',this.markB]]){
     if(!mark?.visible)continue;
@@ -478,11 +553,10 @@ export class FloorAR {
  }
  pickHandle(clientX,clientY){
   if(!this.editGroup||!this.lastPose||!this.renderer)return null;
-  const view=this.lastPose.views?.[0],rect=this.renderer.domElement.getBoundingClientRect();
-  if(view&&rect.width&&rect.height){
+  const matrices=this.activeViewMatrices(),rect=this.renderer.domElement.getBoundingClientRect();
+  if(matrices&&rect.width&&rect.height){
    this.floorGroup.updateWorldMatrix(true,true);
-   const cameraView=new THREE.Matrix4().fromArray(view.transform.inverse.matrix),
-    projection=new THREE.Matrix4().fromArray(view.projectionMatrix);
+   const {cameraView,projection}=matrices;
    let nearest=null,distance=60;
    for(const marker of this.editGroup.children){
     const pos=marker.getWorldPosition(new THREE.Vector3()).applyMatrix4(cameraView).applyMatrix4(projection);
@@ -500,13 +574,12 @@ export class FloorAR {
  dragScreenHandlePoint(clientX,clientY,drag){
   const o=drag.originalItems?.find(v=>v.id===drag.id);
   const w=o?.kind==='wall'?o:drag.originalItems?.find(v=>v.id===o?.hostId);
-  const view=this.lastPose?.views?.[0],rect=this.renderer?.domElement.getBoundingClientRect();
-  if(!w||!view||!rect?.width||!rect?.height||!this.floorGroup)return null;
+  const matrices=this.activeViewMatrices(),rect=this.renderer?.domElement.getBoundingClientRect();
+  if(!w||!matrices||!rect?.width||!rect?.height||!this.floorGroup)return null;
   const len=Math.hypot(w.x2-w.x1,w.z2-w.z1);if(len<.001)return null;
   const ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
   this.floorGroup.updateWorldMatrix(true,false);
-  const toView=new THREE.Matrix4().fromArray(view.transform.inverse.matrix),
-   projection=new THREE.Matrix4().fromArray(view.projectionMatrix),world=this.floorGroup.matrixWorld;
+  const {cameraView:toView,projection}=matrices,world=this.floorGroup.matrixWorld;
   const initial=drag.initial,along=initial.along??0,y=initial.y??.7;
   const project=(a,b)=>{
    const v=new THREE.Vector3(w.x1+ux*a,b,w.z1+uz*a).applyMatrix4(world).applyMatrix4(toView).applyMatrix4(projection);
@@ -1632,6 +1705,8 @@ export class FloorAR {
  async stop(){if(this.session)try{await this.session.end();}catch{this.cleanup();}}
  cleanup(){
   this.hitSource?.cancel();this.lowerHitSource?.cancel?.();for(const s of this.sources)try{s.cancel();}catch{}
+  this.disableWideView();this.wideRenderer?.dispose();this.wideRenderer?.domElement.remove();
+  this.wideRenderer=null;this.wideCamera=null;
   this.renderer?.setAnimationLoop(null);this.reflectionRT?.dispose();this.renderer?.dispose();this.renderer?.domElement.remove();
   this.renderer=null;this.session=null;this.objectGroup=null;this.previewGroup=null;this.exit?.();
  }

@@ -1,4 +1,4 @@
-import {FloorAR} from './floor-ar.js?v=report33';
+import {FloorAR} from './floor-ar.js?v=wide34';
 import * as Geo from './geometry.js?v=report33';
 import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=report33';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=report33';
@@ -16,6 +16,8 @@ let selection=null,drawing=null,hover=null,pendingUpperEdit=null,undoStack=[],re
 let paintScope='single',paintPart='panel';
 let movingEquipmentId=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
+let wideLevel='wide';
+const trackedView=()=>mode==='ar'||(mode==='3d'&&!!floor?.wideActive);
 const settings={thickness:.12,height:2.8,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.72,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8};
 const renderSettings=()=>({...defaultRender,...currentProject()?.scene?.render});
@@ -75,6 +77,7 @@ function editorPage(id){
  activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
+ '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
  '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><label class="check-row">نور خطی زیر کابینت هوایی<input data-render="taskLighting" type="checkbox" '+(renderSettings().taskLighting?'checked':'')+'></label><label>شدت نور کابینت<input data-render="taskIntensity" type="range" min="0" max="4" step=".1" value="'+renderSettings().taskIntensity+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
  '<section class="scan-card" id="scan-card"><button class="scan-restart" data-action="rescan">شروع / اسکن دوبارهٔ کف ↻</button><div class="scan-head"><strong id="scan-stage">در انتظار اسکن کف</strong><span id="scan-pct">۰٪</span></div><progress id="scan-progress" max="100" value="0"></progress><small>آمادگی بر اساس برخوردهای معتبر و نمونه‌های مستقل است؛ درصد ARCore نیست.</small><div class="scan-info"><span id="scan-hits">برخورد معتبر: ۰</span><span id="anchor-count">Anchor: ۰ / ۵</span></div></section>'+
@@ -93,6 +96,7 @@ function render(){
   mode=parkedMode;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));
   document.getElementById('editor-root')?.classList.add('ar-live');
   document.getElementById('scan-status').hidden=mode!=='ar';
+  document.getElementById('wide-view-settings').hidden=mode!=='3d'||!floor.wideActive;
   updateCalibrationPanel();showScene();return;
  }
  if(!target&&floor?.session&&sessionProjectId===activeId){
@@ -133,8 +137,23 @@ function beginAR(){
     sessionProjectId=null;
     document.getElementById('editor-root')?.classList.remove('ar-live');
     if(mode==='ar')document.getElementById('scan-status').textContent='جلسه AR بسته شد.';
+    if(mode==='3d'){
+     document.getElementById('wide-view-settings').hidden=true;
+     tell('ردیابی AR پایان یافت؛ نمای سه‌بعدی آزاد جایگزین شد.');
+     showScene();
+    }
    });
   floor=instance;sessionProjectId=activeId;
+  instance.onWideViewError=message=>{
+   if(floor===instance&&mode==='3d'){
+    mode='ar';
+    document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));
+    document.getElementById('wide-view-settings').hidden=true;
+    document.getElementById('scan-status').hidden=false;
+    updateCalibrationPanel();showScene();
+   }
+   tell(message);
+  };
   instance.setCalibrationVisible(!calibrationCollapsed);
   instance.setItems(currentItems(),selection);instance.setLighting(renderSettings());instance.setCalibration(currentProject()?.scene?.calibration);
   const pending=instance.start();
@@ -393,7 +412,7 @@ function showScene(){
     items.filter(o=>!(o.kind==='front'&&o.hostId===previewHost.id))
      .concat(Geo.planFronts(items,previewHost,drawing.tool.slice(6)));
   }catch{}
-  elevation.hidden=!(isPlan||mode==='ar')||(!selected&&!pending)||!!(drawing&&!facadeTool)||!!(facadeTool&&!pending);
+  elevation.hidden=!(isPlan||trackedView())||(!selected&&!pending)||!!(drawing&&!facadeTool)||!!(facadeTool&&!pending);
   elevation.innerHTML=elevation.hidden?'':pending?
    '<div class="preview-elevation-flag">پیش‌نمایش · هنوز ثبت نشده</div>'+renderFrontElevation(pending,previewHost):
    selected.kind==='opening'?renderElevation(items,selected):
@@ -429,7 +448,7 @@ function showScene(){
  floor?.setMaterials({...DEFAULT_MATERIALS,...currentProject()?.scene?.materials});
  floor?.setTileLayout(currentTileLayout());
  if(mode==='3d'){
-  if(!desktopPreview){
+  if(!floor?.wideActive&&!desktopPreview){
    try{desktopPreview=new FloorAR(document.getElementById('editor-root'),()=>{},()=>{});
     desktopPreview.startPreview(document.querySelector('.editor-scene'));
    }catch(error){closeDesktopPreview();tell('نمای سه‌بعدی در این مرورگر آماده نشد: '+error.message);}
@@ -439,7 +458,7 @@ function showScene(){
   desktopPreview?.setTileLayout(currentTileLayout());
   desktopPreview?.setLighting(renderSettings());
  }
- if(mode==='ar')floor?.setEditPreview(items,selection,'centre',
+ if(trackedView())floor?.setEditPreview(items,selection,'centre',
   !!items.find(o=>o.id===selection&&o.kind==='opening')&&!drawing);
  floor?.setDrawing(drawing?.start||null,drawing?.tool,{height:settings.upperHeight,elevation:settings.upperElevation,hostId:drawing?.hostId});
  floor?.setLighting(renderSettings());
@@ -449,7 +468,7 @@ function showScene(){
   controls.querySelector('[data-action="confirm-drawing"]').title=drawing?.start?'ثبت انتهای قطعه و ادامهٔ مسیر':'تأیید محل نشانگر';
  }
  const marker=document.getElementById('aim-marker');if(marker){
-  marker.hidden=!drawing||mode!=='ar';
+  marker.hidden=!drawing||!trackedView();
   marker.classList.toggle('upper',drawing?.tool==='upper');
   document.getElementById('aim-label').textContent=drawing?.tool==='upper'?'لبه کابینت هوایی · یک‌سوم بالای صفحه':'کنج دیوار / کابینت · یک‌سوم پایین صفحه';
  }
@@ -556,7 +575,7 @@ function placeAt(point){
    const w=items.find(x=>x.id===snap.hostId),
     cross=(point.x-w.x1)*(w.z2-w.z1)-(point.z-w.z1)*(w.x2-w.x1);
    drawing.start={x:snap.x,z:snap.z,hostId:w.id,
-    side:mode==='ar'&&floor?.locked?floor.cameraSideForWall(w):Math.abs(cross)<.01?1:cross>0?-1:1};
+    side:trackedView()&&floor?.locked?floor.cameraSideForWall(w):Math.abs(cross)<.01?1:cross>0?-1:1};
   }else{
    const p=Geo.resolvePoint(items,null,point.x,point.z,settings);
    drawing.start={x:p.x,z:p.z};
@@ -578,7 +597,7 @@ function placeAt(point){
  commitChange(result);drawing={tool,start:result.end,groupId:result.groupId||drawing.groupId};hover=result.end||null;showScene();
 }
 function controlPoint(){
- if(mode==='ar')return floor?.pick()||null;
+ if(trackedView())return floor?.pick()||null;
  if(mode==='2d')return hover||null;
  return null;
 }
@@ -652,7 +671,7 @@ function positionForResize(e,drag){
   return {...original,along:(original.along||0)+(e.clientX-drag.startClientX)/pixels,
    y:(original.y||0)-(e.clientY-drag.startClientY)/pixels};
  }
- if(mode==='ar'){
+ if(trackedView()){
   const target=floor?.dragScreenHandlePoint(e.clientX,e.clientY,drag)||floor?.dragHandlePoint(e.clientX,e.clientY,drag.id);
   return target||null;
  }
@@ -682,7 +701,7 @@ function paintResize(){
      cabinet&&objItems.some(o=>o.kind==='front'&&o.hostId===cabinet.id)?renderFrontElevation(objItems,cabinet,dragHandle.id,gesture):renderCabinetElevation(objItems,cabinet,gesture);
    if(dragHandle.error)panel.insertAdjacentHTML('beforeend','<p class="resize-warning">'+esc(dragHandle.error)+'</p>');
   }
- }else if(mode==='ar'){
+ }else if(trackedView()){
   floor?.setEditPreview(objItems,dragHandle.id,dragHandle.side,dragHandle.moved);
   const panel=document.getElementById('elevation-panel');
   if(panel&&['opening','cabinet','front'].includes(current?.kind)){
@@ -697,7 +716,7 @@ function finishResize(cancelled=false){
  const drag=dragHandle;if(!drag)return;
  dragHandle=null;
  const scene=document.querySelector('.editor-scene');scene?.classList.remove('is-resizing');
- if(mode==='ar')floor?.setEditPreview(null,null,null,false);
+ if(trackedView())floor?.setEditPreview(null,null,null,false);
  if(!cancelled&&drag.moved&&drag.previewItems){
   commitChange({items:drag.previewItems,selectedId:drag.id});
  }else{
@@ -755,7 +774,7 @@ document.addEventListener('pointerdown',e=>{
   try{scene?.setPointerCapture(e.pointerId);}catch{}
   e.preventDefault();e.stopPropagation();return;
  }
- if(mode==='ar'&&floor?.locked&&!calibrationCollapsed&&e.target.closest('.editor-scene')){
+ if(trackedView()&&floor?.locked&&!calibrationCollapsed&&e.target.closest('.editor-scene')){
   const which=floor.pickCalibrationHandle(e.clientX,e.clientY);
   if(which){
    abDrag={which,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,moved:false};
@@ -768,12 +787,12 @@ document.addEventListener('pointerdown',e=>{
  const direct=e.target.closest('[data-handle],[data-open-handle]');
  const planHit=pickPlanHandle(e),handle=planHit?.element||direct;
  const hit=planHit|| (direct?{id:direct.dataset.itemId,side:direct.dataset.openHandle||direct.dataset.handle}:
-  mode==='ar'&&!drawing&&!e.target.closest('button,input,aside,.editor-header,.bottom-panel,.side-tools')?floor?.pickHandle(e.clientX,e.clientY):null);
+  trackedView()&&!drawing&&!e.target.closest('button,input,aside,.editor-header,.bottom-panel,.side-tools')?floor?.pickHandle(e.clientX,e.clientY):null);
  if(!hit||drawing||!currentItems().some(o=>o.id===hit.id))return;
  const initial=handlePosition(currentItems(),hit.id,hit.side);
  if(!initial)return;
  const elevationSvg=handle?.closest('#elevation-view');
- const surface=elevationSvg?'elevation':mode==='ar'?'ar':'plan';
+ const surface=elevationSvg?'elevation':trackedView()?'ar':'plan';
  const ppm=elevationSvg?Number(elevationSvg.dataset.ppm)*elevationSvg.getBoundingClientRect().width/elevationSvg.viewBox.baseVal.width:0;
  const original=currentItems().find(o=>o.id===hit.id);
  const wall=original?.kind==='opening'?currentItems().find(o=>o.id===original.hostId):null;
@@ -862,11 +881,11 @@ document.addEventListener('pointerup',e=>{
  try{
   if(mode==='3d'&&desktopPreview?.previewWasDragged){desktopPreview.previewWasDragged=false;return;}
   const svg=scene.querySelector('#plan-view');
-  const point=mode==='2d'?svg?planPoint(svg,e):null:mode==='ar'?floor?.pick():
+  const point=mode==='2d'?svg?planPoint(svg,e):null:trackedView()?floor?.pick():
    mode==='3d'?desktopPreview?.pickPreviewPoint(e.clientX,e.clientY):null;
-  const arId=mode==='ar'&&!drawing?floor?.pickObject(e.clientX,e.clientY):
+  const arId=trackedView()&&!drawing?floor?.pickObject(e.clientX,e.clientY):
    mode==='3d'&&!drawing?desktopPreview?.pickPreviewObject(e.clientX,e.clientY):null;
-  if(!point&&!arId){if(mode==='ar'&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
+  if(!point&&!arId){if(trackedView()&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
   if(movingEquipmentId){
    if(!point){tell('برای جابه‌جایی، محل جدید را روی کف نشانه بگیر.');return;}
    const result=Geo.moveEquipment(currentItems(),movingEquipmentId,point);
@@ -1104,10 +1123,21 @@ document.addEventListener('click',async e=>{
   }
   if(action==='menu'){document.getElementById('editor-menu').hidden=!document.getElementById('editor-menu').hidden;return;}
   if(action==='close-menu'){document.getElementById('editor-menu').hidden=true;return;}
+  if(action==='wide-fov'){
+   if(mode!=='3d'||!floor?.wideActive)return;
+   wideLevel=button.dataset.wideMode;
+   floor.setWideView(wideLevel);
+   document.querySelectorAll('[data-wide-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.wideMode===wideLevel));
+   return;
+  }
   if(action==='mode'){
    const next=button.dataset.mode;if(next===mode)return;
+   if(next==='3d'&&floor?.session)floor.setWideView(wideLevel);
+   else if(floor?.wideActive)floor.disableWideView();
    if(next!=='3d')closeDesktopPreview();mode=next;
    document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));
+   document.getElementById('wide-view-settings').hidden=next!=='3d'||!floor?.wideActive;
+   document.querySelectorAll('[data-wide-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.wideMode===wideLevel));
    updateCalibrationPanel();
    document.querySelector('[data-action="rescan"]').hidden=next!=='ar';
    if(next==='ar'){
@@ -1119,7 +1149,9 @@ document.addEventListener('click',async e=>{
     }
    else {document.getElementById('scan-status').hidden=true;document.getElementById('scan-card').hidden=true;document.getElementById('scene-message').classList.add('visible');
     document.getElementById('scene-message').querySelector('h2').textContent=next==='2d'?'پلان دوبعدی':'نمای سه‌بعدی';
-    document.getElementById('scene-message').querySelector('p').textContent=next==='2d'?'روی پلان برای ترسیم یا انتخاب آبجکت بزن.':'مدل سه‌بعدی را بچرخان، زوم کن و برای ویرایش آبجکت‌ها را انتخاب کن.';showScene();}
+    document.getElementById('scene-message').querySelector('p').textContent=next==='2d'?'روی پلان برای ترسیم یا انتخاب آبجکت بزن.':
+     floor?.wideActive?'موقعیت دقیق از AR دریافت می‌شود؛ زاویه دید را از Normal، Wide یا Ultra انتخاب کن.':
+     'بدون نشست AR، این پیش‌نمایش آزاد است. برای نمای زنده ۱:۱ ابتدا AR را فعال کن.';showScene();}
    return;
   }
   if(action==='category'){

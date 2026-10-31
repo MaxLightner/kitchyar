@@ -420,7 +420,7 @@ test('AR window manipulation projects touch deltas onto wall and displays elevat
  assert.match(floor,/dragScreenHandlePoint\(clientX,clientY,drag\)/);
  assert.match(floor,/this\.cameraSideForWall\(w\)\*\(w\.thickness\/2\+\.06\)/);
  assert.match(app,/floor\?\.dragScreenHandlePoint/);
- assert.match(app,/elevation\.hidden=!\(isPlan\|\|mode==='ar'\)/);
+ assert.match(app,/elevation\.hidden=!\(isPlan\|\|trackedView\(\)\)/);
  assert.match(app,/floor\?\.setEditPreview\(items,selection/);
 });
 test('floor calibration collapses and reopens both calibration panel and A/B grips',()=>{
