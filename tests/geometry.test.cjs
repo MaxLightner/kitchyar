@@ -979,3 +979,42 @@ test('opening drawers and tall cabinet doors survives facade reflow and supports
  const cavity=G.frontOpeningCavity(reverse.find(o=>o.id===drawer.id),reverse.find(o=>o.id===cabinet.id));
  assert.ok(cavity.faceZ<0&&cavity.backZ>0);
 });
+
+
+test('one wall height becomes the project-wide height and rejects incompatible openings',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
+ items=G.placeWall(items,{x:4,z:0},{x:4,z:3}).items;
+ const wallId=items.find(x=>x.kind==='wall').id;
+ items=G.editWall(items,wallId,{height:4}).items;
+ assert.ok(items.filter(x=>x.kind==='wall').every(w=>w.height===4));
+ items=G.placeOpening(items,wallId,2,0,{width:1,height:1,sill:2.6}).items;
+ assert.throws(()=>G.editWall(items,wallId,{height:3}),/بازشو|ناسازگار|خارج/);
+ assert.ok(items.filter(x=>x.kind==='wall').every(w=>w.height===4),'failed edit does not mutate source');
+ const app=source('app.js');
+ assert.match(app,/settings\.height=Number\(p\.scene\?\.ceilingHeight/);
+ assert.match(app,/Geo\.setAllWallHeights\(result\.items,settings\.height\)/);
+});
+
+test('installing cabinet after fridge cannot cover the fridge cutout',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
+ items=G.placeCabinet(items,{x:0,z:0,side:1},{x:4,z:0}).items;
+ items=G.placeEquipment(items,{x:2,z:.4},'fridge').items;
+ const fridge=items.find(x=>x.subtype==='fridge');
+ assert.ok(fridge);
+ assert.throws(()=>G.placeCabinet(items,{x:1.66,z:0,side:1},{x:2.34,z:0}),/یخچال/);
+ assert.ok(items.some(x=>x.id===fridge.id),'failed cabinet insertion preserves fridge');
+});
+
+test('2D cabinet ghost uses the same minimum-length and collision rules as commit',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ const {renderPreview}=await import('../apps/preview/plan-view.js');
+ const items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
+ const start=G.snapCabinetPoint(items,.2,0),short=G.snapCabinetPoint(items,.4,0);
+ const invalid=renderPreview(items,{tool:'base',start,depth:.60},short);
+ assert.match(invalid,/fill="#b85b4e"/);
+ assert.doesNotMatch(invalid,/<polygon/);
+ const valid=renderPreview(items,{tool:'base',start,depth:.60},G.snapCabinetPoint(items,1.2,0));
+ assert.match(valid,/<polygon/);
+});
