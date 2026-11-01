@@ -30,6 +30,9 @@ test('wall defaults to 3.6m and a numeric length edit reflows hosted openings an
  assert.ok(Math.abs(g.lengthOf(wall)-6.31)<.02);
  assert.ok(Math.abs(g.lengthOf(cab)-(cab.endT-cab.startT)*g.lengthOf(wall))<1e-8);
  assert.ok(g.resolvePoint([],{x:0,z:0},1.237,.883,{angleSnap:false,gridSnap:true}).x===1.24);
+ const diagonal=g.placeWall([],{x:0,z:0},{x:2,z:1}).items;
+ const resized=g.editWall(diagonal,diagonal[0].id,{length:3.17}).items;
+ assert.ok(Math.abs(g.lengthOf(resized[0])-3.17)<1e-10,'exact centimetre wall length at any angle');
 });
 
 test('square-metre ivory room tiles follow a non-orthogonal closed polygon',async()=>{
@@ -48,6 +51,10 @@ test('windows accept Iranian vertical 1–4 leaf layouts and sinks store faucet 
  const window=items.find(o=>o.kind==='opening');
  items=g.editOpening(items,window.id,{windowModel:'quad'}).items;
  assert.equal(items.find(o=>o.id===window.id).windowModel,'quad');
+ items=g.editOpening(items,window.id,{windowOperation:'casement',openFraction:.65}).items;
+ assert.equal(items.find(o=>o.id===window.id).windowOperation,'casement');
+ assert.equal(items.find(o=>o.id===window.id).openFraction,.65);
+ assert.throws(()=>g.editOpening(items,window.id,{windowOperation:'european'}),/پنجره/);
  assert.throws(()=>g.editOpening(items,window.id,{windowModel:'six'}),/پنجره/);
  items=g.placeCabinet(items,{x:3.4,z:0,hostId:wall.id,side:1},{x:5.8,z:0},{kind:'base'}).items;
  const sink=g.placeEquipment(items,{x:4.25,z:.45},'sink');

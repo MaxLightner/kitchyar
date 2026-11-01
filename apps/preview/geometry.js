@@ -304,6 +304,7 @@ function connectCrossings(items,id){
  }
 }
 export function placeWall(source,start,end,{thickness=.12,height=3.6,tolerance=SNAP_RADIUS}={}){
+ thickness=cm(thickness);height=cm(height);
  checkWall(start,end,thickness,height);
  const items=copy(source);normalize(items);
  const sa=snap(items,start.x,start.z,tolerance);
@@ -1439,11 +1440,12 @@ export function placeOpening(source,hostId,x,z,{style='fixed',width,height,sill}
  if(!finite(width,height,sill)||width<.3||height<.3||sill<0||sill+height>w.height||width>lengthOf(w)-.20)
   throw Error('ابعاد بازشو با دیوار سازگار نیست.');
  const projected=projectOnWall(w,x,z),margin=(width/2+.1)/lengthOf(w),t=Math.max(margin,Math.min(1-margin,projected.t));
- const op={id:uid(),kind:'opening',style,name:door?'در':'پنجره ثابت',hostId:w.id,hostT:t,width,height,sill,mirrored:false,openFraction:0};
+ const op={id:uid(),kind:'opening',style,name:door?'در':'پنجره',hostId:w.id,hostT:t,width,height,sill,
+  windowModel:door?undefined:'double',windowOperation:door?undefined:'sliding',mirrored:false,openFraction:0};
  items.push(op);validateHostOpenings(items,w);validateCabinets(items,w);
  return {items,selectedId:op.id};
 }
-export function editOpening(source,id,{width,height,sill,metresFromStart,mirrored,openFraction,windowModel}){
+export function editOpening(source,id,{width,height,sill,metresFromStart,mirrored,openFraction,windowModel,windowOperation}){
  const items=copy(source),op=byId(items,id),w=byId(items,op?.hostId);
  if(!op||op.kind!=='opening'||!wall(w))throw Error('بازشوی معتبر انتخاب نشده است.');
  op.width=Number(width??op.width);op.height=Number(height??op.height);op.sill=Number(sill??op.sill);
@@ -1456,8 +1458,12 @@ export function editOpening(source,id,{width,height,sill,metresFromStart,mirrore
   if(!['single','double','triple','quad'].includes(windowModel))throw Error('تقسیم پنجره معتبر نیست.');
   op.windowModel=windowModel;
  }
+ if(windowOperation!==undefined&&op.style==='fixed'){
+  if(!['fixed','sliding','casement'].includes(windowOperation))throw Error('نوع بازشوی پنجره معتبر نیست.');
+  op.windowOperation=windowOperation;
+ }
+ if(openFraction!==undefined){const f=Number(openFraction);if(!finite(f)||f<0||f>1)throw Error('زاویه یا میزان بازشدن معتبر نیست.');op.openFraction=f;}
  if(op.style==='door'){
-  if(openFraction!==undefined){const f=Number(openFraction);if(!finite(f)||f<0||f>1)throw Error('زاویه بازشدن در معتبر نیست.');op.openFraction=f;}
   if(mirrored!==undefined)op.mirrored=Boolean(mirrored);
  }
  validateHostOpenings(items,w);validateCabinets(items,w);
@@ -1483,7 +1489,9 @@ export function editWall(source,id,{length,thickness,height}){
  if(!wall(w)||w.locked)throw Error('دیوار قابل ویرایش نیست.');
  const len=lengthOf(w),target=cm(Number(length??len)),thick=cm(Number(thickness??w.thickness)),high=cm(Number(height??w.height));
  checkWall({x:0,z:0},{x:target,z:0},thick,high);
- const x=cm(w.x1+(w.x2-w.x1)/len*target),z=cm(w.z1+(w.z2-w.z1)/len*target),node=w.endNodeId;
+ // Keep exact centimetre *length* even for oblique walls. Rounding both
+ // coordinates would produce a diagonal with a fractional-centimetre length.
+ const x=w.x1+(w.x2-w.x1)/len*target,z=w.z1+(w.z2-w.z1)/len*target,node=w.endNodeId;
  for(const other of items)if(wall(other)){
   if(other.startNodeId===node){other.x1=x;other.z1=z;}
   if(other.endNodeId===node){other.x2=x;other.z2=z;}

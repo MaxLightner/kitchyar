@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=room40';
-import * as Geo from './geometry.js?v=room40';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=room40';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=room40';
+import {FloorAR} from './floor-ar.js?v=room41';
+import * as Geo from './geometry.js?v=room41';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=room41';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=room41';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=report33';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=report33';
 import {buildCutReport} from './report-data.js?v=nest35';
@@ -336,10 +336,13 @@ function drawSelection(){
    field('sill','ارتفاع نصب (متر)',obj.sill,0)+field('offset','فاصله از ابتدای دیوار',obj.hostT*Geo.lengthOf(host),.1);
   if(obj.style==='door')fields+=field('openFraction','میزان بازشدن در (۰ تا ۱)',obj.openFraction||0,0,'.05')+
    '<label class="check-row">جهت لولا<input type="checkbox" data-edit="mirrored" '+(obj.mirrored?'checked':'')+'></label>';
+  else fields+=field('openFraction','میزان بازشدن لت‌ها (۰ تا ۱)',obj.openFraction||0,0,'.05');
  }
  const windowControls=obj.kind==='opening'&&obj.style==='fixed'?'<div class="model-choices"><strong>تقسیم عمودی پنجره · سبک کشویی ایرانی</strong><div class="model-choices-grid">'+
   [['single','یک لت'],['double','۲ لت'],['triple','۳ لت'],['quad','۴ لت']].map(([id,label])=>
-   '<button data-action="window-model" data-model="'+id+'" class="'+((obj.windowModel||'single')===id?'active':'')+'">'+label+'</button>').join('')+'</div></div>':'';
+   '<button data-action="window-model" data-model="'+id+'" class="'+((obj.windowModel||'double')===id?'active':'')+'">'+label+'</button>').join('')+'</div><strong>نوع بازشو</strong><div class="model-choices-grid">'+
+  [['sliding','کشویی ایرانی'],['casement','لولایی ایرانی'],['fixed','ثابت']].map(([id,label])=>
+   '<button data-action="window-operation" data-model="'+id+'" class="'+((obj.windowOperation||'sliding')===id?'active':'')+'">'+label+'</button>').join('')+'</div></div>':'';
  if(obj.kind==='equipment')fields=field('width','عرض (متر)',obj.width,.30)+field('depth','عمق (متر)',obj.depth,.20)+field('height','ارتفاع (متر)',obj.height,.04);
  if(obj.kind==='cabinet')fields=field('length','طول (متر)',obj.hostId?(obj.endT-obj.startT)*Geo.lengthOf(currentItems().find(x=>x.id===obj.hostId)):Geo.lengthOf(obj),.45)+
   field('depth','عمق (متر)',obj.depth,.2)+field('height','ارتفاع (متر)',obj.height,.25)+
@@ -1256,6 +1259,9 @@ document.addEventListener('click',async e=>{
   }
   if(action==='window-model'){
    commitChange(Geo.editOpening(currentItems(),selection,{windowModel:button.dataset.model}));return;
+  }
+  if(action==='window-operation'){
+   commitChange(Geo.editOpening(currentItems(),selection,{windowOperation:button.dataset.model,openFraction:0}));return;
   }
   if(action==='sink-size'){
    const obj=currentItems().find(x=>x.id===selection);
