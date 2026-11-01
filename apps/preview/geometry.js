@@ -567,7 +567,7 @@ function cabinetRunFixtures(items,c){
    const hasOven=e.subtype==='stove'&&items.some(o=>o.kind==='equipment'&&
     o.subtype==='oven'&&o.hostId===base.id&&
     Math.abs((o.offsetT??.5)-(e.offsetT??.5))*lengthOf(base)<.55);
-   fixtures.push({id:e.id,subtype:e.subtype,width:e.width,centre,locked:true,hasOven});
+   fixtures.push({id:e.id,subtype:e.subtype,width:e.width,centre,locked:true,hasOven,clipToRun:true});
   }
  }
  return fixtures;
