@@ -757,6 +757,23 @@ function reflowFronts(items,c,preset=c?.frontPreset){
  items.push(...fresh);
  c.frontPreset=preset;
 }
+/* Only the upper run under a moved sink/hob needs new facade bays.
+   Leave other walls and manually assembled front layouts untouched. */
+function reflowUpperAtFixture(items,fixture){
+ if(!['sink','stove'].includes(fixture?.subtype))return;
+ const base=byId(items,fixture.hostId);
+ if(base?.kind!=='cabinet'||base.subtype!=='base')return;
+ for(const upper of items.filter(c=>c.kind==='cabinet'&&c.subtype==='upper'&&
+  c.hostId===base.hostId&&c.side===base.side&&FRONT_PRESETS[c.frontPreset])){
+  const length=lengthOf(upper);
+  if(length<.1)continue;
+  const dx=upper.x2-upper.x1,dz=upper.z2-upper.z1;
+  const centre=((fixture.x-upper.x1)*dx+(fixture.z-upper.z1)*dz)/length;
+  const half=Math.max(.45,fixture.width/2+.02);
+  if(centre+half<0||centre-half>length)continue;
+  reflowFronts(items,upper);
+ }
+}
 /* Global defaults are copied into cabinet models: existing geometry operations
    can regenerate faces without access to the project/UI state. Connected group
    overrides sit above those defaults; hand-edited faces sit above both. */
@@ -1352,6 +1369,7 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
     throw Error('این قسمت کابینت قبلاً تجهیزات دارد.');
  }
  items.push(obj);
+ if(['sink','stove'].includes(subtype))reflowUpperAtFixture(items,obj);
  if(BUILT_IN_TYPES.has(subtype)||['sink','stove'].includes(subtype)){
   const c=byId(items,obj.hostId);
   if(FRONT_PRESETS[c?.frontPreset])reflowFronts(items,c);
@@ -1690,6 +1708,7 @@ export function removeObject(source,id){
   if(host?.kind==='cabinet'&&['base','tall'].includes(host.subtype)&&FRONT_PRESETS[host.frontPreset]){
    reflowFronts(items,host,host.frontPreset);
   }
+  if(['sink','stove'].includes(target.subtype))reflowUpperAtFixture(items,target);
  }
  return {items,selectedId:null};
 }
