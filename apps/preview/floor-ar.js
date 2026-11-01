@@ -699,10 +699,18 @@ export class FloorAR {
  }
  pickObject(clientX,clientY){
   if(!this.locked||!this.lastPose||!this.objectGroup)return null;
-  const rect=this.renderer.domElement.getBoundingClientRect();
+  const wide=!!this.wideActive&&!!this.wideCamera&&!!this.wideRenderer;
+  const rect=(wide?this.wideRenderer.domElement:this.renderer.domElement).getBoundingClientRect();
   const x=(clientX-rect.left)/rect.width*2-1,y=1-(clientY-rect.top)/rect.height*2;
-  const ray=this.screenRay(this.lastPose,false,x,y);if(!ray)return null;
-  const caster=new THREE.Raycaster(ray.origin,ray.direction,.05,12);
+  let caster;
+  if(wide){
+   this.wideCamera.updateMatrixWorld(true);
+   caster=new THREE.Raycaster();caster.setFromCamera(new THREE.Vector2(x,y),this.wideCamera);
+   caster.near=.05;caster.far=12;
+  }else{
+   const ray=this.screenRay(this.lastPose,false,x,y);if(!ray)return null;
+   caster=new THREE.Raycaster(ray.origin,ray.direction,.05,12);
+  }
   this.objectGroup.updateWorldMatrix(true,true);
   const hits=caster.intersectObjects(this.objectGroup.children,true);
   for(const hit of hits){
