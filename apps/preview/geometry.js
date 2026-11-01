@@ -3,7 +3,7 @@
  * Source: MaxLightner/archyar main (private), 89283efb, 2026-10-31.
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
-import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=fix42';
+import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=fix43';
 export const SNAP_RADIUS=.50;
 const cm=value=>Math.round(value*100)/100;
 const uid=()=>globalThis.crypto?.randomUUID?.()||'node-'+Math.random().toString(36).slice(2);
@@ -1663,6 +1663,7 @@ export function moveEquipment(source,id,point){
  const created=byId(placed.items,placed.selectedId);
  if(!created)throw Error('انتقال تجهیزات انجام نشد.');
  const createdId=created.id;created.id=id;
+ for(const c of placed.items)if(c.overFridgeId===createdId)c.overFridgeId=id;
  for(const hood of placed.items.filter(e=>e.linkedStoveId===createdId)){
   hood.linkedStoveId=id;
   const oldHood=source.find(e=>e.linkedStoveId===id);

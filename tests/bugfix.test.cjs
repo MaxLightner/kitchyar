@@ -49,6 +49,21 @@ test('fridge relocation and deletion restore a single cabinet run, without forci
  assert.equal(items.filter(o=>o.kind==='front').length,0);
 });
 
+test('moving a styled built-in fridge never leaves a ghost upper cabinet after deletion',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:0,z:0},{x:5,z:0}).items;
+ items=G.applyKitchenLayout(items,'graphite',{preset:preset('graphite')}).items;
+ const originalFacades=items.filter(f=>f.kind==='front').length;
+ const fridge=G.placeEquipment(items,{x:2.5,z:.4},'fridge');
+ const moved=G.moveEquipment(fridge.items,fridge.selectedId,{x:.6,z:.4});
+ items=G.removeObject(moved.items,moved.selectedId).items;
+ assert.deepEqual(items.filter(c=>c.kind==='cabinet').map(c=>c.subtype),['base']);
+ const facades=items.filter(f=>f.kind==='front');
+ assert.equal(facades.length,originalFacades);
+ assert.ok(facades.every(f=>f.subtype==='drawer'&&f.handleFinish==='black'));
+});
+
 test('refrigerator model changes and stove relocation are real geometric actions',async()=>{
  G||=await import('../apps/preview/geometry.js');
  let items=G.placeWall([],{x:0,z:0},{x:6,z:0}).items;
