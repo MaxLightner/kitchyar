@@ -1,5 +1,5 @@
 import {FloorAR} from './floor-ar.js?v=fix46';
-import * as Geo from './geometry.js?v=fix47';
+import * as Geo from './geometry.js?v=fix48';
 import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix45';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix46';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
