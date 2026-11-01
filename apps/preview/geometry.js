@@ -1396,7 +1396,8 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
    freestanding:!e.builtIn,model:nextModel,fridgeFeet:nextFeet,dimensions:dims});
   const fresh=byId(placed.items,placed.selectedId);
   if(!fresh||e.builtIn&&!fresh.builtIn)throw Error('برای ابعاد جدید یخچال فضای معتبر پیدا نشد.');
-  const oldId=fresh.id;fresh.id=id;fresh.facadeMode=e.facadeMode||'visible';
+  const oldId=fresh.id;fresh.id=id;fresh.facadeMode=fresh.builtIn?(e.facadeMode||'visible'):'visible';
+  if(!fresh.builtIn&&e.previousBuiltInPoint)fresh.previousBuiltInPoint={...e.previousBuiltInPoint};
   for(const c of placed.items)if(c.overFridgeId===oldId)c.overFridgeId=id;
   return {items:placed.items,selectedId:id};
  }
@@ -1730,7 +1731,10 @@ export function moveEquipment(source,id,point){
   const oldHood=source.find(e=>e.linkedStoveId===id);
   if(oldHood){hood.id=oldHood.id;hood.model=oldHood.model;}
  }
- if(original.subtype==='fridge'){created.facadeMode=original.facadeMode||'visible';return {items:placed.items,selectedId:id};}
+ if(original.subtype==='fridge'){
+  created.facadeMode=created.builtIn?(original.facadeMode||'visible'):'visible';
+  return {items:placed.items,selectedId:id};
+ }
  const changes={width:original.width,depth:original.depth,height:original.height,model:original.model,
   induction:original.induction,sinkSize:original.sinkSize,fridgeFeet:original.fridgeFeet,
   faucetModel:original.faucetModel,facadeMode:original.facadeMode};
@@ -1741,7 +1745,12 @@ export function setFridgeInstallation(source,id,freestanding){
  if(old?.subtype!=='fridge')throw Error('ابتدا یخچال را انتخاب کن.');
  if(freestanding===!old.builtIn)return {items:copy(source),selectedId:id};
  const cleared=removeObject(source,id).items;
+ // Switching out of a cabinet shifts the appliance forward to avoid the
+ // restored cabinet run. Remember the old bay so the reverse switch works.
  let point={x:old.x,z:old.z};
+ if(!freestanding&&!old.builtIn&&old.previousBuiltInPoint&&
+  finite(old.previousBuiltInPoint.x,old.previousBuiltInPoint.z))
+  point={...old.previousBuiltInPoint};
  if(freestanding&&old.builtIn){
   const wallObj=byId(source,old.surround?.wallId),side=old.surround?.side||1;
   if(wall(wallObj)){
@@ -1753,10 +1762,28 @@ export function setFridgeInstallation(source,id,freestanding){
   dimensions:[old.width,old.depth,old.height]});
  const equipment=byId(fresh.items,fresh.selectedId);
  if(!freestanding&&!equipment?.builtIn)throw Error('برای نصب توکار، یخچال را نزدیک کابینت زمینی جابه‌جا کن.');
- if(equipment){const createdId=equipment.id;equipment.id=id;equipment.facadeMode=old.facadeMode||'visible';
+ if(equipment){const createdId=equipment.id;equipment.id=id;
+  equipment.facadeMode=freestanding?'visible':old.facadeMode||'visible';
+  if(freestanding)equipment.previousBuiltInPoint=old.builtIn?{x:old.x,z:old.z}:old.previousBuiltInPoint;
+  else delete equipment.previousBuiltInPoint;
   for(const c of fresh.items)if(c.overFridgeId===createdId)c.overFridgeId=id;
  }
  return {items:fresh.items,selectedId:id};
+}
+/* Three user-facing fridge choices: real freestanding fridge, visible steel
+   fridge within an MDF surround, or an intentionally concealed MDF front.
+   Retain the legacy matched facade in saved projects without offering it as
+   the default installation mode. */
+export function setFridgeMode(source,id,mode){
+ if(!['free','framed','concealed'].includes(mode))throw Error('حالت نصب یخچال معتبر نیست.');
+ const old=byId(source,id);
+ if(old?.kind!=='equipment'||old.subtype!=='fridge')throw Error('ابتدا یخچال را انتخاب کن.');
+ const freestanding=mode==='free',targetMode=mode==='concealed'?'concealed':'visible';
+ const result=freestanding===!old.builtIn?
+  {items:copy(source),selectedId:id}:setFridgeInstallation(source,id,freestanding);
+ const fridge=byId(result.items,id);
+ fridge.facadeMode=targetMode;
+ return result;
 }
 
 export function editCabinet(source,id,{length,depth,height,elevation}){
