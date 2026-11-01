@@ -1,6 +1,6 @@
-import {FloorAR} from './floor-ar.js?v=uxnest35';
+import {FloorAR} from './floor-ar.js?v=carcass36';
 import * as Geo from './geometry.js?v=report33';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=report33';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=carcass36';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=report33';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=report33';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=report33';
@@ -18,9 +18,10 @@ let paintScope='single',paintPart='panel';
 let movingEquipmentId=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
 let wideLevel='wide';
+let facadesHidden=false;
 let styleApplyToken=0;
 let reportSheetOptions={...DEFAULT_SHEET};
-let miniLastHost=null,miniLastItems=null,miniLastCalibration='';
+let miniLastHost=null,miniLastItems=null,miniLastCalibration='',miniLastFacadesHidden=null;
 const trackedView=()=>mode==='ar'||(mode==='3d'&&!!floor?.wideActive);
 const settings={thickness:.12,height:2.8,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.72,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8};
@@ -78,7 +79,7 @@ const categories=[
 ];
 function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
- activeId=id;mode='ar';activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
+ activeId=id;mode='ar';facadesHidden=false;activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
@@ -86,7 +87,7 @@ function editorPage(id){
  '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><label class="check-row">نور خطی زیر کابینت هوایی<input data-render="taskLighting" type="checkbox" '+(renderSettings().taskLighting?'checked':'')+'></label><label>شدت نور کابینت<input data-render="taskIntensity" type="range" min="0" max="4" step=".1" value="'+renderSettings().taskIntensity+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
  '<section class="scan-card" id="scan-card"><button class="scan-restart" data-action="rescan">شروع / اسکن دوبارهٔ کف ↻</button><div class="scan-head"><strong id="scan-stage">در انتظار اسکن کف</strong><span id="scan-pct">۰٪</span></div><progress id="scan-progress" max="100" value="0"></progress><small>آمادگی بر اساس برخوردهای معتبر و نمونه‌های مستقل است؛ درصد ARCore نیست.</small><div class="scan-info"><span id="scan-hits">برخورد معتبر: ۰</span><span id="anchor-count">Anchor: ۰ / ۵</span></div></section>'+
  '<button id="calibration-toggle" class="calibration-toggle" data-action="toggle-calibration" hidden>تنظیم کف و نقاط A/B ▴</button><div class="scan-confirm"><button class="primary" id="confirm-floor" data-action="confirm-floor" disabled>تثبیت این کف</button><div id="calibration" hidden><p class="calibration-help">A و B را روی صحنه بگیر و بکش؛ جهت شبکه همان لحظه تغییر می‌کند.</p><label>فاصله واقعی A تا B (متر)<input type="number" id="real-distance" value="1" min=".1" max="20" step=".01"></label><button data-action="apply-distance">اعمال مقیاس</button></div></div>'+
- '<div class="side-tools"><div class="side-basic"><button data-action="select" aria-label="انتخاب">⌖</button><button data-action="undo" disabled aria-label="بازگشت تغییر">↶</button><button data-action="redo" disabled aria-label="انجام دوباره">↷</button><button data-action="open-style-gallery" title="گالری آشپزخانه" aria-label="گالری نمونه‌های آشپزخانه">▣</button></div></div><div class="aim-marker" id="aim-marker" hidden><span>＋</span><small id="aim-label">محل ترسیم</small></div>'+
+ '<div class="side-tools"><div class="side-basic"><button data-action="select" aria-label="انتخاب">⌖</button><button data-action="undo" disabled aria-label="بازگشت تغییر">↶</button><button data-action="redo" disabled aria-label="انجام دوباره">↷</button><button data-action="open-style-gallery" title="گالری آشپزخانه" aria-label="گالری نمونه‌های آشپزخانه">▣</button><button class="front-visibility-toggle" data-action="toggle-facades" aria-pressed="false" aria-label="مخفی‌کردن همه درب‌ها و پیشانی کشوها" title="مخفی‌کردن درب‌ها و کشوها برای دیدن یونیت‌ها"><span>▤</span><small>درب‌ها</small></button></div></div><div class="aim-marker" id="aim-marker" hidden><span>＋</span><small id="aim-label">محل ترسیم</small></div>'+
  '<div class="mini-map"><span>پلان زنده</span><div id="mini-plan" class="mini-plan"></div><small id="item-count">هنوز آبجکتی در صحنه نیست</small></div>'+
  '<aside class="object-editor" id="object-editor" hidden></aside><div class="bottom-panel"><div id="draw-controls" class="draw-controls" hidden><button class="primary" data-action="confirm-drawing">تأیید</button><button data-action="cancel-drawing">لغو</button></div><div class="tool-sheet" id="tool-sheet" hidden></div><nav class="dock">'+categories.map(([id,name,icon])=>'<button data-action="category" data-category="'+id+'"><span>'+icon+'</span><small>'+name+'</small></button>').join('')+'</nav></div>'+
  '</main>';
@@ -410,7 +411,7 @@ function showScene(){
  const items=currentItems(),host=document.getElementById('plan-host');
  const isPlan=mode==='2d';host.hidden=!isPlan;
  if(isPlan){
-  host.innerHTML=renderPlan(items,{selectedId:selection,drawing:drawing?{...drawing,height:settings.upperHeight,elevation:settings.upperElevation}:null,hover,calibration:currentProject()?.scene?.calibration,showCalibration:!calibrationCollapsed});
+  host.innerHTML=renderPlan(items,{selectedId:selection,drawing:drawing?{...drawing,height:settings.upperHeight,elevation:settings.upperElevation}:null,hover,calibration:currentProject()?.scene?.calibration,showCalibration:!calibrationCollapsed,hideFronts:facadesHidden});
   document.getElementById('scene-message').classList.add('hide-for-plan');
  }else {
   host.innerHTML='';
@@ -420,7 +421,7 @@ function showScene(){
  if(elevation){
   const selected=items.find(o=>o.id===selection&&['opening','cabinet','front'].includes(o.kind));
   const facadeHost=selected?.kind==='front'?items.find(o=>o.id===selected.hostId):selected?.kind==='cabinet'?selected:null;
-  const hasFacades=facadeHost&&items.some(o=>o.kind==='front'&&o.hostId===facadeHost.id);
+  const hasFacades=!facadesHidden&&facadeHost&&items.some(o=>o.kind==='front'&&o.hostId===facadeHost.id);
   const facadeTool=drawing?.tool.startsWith('front-');
   const previewHost=facadeTool?(items.find(o=>o.id===drawing.hostId&&o.kind==='cabinet')||
    Geo.nearestCabinet(items,hover)?.cabinet):null;
@@ -448,9 +449,9 @@ function showScene(){
  }
  const miniHost=document.getElementById('mini-plan'),
   miniCalibration=JSON.stringify(currentProject()?.scene?.calibration||null);
- if(miniHost!==miniLastHost||items!==miniLastItems||miniCalibration!==miniLastCalibration){
-  miniHost.innerHTML=renderPlan(items,{mini:true,calibration:currentProject()?.scene?.calibration});
-  miniLastHost=miniHost;miniLastItems=items;miniLastCalibration=miniCalibration;
+ if(miniHost!==miniLastHost||items!==miniLastItems||miniCalibration!==miniLastCalibration||facadesHidden!==miniLastFacadesHidden){
+  miniHost.innerHTML=renderPlan(items,{mini:true,calibration:currentProject()?.scene?.calibration,hideFronts:facadesHidden});
+  miniLastHost=miniHost;miniLastItems=items;miniLastCalibration=miniCalibration;miniLastFacadesHidden=facadesHidden;
  }
  document.getElementById('item-count').textContent=items.length?num(items.length,0)+' عنصر در صحنه':'هنوز آبجکتی در صحنه نیست';
  const hint=document.getElementById('drawing-hint');
@@ -470,6 +471,7 @@ function showScene(){
  const materials={...DEFAULT_MATERIALS,...currentProject()?.scene?.materials};
  const tileLayout=currentTileLayout();
  floor?.setSceneState(items,selection,materials,tileLayout);
+ floor?.setFacadesHidden(facadesHidden);
  if(mode==='3d'){
   if(!floor?.wideActive&&!desktopPreview){
    try{desktopPreview=new FloorAR(document.getElementById('editor-root'),()=>{},()=>{});
@@ -477,12 +479,21 @@ function showScene(){
    }catch(error){closeDesktopPreview();tell('نمای سه‌بعدی در این مرورگر آماده نشد: '+error.message);}
   }
   desktopPreview?.setSceneState(items,selection,materials,tileLayout);
+  desktopPreview?.setFacadesHidden(facadesHidden);
   desktopPreview?.setLighting(renderSettings());
  }
  if(trackedView())floor?.setEditPreview(items,selection,'centre',
   !!items.find(o=>o.id===selection&&o.kind==='opening')&&!drawing);
  floor?.setDrawing(drawing?.start||null,drawing?.tool,{height:settings.upperHeight,elevation:settings.upperElevation,hostId:drawing?.hostId});
  floor?.setLighting(renderSettings());
+ const frontToggle=document.querySelector('[data-action="toggle-facades"]');
+ if(frontToggle){
+  frontToggle.classList.toggle('active',facadesHidden);
+  frontToggle.setAttribute('aria-pressed',String(facadesHidden));
+  frontToggle.setAttribute('aria-label',facadesHidden?'نمایش دوباره همه درب‌ها و پیشانی کشوها':'مخفی‌کردن همه درب‌ها و پیشانی کشوها');
+  frontToggle.title=facadesHidden?'نمایش مجدد درب‌ها و کشوها':'مخفی‌کردن درب‌ها و کشوها برای دیدن داخل یونیت‌ها';
+  frontToggle.querySelector('small').textContent=facadesHidden?'نمایش':'درب‌ها';
+ }
  const controls=document.getElementById('draw-controls');if(controls){
   controls.hidden=!drawing;
   controls.querySelector('[data-action="confirm-drawing"]').disabled=!drawing;
@@ -964,6 +975,11 @@ document.addEventListener('click',async e=>{
   }
   if(action==='more')return projectMenu(id);
   if(action==='close-dialog'){dialogs.innerHTML='';pendingUpperEdit=null;return;}
+  if(action==='toggle-facades'){
+   facadesHidden=!facadesHidden;
+   if(facadesHidden&&currentItems().some(o=>o.id===selection&&o.kind==='front'))selection=null;
+   showScene();return;
+  }
   if(action==='open-style-gallery')return openStyleGallery();
   if(action==='open-front-rules')return openFrontRules(selection&&currentItems().some(o=>o.id===selection&&['cabinet','front'].includes(o.kind))?'connected':'global');
   if(action==='front-rule-scope')return openFrontRules(button.dataset.scope);

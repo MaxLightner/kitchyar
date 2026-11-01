@@ -145,18 +145,34 @@ test('ceramic layouts generate clipped batched geometry in six patterns without 
  assert.match(app,/data-action="apply-tile-layout"/);
  assert.match(app,/tileLayout:currentTileLayout\(\)/);
 });
-test('cabinet opening builds white interiors on demand and the lower tool sheet has no select button',()=>{
+test('carcass is always hollow; drawer trays animate and the lower sheet has no select button',()=>{
  const app=read('app.js'),renderer=read('floor-ar.js'),elevation=read('edit-handles.js');
  assert.match(app,/data-action="toggle-front"/);
  assert.match(app,/Geo\.setFrontOpening\(currentItems\(\),front\.id,opening\)/);
  assert.doesNotMatch(app,/'<button data-action="select">انتخاب<\/button>/);
  assert.match(app,/class="side-tools"/,'the existing side select tool stays available');
  assert.match(renderer,/frontOpeningCavity\(f,c\)/);
- assert.match(renderer,/else if\(opened\.length\)/);
- assert.match(renderer,/front\.subtype==='drawer'/);
+ assert.match(renderer,/cabinetCarcassPanels\(c,/);
+ assert.match(renderer,/buildCarcassPanelGeometry\(panels\)/);
+ assert.match(renderer,/if\(opened\.length\)/);
+ assert.doesNotMatch(renderer,/else box\(c,0,len,y0,y0\+c\.height,c\.depth/);
+ assert.match(renderer,/f\.subtype==='drawer'/);
  assert.match(renderer,/pivot\.rotation\.y=/);
  assert.match(renderer,/pivot\.rotation\.x=/);
  assert.match(elevation,/is-open/);
+});
+test('view-only hide-all-facades controls both 3D renderers and the 2D plan',()=>{
+ const app=read('app.js'),floor=read('floor-ar.js'),plan=read('plan-view.js');
+ assert.match(app,/data-action="toggle-facades"/);
+ assert.match(app,/floor\?\.setFacadesHidden\(facadesHidden\)/);
+ assert.match(app,/desktopPreview\?\.setFacadesHidden\(facadesHidden\)/);
+ assert.match(app,/hideFronts:facadesHidden/);
+ assert.match(app,/if\(action==='toggle-facades'\)/);
+ assert.match(floor,/setFacadesHidden\(hidden\)/);
+ const toggle=floor.slice(floor.indexOf(' setFacadesHidden(hidden){'),floor.indexOf(' setMaterials(materials={}){'));
+ assert.doesNotMatch(toggle,/rebuildObjects|applyRaycastAO|setItems/);
+ assert.match(floor,/root\.visible=!this\.facadesHidden/);
+ assert.match(plan,/hideFronts\?\[\]:items\.filter\(x=>x\.kind==='front'\)/);
 });
 test('new facade styles keep all explicit text at 13 px or larger',()=>{
  const css=read('styles.css');

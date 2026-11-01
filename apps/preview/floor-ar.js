@@ -8,6 +8,7 @@ import {neighborGaps} from './edit-handles.js?v=report33';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=report33';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=report33';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
+import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=carcass36';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 export class FloorAR {
@@ -19,6 +20,7 @@ export class FloorAR {
    this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10,taskLighting:true,taskIntensity:1.8};
    this.materialSettings={...DEFAULT_MATERIALS};this.tileLayout={...DEFAULT_TILE_LAYOUT};this.textureCache=new Map();
    this.wideRenderer=null;this.wideCamera=null;this.wideActive=false;this.wideLevel='wide';
+   this.facadesHidden=false;this.frontRoots=[];
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
@@ -784,6 +786,14 @@ export class FloorAR {
   this.updateEditHandles();
   this.renderPreview();
  }
+ setFacadesHidden(hidden){
+  const next=!!hidden;
+  if(next===this.facadesHidden)return;
+  this.facadesHidden=next;
+  for(const root of this.frontRoots)root.visible=!next;
+  // Visibility is view state: no remeshing, AO, project mutation or undo step.
+  this.renderPreview();
+ }
  setMaterials(materials={}){
   const next={...DEFAULT_MATERIALS,...materials};
   if(JSON.stringify(next)===JSON.stringify(this.materialSettings))return;
@@ -1090,6 +1100,7 @@ export class FloorAR {
  }
  rebuildObjects(){
   if(!this.objectGroup)return;
+  this.frontRoots=[];
   const selectedId=this.selectedId;
   this.clearSelectionHighlight();
   // The selected appearance is applied after meshing and AO, without changing
@@ -1201,108 +1212,45 @@ export class FloorAR {
     mesh.position.set(cx+ux*x+nx*z,y,cz+uz*x+nz*z);mesh.rotation.y=-angle;
     mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.objectId=c.id;mesh.userData.cabinet=true;
     this.objectGroup.add(mesh);
+    return mesh;
    };
    const frontZ=(c.side||1)*(c.depth/2+.025);
-   // The carcass stays neutral white. Only exposed finished side panels carry
-   // body texture; the interior will never inherit decorative surface maps.
-   const fill=c.id===this.selectedId?cabinetSelected:material(0xf8f8f6);
-   // Subtract axis-aligned sink/hob holes from each depth layer of the carcass.
+   // The carcass is actually hollow, even when all doors are closed. Every
+   // panel is a 12-triangle box, batched into ONE mesh/material per cabinet.
+   // The interior stays matte white; only exposed finished ends use bodyMat.
    const cuts=countertopCutouts(this.items,c);
-   const opened=this.items.filter(f=>f.kind==='front'&&f.hostId===c.id&&f.openFraction>.01)
+   const panels=cabinetCarcassPanels(c,
+    this.items.filter(f=>f.kind==='front'&&f.hostId===c.id),
+    this.items.filter(e=>e.kind==='equipment'&&e.hostId===c.id));
+   const batch=buildCarcassPanelGeometry(panels);
+   if(batch.indices.length){
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.Float32BufferAttribute(batch.positions,3));
+    geo.setAttribute('normal',new THREE.Float32BufferAttribute(batch.normals,3));
+    geo.setAttribute('uv',new THREE.Float32BufferAttribute(batch.uvs,2));
+    geo.setIndex(batch.indices);
+    const carcass=new THREE.Mesh(geo,material(0xf4f5f2,{roughness:.84}));
+    carcass.position.set(cx,0,cz);carcass.rotation.y=-angle;
+    carcass.castShadow=true;carcass.receiveShadow=true;
+    carcass.userData.objectId=c.id;carcass.userData.cabinet=true;carcass.userData.carcass=true;
+    this.objectGroup.add(carcass);
+   }
+   // The moving drawer tray is an interior part; it remains visible when its
+   // front slides out. Shelves and user-defined internal dividers come later.
+   const opened=this.items.filter(f=>f.kind==='front'&&f.subtype==='drawer'&&f.hostId===c.id&&f.openFraction>.01)
     .map(f=>({front:f,cavity:frontOpeningCavity(f,c)})).filter(entry=>entry.cavity);
-   const subtract=(area,holes)=>{
-    let rects=[area];
-    for(const h of holes){const next=[];
-     for(const r of rects){
-      const x1=Math.max(r.x1,h.x-h.width/2),x2=Math.min(r.x2,h.x+h.width/2);
-      const z1=Math.max(r.z1,h.z-h.depth/2),z2=Math.min(r.z2,h.z+h.depth/2);
-      if(x2<=x1||z2<=z1){next.push(r);continue;}
-      if(x1-r.x1>.001)next.push({x1:r.x1,x2:x1,z1:r.z1,z2:r.z2});
-      if(r.x2-x2>.001)next.push({x1:x2,x2:r.x2,z1:r.z1,z2:r.z2});
-      if(z1-r.z1>.001)next.push({x1,x2,z1:r.z1,z2:z1});
-      if(r.z2-z2>.001)next.push({x1,x2,z1:z2,z2:r.z2});
-     }
-     rects=next;
-    }
-    return rects;
-   };
-   const slices=(fromY,toY,holes,mat,margin=0)=>{
-    const area={x1:-len/2-margin,x2:len/2+margin,z1:-c.depth/2-margin,z2:c.depth/2+margin};
-    for(const r of subtract(area,holes)){
-     const x=(r.x1+r.x2)/2,z=(r.z1+r.z2)/2;
-     box(c,0,r.x2-r.x1,fromY,toY,r.z2-r.z1,angle,cx+ux*x+nx*z,cz+uz*x+nz*z,mat);
-    }
-   };
-   if(c.subtype==='bridge'){
-    // Open shelving: no opaque filler between worktop and upper cabinet.
-    const edge=.025;
-    for(const x of [-len/2+edge/2,len/2-edge/2]){
-     box(c,0,edge,y0,y0+c.height,c.depth,angle,cx+ux*x,cz+uz*x,fill);
-    }
-    for(const t of [.01,.32,.65,.98]){
-     box(c,0,len,y0+c.height*t,y0+c.height*t+.025,c.depth,angle,cx,cz,fill);
-    }
-   }else if(opened.length){
-    // Only opened bays are hollowed. Closed fronts retain the old continuous
-    // lightweight cabinet box; countertop holes and appliance slots coexist.
-    const appliances=this.items.filter(e=>e.kind==='equipment'&&['oven','microwave','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)
-     .map(e=>({x:((e.offsetT??.5)-.5)*len,z:0,width:e.width+.025,depth:c.depth+.04,
-      yLow:e.elevation,yHigh:e.elevation+e.height}));
-    const topY=y0+c.height;
-    const levels=[y0,topY,...appliances.flatMap(e=>[e.yLow,e.yHigh]),
-     ...cuts.map(cut=>topY-cut.cutDepth),...opened.flatMap(o=>[o.cavity.yLow,o.cavity.yHigh])]
-     .filter(y=>y>=y0&&y<=topY).sort((a,b)=>a-b);
-    for(let i=0;i<levels.length-1;i++){
-     const low=levels[i],high=levels[i+1],mid=(low+high)/2;
-     if(high-low<.001)continue;
-     const holes=[...appliances.filter(e=>mid>=e.yLow&&mid<=e.yHigh),
-      ...cuts.filter(cut=>topY-mid<cut.cutDepth),
-      ...opened.filter(o=>mid>o.cavity.yLow&&mid<o.cavity.yHigh).map(o=>o.cavity)];
-     slices(low,high,holes,fill);
-    }
+   if(opened.length){
     const inside=material(0xf4f5f2,{roughness:.82});
     for(const {front,cavity:v} of opened){
-     const height=v.yHigh-v.yLow,centreY=(v.yLow+v.yHigh)/2;
-     // Plain white interior appears only for the exposed opening.
-     addDetail(v.width-.016,height,.015,v.x,centreY,v.backZ+v.side*.007,inside);
-     if(front.subtype==='drawer'){
-      const slide=Math.min(c.depth*.70,.38)*front.openFraction,
-       depth=Math.min(c.depth*.75,.48),z=v.faceZ-v.side*depth/2+v.side*slide;
-      addDetail(v.width-.025,.016,depth,v.x,v.yLow+.02,z,inside);
-      for(const x of [v.x-v.width/2+.018,v.x+v.width/2-.018])
-       addDetail(.014,Math.min(.13,height-.035),depth,x,v.yLow+.075,z,inside);
-      addDetail(v.width-.025,Math.min(.13,height-.035),.015,v.x,v.yLow+.075,z-v.side*depth/2,inside);
-     }else{
-      const shelves=height>.95?2:height>.44?1:0;
-      for(let j=1;j<=shelves;j++)addDetail(v.width-.025,.018,v.depth-.035,
-       v.x,v.yLow+height*j/(shelves+1),v.z,inside);
-     }
+     const height=v.yHigh-v.yLow,slide=Math.min(c.depth*.70,.38)*front.openFraction;
+     const depth=Math.min(c.depth*.75,.48),z=v.faceZ-v.side*depth/2+v.side*slide;
+     addDetail(v.width-.025,.016,depth,v.x,v.yLow+.02,z,inside);
+     for(const x of [v.x-v.width/2+.018,v.x+v.width/2-.018])
+      addDetail(.014,Math.min(.13,height-.035),depth,x,v.yLow+.075,z,inside);
+     addDetail(v.width-.025,Math.min(.13,height-.035),.015,v.x,v.yLow+.075,z-v.side*depth/2,inside);
     }
     inside.dispose();
-   }else if(this.items.some(e=>e.kind==='equipment'&&['oven','microwave','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
-    // An oven or undercounter appliance cuts the carcass face; only a sink/hob
-    // cuts the stone above. The washer/dishwasher top remains one solid slab.
-    const ovens=this.items.filter(e=>e.kind==='equipment'&&['oven','microwave','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)
-     .map(e=>({x:((e.offsetT??.5)-.5)*len,z:0,width:e.width+.025,depth:c.depth+.04,
-      yLow:e.elevation,yHigh:e.elevation+e.height}));
-    const topY=y0+c.height;
-    const levels=[y0,topY,...ovens.flatMap(e=>[e.yLow,e.yHigh]),
-     ...cuts.map(h=>topY-h.cutDepth)].filter(y=>y>=y0&&y<=topY).sort((a,b)=>a-b);
-    for(let i=0;i<levels.length-1;i++){
-     const bottom=levels[i],top=levels[i+1],mid=(bottom+top)/2;
-     if(top-bottom<.001)continue;
-     const holes=[...ovens.filter(o=>mid>=o.yLow&&mid<=o.yHigh),
-      ...cuts.filter(h=>topY-mid<h.cutDepth)];
-     slices(bottom,top,holes,fill);
-    }
-   }else if(cuts.length){
-    const depths=[0,...new Set(cuts.map(h=>h.cutDepth).sort((a,b)=>a-b))],deepest=depths.at(-1);
-    box(c,0,len,y0,y0+c.height-deepest,c.depth,angle,cx,cz,fill);
-    for(let k=0;k<depths.length-1;k++){
-     const top=depths[k],bottom=depths[k+1];
-     slices(y0+c.height-bottom,y0+c.height-top,cuts.filter(h=>h.cutDepth>top+.001),fill);
-    }
-   }else box(c,0,len,y0,y0+c.height,c.depth,angle,cx,cz,fill);
+   }
    if(c.subtype!=='bridge'&&decor.endPanel!=='none')for(const end of [-1,1]){
     const point=end<0?{x:c.x1,z:c.z1}:{x:c.x2,z:c.z2};
     const concealed=this.items.some(other=>other.kind==='cabinet'&&other.id!==c.id&&
@@ -1465,14 +1413,16 @@ export class FloorAR {
         metalness:.03,depthWrite:false,side:THREE.DoubleSide}));
       glassPanel.position.set(cx+ux*sx+nx*(face+(c.side||1)*.032),centreY,
        cz+uz*sx+nz*(face+(c.side||1)*.032));
-      glassPanel.rotation.y=-angle;glassPanel.userData.objectId=c.id;this.objectGroup.add(glassPanel);
+      glassPanel.rotation.y=-angle;glassPanel.userData.objectId=c.id;
+      glassPanel.visible=!this.facadesHidden;this.frontRoots.push(glassPanel);this.objectGroup.add(glassPanel);
      }else if(s.door==='solid'){
-      addDetail(sw-.045,sh-.043,.021,sx,centreY,face+(c.side||1)*.054,specialtyMat);
+      const nicheDoor=addDetail(sw-.045,sh-.043,.021,sx,centreY,face+(c.side||1)*.054,specialtyMat);
+      if(nicheDoor){nicheDoor.visible=!this.facadesHidden;this.frontRoots.push(nicheDoor);}
      }
     }
     specialtyMat.dispose();inner.dispose();shelf.dispose();
    }
-   bodyMat.dispose();frontMat.dispose();if(fill!==cabinetSelected)fill.dispose();
+   bodyMat.dispose();frontMat.dispose();
   }
   // Automatic backsplash: attached to the host wall, from worktop to the
   // underside of upper cupboards (or a standard 62 cm rise), excluding windows.
@@ -1518,7 +1468,8 @@ export class FloorAR {
    const pose=frontPose(panel,host),materialId=panel.materialId||resolveFinish(this.materialSettings,host.subtype,'front');
    const grain=panel.grainDirection==='horizontal'||(panel.grainDirection!=='vertical'&&panel.subtype==='drawer')?'horizontal':'vertical';
    const root=new THREE.Group();root.position.set(pose.x,pose.y,pose.z);root.rotation.y=-pose.angle;
-   root.userData.objectId=panel.id;this.objectGroup.add(root);
+   root.userData.objectId=panel.id;root.userData.frontRoot=true;
+   root.visible=!this.facadesHidden;this.frontRoots.push(root);this.objectGroup.add(root);
    const amount=Math.max(0,Math.min(1,panel.openFraction||0));
    let leaf=root;
    if(amount>.01&&panel.subtype==='drawer'){

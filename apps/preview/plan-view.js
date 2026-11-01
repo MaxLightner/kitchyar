@@ -2,7 +2,7 @@ import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,limitC
 import {renderPlanMeasurements} from './edit-handles.js?v=report33';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
-export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true}={}){
+export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true,hideFronts=false}={}){
  const walls=items.filter(x=>x.kind==='wall'),cabinets=items.filter(x=>x.kind==='cabinet');
  const gridId=mini?'mini-grid-k':'main-grid-k';
  const cal=calibration?.a&&calibration?.b?calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}};
@@ -54,7 +54,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   }else out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
    '" stroke="#ab9382" stroke-width="'+f(c.depth)+'" opacity=".65"/>';
  }
- for(const front of items.filter(x=>x.kind==='front')){
+ for(const front of hideFronts?[]:items.filter(x=>x.kind==='front')){
   const cabinet=cabinets.find(c=>c.id===front.hostId),p=frontPose(front,cabinet);if(!p)continue;
   const ux=Math.cos(p.angle),uz=Math.sin(p.angle),half=p.width/2;
   const ax=p.x-ux*half,az=p.z-uz*half,bx=p.x+ux*half,bz=p.z+uz*half;

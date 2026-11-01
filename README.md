@@ -31,6 +31,13 @@ Editor defaults to AR. After a tracked AR session has recognized and locked the 
 - Editor dialogs are descendants of the active WebXR DOM-overlay root, so kitchen-style photos, rules and cut previews remain visible **inside** immersive AR. Dialog backdrops and Escape dismiss settings; re-tapping the current object or tapping genuinely empty tracked space dismisses its property editor.
 - Tool panels have explicit close controls; changing a kitchen style applies facade layout first, lets the browser paint, then applies finish materials after a short delay as a single undoable edit.
 
+## Lightweight, genuinely hollow cabinet units
+
+- Every installed cabinet now renders a **parametric carcass derived from the project model** in all render modes. It is assembled from 18 mm side/bottom/top/divider boards and a thin 8 mm back, never an opaque white cuboid or a CSG/Boolean-cut shell. Base cabinets deliberately have no full top board beneath the continuous worktop, leaving sink cavities unobstructed.
+- Paired doors and stacked drawers share their underlying bay. Front layout boundaries and built-in appliance widths derive vertical dividers; bottom boards automatically stay out of dishwasher and washing-machine bays. Open bridges keep four lightweight shelves. A closed door no longer changes whether its unit exists.
+- Every board uses exactly 12 triangles, and all boards of a cabinet are combined into **one indexed draw mesh** with one plain-white, texture-free interior material. Finished exposed ends, countertop and toe kick remain separate. Open drawers retain their moving trays.
+- The editor's new **درب‌ها** sidebar button conceals or restores all door/drawer fronts (including specialty niche doors) in tracked AR, 3D and 2D. It updates mesh visibility without recomputing ambient occlusion or changing the project, undo history or facade cutting report. Interior shelf/partition **editing** and carcass manufacturing-sheet nesting are future steps.
+
 ## Surface library, kitchen styles, and editable equipment
 
 - `در و کشو → گالری`: four generated kitchen style photographs are actionable presets, not decorative mockups. Selecting a style recalculates semantic door/drawer layouts and applies a coordinated material palette; individual fronts remain editable afterward.
