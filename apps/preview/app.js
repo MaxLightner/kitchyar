@@ -5,7 +5,7 @@ import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,r
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=report33';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=report33';
 import {buildCutReport} from './report-data.js?v=nest35';
-import {renderCutReport} from './report-view.js?v=nest35';
+import {renderCutReport} from './report-view.js?v=sheetpager39';
 import {downloadCutReportXlsx} from './report-xlsx.js?v=nest35';
 import {DEFAULT_SHEET,validateSheetOptions} from './sheet-nesting.js?v=nest35';
 const STORAGE='kitchyar.ui.v2';
@@ -73,6 +73,18 @@ function reportPage(id){
  const project=projects.find(p=>p.id===id);
  if(!project){go('#/projects');return;}
  app.innerHTML=renderCutReport(buildCutReport(project,reportSheetOptions));
+}
+function moveReportSheet(direction){
+ const pages=[...document.querySelectorAll('[data-report-sheet-page]')];
+ if(pages.length<2)return;
+ const current=pages.findIndex(page=>!page.hidden),next=Math.max(0,Math.min(pages.length-1,current+direction));
+ if(next===current)return;
+ pages.forEach((page,i)=>page.hidden=i!==next);
+ const status=document.getElementById('report-sheet-indicator');
+ if(status)status.textContent='ورق '+num(next+1,0)+' از '+num(pages.length,0)+' · '+
+  (pages[next].querySelector('.report-drawing-head strong')?.textContent||'');
+ document.querySelector('[data-action="report-sheet-prev"]').disabled=next===0;
+ document.querySelector('[data-action="report-sheet-next"]').disabled=next===pages.length-1;
 }
 const categories=[
  ['architecture','معماری','▤'],['cabinets','کابینت','▣'],['equipment','تجهیزات','▥'],
@@ -1009,6 +1021,8 @@ document.addEventListener('click',async e=>{
   if(action==='open-report')return go('#/report/'+(id||activeId));
   if(action==='return-editor')return go('#/editor/'+id,true);
   if(action==='report-print'){window.print();return;}
+  if(action==='report-sheet-prev')return moveReportSheet(-1);
+  if(action==='report-sheet-next')return moveReportSheet(1);
   if(action==='report-xlsx'){
    const project=projects.find(p=>location.hash==='#/report/'+p.id);
    if(!project)throw Error('پروژهٔ گزارش پیدا نشد.');

@@ -53,6 +53,31 @@ test('editing a facade immediately changes report dimensions, print and XLSX use
  assert.match(html,/آشپزخانه تست &amp; نمونه/);
  assert.doesNotMatch(html,/href="#report-fronts"/,'links must not hijack the SPA hash route');
 });
+test('multiple MDF sheets have next/previous navigation while all diagrams remain printable',async()=>{
+ const p=await sample(),report=R.buildCutReport(p);
+ const first=report.nesting.sheets[0];assert.ok(first,'sample has MDF parts');
+ report.nesting.sheets=[
+  {...first,code:'V01'},
+  {...first,code:'V02',material:'گردو'},
+  {...first,code:'V03',material:'سفید'}
+ ];
+ report.nesting.totalSheets=3;
+ const html=View.renderCutReport(report);
+ assert.match(html,/data-action="report-sheet-prev" disabled/);
+ assert.match(html,/data-action="report-sheet-next"/);
+ assert.match(html,/id="report-sheet-indicator"/);
+ assert.match(html,/data-report-sheet-page="0"/);
+ assert.match(html,/data-report-sheet-page="1" hidden/);
+ assert.match(html,/data-report-sheet-page="2" hidden/);
+ assert.match(html,/چیدمان قطعات ورق V01/);
+ assert.match(html,/چیدمان قطعات ورق V02/);
+ assert.match(html,/چیدمان قطعات ورق V03/);
+ const app=read('app.js'),css=read('styles.css');
+ assert.match(app,/function moveReportSheet\(direction\)/);
+ assert.match(app,/pages\.forEach\(\(page,i\)=>page\.hidden=i!==next\)/);
+ assert.match(css,/\.report-sheet-page\[hidden\]\{display:block!important\}/);
+ assert.match(css,/\.report-sheet-pager\{display:none!important\}/);
+});
 test('export produces nine Office OpenXML sheets with numeric MDF and facade dimensions',async()=>{
  const report=R.buildCutReport(await sample()),zip=Book.xlsxBytes(report);
  assert.ok(zip.byteLength>5500);

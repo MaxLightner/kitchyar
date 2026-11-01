@@ -80,13 +80,19 @@ export function renderCutReport(report){
  const nesting=report.nesting;
  const sheetMaterials=table(['متریال','تعداد قطعه','قطعات چیده‌شده','تعداد ورق','مساحت قطعات m²'],
   nesting.materials.map(m=>[m.material,n(m.pieces),n(m.placed),n(m.sheetCount),dec(m.areaSqm)]));
- const sheetSketches=nesting.sheets.map(s=>'<article class="report-drawing report-mdf-sheet">'+
+ const sheetSketches=nesting.sheets.map((s,index)=>'<div class="report-sheet-page" data-report-sheet-page="'+index+'" '+(index?'hidden':'')+'>'+ 
+  '<article class="report-drawing report-mdf-sheet">'+
   '<div class="report-drawing-head"><strong>'+esc(s.code)+' · ورق '+esc(s.material)+'</strong>'+
   '<span>'+n(s.widthMm)+' × '+n(s.heightMm)+' mm · '+n(s.placements.length)+' قطعه · بهره‌وری '+dec(s.utilizationPct)+'٪</span></div>'+
   mdfSheetSketch(s)+'</article><div class="report-sheet-placements">'+
   table(['کد قطعه','عرض واقعی mm','ارتفاع واقعی mm','X از چپ mm','Y از بالا mm','چرخش روی ورق'],
    s.placements.map(p=>[p.code,n(p.widthMm),n(p.heightMm),n(p.xMm),n(p.yMm),p.rotated?'۹۰°':'۰°']))+
-  '</div>').join('');
+  '</div></div>').join('');
+ const sheetPager=nesting.sheets.length>1?'<nav class="report-sheet-pager" aria-label="جابجایی بین ورق‌های MDF">'+
+  '<button data-action="report-sheet-prev" disabled>→ ورق قبلی</button>'+
+  '<span id="report-sheet-indicator" role="status" aria-live="polite">ورق ۱ از '+n(nesting.sheets.length)+
+  ' · '+esc(nesting.sheets[0].code)+' · '+esc(nesting.sheets[0].material)+'</span>'+
+  '<button data-action="report-sheet-next">ورق بعدی ←</button></nav>':'';
  const unplaced=nesting.unplaced.length?'<div class="report-warning"><strong>قطعات خارج از ورق</strong>'+
   table(['قطعه','متریال','عرض mm','ارتفاع mm','علت'],
    nesting.unplaced.map(p=>[p.code,p.material,n(p.widthMm),n(p.heightMm),p.reason]))+'</div>':'';
@@ -116,7 +122,7 @@ export function renderCutReport(report){
   '<button class="primary" data-action="report-recalculate">محاسبه مجدد چیدمان</button></div>'+
   '<p class="report-sheet-assumption">مبنای محاسبه: ورق '+n(nesting.options.widthMm)+' × '+n(nesting.options.heightMm)+
   ' میلی‌متر، فاصله تیغ '+dec(nesting.options.kerfMm)+' میلی‌متر، حاشیه '+n(nesting.options.marginMm)+' میلی‌متر. جهت رگه در چوب رعایت شده است.</p>'+
-  sheetMaterials+unplaced+
+  sheetMaterials+unplaced+sheetPager+
   (sheetSketches||'<p class="report-empty">هنوز قطعه‌ای برای چیدمان روی MDF وجود ندارد.</p>')+'</section>'+
   '<section id="report-tops" class="report-section"><div class="report-section-heading"><h2>۳. صفحات رویه و محل برش‌ها</h2><span>'+n(report.totals.slabs)+' امتداد صفحه</span></div>'+
   (topSketches||'<p class="report-empty">هنوز کابینت زمینی برای محاسبه صفحه وجود ندارد.</p>')+slabs+
