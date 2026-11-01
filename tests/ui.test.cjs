@@ -55,12 +55,15 @@ test('AR settings are in the same DOM overlay, and all panels have dismiss gestu
  assert.match(app,/data-action="hide-tools" aria-label="بستن پنل ابزار"/);
  assert.match(app,/selectAt\(trackedView\(\)\?null:point,e\.target,arId\)/);
 });
-test('style gallery changes facades before materials without consuming two undo steps',()=>{
+test('style gallery selects a photograph then applies its JSON facades and materials in one undo step',()=>{
  const app=read('app.js');
- assert.match(app,/commitChange\(result,\{styleId:style\.id\}\)/);
+ assert.match(app,/data-action="apply-style" disabled/);
+ assert.match(app,/action==='select-style'/);
+ assert.match(app,/fetch\(assetUrl\(style\.config\)\)/);
+ assert.match(app,/commitChange\(result,\{styleId:style\.id,stylePreset:preset\}\)/);
  assert.match(app,/await new Promise\(resolve=>setTimeout\(resolve,450\)\)/);
- assert.match(app,/project\.scene\.materials=\{\.\.\.DEFAULT_MATERIALS,\.\.\.style\.materials\}/);
- assert.doesNotMatch(app,/commitChange\(result,\{materials:style\.materials,styleId:style\.id\}\)/);
+ assert.match(app,/project\.scene\.materials=\{\.\.\.DEFAULT_MATERIALS,\.\.\.preset\.materials\}/);
+ assert.doesNotMatch(app,/commitChange\(result,\{materials:preset\.materials,styleId:style\.id\}\)/);
 });
 
 test('exactly two bottom drawing actions are exposed for every tool',()=>{
