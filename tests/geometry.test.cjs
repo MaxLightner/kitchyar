@@ -492,7 +492,7 @@ test('facade-first planning supports doors, three drawers, four drawers and mixe
  for(const preset of ['doors','drawers3','drawers4','mixed']){
   const result=G.placeFrontLayout(items,c.id,preset);
   const fronts=result.items.filter(o=>o.kind==='front'&&o.hostId===c.id);
-  assert.ok(fronts.length>=4);
+  assert.ok(fronts.length>=(preset==='drawers3'?3:4));
   assert.ok(fronts.every(o=>o.startT>=0&&o.endT<=1&&o.bottomT>=0&&o.topT<=1));
   assert.ok(fronts.every(o=>G.frontPose(o,c).width>=.15));
   if(preset==='doors')assert.ok(fronts.every(o=>o.subtype==='door'));
