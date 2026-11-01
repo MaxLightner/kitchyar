@@ -545,7 +545,8 @@ function layoutBays(items,c,preset){
     }
    }
    if(centre===null||centre<-.1||centre>len+.1)continue;
-   fixtures.push({a:Math.max(0,centre-e.width/2-.02),b:Math.min(len,centre+e.width/2+.02),type:e.subtype,e});
+   const half=['sink','stove'].includes(e.subtype)?Math.max(.45,e.width/2+.02):e.width/2+.02;
+   fixtures.push({a:Math.max(0,centre-half),b:Math.min(len,centre+half),type:e.subtype,e});
   }
   fixtures.sort((a,b)=>a.a-b.a);
   for(let i=fixtures.length-1;i>0;i--)if(fixtures[i].a<fixtures[i-1].b-.01){
@@ -554,11 +555,14 @@ function layoutBays(items,c,preset){
    fixtures.splice(i,1);
   }
  }
+ const rules=resolvedFrontRules(c);
  const addGap=(result,a,b)=>{
   const size=b-a;if(size<.001)return;
-  const count=Math.max(1,Math.ceil(size/unitWidth));
-  // Prefer a single slightly wide bay over an unusable sub-45cm drawer.
-  const n=count>1&&size/count<MIN_CABINET_LENGTH?count-1:count;
+  // Facade leaves may be narrower than a 45cm cabinet carcass: they are not separate boxes.
+  // Pick a balanced count near 50cm, also honoring the configured maximum leaf width.
+  const count=preset==='photo'?Math.max(1,Math.ceil(size/unitWidth)):
+   ['doors','smart'].includes(preset)?Math.max(1,Math.round(size/.50),Math.ceil(size/rules.maxDoorWidth)):1;
+  const n=preset==='photo'&&count>1&&size/count<MIN_CABINET_LENGTH?count-1:count;
   for(let j=0;j<n;j++)result.push({a:a+size*j/n,b:a+size*(j+1)/n,type:'free'});
  };
  if(!fixtures.length){const result=[];addGap(result,0,len);return result;}
