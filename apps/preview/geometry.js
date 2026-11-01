@@ -531,10 +531,9 @@ export function frontPose(front,c){
 /* Split facade bays around fixture widths before choosing doors and drawers. All
    dimensions remain semantic, independent of future internal cabinet units. */
 function layoutBays(items,c,preset){
- const len=lengthOf(c),fixtures=[],unitWidth=preset==='photo'?Number(photoZone(c)?.unitWidth)||.88:.88;
- if(preset==='smart'||preset==='photo'||items.some(e=>e.kind==='equipment'&&['sink','oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
+ const len=lengthOf(c),fixtures=[],unitWidth=preset==='photo'?Number(photoZone(c)?.unitWidth)||.88:.55;
+ if(preset==='smart'||preset==='photo'||items.some(e=>e.kind==='equipment'&&['sink','stove','oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
   for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove','oven','dishwasher','washer'].includes(o.subtype))){
-   if(preset!=='smart'&&!['sink','oven','dishwasher','washer'].includes(e.subtype))continue;
    if(['dishwasher','washer','oven'].includes(e.subtype)&&c.subtype!=='base')continue;
    let centre=null;
    if(c.subtype==='base'&&e.hostId===c.id)centre=(e.offsetT??.5)*len;
@@ -1465,6 +1464,11 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
   syncEquipment(items);
  }
  syncEquipment(items);validateEquipmentSpacing(items);
+ // Only the equipment's own cabinet needs a new bay layout after resizing a sink or stove.
+ if(['sink','stove'].includes(e.subtype)){
+  const host=byId(items,e.hostId);
+  if(host?.kind==='cabinet'&&FRONT_PRESETS[host.frontPreset])reflowFronts(items,host);
+ }
  return {items,selectedId:id};
 }
 export function placeCabinet(source,start,end,{kind='base',depth,height,elevation,side,cornerGroup,frontRules}={}){
