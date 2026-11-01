@@ -565,7 +565,7 @@ test('smart kitchen plans two sink doors, graduated hob drawers and overhead lif
  const heights=belowHob.map(f=>f.topT-f.bottomT);
  assert.ok(heights[0]>heights[1]&&heights[1]>heights[2],'bottom drawer deepest');
  assert.ok(fronts.some(f=>f.hostId===upper.id&&f.hinge==='top'),'over-sink unit lifts horizontally');
- assert.ok(Math.abs(sink.x-1.23)<=.0251,'smart modular alignment moves equipment only slightly');
+ assert.ok(Math.abs(sink.x-1.23)<=.381,'Smart may propose a bounded, explicit relocation when the current position creates bad door widths');
  assert.ok(items.every(o=>o.kind!=='front'),'preview/planner leaves source untouched');
 });
 test('facade presets include two/three/four equal drawers and inverted drawer-plus-doors',async()=>{
@@ -1115,8 +1115,8 @@ test('AR floor rescan reuses live hit-test sources and leaves the XR session ope
 
 test('direct drag handles use the same current geometry module as equipment buttons',()=>{
  const app=source('app.js'),handles=source('edit-handles.js'),floor=source('floor-ar.js'),plan=source('plan-view.js');
- const imports=[app,handles,floor,plan].map(s=>Number(s.match(/\.\/geometry\.js\?v=fix(\d+)/)?.[1]||0));
- assert.ok(imports[0]>0&&imports.every(version=>version===imports[0]),'equipment drag, plan, AR and editor must share one geometry version');
+ const imports=[app,handles,floor,plan].map(s=>s.match(/\.\/geometry\.js\?v=([a-z0-9-]+)/i)?.[1]||'');
+ assert.ok(imports[0]&&imports.every(version=>version===imports[0]),'equipment drag, plan, AR and editor must share one geometry version');
  assert.match(handles,/side==='move'\)return moveEquipment\(items,id,/);
  assert.match(app,/data-action="move-equipment"/);
 });
