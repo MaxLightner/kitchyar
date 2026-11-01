@@ -169,6 +169,8 @@ test('view-only hide-all-facades controls both 3D renderers and the 2D plan',()=
  assert.match(app,/hideFronts:facadesHidden/);
  assert.match(app,/if\(action==='toggle-facades'\)/);
  assert.match(floor,/setFacadesHidden\(hidden\)/);
+ assert.match(floor,/const pickable=node=>/);
+ assert.match(floor,/if\(!pickable\(hit\.object\)\)continue/);
  const toggle=floor.slice(floor.indexOf(' setFacadesHidden(hidden){'),floor.indexOf(' setMaterials(materials={}){'));
  assert.doesNotMatch(toggle,/rebuildObjects|applyRaycastAO|setItems/);
  assert.match(floor,/root\.visible=!this\.facadesHidden/);

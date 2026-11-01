@@ -11,6 +11,9 @@ import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js
 import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=carcass36';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
+// Raycaster may return intersections belonging to invisible ancestor groups.
+// Concealed facades must also disappear from selection, not just rendering.
+const pickable=node=>{for(let n=node;n;n=n.parent)if(!n.visible)return false;return true;};
 export class FloorAR {
  constructor(root,update,exit){
   Object.assign(this,{root,update,exit,session:null,renderer:null,locked:false,current:null,origin:null});
@@ -701,9 +704,12 @@ export class FloorAR {
   const ray=this.screenRay(this.lastPose,false,x,y);if(!ray)return null;
   const caster=new THREE.Raycaster(ray.origin,ray.direction,.05,12);
   this.objectGroup.updateWorldMatrix(true,true);
-  const hit=caster.intersectObjects(this.objectGroup.children,true);
-  return hit.find(h=>h.object.userData.objectId||h.object.parent?.userData.objectId)?.object.userData.objectId||
-   hit.find(h=>h.object.parent?.userData.objectId)?.object.parent.userData.objectId||null;
+  const hits=caster.intersectObjects(this.objectGroup.children,true);
+  for(const hit of hits){
+   if(!pickable(hit.object))continue;
+   for(let node=hit.object;node;node=node.parent)if(node.userData?.objectId)return node.userData.objectId;
+  }
+  return null;
  }
  pick(){
   if(!this.locked||!this.floorGroup)return null;
@@ -928,7 +934,8 @@ export class FloorAR {
  pickPreviewObject(clientX,clientY){
   if(this.previewWasDragged){this.previewWasDragged=false;return null;}
   const hits=this.previewRay(clientX,clientY)?.intersectObjects(this.objectGroup?.children||[],true)||[];
-  for(const hit of hits){let mesh=hit.object;while(mesh){if(mesh.userData?.objectId)return mesh.userData.objectId;mesh=mesh.parent;}}
+  for(const hit of hits){if(!pickable(hit.object))continue;
+   let mesh=hit.object;while(mesh){if(mesh.userData?.objectId)return mesh.userData.objectId;mesh=mesh.parent;}}
   return null;
  }
  pickPreviewPoint(clientX,clientY){
