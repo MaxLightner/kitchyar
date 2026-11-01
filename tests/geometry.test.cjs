@@ -347,7 +347,7 @@ test('floor scanning restart remains accessible after leaving and returning to a
  const app=source('app.js'),css=source('styles.css');
  assert.match(app,/data-action="rescan">شروع \/ اسکن دوبارهٔ کف/);
  assert.match(app,/if\(action==='rescan'\)/);
- assert.match(app,/if\(floor\?\.session\)\{await floor\.scan\(\);\}/);
+ assert.match(app,/if\(floor\?\.session\)\{try\{await floor\.scan\(\);\}catch\(error\)/);
  assert.match(app,/else \{if\(floor\)\{floor\.cleanup\(\);floor=null;\}beginAR\(\);\}/);
  assert.match(app,/if\(floor!==instance\)return/);
  assert.match(css,/\.scan-card \.scan-restart/);
