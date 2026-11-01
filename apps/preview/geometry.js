@@ -709,6 +709,18 @@ function smartFacadeCost(items,c){
   if(!bay.some(f=>Math.abs(f.startT*len-centre)<.005||
     Math.abs(f.endT*len-centre)<.005))cost+=6;
  }
+ // The hob's drawer bay must stay aligned with the hob itself. Width
+ // optimization may not trade this physical alignment for prettier widths.
+ for(const fixture of items.filter(e=>e.kind==='equipment'&&e.subtype==='stove'&&e.hostId===c.id)){
+  const centre=(fixture.offsetT??.5)*len;
+  const member=fronts.find(f=>f.startT*len<=centre+.0001&&f.endT*len>=centre-.0001);
+  if(!member)return Infinity;
+  const bay=fronts.filter(f=>f.bay===member.bay);
+  if(!bay.length)return Infinity;
+  const start=Math.min(...bay.map(f=>f.startT))*len,
+   end=Math.max(...bay.map(f=>f.endT))*len;
+  if(Math.abs((start+end)/2-centre)>.005)return Infinity;
+ }
  return cost;
 }
 /* Only an explicit Smart action proposes relocations. Manual equipment
