@@ -52,7 +52,11 @@ function candidateCentres(fixture,length,rules,allowMoves){
   const zoneWidth=fixtureZone(fixture,fixture.centre,rules)?.zoneWidth??fixture.width+rules.fixtureClearance*2;
   const min=zoneWidth/2,max=length-zoneWidth/2;
   const preferred=Number(fixture.centre);
-  if(!finite(preferred)||min>max+EPS)return [];
+  if(!finite(preferred))return [];
+  if(fixture.clipToRun){
+    return preferred+zoneWidth/2>EPS&&preferred-zoneWidth/2<length-EPS?[preferred]:[];
+  }
+  if(min>max+EPS)return [];
   if(!allowMoves||fixture.locked)return preferred>=min-EPS&&preferred<=max+EPS?[preferred]:[];
   const values=new Set([roundCm(clamp(preferred,min,max)),roundCm(min),roundCm(max)]);
   const steps=Math.ceil(rules.maxFixtureShift/rules.searchStep);
@@ -103,8 +107,14 @@ function buildBays(length,zones,preferredUnitWidth,rules){
 
 function evaluate(length,fixtures,centres,preferredUnitWidth,rules){
   if(!physicalSpacingValid(fixtures,centres))return null;
-  const zones=fixtures.map((fixture,index)=>fixtureZone(fixture,centres[index],rules))
-    .sort((a,b)=>a.a-b.a);
+  const zones=fixtures.map((fixture,index)=>{
+    const zone=fixtureZone(fixture,centres[index],rules);
+    if(zone&&fixture.clipToRun){
+      zone.a=Math.max(0,zone.a);zone.b=Math.min(length,zone.b);
+      zone.zoneWidth=zone.b-zone.a;
+    }
+    return zone;
+  }).filter(Boolean).sort((a,b)=>a.a-b.a);
   // A sink front is always a centred pair; both leaves must still respect the
   // agreed width range. Never silently widen them to suit a 120 cm sink.
   for(const zone of zones)if(zone.type==='sink'){
