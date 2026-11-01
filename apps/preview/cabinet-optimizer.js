@@ -36,7 +36,7 @@ export function partitionDoorSpan(span,options={}){
 function fixtureZone(fixture,centre,rules){
   const width=Number(fixture.width);
   if(!finite(centre,width)||width<=0)return null;
-  let zoneWidth,type=fixture.subtype;
+  let zoneWidth,type=fixture.hasOven?'oven':fixture.subtype;
   if(type==='sink'){
     zoneWidth=Math.max(.90,width+rules.fixtureClearance*2);
   }else if(type==='stove'){
@@ -70,7 +70,7 @@ function physicalSpacingValid(fixtures,centres){
   for(let i=0;i<fixtures.length;i++)for(let j=i+1;j<fixtures.length;j++){
     const a=fixtures[i],b=fixtures[j];
     const required=(a.width+b.width)/2+
-      (['sink','stove'].includes(a.subtype)&&['sink','stove'].includes(b.subtype)?.45:.02);
+      (['sink','stove'].includes(a.subtype)&&['sink','stove'].includes(b.subtype) ? .45 : .02);
     if(Math.abs(centres[i]-centres[j])<required-EPS)return false;
   }
   return true;
