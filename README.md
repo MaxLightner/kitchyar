@@ -1,4 +1,6 @@
-# Kitchyar — AR-first kitchen editor
+# Kitchyar — AR-first hybrid web editor
+
+> **Current delivery target:** hybrid Web app / PWA / WebXR. No Android APK build or release is in scope. The old Android WebView proof of concept is dormant. Read [the logic contract](docs/logic-contract.md) before changing geometry, fixture or facade rules; contradictions must be reported to the user before edits.
 
 ## Room geometry and editing (room40)
 
