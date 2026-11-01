@@ -694,16 +694,19 @@ function placeAt(point){
   const balanced=Geo.planSmartKitchen(items);
   const styled=scene?.styleId&&scene?.stylePreset?
    {...Geo.applyKitchenLayout(balanced.items,scene.styleId,{preset:scene.stylePreset}),
-    equipmentMoves:balanced.equipmentMoves}:balanced;
-  if(styled.equipmentMoves?.length){
+    equipmentMoves:balanced.equipmentMoves,layoutWarnings:balanced.layoutWarnings}:balanced;
+  if(styled.equipmentMoves?.length||styled.layoutWarnings?.length){
    // No silent equipment movement in an existing manual design. The change
    // is kept as a proposal until the user explicitly approves it.
    pendingSmartLayout=styled;
    const changes=styled.equipmentMoves.map(m=>'<li>'+
     (m.subtype==='sink'?'سینک':'گاز')+' · '+(m.delta>0?'+':'')+m.delta+
-    ' سانتی‌متر در امتداد کابینت</li>').join('');
+    ' سانتی‌متر در امتداد کابینت</li>').join('')+
+    (styled.layoutWarnings||[]).map(w=>'<li>'+
+     (w.reason?esc(w.reason):'در '+w.count+' نمای کابینت، عرض خارج از بازه ترجیحی است ('+
+       w.smallest+' تا '+w.largest+' سانتی‌متر).')+'</li>').join('');
    dialogs.innerHTML='<div class="dialog-cover"><div class="dialog"><h2>پیشنهاد بهینه‌سازی چیدمان</h2>'+
-    '<p>برای جلوگیری از درهای باریک و هماهنگی درها با تجهیزات، تغییرات زیر پیشنهاد شده است. موقعیت تجهیزات فقط با تأیید تو تغییر می‌کند.</p>'+
+    '<p>تغییر مکان تجهیزات یا استثناهای عرض نما پیش از اعمال نمایش داده می‌شوند. اگر موردی نامناسب است انصراف بده؛ هیچ تغییر بی‌تأیید ثبت نمی‌شود.</p>'+
     '<ul>'+changes+'</ul><div class="dialog-actions">'+
     '<button class="primary" data-action="confirm-smart-layout">تأیید و اعمال طرح</button>'+
     '<button data-action="cancel-smart-layout">انصراف</button></div></div></div>';
