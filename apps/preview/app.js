@@ -1,4 +1,4 @@
-import {FloorAR} from './floor-ar.js?v=fix48';
+import {FloorAR} from './floor-ar.js?v=fix50';
 import * as Geo from './geometry.js?v=fix48';
 import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix48';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix46';
@@ -1350,12 +1350,12 @@ document.addEventListener('click',async e=>{
    document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
    showScene();
    calibrationCollapsed=false;
-   if(floor?.session){await floor.scan();}
-   else {if(floor){floor.cleanup();floor=null;}beginAR();}
    document.getElementById('scan-card')?.classList.remove('complete');
    document.getElementById('editor-root')?.classList.remove('floor-locked');
    document.querySelector('.scan-restart')?.classList.remove('attention');
    updateCalibrationPanel();
+   if(floor?.session){try{await floor.scan();}catch(error){tell('اسکن مجدد کف ناموفق بود: '+(error?.message||error));}}
+   else {if(floor){floor.cleanup();floor=null;}beginAR();}
    return;
   }
   if(action==='confirm-floor'){

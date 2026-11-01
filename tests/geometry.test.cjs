@@ -347,7 +347,7 @@ test('floor scanning restart remains accessible after leaving and returning to a
  const app=source('app.js'),css=source('styles.css');
  assert.match(app,/data-action="rescan">شروع \/ اسکن دوبارهٔ کف/);
  assert.match(app,/if\(action==='rescan'\)/);
- assert.match(app,/if\(floor\?\.session\)\{await floor\.scan\(\);\}/);
+ assert.match(app,/if\(floor\?\.session\)\{try\{await floor\.scan\(\);\}catch\(error\)/);
  assert.match(app,/else \{if\(floor\)\{floor\.cleanup\(\);floor=null;\}beginAR\(\);\}/);
  assert.match(app,/if\(floor!==instance\)return/);
  assert.match(css,/\.scan-card \.scan-restart/);
@@ -1097,4 +1097,16 @@ test('the deployed editor requests fresh AR and plan modules after geometry chan
  const version=(source,file)=>Number(source.match(new RegExp('\\./'+file.replace('.','\\.')+'\\?v=fix(\\d+)'))?.[1]||0);
  assert.ok(version(app,'floor-ar.js')>=version(floor,'geometry.js'),'AR import must not stay cached behind geometry changes');
  assert.ok(version(app,'plan-view.js')>=version(plan,'geometry.js'),'2D import must not stay cached behind geometry changes');
+});
+
+
+test('AR floor rescan reuses live hit-test sources and leaves the XR session open',()=>{
+ const floor=source('floor-ar.js'),app=source('app.js');
+ assert.match(floor,/const reuseSources=!!this\.hitSource&&!this\.hitSourceBroken/);
+ assert.match(floor,/if\(reuseSources\)\{this\.report\('در حال یافتن سطح افقی\.\.\.'\);return;\}/);
+ assert.match(floor,/this\.hitSourceBroken=true/);
+ assert.match(app,/if\(floor\?\.session\)\{try\{await floor\.scan\(\)/);
+ const rescan=app.indexOf("if(action==='rescan')");
+ assert.ok(app.indexOf("document.getElementById('scan-card')?.classList.remove('complete')",rescan)<
+  app.indexOf('await floor.scan()',rescan),'scan status must update before WebXR promises settle');
 });
