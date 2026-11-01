@@ -692,7 +692,7 @@ export class FloorAR {
   c.strokeStyle='#69a995';c.strokeRect(2,2,508,60);c.fillStyle='#244d40';
   c.font='bold 30px Tahoma';c.textAlign='center';c.textBaseline='middle';c.fillText(text,256,32);
   const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),
-   depthTest:false,transparent:true}));sprite.position.set(x,y,z);sprite.scale.set(1.28,.18,1);
+   depthTest:false,transparent:true}));sprite.position.set(x,y,z);sprite.scale.set(.90,.13,1);
   sprite.renderOrder=55;this.editPreviewGroup.add(sprite);
  }
  setEditPreview(items,id,side,visible){

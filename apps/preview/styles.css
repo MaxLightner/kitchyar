@@ -497,3 +497,15 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .unit-convert-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
 .unit-convert-actions button{min-height:44px;padding:9px;font-size:15px;border:1px solid #b9ccbc;border-radius:9px;background:#edf5ed;color:#2f553e}
 .unit-convert-actions button:active{background:#c9e4ce}
+
+/* The inspector is opt-in: selecting an item reveals only a slim, persistent tab. */
+.object-editor-tab{position:absolute;top:50%;left:0;z-index:8;transform:translateY(-50%);writing-mode:vertical-rl;direction:rtl;
+ background:#2b5546ef;color:#fff;border:1px solid #a1d1b5;border-left:0;border-radius:0 12px 12px 0;
+ padding:12px 7px;min-height:110px;box-shadow:3px 4px 16px #1a332633;font-size:13px;cursor:pointer}
+.object-editor-tab[hidden],.object-editor[hidden]{display:none!important}
+.object-editor{top:clamp(105px,26svh,305px);left:28px;max-height:min(62svh,660px);overflow:auto}
+@media(max-width:730px){.object-editor-tab{top:43%;padding:10px 5px;min-height:98px;font-size:13px}
+ .object-editor{top:105px;left:25px;width:min(300px,calc(100vw - 45px));max-height:calc(100svh - 225px)}}
+/* Dimension annotations should not obscure a small room or its openings. */
+.plan-svg .measure-tag text{font-size:13px}
+#elevation-view .measure-text,#elevation-view .elevation-scale{font-size:13px}

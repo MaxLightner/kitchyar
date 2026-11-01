@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=fix45';
+import {FloorAR} from './floor-ar.js?v=fix46';
 import * as Geo from './geometry.js?v=fix45';
 import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix45';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix43';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix46';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
 import {buildCutReport} from './report-data.js?v=nest35';
@@ -15,6 +15,7 @@ const date=value=>new Date(value).toLocaleDateString('fa-IR',{year:'numeric',mon
 let projects=[],floor=null,desktopPreview=null,mode='ar',activeTool=null,activeId=null,toastTimer=null,loadError=null;
 let selection=null,drawing=null,hover=null,pendingUpperEdit=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null,planCalibrationDrag=null;
 let selectedUnit=null,lastFrontTap=null;
+let inspectorOpen=false,inspectorSelectionKey=null;
 let paintScope='single',paintPart='panel';
 let movingEquipmentId=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
@@ -98,12 +99,12 @@ function editorPage(id){
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
- '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>ارتفاع سقف (متر)<input data-ceiling-height type="number" min="2" max="9" step=".01" value="'+(Number(p.scene?.ceilingHeight)||3.6)+'"></label><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><label class="check-row">نور خطی زیر کابینت هوایی<input data-render="taskLighting" type="checkbox" '+(renderSettings().taskLighting?'checked':'')+'></label><label>شدت نور کابینت<input data-render="taskIntensity" type="range" min="0" max="4" step=".1" value="'+renderSettings().taskIntensity+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
+ '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>ارتفاع دیوارها و سقف (متر)<input data-ceiling-height type="number" min="2" max="9" step=".01" value="'+(Number(p.scene?.ceilingHeight)||3.6)+'"></label><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><label class="check-row">نور خطی زیر کابینت هوایی<input data-render="taskLighting" type="checkbox" '+(renderSettings().taskLighting?'checked':'')+'></label><label>شدت نور کابینت<input data-render="taskIntensity" type="range" min="0" max="4" step=".1" value="'+renderSettings().taskIntensity+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
  '<section class="scan-card" id="scan-card"><button class="scan-restart" data-action="rescan">شروع / اسکن دوبارهٔ کف ↻</button><div class="scan-head"><strong id="scan-stage">در انتظار اسکن کف</strong><span id="scan-pct">۰٪</span></div><progress id="scan-progress" max="100" value="0"></progress><small>آمادگی بر اساس برخوردهای معتبر و نمونه‌های مستقل است؛ درصد ARCore نیست.</small><div class="scan-info"><span id="scan-hits">برخورد معتبر: ۰</span><span id="anchor-count">Anchor: ۰ / ۵</span></div></section>'+
  '<button id="calibration-toggle" class="calibration-toggle" data-action="toggle-calibration" hidden>تنظیم کف و نقاط A/B ▴</button><div class="scan-confirm"><button class="primary" id="confirm-floor" data-action="confirm-floor" disabled>تثبیت این کف</button><div id="calibration" hidden><p class="calibration-help">A و B را روی صحنه بگیر و بکش؛ جهت شبکه همان لحظه تغییر می‌کند.</p><label>فاصله واقعی A تا B (متر)<input type="number" id="real-distance" value="1" min=".1" max="20" step=".01"></label><button data-action="apply-distance">اعمال مقیاس</button></div></div>'+
  '<div class="side-tools"><div class="side-basic"><button data-action="select" aria-label="انتخاب">⌖</button><button data-action="undo" disabled aria-label="بازگشت تغییر">↶</button><button data-action="redo" disabled aria-label="انجام دوباره">↷</button><button data-action="open-style-gallery" title="گالری آشپزخانه" aria-label="گالری نمونه‌های آشپزخانه">▣</button><button class="front-visibility-toggle" data-action="toggle-facades" aria-pressed="false" aria-label="مخفی‌کردن همه درب‌ها و پیشانی کشوها" title="مخفی‌کردن درب‌ها و کشوها برای دیدن یونیت‌ها"><span>▤</span><small>درب‌ها</small></button><button class="front-visibility-toggle" data-action="toggle-surfaces" aria-pressed="false" title="نمایش / مخفی‌کردن سقف و کف"><span>▱</span><small>سقف/کف</small></button></div></div><div class="aim-marker" id="aim-marker" hidden><span>＋</span><small id="aim-label">محل ترسیم</small></div>'+
  '<div class="mini-map"><span>پلان زنده</span><div id="mini-plan" class="mini-plan"></div><small id="item-count">هنوز آبجکتی در صحنه نیست</small></div>'+
- '<aside class="object-editor" id="object-editor" hidden></aside><div class="bottom-panel"><div id="draw-controls" class="draw-controls" hidden><button class="primary" data-action="confirm-drawing">تأیید</button><button data-action="cancel-drawing">لغو</button></div><div class="tool-sheet" id="tool-sheet" hidden></div><nav class="dock">'+categories.map(([id,name,icon])=>'<button data-action="category" data-category="'+id+'"><span>'+icon+'</span><small>'+name+'</small></button>').join('')+'</nav></div>'+
+ '<button id="object-editor-tab" class="object-editor-tab" data-action="toggle-inspector" aria-controls="object-editor" aria-expanded="false" hidden>⚙ تنظیمات انتخاب</button><aside class="object-editor" id="object-editor" hidden></aside><div class="bottom-panel"><div id="draw-controls" class="draw-controls" hidden><button class="primary" data-action="confirm-drawing">تأیید</button><button data-action="cancel-drawing">لغو</button></div><div class="tool-sheet" id="tool-sheet" hidden></div><nav class="dock">'+categories.map(([id,name,icon])=>'<button data-action="category" data-category="'+id+'"><span>'+icon+'</span><small>'+name+'</small></button>').join('')+'</nav></div>'+
  '</main>';
  // WebXR only exposes descendants of its DOM Overlay root. Keeping dialogs
  // outside it made gallery/rule windows appear only after leaving AR.
@@ -285,7 +286,7 @@ function drawTools(){
  sheet.innerHTML=head+(activeTool==='fronts'?'<div class="front-tools-actions"><button class="style-gallery-trigger" data-action="open-style-gallery">▣ انتخاب مدل از گالری آشپزخانه</button><button data-action="open-front-rules">⚙ قوانین درب، کشو و هم‌ترازی</button></div>':'')+'<div class="tool-choices">'+tools.map(([id,label])=>
   '<button class="'+(drawing?.tool===id?'active':'')+'" data-action="tool" data-tool="'+id+'">'+label+'</button>').join('')+'</div>'+
   (activeTool==='fronts'?'<p class="equipment-help">طرح هوشمند تمام کابینت‌ها را یک‌جا با سینک، گاز، فر و یخچال هماهنگ می‌کند. پیش‌نمایش را ببین و تأیید کن؛ برای تغییر یک کابینت آن را انتخاب کن و یک طرح دیگر بزن.</p>':activeTool==='equipment'?'<p class="equipment-help">یخچال روی کف یا داخل کابینت قرار می‌گیرد؛ گاز و سینک روی صفحه و ظرفشویی، لباسشویی و فر زیر صفحه نصب می‌شوند.</p><label class="check-row">یخچال مستقل؛ بدون کابینت دور آن<input data-fridge-free type="checkbox" '+(fridgeFreestanding?'checked':'')+'></label>':wallTools?'<div class="tool-settings"><label>ضخامت دیوار (متر)<input data-setting="thickness" type="number" min=".07" max=".8" step=".01" value="'+settings.thickness+'"></label>'+
-   '<label>ارتفاع (متر)<input data-setting="height" type="number" min=".4" max="9" step=".1" value="'+settings.height+'"></label></div>':
+   '<label>ارتفاع دیوارها و سقف (متر)<input data-setting="height" type="number" min="2" max="9" step=".1" value="'+settings.height+'"></label></div>':
    '<div class="tool-settings"><label>عمق زمینی (متر)<input data-setting="baseDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.baseDepth+'"></label>'+
    '<label>عمق هوایی (متر)<input data-setting="upperDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.upperDepth+'"></label>'+'<label>ارتفاع کابینت هوایی (متر)<input data-setting="upperHeight" type="number" min=".25" max="1.8" step=".01" value="'+settings.upperHeight+'"></label>'+'<label>ارتفاع نصب از کف (متر)<input data-setting="upperElevation" type="number" min="0" max="3" step=".01" value="'+settings.upperElevation+'"></label></div>')+
   '<div class="snap-options"><label><input type="checkbox" data-setting="pointSnap" '+(settings.pointSnap?'checked':'')+'> اسنپ نقطه</label>'+
@@ -311,11 +312,16 @@ function openCutSheet(c){
 }
 function drawSelection(){
  const panel=document.getElementById('object-editor');if(!panel)return;
+ const tab=document.getElementById('object-editor-tab');
+ const key=!drawing&&(selectedUnit?'unit:'+selectedUnit.hostId:selection?'object:'+selection:null);
+ if(key!==inspectorSelectionKey){inspectorOpen=false;inspectorSelectionKey=key;}
+ if(tab){tab.hidden=!key;tab.setAttribute('aria-expanded',String(!!key&&inspectorOpen));}
+ panel.hidden=!key||!inspectorOpen;
+ if(!key)return;
  if(selectedUnit&&!drawing){
   const host=currentItems().find(o=>o.id===selectedUnit.hostId);
   if(host){
    const width=(selectedUnit.endT-selectedUnit.startT)*Geo.lengthOf(host);
-   panel.hidden=false;
    panel.innerHTML='<div class="object-head"><strong>یونیت انتخاب‌شده · '+num(width)+' متر</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
     '<p class="unit-editor-hint">تغییر نوع همین یونیت؛ درب‌ها و کشوهای یونیت‌های مجاور دست‌نخورده می‌مانند.</p>'+
     '<div class="unit-convert-actions">'+[['doors','درب لولایی'],['drawers2','۲ کشو'],['drawers3','۳ کشو'],['drawers4','۴ کشو']].map(([preset,label])=>
@@ -326,7 +332,7 @@ function drawSelection(){
   selectedUnit=null;
  }
  const obj=currentItems().find(x=>x.id===selection);
- panel.hidden=!obj||!!drawing;if(!obj||drawing)return;
+ if(!obj||drawing){if(tab)tab.hidden=true;panel.hidden=true;return;}
  const previousScroll=panel.dataset.selectionId===obj.id?panel.scrollTop:0;
  const field=(key,title,val,min,step='.01')=>'<label>'+title+'<input type="number" data-edit="'+key+'" value="'+Number(val).toFixed(2)+'" min="'+min+'" step="'+step+'"></label>';
  let fields='',title=obj.name;
@@ -792,6 +798,14 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{
  if(e.target.matches('[data-fridge-free]')){fridgeFreestanding=e.target.checked;return;}
+ if(e.target.matches('[data-setting="height"]')){
+  const high=Number(e.target.value);
+  if(!Number.isFinite(high)||high<2||high>9){tell('ارتفاع مشترک دیوارها و سقف باید بین ۲ تا ۹ متر باشد.');return;}
+  const rounded=Math.round(high*100)/100;
+  try{commitChange(Geo.setAllWallHeights(currentItems(),rounded),{ceilingHeight:rounded});settings.height=rounded;}
+  catch(err){settings.height=Number(currentProject()?.scene?.ceilingHeight??3.6);e.target.value=String(settings.height);tell(err.message);}
+  return;
+ }
  if(e.target.matches('[data-ceiling-height]')){
   const high=Number(e.target.value);
   if(!Number.isFinite(high)||high<2||high>9){tell('ارتفاع سقف باید بین ۲ تا ۹ متر باشد.');return;}
@@ -1326,7 +1340,8 @@ document.addEventListener('click',async e=>{
    document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
    showScene();tell('روی محل جدید وسیله در پلان یا AR بزن.');return;
   }
-  if(action==='close-object'){selection=null;selectedUnit=null;showScene();return;}
+  if(action==='toggle-inspector'){if(!selection&&!selectedUnit)return;inspectorOpen=!inspectorOpen;showScene();return;}
+  if(action==='close-object'){inspectorOpen=false;showScene();return;}
   if(action==='delete-object'){if(selection){movingEquipmentId=null;commitChange(Geo.removeObject(currentItems(),selection));selection=null;showScene();}return;}
   if(action==='save'){touch(activeId);document.getElementById('save-indicator').textContent='ذخیره‌شده';return tell('پروژه ذخیره شد.');}
   if(action==='start-ar')return beginAR();

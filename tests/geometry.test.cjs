@@ -144,10 +144,11 @@ test('renderer has real ray-tested AO, directional shadows, reflection probe and
  assert.match(floor,/this\.previewGroup=new THREE\.Group/);
  assert.match(floor,/upper\?1\/3:-1\/3/);
 });
-test('UI font sizes are at least 15px and drawing controls belong to bottom panel',()=>{
+test('legible controls and compact measurement labels coexist with bottom drawing controls',()=>{
  const css=source('styles.css'),app=source('app.js');
  for(const match of css.matchAll(/font(?:-size)?:\s*(\d+(?:\.\d+)?)px/g))
-  assert.ok(Number(match[1])>=15,'font below 15px: '+match[0]);
+  assert.ok(Number(match[1])>=13,'font below 13px: '+match[0]);
+ assert.match(css,/button,input,small,label,\.drawing-hint,\.scan-card small\{font-size:15px\}/);
  for(const action of ['confirm-drawing','cancel-drawing'])
   assert.match(app,new RegExp('data-action="'+action+'"'));
  for(const action of ['record-start','record-end','cancel-start','finish-line'])
@@ -1017,4 +1018,22 @@ test('2D cabinet ghost uses the same minimum-length and collision rules as commi
  assert.doesNotMatch(invalid,/<polygon/);
  const valid=renderPreview(items,{tool:'base',start,depth:.60},G.snapCabinetPoint(items,1.2,0));
  assert.match(valid,/<polygon/);
+});
+
+
+test('inspector remains closed until its tab is requested and dimensions stay compact',async()=>{
+ const app=source('app.js'),css=source('styles.css'),floor=source('floor-ar.js');
+ assert.match(app,/data-action="toggle-inspector"/);
+ assert.match(app,/if\(key!==inspectorSelectionKey\)\{inspectorOpen=false;/);
+ assert.match(app,/if\(action==='toggle-inspector'\)/);
+ assert.match(app,/if\(e\.target\.matches\('\[data-setting="height"\]'\)\)/);
+ assert.match(app,/Geo\.setAllWallHeights\(currentItems\(\),rounded\)/);
+ assert.match(css,/\.object-editor-tab\[hidden\]/);
+ assert.match(floor,/sprite\.scale\.set\(\.90,\.13,1\)/);
+ const {renderPlanMeasurements}=await import('../apps/preview/edit-handles.js');
+ G||=await import('../apps/preview/geometry.js');
+ const items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+ const svg=renderPlanMeasurements(items,items[0].id,'right');
+ assert.match(svg,/height="\.17"/);
+ assert.match(svg,/scale\(0\.0065\)/);
 });
