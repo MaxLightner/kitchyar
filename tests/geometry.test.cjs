@@ -1119,3 +1119,30 @@ test('direct drag handles use the same current geometry module as equipment butt
  assert.match(handles,/side==='move'\)return moveEquipment\(items,id,/);
  assert.match(app,/data-action="move-equipment"/);
 });
+
+
+test('moving a stove keeps its hood and remote cabinet fronts intact',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeWall(items,{x:0,z:3},{x:5,z:3}).items;
+ items=G.placeCabinet(items,{x:.2,z:0,side:1},{x:4.8,z:0},{kind:'base'}).items;
+ items=G.placeCabinet(items,{x:.2,z:3,side:1},{x:4.8,z:3},{kind:'base'}).items;
+ const [host,remote]=items.filter(o=>o.kind==='cabinet');
+ items=G.placeFrontLayout(items,host.id,'doors').items;
+ items=G.placeFrontLayout(items,remote.id,'doors').items;
+ items=G.placeEquipment(items,{x:1.2,z:.35},'stove').items;
+ const stove=items.find(o=>o.subtype==='stove'),hood=items.find(o=>o.subtype==='hood');
+ const candidate=items.filter(o=>o.kind==='front'&&o.hostId===host.id)
+  .sort((x,y)=>Math.abs((x.startT+x.endT)/2-.8)-Math.abs((y.startT+y.endT)/2-.8))[0];
+ items=G.editFront(items,candidate.id,{finish:'graphite'}).items;
+ const prior=items.find(o=>o.id===candidate.id),priorMid=(prior.startT+prior.endT)/2;
+ const remoteSnapshot=JSON.stringify(items.filter(o=>o.id===remote.id||o.hostId===remote.id));
+ const moved=G.moveEquipment(items,stove.id,{x:3.0,z:.35}).items;
+ const updated=moved.find(o=>o.id===stove.id),linked=moved.find(o=>o.id===hood.id);
+ assert.ok(updated&&linked&&linked.linkedStoveId===stove.id);
+ assert.ok(Math.hypot(linked.x-updated.x,linked.z-updated.z)<.01);
+ assert.equal(JSON.stringify(moved.filter(o=>o.id===remote.id||o.hostId===remote.id)),remoteSnapshot);
+ const painted=moved.filter(o=>o.kind==='front'&&o.hostId===host.id&&o.finish==='graphite');
+ assert.ok(painted.some(o=>Math.abs((o.startT+o.endT)/2-priorMid)<.15),
+  'hand-picked finish stays near its original real-world cabinet position');
+});
