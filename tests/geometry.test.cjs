@@ -805,7 +805,9 @@ test('global, connected and individual front rules have distinct precedence',asy
  const global={...G.DEFAULT_FRONT_RULES,maxDoorWidth:.48,minDoorWidth:.22,handleStyle:'knob'};
  let change=G.configureFrontRules(items,global,{scope:'global'});items=change.items;
  assert.equal(change.frontRules.maxDoorWidth,.48);
- assert.ok(items.filter(f=>f.kind==='front'&&f.hostId===first.id).length>=4,'max door width increases leaf count');
+ const firstLeaves=items.filter(f=>f.kind==='front'&&f.hostId===first.id);
+ assert.ok(firstLeaves.length>=3&&firstLeaves.every(f=>G.frontPose(f,first).width<=.48),
+  'maximum width remains enforced without manufacturing extra half-sized leaves');
  const group={...global,gap:.008,handleStyle:'hidden',singleHinge:'right'};
  items=G.configureFrontRules(items,group,{scope:'connected',targetId:first.id}).items;
  assert.equal(items.find(c=>c.id===second.id).frontRuleOverrides.gap,.008);
