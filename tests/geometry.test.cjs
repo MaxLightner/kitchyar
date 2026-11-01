@@ -1090,3 +1090,11 @@ test('130cm frontage avoids four half-size leaves; small fixtures retain centere
  assert.ok(leaves.some(f=>Math.abs(f.endT*G.lengthOf(host)-center)<.01&&
   (f.endT-f.startT)*G.lengthOf(host)>=.45-1e-6),'a 60cm sink has a centered 45cm leaf');
 });
+
+
+test('the deployed editor requests fresh AR and plan modules after geometry changes',()=>{
+ const app=source('app.js'),floor=source('floor-ar.js'),plan=source('plan-view.js');
+ const version=(source,file)=>Number(source.match(new RegExp('\\./'+file.replace('.','\\.')+'\\?v=fix(\\d+)'))?.[1]||0);
+ assert.ok(version(app,'floor-ar.js')>=version(floor,'geometry.js'),'AR import must not stay cached behind geometry changes');
+ assert.ok(version(app,'plan-view.js')>=version(plan,'geometry.js'),'2D import must not stay cached behind geometry changes');
+});
