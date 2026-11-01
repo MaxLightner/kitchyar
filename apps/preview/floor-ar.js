@@ -10,6 +10,7 @@ import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-l
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
 import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=fix43';
 import {roomOutline} from './room-surfaces.js?v=room40';
+import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 // Raycaster may return intersections belonging to invisible ancestor groups.
@@ -603,19 +604,17 @@ export class FloorAR {
     .applyAxisAngle(new THREE.Vector3(0,1,0),this.alignment.yaw);
    this.alignment.x=target.x-rotated.x;this.alignment.z=target.z-rotated.z;
   }else{
-   const baseA=this._alignedBasePoint(a),wanted=target.clone().sub(baseA),reference=b.clone().sub(a);
-   const distance=wanted.length(),original=reference.length();
-   if(distance<.1||original<.1)return false;
-   const scale=distance/original;
-   if(scale<.8||scale>1.2){this.report('برای تثبیت دقیق، فاصله A/B را در محدوده ۲۰٪ اندازه مرجع بگذار.');return false;}
-   this.alignment.scale=scale;
-   this.alignment.yaw=Math.atan2(reference.z,reference.x)-Math.atan2(wanted.z,wanted.x);
-   const rotated=a.clone().multiplyScalar(scale)
-    .applyAxisAngle(new THREE.Vector3(0,1,0),this.alignment.yaw);
-   this.alignment.x=baseA.x-rotated.x;this.alignment.z=baseA.z-rotated.z;
+   const baseA=this._alignedBasePoint(a);
+   const solution=fitCalibrationDragB(a,b,baseA,target,this.alignment.scale);
+   if(!solution){this.report('فاصله نقاط A و B باید حداقل ۱۰ سانتی‌متر باشد.');return false;}
+   // Extend the stored reference instead of enlarging every wall and cabinet.
+   this.points.b.set(solution.b.x,0,solution.b.z);
+   this.alignment.yaw=solution.yaw;
+   this.alignment.x=solution.x;this.alignment.z=solution.z;
   }
   this._applyAlignment();
-  this.report('مرجع A/B کل پروژه را جابه‌جا و هم‌جهت می‌کند.',{distance:a.distanceTo(b),
+  if(which==='b'){this.drawRuler();this.savedCalibration=this.calibrationSnapshot();}
+  this.report('مرجع A/B کل پروژه را جابه‌جا و هم‌جهت می‌کند.',{distance:a.distanceTo(this.points.b)*this.alignment.scale,
    projectAlignment:{...this.alignment}});
   return true;
  }
