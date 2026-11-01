@@ -1037,3 +1037,35 @@ test('inspector remains closed until its tab is requested and dimensions stay co
  assert.match(svg,/height="\.17"/);
  assert.match(svg,/scale\(0\.0065\)/);
 });
+
+
+test('free cabinet frontage uses variable near-50cm bays and keeps fixture centerlines',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0,side:1},{x:4.8,z:0},{kind:'base'}).items;
+ const host=items.find(x=>x.kind==='cabinet');
+ let fronts=G.planFronts(items,host,'doors');
+ const freeWidths=fronts.map(f=>(f.endT-f.startT)*G.lengthOf(host));
+ assert.ok(freeWidths.length>=8,'long runs must not create narrow half doors');
+ assert.ok(freeWidths.every(w=>w>=.45-1e-5&&w<=.55+1e-5),'each free leaf is 45 to 55 cm');
+ items=G.placeEquipment(items,{x:1.9,z:.35},'sink').items;
+ items=G.placeFrontLayout(items,host.id,'doors').items;
+ const sink=items.find(e=>e.subtype==='sink');
+ items=G.editEquipment(items,sink.id,{sinkSize:120}).items;
+ const changedSink=items.find(e=>e.id===sink.id),center=changedSink.offsetT*G.lengthOf(host);
+ fronts=items.filter(f=>f.kind==='front'&&f.hostId===host.id&&f.subtype==='door');
+ assert.ok(fronts.some(f=>Math.abs(f.endT*G.lengthOf(host)-center)<.015),'120cm sink must align with a door pair seam');
+});
+
+test('gas hob participates in door and photo facade bays without touching unrelated cabinets',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ items=G.placeCabinet(items,{x:.2,z:0,side:1},{x:4.8,z:0},{kind:'base'}).items;
+ const host=items.find(x=>x.kind==='cabinet');
+ items=G.placeEquipment(items,{x:2.05,z:.35},'stove').items;
+ const hob=items.find(e=>e.subtype==='stove'),center=hob.offsetT*G.lengthOf(host);
+ for(const preset of ['doors','photo']){
+  const fronts=G.planFronts(items,host,preset).filter(f=>f.subtype==='door');
+  assert.ok(fronts.some(f=>Math.abs(f.endT*G.lengthOf(host)-center)<.015),preset+' keeps the hob centered');
+ }
+});
