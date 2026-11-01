@@ -326,7 +326,8 @@ test('new drawing confirmation/cancellation flow covers walls, cabinets and equi
  assert.match(app,/if\(action==='cancel-drawing'\)/);
  assert.match(app,/return placeAt\(point\)/);
  assert.match(app,/if\(mode==='2d'\)return hover\|\|null/);
- assert.match(app,/\['wall','base','upper','tall'\]\.includes\(drawing\.tool\)/);
+ assert.match(app,/\['wall','base','upper'\]\.includes\(drawing\.tool\)/);
+ assert.match(app,/if\(tool==='tall'\)\{/);
  assert.match(css,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
  assert.match(app,/controls\.hidden=!drawing;/);
  assert.doesNotMatch(app,/controls\.hidden=!drawing\|\|single/);
