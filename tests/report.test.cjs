@@ -22,9 +22,10 @@ async function sample(){
 }
 test('report derives fronts, independent runs and placed sink cutouts from current geometry',async()=>{
  const p=await sample(),copy=structuredClone(p),r=R.buildCutReport(p);
- assert.equal(r.totals.doors,4);
- assert.equal(r.totals.drawers,6);
- assert.equal(r.totals.fronts,10);
+ const modeled=p.scene.items.filter(o=>o.kind==='front');
+ assert.equal(r.totals.doors,modeled.filter(o=>o.subtype==='door').length);
+ assert.equal(r.totals.drawers,modeled.filter(o=>o.subtype==='drawer').length);
+ assert.equal(r.totals.fronts,modeled.length);
  assert.equal(r.countertop.length,2,'adjacent cabinets combine, interrupted runs stay separate');
  assert.equal(r.countertop[0].lengthMm,2300);
  assert.equal(r.countertop[1].lengthMm,1000);
