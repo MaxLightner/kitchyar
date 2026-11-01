@@ -21,6 +21,6 @@ test('latest design contract governs joint optimization and agent edits',()=>{
  assert.match(contract,/۴۵ تا ۵۵ سانتی‌متر/);
  assert.match(contract,/موقعیت ترجیحی/);
  assert.match(contract,/تأیید/);
- assert.match(agents,/پیش از ویرایش گزارش بده/);
+ assert.match(agents,/متوقف شو و قبل از ویرایش گزارش بده/);
  assert.match(agents,/هیچ تغییری نده/);
 });
