@@ -1,4 +1,4 @@
-import {FloorAR} from './floor-ar.js?v=fix43';
+import {FloorAR} from './floor-ar.js?v=ab44';
 import * as Geo from './geometry.js?v=fix43';
 import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix43';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix43';

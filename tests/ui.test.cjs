@@ -210,3 +210,31 @@ test('tapping through an elevated resize grip can still select a neighboring dra
  assert.match(app,/document\.elementsFromPoint\(e\.clientX,e\.clientY\)/);
  assert.match(app,/if\(panel\?\.dataset\.itemId\)selectAt\(null,panel\)/);
 });
+
+
+test('A/B drag extends a three-metre reference without rescaling the kitchen',async()=>{
+ const {fitCalibrationDragB}=await import('../apps/preview/calibration-transform.js');
+ const a={x:-.5,z:.65},b={x:.5,z:.65},anchor={x:-.5,z:.65};
+ const result=fitCalibrationDragB(a,b,anchor,{x:2.5,z:.65},1);
+ assert.ok(result);
+ assert.ok(Math.abs(Math.hypot(result.b.x-a.x,result.b.z-a.z)-3)<1e-9);
+ assert.equal(result.yaw,0);
+ const floor=read('floor-ar.js');
+ const drag=floor.slice(floor.indexOf(' dragCalibrationPoint('),floor.indexOf(' pickHandle('));
+ assert.match(drag,/this\.points\.b\.set\(solution\.b\.x,0,solution\.b\.z\)/);
+ assert.match(drag,/this\.savedCalibration=this\.calibrationSnapshot\(\)/);
+ assert.doesNotMatch(drag,/this\.alignment\.scale\s*=/);
+ assert.match(read('app.js'),/p\.scene\.calibration=floor\.calibrationSnapshot\(\);save\(\)/);
+});
+
+test('A/B drag rotates the project around A without changing its metre scale',async()=>{
+ const {fitCalibrationDragB}=await import('../apps/preview/calibration-transform.js');
+ const a={x:-.5,z:.65},b={x:.5,z:.65},anchor={x:2.2,z:-1.1},target={x:2.2,z:1.9},scale=1.1;
+ const fitted=fitCalibrationDragB(a,b,anchor,target,scale);
+ assert.ok(fitted);
+ const transform=p=>({x:scale*(p.x*Math.cos(fitted.yaw)+p.z*Math.sin(fitted.yaw))+fitted.x,
+  z:scale*(-p.x*Math.sin(fitted.yaw)+p.z*Math.cos(fitted.yaw))+fitted.z});
+ for(const [point,expected] of [[transform(a),anchor],[transform(fitted.b),target]])
+  for(const key of ['x','z'])assert.ok(Math.abs(point[key]-expected[key])<1e-9,key);
+ assert.equal(fitCalibrationDragB(a,b,anchor,anchor,1),null,'coincident markers are rejected');
+});
