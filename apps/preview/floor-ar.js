@@ -213,10 +213,16 @@ export class FloorAR {
   this.basePosition=null;this.baseYaw=0;this.alignment={x:0,z:0,yaw:0,scale:1};
   this.rig=new AnchorStabilizer();this.candidates=[];this.pending=false;
   for(const a of this.anchors)try{a.anchor.delete();}catch{}this.anchors=[];
-  const oldHit=this.hitSource;this.hitSource=null;oldHit?.cancel();
-  for(const s of this.sources)try{s.cancel();}catch{}this.sources=[];
+  // Hit-test sources belong to the XR session, not to each floor scan. Reusing
+  // them avoids the costly cancel/recreate loop (and ARCore stalls) on rescan.
+  const reuseSources=!!this.hitSource&&!this.hitSourceBroken;
+  if(!reuseSources){
+   const oldHit=this.hitSource;this.hitSource=null;oldHit?.cancel();
+   for(const s of this.sources)try{s.cancel();}catch{}this.sources=[];
+  }
   this.net.visible=false;this.net.rotation.z=0;this.gridYaw=0;this.whiteFloor.visible=false;this.shadowFloor.visible=false;
   this.previewGroup.visible=false;this.ruler.visible=false;this.marks.forEach(m=>m.visible=false);
+  if(reuseSources){this.report('در حال یافتن سطح افقی...');return;}
   const viewer=await session.requestReferenceSpace('viewer');
   if(session!==this.session)return;
   this.lowerHitSource?.cancel?.();this.lowerHitSource=null;
@@ -227,7 +233,7 @@ export class FloorAR {
   }catch(error){console.debug('Lower reticle hit-test unavailable',error);}}
 
   const source=await session.requestHitTestSource({space:viewer,entityTypes:['plane']});
-  if(session!==this.session){source.cancel();return;}this.hitSource=source;
+  if(session!==this.session){source.cancel();return;}this.hitSource=source;this.hitSourceBroken=false;
   if(window.XRRigidTransform){
    for(const [x,y] of RAYS){
     try{
@@ -344,6 +350,7 @@ export class FloorAR {
   const viewer=new THREE.Vector3(pose.transform.position.x,pose.transform.position.y,pose.transform.position.z);
   if(this.hitSource&&!this.scanPromise){
    let center=[];try{center=frame.getHitTestResults(this.hitSource);}catch(error){
+    try{this.hitSource.cancel();}catch{}this.hitSource=null;this.hitSourceBroken=true;
     this.report('منبع اسکن کف قطع شد؛ دوباره اسکن کن.',{tracking:false});return;
    }
    const extra=[];
