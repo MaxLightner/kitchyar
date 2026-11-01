@@ -6,9 +6,7 @@ export const DEFAULT_CABINET_OPTIMIZATION=Object.freeze({
   targetDoorWidth:.50,
   fixtureClearance:.02,
   searchStep:.05,
-  maxFixtureShift:.35,
-  sinkPairMaxWidth:.62,
-  singleLeafMaxWidth:.62
+  maxFixtureShift:.35
 });
 
 const finite=(...values)=>values.every(Number.isFinite);
@@ -22,15 +20,8 @@ export function partitionDoorSpan(span,options={}){
     return {feasible:false,reason:'invalid-span',span};
   const minCount=Math.ceil((span-EPS)/rules.maxDoorWidth);
   const maxCount=Math.floor((span+EPS)/rules.minDoorWidth);
-  if(minCount>maxCount){
-    // A single 60 cm-class cabinet is a normal carcass size; do not split it
-    // into two undersized 30 cm leaves merely to satisfy the preferred band.
-    if(span<=rules.singleLeafMaxWidth+EPS)
-      return {feasible:true,count:1,width:span,widths:[span],score:
-        Math.pow(span-rules.targetDoorWidth,2),exception:'single-leaf-near-boundary'};
-    return {feasible:false,reason:'outside-door-width-range',span,
-      minCount,maxCount,minDoorWidth:rules.minDoorWidth,maxDoorWidth:rules.maxDoorWidth};
-  }
+  if(minCount>maxCount)return {feasible:false,reason:'outside-door-width-range',span,
+    minCount,maxCount,minDoorWidth:rules.minDoorWidth,maxDoorWidth:rules.maxDoorWidth};
   let best=null;
   for(let count=minCount;count<=maxCount;count++){
     const width=span/count;
@@ -114,6 +105,12 @@ function evaluate(length,fixtures,centres,preferredUnitWidth,rules){
   if(!physicalSpacingValid(fixtures,centres))return null;
   const zones=fixtures.map((fixture,index)=>fixtureZone(fixture,centres[index],rules))
     .sort((a,b)=>a.a-b.a);
+  // A sink front is always a centred pair; both leaves must still respect the
+  // agreed width range. Never silently widen them to suit a 120 cm sink.
+  for(const zone of zones)if(zone.type==='sink'){
+    const leafWidth=zone.zoneWidth/2;
+    if(leafWidth<rules.minDoorWidth-EPS||leafWidth>rules.maxDoorWidth+EPS)return null;
+  }
   let previous=0;
   for(const zone of zones){
     if(zone.a<previous-EPS||zone.a<-EPS||zone.b>length+EPS)return null;
@@ -194,9 +191,13 @@ export function solveCabinetRun({
   walk(0);
 
   if(!best){
+    const wideSink=ordered.find(f=>f.subtype==='sink'&&
+      (fixtureZone(f,f.centre,config)?.zoneWidth||0)/2>config.maxDoorWidth+EPS);
     const span=length.toFixed(2);
-    return {feasible:false,reason:'no-valid-partition',visited,
-      message:`در مسیر ${span} متری، با موقعیت فعلی تجهیزات هیچ تقسیم معتبری با درب‌های ${Math.round(config.minDoorWidth*100)} تا ${Math.round(config.maxDoorWidth*100)} سانتی‌متری پیدا نشد. محل تجهیزات و عرض یونیت‌های مجاور باید در حل مشترک بازبینی شوند.`};
+    const message=wideSink?
+      `سینک ${Math.round(wideSink.width*100)} سانتی‌متری به دو درِ متقارن با عرض بیش از بازهٔ ${Math.round(config.minDoorWidth*100)} تا ${Math.round(config.maxDoorWidth*100)} نیاز دارد. گزینه‌ها: تغییر عرض/مرز یونیت، استفاده از قاب ثابت کناری، یا تأیید استثنای عرض درب. هیچ‌کدام خودکار اعمال نشد.`:
+      `در مسیر ${span} متری، با موقعیت فعلی تجهیزات تقسیم معتبری با درب‌های ${Math.round(config.minDoorWidth*100)} تا ${Math.round(config.maxDoorWidth*100)} سانتی‌متری پیدا نشد. باید عرض یونیت‌های متصل یا محل تجهیزات در حل مشترک بازبینی شود؛ درب خارج از بازه ساخته نشد.`;
+    return {feasible:false,reason:wideSink?'sink-front-width-conflict':'no-valid-partition',visited,message};
   }
   return {feasible:true,score:best.score,totalShift:best.totalShift,visited,
     bays:best.bays,adjustments:ordered.map((fixture,index)=>({
