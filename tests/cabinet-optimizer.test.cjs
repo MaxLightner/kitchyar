@@ -12,18 +12,13 @@ async function run(length=4){
  return {g,items,cabinet:items.find(o=>o.kind==='cabinet')};
 }
 
-function assertStandardLeafWidths(g,items,cabinet,{sinkBay=null}={}){
+function assertStandardLeafWidths(g,items,cabinet){
  const faces=items.filter(o=>o.kind==='front'&&o.hostId===cabinet.id);
  assert.ok(faces.length>0,'optimizer must create cabinet fronts');
  for(const face of faces){
   const width=(face.endT-face.startT)*g.lengthOf(cabinet);
-  if(sinkBay!==null&&face.bay===sinkBay){
-   assert.ok(width>=.45-1e-6&&width<=.62+1e-6,
-    '120 cm sink pair may use the functional 62 cm leaf width');
-  }else{
-   assert.ok(width>=.45-1e-6&&width<=.55+1e-6,
-    'ordinary door/drawer leaves must stay in the 45–55 cm target range');
-  }
+  assert.ok(width>=.45-1e-6&&width<=.55+1e-6,
+   'all generated door/drawer leaves must stay in the 45–55 cm target range');
  }
  return faces;
 }
@@ -39,21 +34,30 @@ test('shared partition solver chooses valid 45–55 cm leaves and reports imposs
  assert.equal(impossible.reason,'outside-door-width-range');
 });
 
-test('120 cm sink is shifted only as needed and its two doors stay centred on its axis',async()=>{
+test('90 cm sink is shifted only as needed and its two doors stay centred on its axis',async()=>{
  const {g,items,cabinet}=await run();
  let placed=g.placeEquipment(items,{x:.75,z:.4},'sink');
- placed=g.editEquipment(placed.items,placed.selectedId,{sinkSize:120});
+ placed=g.editEquipment(placed.items,placed.selectedId,{sinkSize:90});
  const original=placed.items.find(o=>o.id===placed.selectedId).offsetT;
  const planned=g.planSmartKitchen(placed.items).items;
  const sink=planned.find(o=>o.id===placed.selectedId);
  const centre=sink.offsetT*g.lengthOf(cabinet);
  assert.ok(Math.abs(sink.offsetT-original)>.001,'the optimizer should resolve the short end remainder');
  const faces=planned.filter(o=>o.kind==='front'&&o.hostId===cabinet.id);
- const sinkDoor=faces.filter(f=>Math.abs((f.endT-f.startT)*4-.62)<.002);
+ const sinkDoor=faces.filter(f=>f.bay===0);
  assert.equal(sinkDoor.length,2);
+ assert.ok(sinkDoor.every(f=>Math.abs((f.endT-f.startT)*4-.47)<.002));
  assert.ok(sinkDoor.some(f=>Math.abs(f.endT*4-centre)<.005));
  assert.ok(sinkDoor.some(f=>Math.abs(f.startT*4-centre)<.005));
- assertStandardLeafWidths(g,planned,cabinet,{sinkBay:sinkDoor[0].bay});
+ assertStandardLeafWidths(g,planned,cabinet);
+});
+
+test('120 cm sink reports its unavoidable two-leaf width conflict instead of breaking the range',async()=>{
+ const {g,items}=await run();
+ let placed=g.placeEquipment(items,{x:.75,z:.4},'sink');
+ placed=g.editEquipment(placed.items,placed.selectedId,{sinkSize:120});
+ assert.throws(()=>g.planSmartKitchen(placed.items),/سینک ۱۲۰ سانتی‌متری|تغییر عرض\/مرز یونیت/);
+ assert.equal(placed.items.filter(o=>o.kind==='front').length,0);
 });
 
 test('dishwasher placement is part of the shared solve and leaves no narrow adjacent fronts',async()=>{
