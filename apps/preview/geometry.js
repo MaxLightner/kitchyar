@@ -561,7 +561,7 @@ function layoutBays(items,c,preset){
   // Facade leaves may be narrower than a 45cm cabinet carcass: they are not separate boxes.
   // Pick a balanced count near 50cm, also honoring the configured maximum leaf width.
   const count=preset==='photo'?Math.max(1,Math.ceil(size/unitWidth)):
-   Math.max(1,Math.round(size/.50),Math.ceil(size/rules.maxDoorWidth));
+   ['doors','smart'].includes(preset)?Math.max(1,Math.round(size/.50),Math.ceil(size/rules.maxDoorWidth)):1;
   const n=preset==='photo'&&count>1&&size/count<MIN_CABINET_LENGTH?count-1:count;
   for(let j=0;j<n;j++)result.push({a:a+size*j/n,b:a+size*(j+1)/n,type:'free'});
  };
