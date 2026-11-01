@@ -1242,6 +1242,7 @@ function embedFridge(items,obj,point){
  const replacing=items.filter(c=>c.kind==='cabinet'&&c.hostId===w.id&&c.side===side&&
   Math.min(c.endT,cutR)-Math.max(c.startT,cutL)>.001&&
   c.elevation<obj.height+.035);
+ const originalRun=[]; // Exact state before installation, for a lossless undo on deletion.
  const displaced=replacing.map(c=>({subtype:c.subtype,id:c.id,startT:Math.max(c.startT,cutL),endT:Math.min(c.endT,cutR),
   depth:c.depth,height:c.height,elevation:c.elevation,frontPreset:c.frontPreset||null,
   frontRules:c.frontRules||null,photoPreset:c.photoPreset||null,decor:c.decor||null}));
@@ -1269,6 +1270,7 @@ function embedFridge(items,obj,point){
    e.hostId=target.id;e.offsetT=(centre/len-target.startT)/(target.endT-target.startT);
   }
   const oldFronts=items.filter(f=>f.kind==='front'&&f.hostId===c.id);
+  const saved={cabinet:copy([c])[0],fronts:copy(oldFronts),pieces:[]};
   for(let j=items.length-1;j>=0;j--)if(items[j].kind==='front'&&items[j].hostId===c.id)items.splice(j,1);
   items.splice(items.findIndex(x=>x.id===c.id),1,...segments);
   for(const piece of segments)syncCabinet(items,piece);
@@ -1280,12 +1282,15 @@ function embedFridge(items,obj,point){
    if(piece){f.hostId=piece.id;f.startT=(originalStart-piece.startT)/(piece.endT-piece.startT);
     f.endT=(originalEnd-piece.startT)/(piece.endT-piece.startT);items.push(f);}
   }
+  saved.pieces=segments.map(piece=>({cabinet:copy([piece])[0],
+   fronts:copy(items.filter(f=>f.kind==='front'&&f.hostId===piece.id))}));
+  originalRun.push(saved);
  }
  obj.x=w.x1+ux*mid+nx*(w.thickness/2+obj.depth/2+.02);
  obj.z=w.z1+uz*mid+nz*(w.thickness/2+obj.depth/2+.02);
  obj.rotation=Math.atan2(uz,ux)+(side<0?Math.PI:0);
  obj.builtIn=true;obj.surround={wallId:w.id,side,clearance:.055,
-  bayWidth:cutRight-cutLeft,bayOffset:(cutLeft+cutRight)/2-mid,displaced};
+  bayWidth:cutRight-cutLeft,bayOffset:(cutLeft+cutRight)/2-mid,displaced,originalRun};
  validateCabinets(items,w);
  return true;
 }
@@ -1753,7 +1758,45 @@ function rejoinCabinetRuns(items,wallId,side){
   }
  }
 }
+/* Restore the original carcass and its exact front IDs, dimensions and manual
+   finishes when the split pieces were not edited while the fridge was present.
+   Otherwise keep the existing conservative merge/reflow path. */
+function restoreUnchangedFridgeRun(items,fridge){
+ const originals=fridge.surround?.originalRun;
+ if(!Array.isArray(originals)||!originals.length)return false;
+ const trial=copy(items),removed=new Set();
+ for(const saved of originals){
+  if(!saved.cabinet||!Array.isArray(saved.fronts)||!Array.isArray(saved.pieces))return false;
+  for(const piece of saved.pieces){
+   const current=byId(trial,piece.cabinet?.id);
+   if(!current||JSON.stringify(current)!==JSON.stringify(piece.cabinet))return false;
+   const faces=trial.filter(f=>f.kind==='front'&&f.hostId===current.id);
+   if(JSON.stringify(faces)!==JSON.stringify(piece.fronts))return false;
+   removed.add(current.id);
+  }
+  if(!removed.has(saved.cabinet.id)&&byId(trial,saved.cabinet.id))return false;
+ }
+ if(trial.some(o=>o.kind==='corner'&&
+  (removed.has(o.aCabinetId)||removed.has(o.bCabinetId))))return false;
+ for(const saved of originals)for(const piece of saved.pieces){
+  const p=piece.cabinet,c=saved.cabinet;
+  for(const e of trial.filter(o=>o.kind==='equipment'&&o.hostId===p.id)){
+   const at=p.startT+(p.endT-p.startT)*(e.offsetT??.5);
+   e.hostId=c.id;e.offsetT=(at-c.startT)/(c.endT-c.startT);
+  }
+ }
+ for(let i=trial.length-1;i>=0;i--)
+  if(removed.has(trial[i].id)||trial[i].kind==='front'&&removed.has(trial[i].hostId))
+   trial.splice(i,1);
+ for(const saved of originals)trial.push(copy([saved.cabinet])[0],...copy(saved.fronts));
+ const w=byId(trial,fridge.surround.wallId);
+ try{if(!wall(w))return false;validateCabinets(trial,w);}
+ catch{return false;}
+ items.splice(0,items.length,...trial);
+ return true;
+}
 function restoreFridgeRun(items,fridge){
+ if(restoreUnchangedFridgeRun(items,fridge))return;
  const surround=fridge.surround,wallObj=byId(items,surround?.wallId);
  if(!wall(wallObj))return;
  const len=lengthOf(wallObj),side=surround.side||1;
