@@ -1,15 +1,30 @@
-# Kitchyar contribution contract
+# قرارداد مشارکت و تغییر کد کیچیار
 
-Before analysing, editing or reviewing code in this repository, read **docs/logic-contract.md** in full. This document captures the user's current product rules; newer explicit user instructions supersede older ones.
+پیش از تحلیل، ویرایش یا بازبینی کد، فایل `docs/logic-contract.md` را کامل بخوان. این سند قرارداد جاری کاربر و مرجع واحد منطق طراحی است؛ دستور جدید و صریح کاربر بر تصمیم قدیمی مقدم است.
 
-Required order for every change:
+## اصل محصول
+کیچیار یک **حل‌گر یکپارچهٔ طراحی آشپزخانه** است. کابینت، در، کشو، سینک، گاز، هود، یخچال، ماشین‌ها، یونیت تمام‌قد و گوشه‌ها مستقل از هم طراحی نمی‌شوند. هر تغییر باید اثرش بر محدودهٔ متصل و وابسته را در یک حل مشترک بسنجد.
 
-1. Inspect the current implementation and reproduce the reported issue first. If it already behaves correctly, make no change.
-2. Identify which contract invariants could be affected, particularly fixture position, minimum cabinet length, door/drawer partitioning, local recomputation, persistent identities and AR calibration.
-3. If a proposed fix conflicts with any rule, **STOP and report the conflict to the user before editing**. Do not invent silent exceptions or change priorities. The current door-width/fixture-centre conflict is documented as unresolved.
-4. Make a minimal targeted patch only after the constraints are compatible. Run a small set of relevant tests, and report what was actually verified.
-5. Never claim that a successful web/CI build proves real AR works on a phone.
+## ترتیب اجباری پیش از هر تغییر
+1. قرارداد را بخوان و کد موجود را بررسی کن.
+2. سناریوی واقعی را با ورودی و خروجی مشخص بازتولید کن. اگر رفتار درست است، **هیچ تغییری نده**.
+3. مشخص کن چه متغیرهایی باید با هم حل شوند: عرض/تعداد یونیت‌ها، درها/کشوها، موقعیت تجهیزات، اتصال کنج‌ها و صفحه.
+4. اگر پچ با هر قاعدهٔ قرارداد یا دستور جدید کاربر تعارض دارد، **متوقف شو و قبل از ویرایش گزارش بده**.
+5. فقط پس از رفع تعارض، کوچک‌ترین پچ سازگار را اعمال کن؛ محاسبات موازی/تکراری در چند ماژول نساز.
+6. تعداد کمی تست هدفمند برای باگ بازتولیدشده و رگرسیون‌های مستقیم اجرا کن.
+7. فقط آنچه واقعاً تست شده گزارش کن؛ موفقیت CI وب را با تأیید WebXR روی گوشی یکی ندان.
 
-**Delivery target:** Hybrid web app / PWA / WebXR. Do not add or reactivate Android APK assembly, packaging, upload, release or native ARCore work without a new explicit request. Dormant Android proof-of-concept source is not a release target.
+## قواعد مهم حل‌گر
+- عرض هدف درها و جبهه‌های کشو ۴۵–۵۵ سانتی‌متر است؛ حل‌گر باید تعداد، عرض یونیت‌ها و محل تجهیزات را با هم بهینه کند.
+- زیر سینک، دو در از مرکز به طرفین باز می‌شوند؛ در صورت نیاز و در محدودهٔ مجاز، محل سینک هم قابل تنظیم است.
+- افزودن ماشین، فر یا کشو باید تقسیم‌بندی و عرض یونیت‌های مجاور را دوباره بهینه کند.
+- گاز و هود وابسته‌اند؛ یخچال و یونیت تمام‌قد با کابینت‌های اطراف و کنج‌ها با هم حل می‌شوند.
+- نزدیک‌شدن باکس‌های سازگار در محدودهٔ اسنپ باید به اتصال و در صورت پیوستگی منطقی به یک مجموعهٔ واحد منجر شود؛ زاویهٔ کنج لزوماً ۹۰ درجه نیست.
+- موقعیت تجهیزات تا وقتی کاربر صریحاً قفل نکرده، ترجیح است نه قید مطلق؛ جابه‌جایی پیشنهادی در ویرایش دستی باید در پیش‌نمایش دیده شود.
+- تغییر یک تجهیز محدودهٔ وابسته را حل می‌کند؛ اجزای نامرتبط، شناسه‌ها و شخصی‌سازی‌ها نباید بازسازی یا پاک شوند.
+- مدل معنایی واحد منبع 2D، 3D، AR و گزارش برش است.
 
-For each PR, explicitly list: reproduced failure, exact edited scope, contract compliance, tests, and any still-unverified real-device behavior.
+## تحویل و پلتفرم
+- هدف تحویل فعلی: **Hybrid Web App / PWA / WebXR**.
+- بدون دستور صریح جدید، APK، Android assemble، بسته‌بندی/آپلود اندروید یا ARCore بومی نساز و فعال نکن.
+- برای هر PR بنویس: سناریوی بازتولید، علت، دامنهٔ دقیق ویرایش، قیود حفظ‌شده، تست‌های واقعی و موارد نیازمند تست دستگاه.
