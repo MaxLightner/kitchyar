@@ -1,5 +1,5 @@
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=fix55';
-import {renderPlanMeasurements} from './edit-handles.js?v=fix43';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=fix56';
+import {renderPlanMeasurements} from './edit-handles.js?v=fix56';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true,hideFronts=false}={}){
@@ -201,6 +201,17 @@ export function renderPreview(items,drawing,hover){
     '" fill="'+(o.subtype==='drawer'?'#e7b264':'#53bea1')+'" fill-opacity=".75" stroke="#27856d" stroke-width=".016" stroke-dasharray=".09,.025"/>';
   }).join('');
   return '<g class="live-preview" pointer-events="none">'+lines+'</g>';
+ }
+ if(tool==='tall'){
+  try{
+   const proposal=placeTallCabinet(items,hover,{depth:drawing.depth??.60});
+   const c=proposal.items.find(o=>o.id===proposal.selectedId),host=proposal.items.find(w=>w.id===c.hostId);
+   const points=cabinetFootprint(c,host).corners;
+   return '<g class="live-preview" pointer-events="none"><polygon points="'+points.map(p=>f(p.x)+','+f(p.z)).join(' ')+
+    '" fill="#8b9fb0" fill-opacity=".67" stroke="#d0873a" stroke-width=".035" stroke-dasharray=".08,.04"/></g>';
+  }catch(error){
+   return '<g class="live-preview"><title>'+safe(error.message)+'</title><circle cx="'+f(hover.x)+'" cy="'+f(hover.z)+'" r=".13" fill="#b85b4e"/></g>';
+  }
  }
  if(['fridge','stove','sink','dishwasher','washer','oven','microwave'].includes(tool)){
   const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0,valid=true;

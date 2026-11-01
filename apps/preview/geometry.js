@@ -602,11 +602,11 @@ export function planFronts(items,c,preset='doors'){
     sink?'sinkDoors':stove?'graduated':span<.55?'doors':
     span>.9?'drawers3':'mixed'));
   let part=0;
-  const doors=(low,high,forcePair=false,topHinge=false)=>{
+  const doors=(low,high,forcePair=false,topHinge=false,explicitLeaves=null)=>{
    const required=Math.max(1,Math.ceil((span-1e-7)/rules.maxDoorWidth));
-   const leaves=topHinge?1:Math.max(forcePair&&span>=2*rules.minDoorWidth-1e-6?2:1,required);
-   if(span/leaves<rules.minDoorWidth-1e-6)
-    throw Error('عرض این قسمت برای حداقل و حداکثر عرض درب سازگار نیست؛ قوانین را اصلاح کن.');
+   const leaves=explicitLeaves??(topHinge?1:Math.max(forcePair&&span>=2*rules.minDoorWidth-1e-6?2:1,required));
+   if(span/leaves<rules.minDoorWidth-1e-6||explicitLeaves!==null&&span/leaves>rules.maxDoorWidth+1e-6)
+    throw Error('عرض این قسمت برای تعداد درب یا حداقل و حداکثر عرض مجاز سازگار نیست.');
    for(let j=0;j<leaves;j++){
     const left=a+(b-a)*j/leaves,right=a+(b-a)*(j+1)/leaves;
     const hinge=topHinge?'top':leaves===1?rules.singleHinge:
@@ -618,12 +618,18 @@ export function planFronts(items,c,preset='doors'){
    const appliances=items.filter(e=>e.kind==='equipment'&&e.hostId===c.id&&['oven','microwave'].includes(e.subtype))
     .map(e=>({low:Math.max(0,(e.elevation-c.elevation)/c.height),high:Math.min(1,(e.elevation+e.height-c.elevation)/c.height)}))
     .sort((x,y)=>x.low-y.low);
-   let cursor=0;
-   for(const slot of appliances){
-    if((slot.low-cursor)*c.height>=.10)doors(cursor,slot.low);
-    cursor=Math.max(cursor,slot.high);
+   const leaves=c.tallDoorLeaves||null;
+   if(!appliances.length){
+    const rows=c.tallDoorRows||1;
+    for(let row=0;row<rows;row++)doors(row/rows,(row+1)/rows,false,false,leaves);
+   }else{
+    let cursor=0;
+    for(const slot of appliances){
+     if((slot.low-cursor)*c.height>=.10)doors(cursor,slot.low,false,false,leaves);
+     cursor=Math.max(cursor,slot.high);
+    }
+    if((1-cursor)*c.height>=.10)doors(cursor,1,false,false,leaves);
    }
-   if((1-cursor)*c.height>=.10)doors(cursor,1);
    continue;
   }
   if(layout==='lift')doors(0,1,false,true);
@@ -1534,6 +1540,72 @@ export function placeCabinet(source,start,end,{kind='base',depth,height,elevatio
  items.push(obj);validateCabinets(items,w);
  return {items,selectedId:obj.id,end:{x:w.x1+(w.x2-w.x1)*capped,z:w.z1+(w.z2-w.z1)*capped,hostId:w.id,side:chosen},stoppedAtOpening:(upper||tall)&&Math.abs(capped-b.t)>.0001};
 }
+/* Floor-to-ceiling units are inserted with a single placement point like
+   appliances, but remain semantic cabinets for fabrication and front editing. */
+export function placeTallCabinet(source,point,{width=.60,depth=.60,rows=2,leaves=1,ceilingAligned=true,height=null,elevation=0}={}){
+ if(!finite(point?.x,point?.z,width,depth,elevation)||width<MIN_CABINET_LENGTH||width>.90||
+  depth<.20||depth>1.2||!Number.isInteger(rows)||rows<1||rows>4||
+  !Number.isInteger(leaves)||leaves<1||leaves>2)
+  throw Error('ابعاد یا تعداد درب کابینت تمام‌قد معتبر نیست.');
+ const near=nearestWall(source,point.x,point.z,.95);
+ if(!near)throw Error('برای یونیت تمام‌قد، محل نصب باید نزدیک دیوار باشد.');
+ const w=near.wall,len=lengthOf(w),half=width/2;
+ if(len<width)throw Error('عرض دیوار برای یونیت تمام‌قد کافی نیست.');
+ const centre=Math.max(half,Math.min(len-half,near.t*len));
+ const ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
+ const p=t=>({x:w.x1+ux*t,z:w.z1+uz*t});
+ const cross=(point.x-near.x)*(-uz)+(point.z-near.z)*ux;
+ const side=cross>=0?1:-1,unitHeight=ceilingAligned?w.height-elevation-.02:Number(height);
+ const result=placeCabinet(source,{...p(centre-half),hostId:w.id,side},p(centre+half),{
+  kind:'tall',depth,height:unitHeight,elevation,side
+ });
+ const unit=byId(result.items,result.selectedId);
+ if(Math.abs(lengthOf(unit)-width)>.015)throw Error('پنجره یا در اجازه نصب یونیت با این عرض را نمی‌دهد.');
+ unit.ceilingAligned=!!ceilingAligned;unit.tallDoorRows=rows;unit.tallDoorLeaves=leaves;
+ reflowFronts(result.items,unit,'doors');validateFronts(result.items,unit);
+ return {items:result.items,selectedId:unit.id};
+}
+export function configureTallCabinet(source,id,{depth,rows,leaves}={}){
+ const items=copy(source),unit=byId(items,id),w=byId(items,unit?.hostId);
+ if(unit?.kind!=='cabinet'||unit.subtype!=='tall'||!wall(w))
+  throw Error('یونیت تمام‌قد معتبر انتخاب نشده است.');
+ if(rows!==undefined){
+  if(!Number.isInteger(rows)||rows<1||rows>4)throw Error('تعداد ردیف درب باید بین ۱ تا ۴ باشد.');
+  unit.tallDoorRows=rows;
+ }
+ if(leaves!==undefined){
+  if(!Number.isInteger(leaves)||leaves<1||leaves>2)throw Error('تعداد درب در عرض باید ۱ یا ۲ باشد.');
+  unit.tallDoorLeaves=leaves;
+ }
+ if(depth!==undefined)unit.depth=Number(depth);
+ if(rows!==undefined||leaves!==undefined)reflowFronts(items,unit,'doors');
+ validateCabinets(items,w);
+ return {items,selectedId:id};
+}
+export function moveTallCabinet(source,id,point){
+ const unit=byId(source,id);
+ if(unit?.kind!=='cabinet'||unit.subtype!=='tall')throw Error('یونیت تمام‌قد را انتخاب کن.');
+ if(source.some(e=>e.kind==='equipment'&&e.hostId===id))
+  throw Error('قبل از جابه‌جایی یونیت، فر یا مایکروویو نصب‌شده داخل آن را بردار.');
+ const fronts=source.filter(f=>f.kind==='front'&&f.hostId===id);
+ const cleared=removeObject(source,id).items;
+ const result=placeTallCabinet(cleared,point,{
+  width:lengthOf(unit),depth:unit.depth,rows:unit.tallDoorRows||1,
+  leaves:unit.tallDoorLeaves||Math.max(1,Math.ceil(lengthOf(unit)/.62)),
+  ceilingAligned:!!unit.ceilingAligned,height:unit.height,elevation:unit.elevation
+ });
+ const created=byId(result.items,result.selectedId),newId=created.id;
+ Object.assign(created,{id,frontPreset:unit.frontPreset||'doors',frontRules:unit.frontRules,
+  photoPreset:unit.photoPreset,decor:unit.decor});
+ if(fronts.length){
+  for(let index=result.items.length-1;index>=0;index--)
+   if(result.items[index].kind==='front'&&result.items[index].hostId===newId)
+    result.items.splice(index,1);
+  result.items.push(...copy(fronts));
+ }else for(const f of result.items.filter(o=>o.kind==='front'&&o.hostId===newId))f.hostId=id;
+ validateCabinets(result.items,byId(result.items,created.hostId));
+ return {items:result.items,selectedId:id};
+}
 export function placeOpening(source,hostId,x,z,{style='fixed',width,height,sill}={}){
  const items=copy(source),w=byId(items,hostId);
  if(!wall(w)||w.locked)throw Error('برای در یا پنجره باید دیوار میزبان انتخاب شود.');
@@ -1608,6 +1680,10 @@ export function setAllWallHeights(source,height){
  if(!Number.isFinite(target)||target<2||target>9)throw Error('ارتفاع سقف باید بین ۲ تا ۹ متر باشد.');
  const items=copy(source);
  for(const w of items.filter(wall))w.height=target;
+ for(const c of items.filter(o=>o.kind==='cabinet'&&o.subtype==='tall'&&o.ceilingAligned)){
+  c.height=target-c.elevation-.02;
+  if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
+ }
  for(const w of items.filter(wall)){validateHostOpenings(items,w);validateCabinets(items,w);}
  return {items,selectedId:null};
 }
@@ -1791,7 +1867,10 @@ export function editCabinet(source,id,{length,depth,height,elevation}){
  if(!c||c.kind!=='cabinet'||!wall(w))throw Error('برای ویرایش کابینت باید دیوار میزبان وجود داشته باشد.');
  const len=lengthOf(w),target=Number(length??(c.endT-c.startT)*len);
  c.endT=c.startT+target/len;
+ const manualTallHeight=c.subtype==='tall'&&(height!==undefined&&Math.abs(Number(height)-c.height)>.001||
+  elevation!==undefined&&Math.abs(Number(elevation)-c.elevation)>.001);
  c.depth=Number(depth??c.depth);c.height=Number(height??c.height);c.elevation=Number(elevation??c.elevation);
+ if(manualTallHeight)c.ceilingAligned=false;
  if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
  if(['upper','base'].includes(c.subtype))refitBridges(items);
  validateCabinets(items,w);return {items,selectedId:id};

@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=fix55';
-import * as Geo from './geometry.js?v=fix55';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix55';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix55';
+import {FloorAR} from './floor-ar.js?v=fix56';
+import * as Geo from './geometry.js?v=fix56';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix56';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix56';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
 import {buildCutReport} from './report-data.js?v=nest35';
@@ -277,15 +277,15 @@ function drawTools(){
   return;
  }
  const tools=activeTool==='architecture'?[['wall','دیوار'],['window','پنجره ثابت'],['door','در']]:
-  activeTool==='cabinets'?[['base','کابینت زمینی'],['upper','کابینت هوایی'],['tall','ستون تمام‌قد']]:
-  activeTool==='equipment'?[['fridge','یخچال'],['stove','اجاق گاز'],['sink','سینک'],
+  activeTool==='cabinets'?[['base','کابینت زمینی'],['upper','کابینت هوایی']]:
+  activeTool==='equipment'?[['fridge','یخچال'],['tall','یونیت کف تا سقف'],['stove','اجاق گاز'],['sink','سینک'],
    ['dishwasher','ماشین ظرفشویی'],['washer','ماشین لباسشویی'],['oven','فر توکار'],['microwave','مایکروویو توکار']]:
   activeTool==='fronts'?[['front-smart','طراحی هوشمند کل آشپزخانه'],['front-doors','درب بازشو'],['front-drawers2','۲ کشوی مساوی'],['front-drawers3','۳ کشوی مساوی'],['front-drawers4','۴ کشوی مساوی'],['front-graduated','۳ کشوی پلکانی'],['front-mixed','کشوی بالا + دو درب'],['front-mixedLower','دو درب بالا + کشوی پایین']]:[];
  if(!tools.length){sheet.innerHTML=head+'<span>ابزارهای این بخش در مرحله بعد اضافه می‌شوند.</span>';return;}
  const wallTools=activeTool==='architecture';
  sheet.innerHTML=head+(activeTool==='fronts'?'<div class="front-tools-actions"><button class="style-gallery-trigger" data-action="open-style-gallery">▣ انتخاب مدل از گالری آشپزخانه</button><button data-action="open-front-rules">⚙ قوانین درب، کشو و هم‌ترازی</button></div>':'')+'<div class="tool-choices">'+tools.map(([id,label])=>
   '<button class="'+(drawing?.tool===id?'active':'')+'" data-action="tool" data-tool="'+id+'">'+label+'</button>').join('')+'</div>'+
-  (activeTool==='fronts'?'<p class="equipment-help">طرح هوشمند تمام کابینت‌ها را یک‌جا با سینک، گاز، فر و یخچال هماهنگ می‌کند. پیش‌نمایش را ببین و تأیید کن؛ برای تغییر یک کابینت آن را انتخاب کن و یک طرح دیگر بزن.</p>':activeTool==='equipment'?'<p class="equipment-help">یخچال روی کف یا داخل کابینت قرار می‌گیرد؛ گاز و سینک روی صفحه و ظرفشویی، لباسشویی و فر زیر صفحه نصب می‌شوند.</p><label class="check-row">یخچال مستقل؛ بدون کابینت دور آن<input data-fridge-free type="checkbox" '+(fridgeFreestanding?'checked':'')+'></label>':wallTools?'<div class="tool-settings"><label>ضخامت دیوار (متر)<input data-setting="thickness" type="number" min=".07" max=".8" step=".01" value="'+settings.thickness+'"></label>'+
+  (activeTool==='fronts'?'<p class="equipment-help">طرح هوشمند تمام کابینت‌ها را یک‌جا با سینک، گاز، فر و یخچال هماهنگ می‌کند. پیش‌نمایش را ببین و تأیید کن؛ برای تغییر یک کابینت آن را انتخاب کن و یک طرح دیگر بزن.</p>':activeTool==='equipment'?'<p class="equipment-help">یخچال و یونیت کف‌تا‌سقف مانند تجهیزات مستقل نصب می‌شوند؛ گاز و سینک روی صفحه و ماشین‌ها زیر صفحه قرار می‌گیرند.</p><label class="check-row">یخچال مستقل؛ بدون کابینت دور آن<input data-fridge-free type="checkbox" '+(fridgeFreestanding?'checked':'')+'></label>':wallTools?'<div class="tool-settings"><label>ضخامت دیوار (متر)<input data-setting="thickness" type="number" min=".07" max=".8" step=".01" value="'+settings.thickness+'"></label>'+
    '<label>ارتفاع دیوارها و سقف (متر)<input data-setting="height" type="number" min="2" max="9" step=".1" value="'+settings.height+'"></label></div>':
    '<div class="tool-settings"><label>عمق زمینی (متر)<input data-setting="baseDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.baseDepth+'"></label>'+
    '<label>عمق هوایی (متر)<input data-setting="upperDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.upperDepth+'"></label>'+'<label>ارتفاع کابینت هوایی (متر)<input data-setting="upperHeight" type="number" min=".25" max="1.8" step=".01" value="'+settings.upperHeight+'"></label>'+'<label>ارتفاع نصب از کف (متر)<input data-setting="upperElevation" type="number" min="0" max="3" step=".01" value="'+settings.upperElevation+'"></label></div>')+
@@ -439,14 +439,23 @@ function drawSelection(){
    '<label>موقعیت روی عرض (۰ تا ۱)<input type="number" data-specialty="offsetT" value="'+(o.offsetT??.5)+'" min="0" max="1" step=".05"></label></div>'+
    '<button class="primary" data-action="apply-specialty">ساخت / به‌روزرسانی فضا</button><small>ابعاد، قفسه‌ها و جنس ظاهر قابل ویرایش‌اند؛ مدل ثابت وارد نمی‌شود.</small></details>';
  })():'';
+ const tallControls=obj.kind==='cabinet'&&obj.subtype==='tall'?
+  '<div class="model-choices"><strong>تقسیم درب‌های یونیت تمام‌قد</strong><small>تعداد ردیف‌های عمودی؛ ارتفاع هر ردیف و عرض هر درب را بعداً با دستگیره‌ها یا اندازهٔ عددی خودش تغییر بده.</small><div class="model-choices-grid">'+
+  [1,2,3,4].map(n=>'<button data-action="tall-rows" data-count="'+n+'" class="'+((obj.tallDoorRows||1)===n?'active':'')+'">'+n+' ردیف</button>').join('')+
+  '</div><strong>تعداد درب در عرض</strong><div class="model-choices-grid">'+
+  [1,2].map(n=>'<button data-action="tall-leaves" data-count="'+n+'" class="'+((obj.tallDoorLeaves||Math.ceil(Geo.lengthOf(obj)/.62))===n?'active':'')+'">'+n+' درب</button>').join('')+
+  '</div><strong>عمق بدنه</strong><div class="model-choices-grid">'+
+  [['.35','عمق هوایی · ۳۵'],['.60','عمق زمینی · ۶۰']].map(([depth,label])=>
+   '<button data-action="tall-depth" data-depth="'+depth+'" class="'+(Math.abs(obj.depth-Number(depth))<.001?'active':'')+'">'+label+'</button>').join('')+
+  '</div><small>عمق دلخواه را هم در کادر عمق بالا وارد کن. ارتفاع پیش‌فرض تا زیر سقف است.</small></div>':'';
  const equipmentFacadeControls=obj.kind==='equipment'&&['washer','dishwasher'].includes(obj.subtype)?
   '<div class="equipment-facade-panel"><strong>هماهنگی نمای دستگاه با کابینت</strong><div class="model-choices-grid">'+
   [['visible','نمای خود دستگاه'],['matched','پنل هم‌رنگ'],['concealed','پشت درب قاب‌دار']].map(([id,label])=>
    '<button data-action="equipment-facade" data-facade="'+id+'" class="'+((obj.facadeMode||'visible')===id?'active':'')+'" '+(obj.subtype==='fridge'&&!obj.builtIn&&id!=='visible'?'disabled':'')+'>'+label+'</button>').join('')+
   '</div><small>پوشش فقط ظاهر دستگاه را تغییر می‌دهد؛ ابعاد و جای نصب ثابت می‌مانند.</small></div>':'';
  panel.innerHTML='<div class="object-head"><strong>'+esc(title)+'</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
-  modelOptions+windowControls+faucetControls+fridgeControls+'<div class="object-fields">'+fields+'</div>'+openControls+(['front','cabinet'].includes(obj.kind)?'<button class="front-rule-open" data-action="open-front-rules">⚙ قوانین نما و هم‌ترازسازی گروهی</button>':'')+paintControls+decorControls+counterControls+specialtyControls+equipmentFacadeControls+extras+(obj.kind==='cabinet'&&obj.subtype==='base'?'<button class="cut-sheet-button" data-action="cut-sheet">نمای دقیق برش صفحه</button>':'')+'<div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
-  (obj.kind==='equipment'&&obj.subtype!=='hood'?'<button data-action="move-equipment">جابجایی روی پلان / AR</button>':'')+
+  modelOptions+windowControls+faucetControls+fridgeControls+'<div class="object-fields">'+fields+'</div>'+tallControls+openControls+(['front','cabinet'].includes(obj.kind)?'<button class="front-rule-open" data-action="open-front-rules">⚙ قوانین نما و هم‌ترازسازی گروهی</button>':'')+paintControls+decorControls+counterControls+specialtyControls+equipmentFacadeControls+extras+(obj.kind==='cabinet'&&obj.subtype==='base'?'<button class="cut-sheet-button" data-action="cut-sheet">نمای دقیق برش صفحه</button>':'')+'<div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
+  (obj.kind==='equipment'&&obj.subtype!=='hood'||obj.kind==='cabinet'&&obj.subtype==='tall'?'<button data-action="move-equipment">جابجایی روی پلان / AR</button>':'')+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
   (obj.kind==='front'?'<small>دستگیره‌های نما را در تصویر بکش؛ عرض و ارتفاع با اسنپ ۱ سانتی‌متر ثبت می‌شوند.</small>':
    ['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌ها را بکش؛ اندازه‌گذاری هنگام حرکت نمایش داده می‌شود و پس از رها کردن، با دقت ۱ سانتی‌متر ثبت می‌شود.</small>':'');
@@ -692,6 +701,10 @@ function placeAt(point){
   commitChange(Geo.placeFrontLayout(items,c.id,tool.slice(6)));
   drawing={tool,start:null,hostId:c.id};hover=initialPreviewForTool(tool);showScene();return;
  }
+ if(tool==='tall'){
+  commitChange(Geo.placeTallCabinet(items,point,{depth:settings.baseDepth}));
+  drawing={tool,start:null};hover=initialPreviewForTool(tool);showScene();return;
+ }
  if(['fridge','stove','sink','dishwasher','washer','oven','microwave'].includes(tool)){
   commitChange(Geo.placeEquipment(items,point,tool,{freestanding:tool==='fridge'&&fridgeFreestanding}));drawing={tool,start:null};hover=initialPreviewForTool(tool);showScene();return;
  }
@@ -702,7 +715,7 @@ function placeAt(point){
   commitChange(result);drawing={tool,start:null};hover=initialPreviewForTool(tool);showScene();return;
  }
  if(!drawing.start){
-  if(['base','upper','tall'].includes(tool)){
+  if(['base','upper'].includes(tool)){
    const snap=Geo.snapCabinetPoint(items,point.x,point.z,.85);
    if(!snap){tell('برای کابینت، نشانگر باید به دیوار یا کنج آن برسد.');return;}
    const w=items.find(x=>x.id===snap.hostId),
@@ -1068,12 +1081,15 @@ document.addEventListener('pointerup',e=>{
   if(!point&&!arId){if(trackedView()&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
   if(movingEquipmentId){
    if(!point){tell('برای جابه‌جایی، محل جدید را روی کف نشانه بگیر.');return;}
-   const result=Geo.moveEquipment(currentItems(),movingEquipmentId,point);
-   movingEquipmentId=null;commitChange(result);tell('تجهیزات جابه‌جا شد و صفحه و کابینت بازسازی شدند.');return;
+   const moved=currentItems().find(o=>o.id===movingEquipmentId);
+   const result=moved?.kind==='cabinet'&&moved.subtype==='tall'?
+    Geo.moveTallCabinet(currentItems(),movingEquipmentId,point):
+    Geo.moveEquipment(currentItems(),movingEquipmentId,point);
+   movingEquipmentId=null;commitChange(result);tell('محل یونیت یا تجهیزات به‌روز شد.');return;
   }
   if(drawing){
     hover=point;
-    if(['wall','base','upper','tall'].includes(drawing.tool)){showScene();return;}
+    if(['wall','base','upper'].includes(drawing.tool)){showScene();return;}
     placeAt(point);
   }else if(!handleFrontTap(arId||e.target.closest?.('[data-item-id]')?.dataset.itemId,e))
    selectAt(trackedView()?null:point,e.target,arId);
@@ -1333,10 +1349,15 @@ document.addEventListener('click',async e=>{
    if(obj?.kind==='equipment')commitChange(Geo.editEquipment(currentItems(),obj.id,{model:button.dataset.model}));
    return;
   }
+  if(['tall-rows','tall-leaves','tall-depth'].includes(action)){
+   const key=action==='tall-rows'?'rows':action==='tall-leaves'?'leaves':'depth';
+   const number=Number(key==='depth'?button.dataset.depth:button.dataset.count);
+   commitChange(Geo.configureTallCabinet(currentItems(),selection,{[key]:number}));return;
+  }
   if(action==='apply-edit'){applySelection();return;}
   if(action==='move-equipment'){
-   const e=currentItems().find(o=>o.id===selection&&o.kind==='equipment');
-   if(!e||e.subtype==='hood')throw Error('برای جابجایی یک وسیله مستقل انتخاب کن.');
+   const e=currentItems().find(o=>o.id===selection&&(o.kind==='equipment'&&o.subtype!=='hood'||o.kind==='cabinet'&&o.subtype==='tall'));
+   if(!e)throw Error('برای جابجایی یک وسیله یا یونیت مستقل انتخاب کن.');
    movingEquipmentId=e.id;drawing=null;activeTool=null;
    document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
    showScene();tell('روی محل جدید وسیله در پلان یا AR بزن.');return;
