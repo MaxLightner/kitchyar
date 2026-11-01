@@ -759,7 +759,25 @@ export function planSmartKitchen(source,{optimizePositions=true}={}){
  const equipmentMoves=optimizePositions?optimizeSmartFixturePositions(items):[];
  for(const c of cabinetry)reflowFronts(items,c,'smart');
  for(const c of cabinetry)validateFronts(items,c);
- return {items,equipmentMoves,selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
+ const layoutWarnings=[];
+ for(const c of cabinetry){
+  const len=lengthOf(c),outside=items.filter(f=>f.kind==='front'&&f.hostId===c.id)
+   .map(f=>(f.endT-f.startT)*len)
+   .filter(width=>facadeWidthPenalty(width)>.0000001);
+  if(outside.length)layoutWarnings.push({cabinetId:c.id,count:outside.length,
+   smallest:Math.round(Math.min(...outside)*100),largest:Math.round(Math.max(...outside)*100)});
+  for(const sink of items.filter(e=>e.kind==='equipment'&&e.subtype==='sink'&&e.hostId===c.id)){
+   const centre=(sink.offsetT??.5)*len;
+   const fs=items.filter(f=>f.kind==='front'&&f.hostId===c.id);
+   const member=fs.find(f=>f.startT*len<=centre+.00001&&f.endT*len>=centre-.00001);
+   const doors=fs.filter(f=>member&&f.bay===member.bay&&f.subtype==='door');
+   if(doors.length!==OPTIMIZATION_RULES.sinkDoorLeaves)
+    layoutWarnings.push({cabinetId:c.id,equipmentId:sink.id,
+     reason:'درهای زیر سینک هنوز دو لنگه متقارن نیستند؛ قفل محل یا محدودیت فضا بررسی شود.'});
+  }
+ }
+ return {items,equipmentMoves,layoutWarnings,
+  selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
 }
 /* Catalog styles alter actual semantic door/drawer layouts, not just colors. */
 export function applyKitchenLayout(source,styleId,{cabinetIds=null,preset=null}={}){
