@@ -32,6 +32,8 @@ test('shared partition solver chooses valid 45–55 cm leaves and reports imposs
  const impossible=g.partitionDoorSpan(1.25);
  assert.equal(impossible.feasible,false);
  assert.equal(impossible.reason,'outside-door-width-range');
+ const singleSixty=g.partitionDoorSpan(.60);
+ assert.equal(singleSixty.feasible,false,'a 60 cm single leaf is not silently accepted outside the agreed range');
 });
 
 test('90 cm sink is shifted only as needed and its two doors stay centred on its axis',async()=>{
