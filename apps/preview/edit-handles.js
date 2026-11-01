@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment} from './geometry.js?v=optimizer61';
+import {lengthOf,frontageLength,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment} from './geometry.js?v=kitchen64';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -42,7 +42,7 @@ export function resizeFromHandle(items,id,side,position){
  if(object.kind==='front'){
   const host=byId(items,object.hostId);
   if(!host)throw Error('کابینت میزبان پیدا نشد.');
-  if(side==='right')return editFront(items,id,{width:snapCm(position.along-object.startT*lengthOf(host))});
+  if(side==='right')return editFront(items,id,{width:snapCm(position.along-object.startT*frontageLength(host))});
   if(side==='top')return editFront(items,id,{height:snapCm(position.y-(host.elevation+object.bottomT*host.height))});
   throw Error('دستگیره نمای کابینت معتبر نیست.');
  }
@@ -80,7 +80,7 @@ export function handlePosition(items,id,side){
  }
  if(o.kind==='front'){
   const host=byId(items,o.hostId);if(!host)return null;
-  const len=lengthOf(host);
+  const len=frontageLength(host);
   return {along:len*(side==='right'?o.endT:(o.startT+o.endT)/2),
    y:(host.elevation??.08)+host.height*(side==='top'?o.topT:(o.bottomT+o.topT)/2)};
  }
@@ -190,7 +190,7 @@ export function renderFrontElevation(items,cabinet,selectedId=null,drag=null){
  if(!cabinet||cabinet.kind!=='cabinet')return '';
  const panels=items.filter(o=>o.kind==='front'&&o.hostId===cabinet.id);
  if(!panels.length)return renderCabinetElevation(items,cabinet,drag);
- const len=lengthOf(cabinet),scale=Math.min(104,Math.max(72,148/Math.max(.45,cabinet.height)));
+ const len=frontageLength(cabinet),scale=Math.min(104,Math.max(72,148/Math.max(.45,cabinet.height)));
  const svgWidth=Math.max(320,Math.ceil(len*scale+42)),left=22,bottom=187;
  const sx=t=>left+t*len*scale,sy=t=>bottom-t*cabinet.height*scale;
  const colors={cream:'#e8d9bf',wood:'#ac875d',graphite:'#535a61'};
