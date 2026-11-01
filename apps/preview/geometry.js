@@ -717,20 +717,40 @@ function reflowFronts(items,c,preset=c?.frontPreset){
  const previous=items.filter(o=>o.kind==='front'&&o.hostId===c.id)
   .sort((a,b)=>a.bay-b.bay||a.part-b.part);
  const fresh=planFronts(items,c,preset);
- for(let i=0;i<fresh.length;i++)if(previous[i]&&previous[i].subtype===fresh[i].subtype){
-  fresh[i].id=previous[i].id;
-  fresh[i].finish=previous[i].finish||'cream';
-  if(previous[i].materialId)fresh[i].materialId=previous[i].materialId;
-  if(previous[i].frameMaterialId)fresh[i].frameMaterialId=previous[i].frameMaterialId;
-  fresh[i].style=previous[i].style||'flat';
-  fresh[i].handleStyle=previous[i].handleStyle||'bar';
-  if(previous[i].openFraction)fresh[i].openFraction=previous[i].openFraction;
-  if(previous[i].grainDirection)fresh[i].grainDirection=previous[i].grainDirection;
-  if(previous[i].handleFinish)fresh[i].handleFinish=previous[i].handleFinish;
-  if(previous[i].manualOverrides){
-   fresh[i].manualOverrides={...previous[i].manualOverrides};
-   for(const key of ['hinge','handleStyle','gap','style','finish'])if(previous[i].manualOverrides[key])
-    fresh[i][key]=previous[i][key];
+ // Reflow can add/remove bays after an appliance moves. Front list indexes are
+ // not physical locations: transfer user choices to the largest overlapping panel.
+ const overlaps=[];
+ for(let nextIndex=0;nextIndex<fresh.length;nextIndex++)for(let oldIndex=0;oldIndex<previous.length;oldIndex++){
+  const next=fresh[nextIndex],old=previous[oldIndex];
+  if(next.subtype!==old.subtype)continue;
+  const x=Math.max(0,Math.min(next.endT,old.endT)-Math.max(next.startT,old.startT));
+  const y=Math.max(0,Math.min(next.topT,old.topT)-Math.max(next.bottomT,old.bottomT));
+  const shared=x*y,oldArea=(old.endT-old.startT)*(old.topT-old.bottomT);
+  const newArea=(next.endT-next.startT)*(next.topT-next.bottomT);
+  if(shared<=0||shared/Math.min(oldArea,newArea)<.15)continue;
+  const distance=Math.abs((next.startT+next.endT-old.startT-old.endT)/2)+
+   Math.abs((next.bottomT+next.topT-old.bottomT-old.topT)/2);
+  overlaps.push({oldIndex,nextIndex,score:shared/Math.max(oldArea,newArea),distance});
+ }
+ overlaps.sort((a,b)=>b.score-a.score||a.distance-b.distance);
+ const usedOld=new Set(),usedNew=new Set();
+ for(const match of overlaps){
+  if(usedOld.has(match.oldIndex)||usedNew.has(match.nextIndex))continue;
+  usedOld.add(match.oldIndex);usedNew.add(match.nextIndex);
+  const old=previous[match.oldIndex],next=fresh[match.nextIndex];
+  next.id=old.id;
+  next.finish=old.finish||'cream';
+  if(old.materialId)next.materialId=old.materialId;
+  if(old.frameMaterialId)next.frameMaterialId=old.frameMaterialId;
+  next.style=old.style||'flat';
+  next.handleStyle=old.handleStyle||'bar';
+  if(old.openFraction)next.openFraction=old.openFraction;
+  if(old.grainDirection)next.grainDirection=old.grainDirection;
+  if(old.handleFinish)next.handleFinish=old.handleFinish;
+  if(old.manualOverrides){
+   next.manualOverrides={...old.manualOverrides};
+   for(const key of ['hinge','handleStyle','gap','style','finish'])if(old.manualOverrides[key])
+    next[key]=old[key];
   }
  }
  for(let i=items.length-1;i>=0;i--)if(items[i].kind==='front'&&items[i].hostId===c.id)items.splice(i,1);
