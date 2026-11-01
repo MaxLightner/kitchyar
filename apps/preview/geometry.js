@@ -3,8 +3,9 @@
  * Source: MaxLightner/archyar main (private), 89283efb, 2026-10-31.
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
+import {solveRow,splitRegularGap} from './row-solver.js?v=kitchen64';
 import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=fix43';
-import {OPTIMIZATION_RULES,facadeWidthPenalty,chooseFacadeBayCount} from './optimization-rules.js';
+import {OPTIMIZATION_RULES,facadeWidthPenalty,chooseFacadeBayCount} from './optimization-rules.js?v=kitchen64';
 export const SNAP_RADIUS=.50;
 const cm=value=>Math.round(value*100)/100;
 const uid=()=>globalThis.crypto?.randomUUID?.()||'node-'+Math.random().toString(36).slice(2);
@@ -96,7 +97,7 @@ export function nearestWall(items,x,z,tolerance=.6){
 export function snapCabinetPoint(items,x,z,tolerance=.8){
  if(!finite(x,z))return null;
  const hit=nearestWall(items,x,z,tolerance);if(!hit)return null;
- let best=null,d=.22;
+ let best=null,d=OPTIMIZATION_RULES.connectionSnap;
  for(const w of items.filter(wall))for(const [t,px,pz] of [[0,w.x1,w.z1],[1,w.x2,w.z2]]){
   const distance=Math.hypot(x-px,z-pz);
   if(distance<d&&Math.hypot(hit.x-px,hit.z-pz)<.28){best={x:px,z:pz,hostId:w.id,t,corner:true};d=distance;}
@@ -107,7 +108,7 @@ export function snapCabinetPoint(items,x,z,tolerance=.8){
   for(const t of [c.startT,c.endT]){
    const px=hit.wall.x1+(hit.wall.x2-hit.wall.x1)*t,pz=hit.wall.z1+(hit.wall.z2-hit.wall.z1)*t;
    const distance=Math.hypot(px-x,pz-z);
-   if(distance<.18&&distance<d){best={x:px,z:pz,hostId:hit.wall.id,t,corner:false,edgeSnap:true};d=distance;}
+   if(distance<OPTIMIZATION_RULES.connectionSnap&&distance<d){best={x:px,z:pz,hostId:hit.wall.id,t,corner:false,edgeSnap:true};d=distance;}
   }
  }
  if(best)return best;
@@ -166,7 +167,7 @@ export function cabinetCornerTrims(a,b,entrySide=1,depth=.6,dirA=1,dirB=1){
  const width=depth+Math.max(a.thickness,b.thickness)/2+.007;
  const wallClearance=cabinetTurnTrim(a,b);
  return {before:inner?Math.min(8,width/Math.max(.035,Math.abs(cross))):wallClearance,
-  after:wallClearance};
+  after:wallClearance,inner};
 }
 /* Stop a near-corner stroke cleanly against the adjoining wall. A 10–35 cm
    accidental scrap is not installed as a separate cabinet. */
@@ -202,7 +203,7 @@ export function placeCabinetRoute(source,start,target,opts={}){
   else b=finishAtCorner(items,w,b);
   if(Math.abs(b-a)*len<MIN_CABINET_LENGTH)continue;
   const pt=t=>({x:w.x1+(w.x2-w.x1)*t,z:w.z1+(w.z2-w.z1)*t});
-  const span=Math.abs(b-a)*len,columns=opts.kind==='tall'?Math.ceil(span/.90):1;
+  const span=Math.abs(b-a)*len,columns=opts.kind==='tall'?chooseFacadeBayCount(span,{minimum:.45,maximum:.55}):1;
   let firstId=null;
   for(let j=0;j<columns;j++){
    const from=a+(b-a)*j/columns,to=a+(b-a)*(j+1)/columns;
@@ -216,9 +217,10 @@ export function placeCabinetRoute(source,start,target,opts={}){
  }
  for(let i=1;i<runs.length;i++){
   const left=byId(items,runs[i-1].lastId),right=byId(items,runs[i].firstId);
-  if(left&&right&&left.hostId!==right.hostId&&left.subtype===right.subtype){
-   items.push({id:uid(),kind:'corner',subtype:'join',name:'اتصال زاویه‌دار کابینت',
-    aCabinetId:left.id,bCabinetId:right.id,cornerGroup:group});
+  if(left&&right&&left.hostId!==right.hostId&&left.subtype===right.subtype&&!items.some(j=>j.kind==='corner'&&[j.aCabinetId,j.bCabinetId].includes(left.id)&&[j.aCabinetId,j.bCabinetId].includes(right.id))){
+   const inner=cabinetCornerTrims(byId(items,left.hostId),byId(items,right.hostId),left.side,left.depth).inner;
+   items.push({id:uid(),kind:'corner',subtype:'join',name:'یونیت کنج',
+    aCabinetId:left.id,bCabinetId:right.id,cornerGroup:group,contact:inner?'front':'back',doorMode:inner?'none':'door',countertopMode:inner?'bevel':'full'});
   }
  }
  if(!lastId)throw Error('مسیر کابینت کوتاه است؛ حداقل ۴۵ سانتی‌متر روی دیوار حرکت کن.');
@@ -342,9 +344,25 @@ export function cornerFillFootprint(items,join){
  const wa=byId(items,a.hostId),wb=byId(items,b.hostId);
  if(!wall(wa)||!wall(wb))return null;
  const pa=cabinetFootprint(a,wa),pb=cabinetFootprint(b,wb);
- return {corners:[pa.corners[1],pb.corners[0],pb.corners[3],pa.corners[2]],
+ const frontA=pa.corners[join.aEnd==='start'?3:2],frontB=pb.corners[join.bEnd==='end'?2:3],backA=pa.corners[join.aEnd==='start'?0:1],backB=pb.corners[join.bEnd==='end'?1:0];
+ let corners=[backA,backB,frontB,frontA];
+ if(join.countertopMode==='full'){
+  const ax=pa.corners[2].x-pa.corners[3].x,az=pa.corners[2].z-pa.corners[3].z,
+   bx=pb.corners[3].x-pb.corners[2].x,bz=pb.corners[3].z-pb.corners[2].z,det=ax*bz-az*bx;
+  if(Math.abs(det)>.00001){const t=((frontB.x-frontA.x)*bz-(frontB.z-frontA.z)*bx)/det,p={x:frontA.x+t*ax,z:frontA.z+t*az};
+   if(Math.hypot(p.x-frontA.x,p.z-frontA.z)<Math.max(a.depth,b.depth)*4)corners=[backA,backB,frontB,p,frontA];
+  }
+ }
+ return {corners,frontA,frontB,
   elevation:Math.max(a.elevation,b.elevation),height:Math.min(a.elevation+a.height,b.elevation+b.height)-Math.max(a.elevation,b.elevation),
   subtype:a.subtype};
+}
+export function configureCorner(source,id,{doorMode,countertopMode,openFraction}={}){
+ const items=copy(source),join=byId(items,id);if(join?.kind!=='corner')throw Error('یونیت کنج را انتخاب کن.');
+ if(doorMode!==undefined){if(!['none','door'].includes(doorMode))throw Error('نوع در کنج معتبر نیست.');join.doorMode=doorMode;}
+ if(countertopMode!==undefined){if(!['full','bevel'].includes(countertopMode))throw Error('نوع صفحه کنج معتبر نیست.');join.countertopMode=countertopMode;}
+ if(openFraction!==undefined){if(!finite(openFraction)||openFraction<0||openFraction>1)throw Error('بازشدن کنج معتبر نیست.');join.openFraction=openFraction;}
+ return {items,selectedId:id};
 }
 export const EQUIPMENT_MODELS=Object.freeze({
  fridge:[{id:'single',label:'تک‌درب'},{id:'side',label:'سایدبای‌ساید'},{id:'combination',label:'فریزر پایین'}],
@@ -353,7 +371,7 @@ export const EQUIPMENT_MODELS=Object.freeze({
  oven:[{id:'electric',label:'فر برقی توکار'},{id:'gas',label:'فر گازی توکار'}],
  microwave:[{id:'built-in',label:'مایکروویو توکار'},{id:'compact',label:'کامپکت'}],
  hood:[{id:'slim',label:'مخفی کشویی'},{id:'chimney',label:'اکسپوز شومینه‌ای'},{id:'angled',label:'اکسپوز مورب'},{id:'concealed',label:'مخفی کابینتی'},{id:'cabinet-framed',label:'داخل قاب کابینت'}],
- stove:[{id:'gas5',label:'۵ شعله'},{id:'gas3',label:'۳ شعله'},{id:'gas2',label:'۲ شعله'},
+ stove:[{id:'range',label:'فرگاز یکپارچهٔ مستقل'},{id:'gas5',label:'۵ شعله'},{id:'gas3',label:'۳ شعله'},{id:'gas2',label:'۲ شعله'},
   {id:'gas4',label:'۴ شعله (قدیمی)'},{id:'induction',label:'القایی (قدیمی)'}],
  sink:[{id:'single',label:'تک‌کاسه'},{id:'double',label:'دوکاسه'},{id:'drainer',label:'آبچکان (قدیمی)'}]
 });
@@ -373,7 +391,7 @@ export const EQUIPMENT_SPECS=Object.freeze({
  sink:{name:'سینک',width:.90,depth:.54,height:.045,elevation:.86}
 });
 // Nominal design sizes, not manufacturer cut-out dimensions. Explicit sizes win.
-export const STOVE_WIDTHS=Object.freeze({gas2:.32,gas3:.45,gas4:.60,gas5:.90,induction:.60});
+export const STOVE_WIDTHS=Object.freeze({gas2:.32,gas3:.45,gas4:.60,gas5:.90,induction:.60,range:.90});
 const SINK_WIDTHS={60:.60,90:.90,120:1.20};
 export const FRIDGE_FEET=[18,22,24,28,30,32];
 const FRIDGE_DIMENSIONS={single:{18:[.72,.68,1.75],22:[.76,.70,1.83],24:[.82,.72,1.90],28:[.85,.74,1.93],30:[.88,.75,1.95],32:[.91,.77,1.98]},side:{18:[.86,.71,1.72],22:[.89,.73,1.78],24:[.92,.75,1.82],28:[.95,.78,1.86],30:[.99,.80,1.89],32:[1.04,.83,1.92]},combination:{18:[.72,.68,1.76],22:[.76,.70,1.83],24:[.80,.72,1.88],28:[.84,.75,1.94],30:[.88,.77,1.96],32:[.90,.79,1.99]}};
@@ -520,9 +538,16 @@ export function nearestCabinet(items,point,tolerance=.24){
   .sort((a,b)=>a.d-b.d);
  return found[0]||null;
 }
+export const frontageLength=c=>c?.frontOrientation==='side'?Math.min(.55,c.depth):lengthOf(c);
 export function frontPose(front,c){
  if(!c||c.kind!=='cabinet')return null;
  const len=lengthOf(c),ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len;
+ if(c.frontOrientation==='side'){
+  const side=c.side||1,mid=(front.startT+front.endT)/2-.5,frontage=Math.min(.55,c.depth);
+  return {x:c.x2-uz*side*frontage*mid+ux*.014,z:c.z2+ux*side*frontage*mid+uz*.014,
+   y:c.elevation+c.height*(front.bottomT+front.topT)/2,angle:Math.atan2(uz,ux)+side*Math.PI/2,side:-side,
+   width:Math.max(.1,frontage*(front.endT-front.startT)-(front.gap??.003)),height:Math.max(.08,c.height*(front.topT-front.bottomT)-(front.gap??.003)),thickness:.019};
+ }
  const side=c.side||1,nx=-uz*side,nz=ux*side;
  const mid=(front.startT+front.endT)/2,face=c.depth/2+.014,gap=front.gap??.003;
  return {x:c.x1+ux*len*mid+nx*face,z:c.z1+uz*len*mid+nz*face,
@@ -532,8 +557,31 @@ export function frontPose(front,c){
 }
 /* Split facade bays around fixture widths before choosing doors and drawers. All
    dimensions remain semantic, independent of future internal cabinet units. */
+function rowFixtures(items,c){
+ const len=lengthOf(c);
+ const protectedUnits=(c.unitEdits||[]).map(u=>({id:u.key,type:'custom',centre:(u.start+u.end)/2,width:u.end-u.start,physicalWidth:0,locked:true}));
+ const equipment=items.filter(e=>e.kind==='equipment'&&e.hostId===c.id&&['sink','stove','oven','washer','dishwasher'].includes(e.subtype))
+  .filter(e=>!(c.unitEdits||[]).some(u=>u.anchorEquipmentId===e.id))
+  .filter(e=>!(e.subtype==='oven'&&items.some(h=>h.kind==='equipment'&&h.subtype==='stove'&&h.hostId===c.id&&Math.abs((h.offsetT??.5)-(e.offsetT??.5))*len<.1)))
+  .map(e=>({id:e.id,type:e.subtype,centre:(e.offsetT??.5)*len,width:e.subtype==='stove'?e.width:e.subtype==='sink'?1:e.width+.04,physicalWidth:e.width,locked:!!(e.positionLocked||e.locked||e.manualPositionLocked)}));
+ return [...equipment,...protectedUnits];
+}
+function rowSignature(items,c){return JSON.stringify([lengthOf(c),rowFixtures(items,c),items.filter(e=>e.kind==='equipment'&&e.hostId===c.id).map(e=>[e.id,e.subtype,e.model,e.offsetT,e.width,e.height,e.depth])]);}
 function layoutBays(items,c,preset){
  const len=lengthOf(c),fixtures=[],unitWidth=preset==='photo'?Number(photoZone(c)?.unitWidth)||.88:.55;
+ if(c.subtype==='base'&&c.rowSolution?.signature===rowSignature(items,c))return c.rowSolution.bays.map(b=>({...b,e:byId(items,b.equipmentId),edit:(c.unitEdits||[]).find(u=>u.key===b.equipmentId)}));
+ if(c.subtype==='upper'){
+  for(const base of items.filter(b=>b.kind==='cabinet'&&b.subtype==='base'&&b.hostId===c.hostId&&b.side===c.side&&b.rowSolution?.signature===rowSignature(items,b))){
+   const dx=c.x2-c.x1,dz=c.z2-c.z1,baseStart=((base.x1-c.x1)*dx+(base.z1-c.z1)*dz)/len;
+   for(const bay of base.rowSolution.bays.filter(b=>['sink','stove'].includes(b.type))){
+    const e=byId(items,bay.equipmentId);if(!e)continue;
+    const centre=baseStart+(bay.a+bay.b)/2;
+    if(centre<0||centre>len)continue;
+    fixtures.push({a:Math.max(0,baseStart+bay.a),b:Math.min(len,baseStart+bay.b),type:bay.type,e});
+   }
+  }
+ }
+
  if(preset==='smart'||preset==='photo'||items.some(e=>e.kind==='equipment'&&['sink','stove','oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
   for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove','oven','dishwasher','washer'].includes(o.subtype))){
    if(['dishwasher','washer','oven'].includes(e.subtype)&&c.subtype!=='base')continue;
@@ -541,12 +589,13 @@ function layoutBays(items,c,preset){
    if(c.subtype==='base'&&e.hostId===c.id)centre=(e.offsetT??.5)*len;
    if(c.subtype==='upper'&&e.subtype!=='oven'){
     const base=byId(items,e.hostId);
+    if(e.subtype==='stove'&&e.model==='range'&&e.surround?.wallId===c.hostId){const dx=c.x2-c.x1,dz=c.z2-c.z1;centre=((e.x-c.x1)*dx+(e.z-c.z1)*dz)/len;}
     if(base?.kind==='cabinet'&&base.hostId===c.hostId&&base.side===c.side){
      const px=e.x,pz=e.z,dx=c.x2-c.x1,dz=c.z2-c.z1;
      centre=((px-c.x1)*dx+(pz-c.z1)*dz)/len;
     }
    }
-   if(centre===null||centre<-.1||centre>len+.1)continue;
+   if(centre===null||centre<-.1||centre>len+.1||fixtures.some(f=>f.e?.id===e.id))continue;
    const half=e.subtype==='stove'?e.width/2:e.subtype==='sink'?Math.max(.45,Math.min(.55,lengthOf(byId(items,e.hostId)||c)/Math.max(1,Math.round(lengthOf(byId(items,e.hostId)||c)/.5)))):e.width/2+.02;
    fixtures.push({a:Math.max(0,centre-half),b:Math.min(len,centre+half),type:e.subtype,e});
   }
@@ -564,23 +613,24 @@ function layoutBays(items,c,preset){
   // Pick a balanced count near 50cm, also honoring the configured maximum leaf width.
   // Photo bay pattern can request a specific module rhythm; otherwise use
   // one shared length-based count objective rather than fixed 88cm modules.
-  const count=preset==='photo'?Math.max(1,Math.ceil(size/unitWidth)):
-   ['doors','smart'].includes(preset)?chooseFacadeBayCount(size,{
-    minimum:rules.minDoorWidth,maximum:rules.maxDoorWidth}):1;
+  const count=['doors','smart','photo'].includes(preset)?chooseFacadeBayCount(size,{
+    minimum:Math.max(.45,rules.minDoorWidth),maximum:Math.min(.55,rules.maxDoorWidth)}):1;
   const n=preset==='photo'&&count>1&&size/count<MIN_CABINET_LENGTH?count-1:count;
   for(let j=0;j<n;j++)result.push({a:a+size*j/n,b:a+size*(j+1)/n,type:'free'});
  };
+ for(const edit of c.unitEdits||[])if(!fixtures.some(f=>Math.min(f.b,edit.end)-Math.max(f.a,edit.start)>.001))fixtures.push({a:edit.start,b:edit.end,type:'custom',edit});
+ fixtures.sort((a,b)=>a.a-b.a);
  if(!fixtures.length){const result=[];addGap(result,0,len);return result;}
  // A short end remainder joins the fixture bay, but should not push its
  // facade off the appliance centre. Grow the opposite side by the same amount
  // when there is room, without entering the next appliance's bay.
- if(fixtures[0].type!=='stove'&&fixtures[0].a<MIN_CABINET_LENGTH){
+ if(!['stove','custom'].includes(fixtures[0].type)&&fixtures[0].a<MIN_CABINET_LENGTH){
   const absorbed=fixtures[0].a;
   fixtures[0].a=0;
   if(['sink','stove'].includes(fixtures[0].type))fixtures[0].b=Math.min(fixtures[0].b+absorbed,fixtures[1]?.a??len);
  }
  const last=fixtures.at(-1);
- if(last.type!=='stove'&&len-last.b<MIN_CABINET_LENGTH){
+ if(!['stove','custom'].includes(last.type)&&len-last.b<MIN_CABINET_LENGTH){
   const absorbed=len-last.b;
   last.b=len;
   if(['sink','stove'].includes(last.type))last.a=Math.max(last.a-absorbed,fixtures.at(-2)?.b??0);
@@ -600,7 +650,7 @@ function layoutBays(items,c,preset){
     left.a-=gap;left.b+=gap;
    }else if(right.type==='sink'&&rightRoom>=gap-1e-6){
     right.a-=gap;right.b+=gap;
-   }else if(left.type!=='stove'&&right.type!=='stove'){left.b+=gap/2;right.a-=gap/2;}
+   }else if(!['stove','custom'].includes(left.type)&&!['stove','custom'].includes(right.type)){left.b+=gap/2;right.a-=gap/2;}
   }
  }
  const result=[];let cursor=0;
@@ -617,10 +667,15 @@ export function planFronts(items,c,preset='doors'){
  const make=(kind,bay,part,left,right,bottom,top,hinge='none')=>({
   id:uid(),kind:'front',subtype:kind,name:kind==='door'?'درب کابینت':'کشوی کابینت',
   hostId:c.id,preset,bay,part,startT:left,endT:right,bottomT:bottom,topT:top,
-  widthConflict:kind==='door'&&hinge!=='top'&&((right-left)*length<.45-1e-6||(right-left)*length>.55+1e-6),hinge,finish:'cream',style:c.photoPreset?.front?.style||'flat',handleStyle:photoZone(c)?.handleStyle||c.photoPreset?.front?.handleStyle||rules.handleStyle,handleFinish:c.photoPreset?.front?.handleFinish||'steel',grainDirection:c.photoPreset?.front?.grainDirection||'auto',gap:rules.gap
+  widthConflict:kind==='door'&&hinge!=='top'&&((right-left)*(c.frontOrientation==='side'?Math.min(.55,c.depth):length)<.45-1e-6||(right-left)*(c.frontOrientation==='side'?Math.min(.55,c.depth):length)>.55+1e-6),hinge,finish:'cream',style:c.doorStyle||c.photoPreset?.front?.style||'flat',handleStyle:photoZone(c)?.handleStyle||c.photoPreset?.front?.handleStyle||rules.handleStyle,handleFinish:c.photoPreset?.front?.handleFinish||'steel',grainDirection:c.photoPreset?.front?.grainDirection||'auto',gap:rules.gap
  });
  for(let i=0;i<bays.length;i++){
   const {a:metresA,b:metresB,type}=bays[i],a=metresA/length,b=metresB/length,span=metresB-metresA;
+  if(type==='custom'){
+   const edit=bays[i].edit;
+   for(const panel of edit.panels){const {u0,u1,...saved}=panel;result.push({...(byId(items,panel.id)||saved),id:panel.id,hostId:c.id,bay:i,unitKey:edit.key,startT:(metresA+u0*span)/length,endT:(metresA+u1*span)/length});}
+   continue;
+  }
   const sink=type==='sink',stove=type==='stove';
   if(stove&&c.subtype==='upper'&&items.some(e=>e.kind==='equipment'&&e.subtype==='hood'&&e.linkedStoveId===bays[i].e.id&&['chimney','angled'].includes(e.model)))continue;
   const oven=type==='oven'||stove&&items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&
@@ -628,11 +683,12 @@ export function planFronts(items,c,preset='doors'){
   if(oven||['dishwasher','washer'].includes(type))continue; // Keep appliance faces unobstructed.
   const pattern=photo?.pattern||[];
   const photoLayout=preset==='photo'?(sink?photo?.sinkLayout||'sinkDoors':stove?photo?.stoveLayout||pattern[i%pattern.length]||'doors':pattern[i%pattern.length]||'doors'):null;
-  const layout=photoLayout|| (sink&&c.subtype==='base'?'sinkDoors':preset!=='smart'?preset:
+  let layout=photoLayout|| (sink&&c.subtype==='base'?'sinkDoors':preset!=='smart'?preset:
    (c.subtype==='upper'&&sink?'lift':
     c.subtype!=='base'?'doors':
     sink?'sinkDoors':stove?'graduated':span<.55?'doors':
     span>.9?'drawers3':'mixed'));
+  if(preset==='smart'&&c.subtype==='upper'&&c.height>=.9-1e-6&&layout==='doors'&&!splitRegularGap(span))layout='lift';
   let part=0;
   const doors=(low,high,forcePair=false,topHinge=false,explicitLeaves=null)=>{
    const required=Math.max(1,Math.ceil((span-1e-7)/rules.maxDoorWidth));
@@ -771,18 +827,74 @@ function optimizeSmartFixturePositions(items,cabinetIds){
  }
  return moves;
 }
+function optimizeStandingBays(source,cabinetIds){
+ let items=source;
+ const originals=source.filter(e=>(e.kind==='equipment'&&e.subtype==='fridge'&&e.builtIn||e.kind==='cabinet'&&e.subtype==='tall'&&e.surround?.originalRun)&&!e.positionLocked&&!e.locked&&!e.manualPositionLocked)
+  .filter(e=>!cabinetIds||cabinetIds.includes(e.id)||source.some(c=>cabinetIds.includes(c.id)&&c.hostId===(e.surround?.wallId||e.hostId)))
+  .map(e=>({id:e.id,x:e.x??(e.x1+e.x2)/2,z:e.z??(e.z1+e.z2)/2,wallId:e.surround?.wallId||e.hostId}));
+ const score=(trial,wallId)=>trial.filter(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===wallId).reduce((total,c)=>{
+  const fixtures=rowFixtures(trial,c),solved=solveRow(lengthOf(c),fixtures);
+  if(solved)return total;
+  const free=lengthOf(c)-fixtures.reduce((s,e)=>s+e.width,0);
+  let penalty=1;for(let n=1;n<=Math.ceil(Math.max(0,free)/.45)+1;n++)penalty=Math.min(penalty,facadeWidthPenalty(free/n)*n);
+  return total+100+penalty*1000;
+ },0);
+ for(let pass=0;pass<2;pass++)for(const origin of originals){
+  const w=byId(items,origin.wallId);if(!wall(w)||items.some(c=>c.kind==='cabinet'&&c.hostId===w.id&&c.unitEdits?.length))continue;
+  const len=lengthOf(w),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
+  let best=items,bestScore=score(items,w.id);
+  if(bestScore<.001)continue;
+  for(let cm=-38;cm<=38;cm+=2){
+   if(!cm)continue;
+   try{
+    const e=byId(items,origin.id),point={x:origin.x+ux*cm/100,z:origin.z+uz*cm/100};
+    const trial=e.kind==='cabinet'?moveTallCabinet(items,e.id,point):moveEquipment(items,e.id,point);
+    const cost=score(trial.items,w.id)+Math.abs(cm)*.0001;
+    if(cost<bestScore){best=trial.items;bestScore=cost;}
+   }catch{}
+  }
+  items=best;
+ }
+ return items;
+}
 export function planSmartKitchen(source,{optimizePositions=true,cabinetIds=null}={}){
- const items=copy(source);
+ let items=copy(source);
+ for(const c of items.filter(c=>c.kind==='cabinet'&&c.frontPreset==='custom'&&(!cabinetIds||cabinetIds.includes(c.id))))adoptLegacyUnits(items,c);
+ if(optimizePositions)items=optimizeStandingBays(items,cabinetIds);
+ if(cabinetIds)cabinetIds=[...new Set([...cabinetIds,...affectedCabinetIds(source,items)])];
  const cabinetry=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge'&&(!cabinetIds||cabinetIds.includes(c.id)));
  if(!cabinetry.length)throw Error('برای طراحی هوشمند ابتدا کابینت‌ها را نصب کن.');
  // Search permitted positions jointly with facade widths. Any proposed
  // movement is returned as a diff and must be approved by the UI.
- const equipmentMoves=optimizePositions?optimizeSmartFixturePositions(items,new Set(cabinetry.map(c=>c.id))):[];
- for(const c of cabinetry)if(c.frontPreset!=='custom')reflowFronts(items,c,'smart');
+ const equipmentMoves=[];
+ for(const old of source.filter(e=>e.kind==='equipment'&&e.subtype==='fridge'||e.kind==='cabinet'&&e.subtype==='tall')){
+  const next=byId(items,old.id);if(!next)continue;
+  const ax=old.x??(old.x1+old.x2)/2,az=old.z??(old.z1+old.z2)/2,bx=next.x??(next.x1+next.x2)/2,bz=next.z??(next.z1+next.z2)/2;
+  if(Math.hypot(bx-ax,bz-az)>.005)equipmentMoves.push({id:old.id,subtype:old.subtype,from:ax,to:bx,delta:Math.round(Math.hypot(bx-ax,bz-az)*100)});
+ }
+ for(const c of cabinetry.filter(c=>c.subtype==='base'&&(c.frontPreset!=='custom'||c.unitEdits?.length))){
+  if(c.rowSolution?.signature===rowSignature(items,c))continue;
+  const fixtures=rowFixtures(items,c).map(f=>({...f,locked:f.locked||!optimizePositions}));
+  const solution=solveRow(lengthOf(c),fixtures);
+  if(!solution)continue;
+  const trial=copy(items),host=byId(trial,c.id);
+  for(const p of solution.placements){const e=byId(trial,p.id);if(e?.kind==='equipment')e.offsetT=p.centre/lengthOf(c);}
+  try{syncEquipment(trial);}catch{continue;}
+  for(const p of solution.placements){
+   const e=byId(items,p.id);if(e?.kind!=='equipment')continue;
+   const before=(e.offsetT??.5)*lengthOf(c);
+   if(Math.abs(before-p.centre)>.001)equipmentMoves.push({id:e.id,subtype:e.subtype,from:before,to:p.centre,delta:Math.round((p.centre-before)*100)});
+   e.offsetT=p.centre/lengthOf(c);
+  }
+  syncEquipment(items);c.rowSolution={signature:rowSignature(items,c),bays:solution.bays};
+ }
+ const unresolved=cabinetry.filter(c=>c.subtype==='base'&&c.rowSolution?.signature!==rowSignature(items,c));
+ if(optimizePositions&&unresolved.length)equipmentMoves.push(...optimizeSmartFixturePositions(items,new Set(unresolved.map(c=>c.id))));
+ for(const c of cabinetry)if(c.frontPreset!=='custom'||c.unitEdits?.length)reflowFronts(items,c,'smart');
  for(const c of cabinetry)validateFronts(items,c);
  const layoutWarnings=[];
  for(const c of cabinetry){
-  const len=lengthOf(c),outside=items.filter(f=>f.kind==='front'&&f.hostId===c.id&&f.hinge!=='top'&&!hasFixedHobWidth(items,c,f))
+  const len=lengthOf(c),outside=items.filter(f=>f.kind==='front'&&f.style!=='open'&&f.hostId===c.id&&f.hinge!=='top'&&!hasFixedHobWidth(items,c,f))
    .map(f=>(f.endT-f.startT)*len)
    .filter(width=>facadeWidthPenalty(width)>.0000001);
   if(outside.length)layoutWarnings.push({cabinetId:c.id,count:outside.length,
@@ -797,7 +909,7 @@ export function planSmartKitchen(source,{optimizePositions=true,cabinetIds=null}
      reason:'دو درِ هم‌مرکز زیر سینک باید عرض ۴۵ تا ۵۵ داشته باشند؛ قفل محل یا محدودیت فضا بررسی شود.'});
   }
  }
- return {items,equipmentMoves,layoutWarnings,valid:!layoutWarnings.some(w=>w.equipmentId)&&!items.some(f=>f.kind==='front'&&f.subtype==='door'&&f.hinge!=='top'&&cabinetry.some(c=>c.id===f.hostId&&((f.endT-f.startT)*lengthOf(c)<.45-1e-6||(f.endT-f.startT)*lengthOf(c)>.55+1e-6))),
+ return {items,equipmentMoves,layoutWarnings,valid:!layoutWarnings.some(w=>w.equipmentId)&&!items.some(f=>f.kind==='front'&&f.subtype==='door'&&f.style!=='open'&&f.hinge!=='top'&&cabinetry.some(c=>c.id===f.hostId&&(frontPose(f,c).width+(f.gap??.003)<.45-1e-6||frontPose(f,c).width+(f.gap??.003)>.55+1e-6))),
   selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
 }
 /* Catalog styles alter actual semantic door/drawer layouts, not just colors. */
@@ -856,7 +968,7 @@ function reflowFronts(items,c,preset=c?.frontPreset){
  const overlaps=[];
  for(let nextIndex=0;nextIndex<fresh.length;nextIndex++)for(let oldIndex=0;oldIndex<previous.length;oldIndex++){
   const next=fresh[nextIndex],old=previous[oldIndex];
-  if(next.subtype!==old.subtype)continue;
+  if(next.unitKey||old.unitKey||next.subtype!==old.subtype)continue;
   const x=Math.max(0,Math.min(next.endT,old.endT)-Math.max(next.startT,old.startT));
   const y=Math.max(0,Math.min(next.topT,old.topT)-Math.max(next.bottomT,old.bottomT));
   const shared=x*y,oldArea=(old.endT-old.startT)*(old.topT-old.bottomT);
@@ -1017,7 +1129,7 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
   const val=Math.round(Number(width)*100)/100;
   if(f.subtype==='door'&&(hinge??f.hinge)!=='top'&&(val<.45||val>.55))throw Error('عرض درب عمودی باید بین ۴۵ تا ۵۵ سانتی‌متر باشد.');
   if(!Number.isFinite(val)||val<.15||val>1.2)throw Error('عرض نمای درب یا کشو معتبر نیست.');
-  const next=f.startT+val/lengthOf(c),old=f.endT;
+  const next=f.startT+val/frontageLength(c),old=f.endT;
   // The shared vertical seam moves both adjacent leaves, with no crack or overlap.
   const neighbor=items.find(g=>g.kind==='front'&&g.hostId===c.id&&g.id!==f.id&&
    Math.abs(g.startT-old)<.002&&Math.min(f.topT,g.topT)-Math.max(f.bottomT,g.bottomT)>.08);
@@ -1045,13 +1157,14 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
  if(hinge==='top'&&c.subtype==='upper'&&c.height<.90-1e-6)throw Error('بازشوی افقی به ارتفاع حداقل ۹۰ سانتی‌متر کابینت هوایی نیاز دارد.');
  if(hinge!==undefined){if(f.subtype!=='door'||!['left','right','top'].includes(hinge))throw Error('جهت لولا نامعتبر است.');if(f.hinge!==hinge)manual.hinge=true;f.hinge=hinge;}
  if(finish!==undefined){if(!['cream','wood','graphite'].includes(finish))throw Error('رنگ درب نامعتبر است.');if(f.finish!==finish)manual.finish=true;f.finish=finish;}
- if(style!==undefined){if(!['flat','frame'].includes(style))throw Error('سبک درب نامعتبر است.');if(f.style!==style)manual.style=true;f.style=style;}
+ if(style!==undefined){if(!['flat','frame','glass','cnc','open'].includes(style))throw Error('سبک درب نامعتبر است.');if(f.style!==style)manual.style=true;f.style=style;}
  if(handleStyle!==undefined){if(!['bar','knob','hidden'].includes(handleStyle))throw Error('دستگیره نامعتبر است.');if(f.handleStyle!==handleStyle)manual.handleStyle=true;f.handleStyle=handleStyle;}
  if(materialId!==undefined){if((f.materialId||'')!==materialId)manual.materialId=true;f.materialId=materialId||undefined;}
  if(frameMaterialId!==undefined){if((f.frameMaterialId||'')!==frameMaterialId)manual.frameMaterialId=true;f.frameMaterialId=frameMaterialId||undefined;}
  if(grainDirection!==undefined){if(!['auto','vertical','horizontal'].includes(grainDirection))throw Error('جهت بافت معتبر نیست.');if((f.grainDirection||'auto')!==grainDirection)manual.grainDirection=true;f.grainDirection=grainDirection;}
  if(gap!==undefined){const spacing=Number(gap);if(!finite(spacing)||spacing<.001||spacing>.012)throw Error('درز نمای کابینت باید ۱ تا ۱۲ میلی‌متر باشد.');if(f.gap!==spacing)manual.gap=true;f.gap=spacing;}
- if(width!==undefined||height!==undefined)c.frontPreset='custom';
+ if((width!==undefined||height!==undefined)&&!f.unitKey)c.frontPreset='custom';
+ if(f.unitKey)rememberUnit(items,id);
  validateFronts(items,c);
  return {items,selectedId:id};
 }
@@ -1074,6 +1187,55 @@ export function setFrontOpening(source,id,fraction){
  const amount=Number(fraction);
  if(!Number.isFinite(amount)||amount<0||amount>1)throw Error('میزان بازشدن درب یا کشو باید بین صفر و یک باشد.');
  f.openFraction=amount;
+ if(f.mechanism==='bifold')for(const peer of items.filter(p=>p.kind==='front'&&p.hostId===f.hostId&&(f.unitKey?p.unitKey===f.unitKey:p.bay===f.bay)))peer.openFraction=amount;
+ return {items,selectedId:id};
+}
+function rememberUnit(items,id){
+ const unit=frontUnitFor(items,id);if(!unit)return;
+ const c=byId(items,unit.hostId),len=lengthOf(c),key=byId(items,id).unitKey||uid();
+ const members=items.filter(f=>unit.frontIds.includes(f.id));
+ for(const f of members)f.unitKey=key;
+ c.unitEdits=(c.unitEdits||[]).filter(u=>u.key!==key&&Math.min(u.end,unit.endT*len)-Math.max(u.start,unit.startT*len)<.001);
+ const anchor=items.find(e=>e.kind==='equipment'&&e.hostId===c.id&&['sink','stove'].includes(e.subtype)&&(e.offsetT??.5)>unit.startT&&(e.offsetT??.5)<unit.endT);
+ c.unitEdits.push({key,start:unit.startT*len,end:unit.endT*len,anchorEquipmentId:anchor?.id,panels:members.map(f=>({...f,u0:(f.startT-unit.startT)/(unit.endT-unit.startT),u1:(f.endT-unit.startT)/(unit.endT-unit.startT)}))});
+ delete c.rowSolution;
+}
+function adoptLegacyUnits(items,c){
+ if(c.frontPreset!=='custom')return;
+ const visited=new Set();
+ for(const front of items.filter(f=>f.kind==='front'&&f.hostId===c.id)){
+  if(visited.has(front.id))continue;
+  const unit=frontUnitFor(items,front.id);if(!unit)continue;
+  for(const id of unit.frontIds)visited.add(id);
+  rememberUnit(items,front.id);
+ }
+ c.frontPreset='smart';
+}
+export function configureFrontUnit(source,id,{doorStyle,opening,mechanism}={}){
+ let items=copy(source),unit=frontUnitFor(items,id);if(!unit)throw Error('یک یونیت را انتخاب کن.');
+ const host=byId(items,unit.hostId),old=byId(items,id),len=lengthOf(host);
+ if(doorStyle!==undefined&&!['flat','frame','glass','cnc','open'].includes(doorStyle))throw Error('مدل در معتبر نیست.');
+ if(opening!==undefined&&!['vertical','horizontal'].includes(opening))throw Error('جهت بازشو معتبر نیست.');
+ if(mechanism!==undefined&&!['independent','bifold'].includes(mechanism))throw Error('مکانیزم معتبر نیست.');
+ if((opening==='horizontal'||mechanism==='bifold')&&host.subtype==='upper'&&host.height<.90-1e-6)throw Error('هوایی افقی حداقل ۹۰ سانتی‌متر ارتفاع لازم دارد.');
+ if(opening||mechanism){
+  const horizontal=opening==='horizontal'||mechanism==='bifold'||!opening&&old.hinge==='top';
+  const count=horizontal?2:Math.max(1,Math.ceil((unit.endT-unit.startT)*len/.55-1e-6));
+  if(!horizontal&&(unit.endT-unit.startT)*len/count<.45-1e-6)throw Error('عرض یونیت برای درهای ۴۵ تا ۵۵ مناسب نیست.');
+  const deleted=new Set(unit.frontIds);items=items.filter(f=>!deleted.has(f.id));
+  for(let i=0;i<count;i++)items.push({...old,id:unit.frontIds[i]||uid(),subtype:'door',part:i,
+   startT:horizontal?unit.startT:unit.startT+(unit.endT-unit.startT)*i/count,
+   endT:horizontal?unit.endT:unit.startT+(unit.endT-unit.startT)*(i+1)/count,
+   bottomT:horizontal?unit.bottomT+(unit.topT-unit.bottomT)*i/count:unit.bottomT,
+   topT:horizontal?unit.bottomT+(unit.topT-unit.bottomT)*(i+1)/count:unit.topT,
+   hinge:horizontal?'top':i%2?'right':'left',mechanism:mechanism||'independent',openFraction:0});
+  id=unit.frontIds[0];unit=frontUnitFor(items,id);
+ }
+ for(const f of items.filter(f=>unit.frontIds.includes(f.id))){
+  if(doorStyle!==undefined)f.style=doorStyle;
+  if(mechanism!==undefined)f.mechanism=mechanism;
+ }
+ rememberUnit(items,id);validateFronts(items,host);
  return {items,selectedId:id};
 }
 // A unit is the shared bay behind a door pair or a vertical drawer stack.
@@ -1082,7 +1244,7 @@ export function frontUnitFor(source,id){
  const front=byId(source,id);if(front?.kind!=='front')return null;
  const host=byId(source,front.hostId);if(host?.kind!=='cabinet')return null;
  const members=source.filter(f=>f.kind==='front'&&f.hostId===host.id&&
-  (Number.isInteger(front.bay)&&f.bay===front.bay||!Number.isInteger(front.bay)&&f.id===front.id));
+  (front.unitKey?f.unitKey===front.unitKey:Number.isInteger(front.bay)?f.bay===front.bay:f.id===front.id));
  return {hostId:host.id,frontId:id,bay:front.bay,
   startT:Math.min(...members.map(f=>f.startT)),endT:Math.max(...members.map(f=>f.endT)),
   bottomT:Math.min(...members.map(f=>f.bottomT)),topT:Math.max(...members.map(f=>f.topT)),
@@ -1092,6 +1254,8 @@ export function convertFrontUnit(source,id,preset){
  if(!['doors','drawers2','drawers3','drawers4'].includes(preset))throw Error('نوع یونیت انتخاب‌شده معتبر نیست.');
  const unit=frontUnitFor(source,id);if(!unit)throw Error('ابتدا یک درب یا کشو انتخاب کن.');
  const items=copy(source),host=byId(items,unit.hostId),old=byId(items,id),rules=resolvedFrontRules(host);
+ const sink=items.find(e=>e.kind==='equipment'&&e.subtype==='sink'&&e.hostId===host.id&&(e.offsetT??.5)>unit.startT&&(e.offsetT??.5)<unit.endT);
+ if(sink&&preset!=='doors')throw Error('زیر سینک باید دو درِ هم‌مرکز باقی بماند؛ یونیت دیگری را برای کشو انتخاب کن.');
  const width=(unit.endT-unit.startT)*lengthOf(host),count=preset==='doors'?
   Math.max(1,Math.ceil((width-1e-6)/rules.maxDoorWidth)):Number(preset.slice(-1));
  if(preset==='doors'&&width/count<rules.minDoorWidth-.00001)throw Error('عرض یونیت از حداقل عرض درب کمتر می‌شود.');
@@ -1108,7 +1272,13 @@ export function convertFrontUnit(source,id,preset){
  }
  const deleted=new Set(unit.frontIds);
  const result=items.filter(f=>!deleted.has(f.id));result.push(...replacement);
- host.frontPreset='custom';validateFronts(result,host);
+ const key=old.unitKey||uid(),start=unit.startT*lengthOf(host),end=unit.endT*lengthOf(host);
+ for(const f of replacement)f.unitKey=key;
+ host.unitEdits=(host.unitEdits||[]).filter(u=>u.key!==key&&Math.min(u.end,end)-Math.max(u.start,start)<.001);
+ const anchor=items.find(e=>e.kind==='equipment'&&e.hostId===host.id&&['sink','stove'].includes(e.subtype)&&(e.offsetT??.5)>unit.startT&&(e.offsetT??.5)<unit.endT);
+ host.unitEdits.push({key,start,end,anchorEquipmentId:anchor?.id,panels:replacement.map(f=>({...f,u0:(f.startT-unit.startT)/(unit.endT-unit.startT),u1:(f.endT-unit.startT)/(unit.endT-unit.startT)}))});
+ host.frontPreset=host.frontPreset==='custom'?'smart':host.frontPreset||'smart';delete host.rowSolution;
+ validateFronts(result,host);
  return {items:result,selectedId:replacement[0].id,unitCount:replacement.length};
 }
 function validateFronts(items,c){
@@ -1257,8 +1427,8 @@ function validateCabinets(items,w){
   if(!finite(c.startT,c.endT,c.depth,c.height,c.elevation)||c.startT*len<-.00001||c.endT*len>len+.00001||
     (c.endT-c.startT)*len<MIN_CABINET_LENGTH-.00001||c.depth<.2||c.depth>1.2||c.height<.25||c.elevation<0||c.elevation+c.height>w.height+.001)
    throw Error('ابعاد کابینت با دیوار میزبان ناسازگار است.');
-  if(c.subtype==='tall'&&(c.height<1.8||(c.endT-c.startT)*len>.91))
-   throw Error('عرض ستون تمام‌قد حداکثر ۹۰ و ارتفاع آن حداقل ۱۸۰ سانتی‌متر است.');
+  if(c.subtype==='tall'&&(c.height<1.8||(c.endT-c.startT)*len>1.101))
+   throw Error('عرض ستون تمام‌قد حداکثر ۱۱۰ و ارتفاع آن حداقل ۱۸۰ سانتی‌متر است.');
   for(const e of items.filter(e=>e.kind==='equipment'&&e.hostId===c.id&&['oven','microwave'].includes(e.subtype)))
    if(c.subtype==='tall'&&c.elevation+(e.subtype==='microwave'?1.47:.72)+e.height>c.elevation+c.height-.015)
     throw Error('ارتفاع ستون تمام‌قد برای تجهیزات توکار کافی نیست.');
@@ -1273,7 +1443,7 @@ function validateCabinets(items,w){
   const fp=cabinetFootprint(c,w);
   // Inverse collision validation: newly created cabinets must respect a fridge
   // that has already carved its place out of the same run.
-  for(const fridge of items.filter(e=>e.kind==='equipment'&&e.subtype==='fridge')){
+  for(const fridge of items.filter(e=>e.kind==='equipment'&&(e.subtype==='fridge'||e.subtype==='stove'&&e.model==='range'))){
    if(Math.min(c.elevation+c.height,fridge.elevation+fridge.height)-
       Math.max(c.elevation,fridge.elevation)<=.015)continue;
    const offset=fridge.builtIn?(fridge.surround?.bayOffset||0):0,angle=fridge.rotation||0;
@@ -1334,7 +1504,7 @@ function embedFridge(items,obj,point){
  const nearest=base.map(c=>({c,d:Math.max(c.startT*len-along,0,along-c.endT*len)})).sort((a,b)=>a.d-b.d)[0];
  if(!nearest||nearest.d>.66||len<obj.width+.055)return false;
  const chosen=nearest.c,side=chosen.side||1,ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
- const nx=-uz*side,nz=ux*side,half=(obj.width+.055)/2;
+ const nx=-uz*side,nz=ux*side,half=(obj.width+(obj.installClearance??.055))/2;
  // Only the physical thickness of a joined wall constrains corner placement,
  // not an arbitrary 70 cm cabinet-width rule.
  const wallClearance=end=>items.filter(other=>wall(other)&&other.id!==w.id&&
@@ -1516,7 +1686,7 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
  if(!spec||!finite(point?.x,point?.z))throw Error('محل تجهیزات معتبر نیست.');
  const obj={id:uid(),kind:'equipment',subtype,name:spec.name,width:spec.width,
   depth:spec.depth,height:spec.height,elevation:spec.elevation,x:point.x,z:point.z,rotation:0,
-  model:EQUIPMENT_MODELS[subtype][0].id,...(subtype==='stove'?{induction:false}:{}),
+  model:subtype==='stove'?'gas5':EQUIPMENT_MODELS[subtype][0].id,...(subtype==='stove'?{induction:false}:{}),
   ...(subtype==='sink'?{sinkSize:90,faucetModel:'arc'}:{}),
   ...(subtype==='fridge'?{fridgeFeet:24}:{})};
  if(model&&subtype!=='fridge'){
@@ -1524,7 +1694,14 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
   obj.model=model;
   if(subtype==='stove')obj.width=STOVE_WIDTHS[model];
  }
- if(subtype==='fridge'){
+ if(subtype==='stove'&&dimensions){
+  if(!Array.isArray(dimensions)||dimensions.length!==3||!finite(...dimensions)||dimensions[0]<.3||dimensions[0]>2||dimensions[1]<.2||dimensions[1]>1.3||dimensions[2]<.025||dimensions[2]>2.7)throw Error('ابعاد گاز معتبر نیست.');
+  [obj.width,obj.depth,obj.height]=dimensions;
+ }
+ if(subtype==='stove'&&obj.model==='range'){
+  obj.width=dimensions?.[0]??.9;obj.depth=dimensions?.[1]??.6;obj.height=dimensions?.[2]??.86;obj.elevation=0;
+  if(!embedFridge(items,obj,point))throw Error('برای فرگاز مستقل فضای کافی در ردیف لازم است.');
+ }else if(subtype==='fridge'){
   const chosenModel=model||'single',chosenFeet=Number(fridgeFeet??24);
   if(!EQUIPMENT_MODELS.fridge.some(m=>m.id===chosenModel)||!FRIDGE_FEET.includes(chosenFeet))throw Error('مدل یا ظرفیت یخچال نامعتبر است.');
   const dims=dimensions||fridgeDimensions(chosenModel,chosenFeet);
@@ -1567,6 +1744,12 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
    if(Math.abs(other.offsetT-obj.offsetT)*len<(other.width+obj.width)/2+.02)
     throw Error('این قسمت کابینت قبلاً تجهیزات دارد.');
  }
+ if(obj.hostId){
+  const host=byId(items,obj.hostId),len=lengthOf(host),centre=(obj.offsetT??.5)*len;
+  adoptLegacyUnits(items,host);
+  const displaced=(host.unitEdits||[]).filter(u=>Math.min(u.end,centre+obj.width/2)-Math.max(u.start,centre-obj.width/2)>.001);
+  if(displaced.length){obj.displacedUnitEdits=copy(displaced);host.unitEdits=host.unitEdits.filter(u=>!displaced.includes(u));delete host.rowSolution;}
+ }
  items.push(obj);
  if(['sink','stove'].includes(subtype))reflowUpperAtFixture(items,obj);
  if(BUILT_IN_TYPES.has(subtype)||['sink','stove'].includes(subtype)){
@@ -1577,8 +1760,8 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
   model:'slim',linkedStoveId:obj.id,width:obj.width,depth:.45,height:.32,
   elevation:1.55,x:obj.x,z:obj.z,rotation:obj.rotation});
  syncEquipment(items);validateEquipmentSpacing(items);
- if(subtype==='fridge'&&obj.builtIn)try{
-  const result=addOverFridgeCabinet(items,obj.id,{depth:.60});
+ if(subtype==='fridge'&&(obj.builtIn||items.some(c=>c.kind==='cabinet'&&polygonGap(cabinetFootprint(c,byId(items,c.hostId)).corners,equipmentFootprint(obj))<.45)))try{
+  const result=addOverFridgeCabinet(items,obj.id,{depth:'base'});
   return {items:result.items,selectedId:obj.id};
  }catch{ /* A freestanding fridge remains valid when an overhead unit cannot fit. */ }
  return {items,selectedId:obj.id};
@@ -1596,6 +1779,16 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
   (facadeMode===undefined||facadeMode===e.facadeMode)&&
   (faucetModel===undefined||faucetModel===e.faucetModel);
  if(unchanged)return {items,selectedId:id};
+ if(e.subtype==='stove'&&(e.model==='range'||model==='range')&&[width,depth,height,model].some(v=>v!==undefined)){
+  const cleared=removeObject(source,id).items;
+  const nextModel=model??e.model,changed=nextModel!==e.model;
+  const defaults=nextModel==='range'?[.9,.6,.86]:[STOVE_WIDTHS[nextModel],EQUIPMENT_SPECS.stove.depth,EQUIPMENT_SPECS.stove.height];
+  const placed=placeEquipment(cleared,{x:e.x,z:e.z},'stove',{model:nextModel,dimensions:[Number(width??(changed?defaults[0]:e.width)),Number(depth??(changed?defaults[1]:e.depth)),Number(height??(changed?defaults[2]:e.height))]});
+  const fresh=byId(placed.items,placed.selectedId),newId=fresh.id;fresh.id=id;
+  const oldHood=source.find(h=>h.linkedStoveId===id);
+  for(const hood of placed.items.filter(h=>h.linkedStoveId===newId)){hood.linkedStoveId=id;if(oldHood){hood.id=oldHood.id;hood.model=oldHood.model;}}
+  return {items:placed.items,selectedId:id};
+ }
  if(e.subtype==='fridge'&&[width,depth,height,model,fridgeFeet].some(v=>v!==undefined)){
   const nextModel=model??e.model,nextFeet=fridgeFeet??e.fridgeFeet??24;
   const standard=fridgeDimensions(nextModel,nextFeet);
@@ -1608,6 +1801,7 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
   const oldId=fresh.id;fresh.id=id;fresh.facadeMode=fresh.builtIn?(e.facadeMode||'visible'):'visible';
   if(!fresh.builtIn&&e.previousBuiltInPoint)fresh.previousBuiltInPoint={...e.previousBuiltInPoint};
   for(const c of placed.items)if(c.overFridgeId===oldId)c.overFridgeId=id;
+  preserveOverFridgeChoices(source,placed.items,id);
   return {items:placed.items,selectedId:id};
  }
  if(facadeMode!==undefined){
@@ -1717,6 +1911,11 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
  }
  syncEquipment(items);validateEquipmentSpacing(items);
  // Only the equipment's own cabinet needs a new bay layout after resizing a sink or stove.
+ const anchorHost=byId(items,e.hostId);
+ if(anchorHost?.kind==='cabinet')for(const unit of anchorHost.unitEdits||[])if(unit.anchorEquipmentId===e.id){
+  const centre=(e.offsetT??.5)*lengthOf(anchorHost),half=e.subtype==='stove'?e.width/2:(unit.end-unit.start)/2;
+  unit.start=centre-half;unit.end=centre+half;delete anchorHost.rowSolution;
+ }
  if(e.subtype==='hood')reflowUpperAtFixture(items,byId(items,e.linkedStoveId));
  if(['sink','stove'].includes(e.subtype)){
   const host=byId(items,e.hostId);
@@ -1741,14 +1940,46 @@ export function placeCabinet(source,start,end,{kind='base',depth,height,elevatio
  const obj={id:uid(),kind:'cabinet',subtype:kind,name:upper?'کابینت هوایی':tall?'ستون تمام‌قد':'کابینت زمینی',
   hostId:w.id,startT:from,endT:to,side:chosen,depth:d,height:h,elevation:e,cornerGroup:cornerGroup||null,
   frontRules:checkedFrontRules(frontRules||{})};
+ let contact=null;
+ for(const other of items.filter(c=>c.kind==='cabinet'&&c.hostId!==w.id&&Math.min(c.elevation+c.height,obj.elevation+obj.height)-Math.max(c.elevation,obj.elevation)>.02)){
+  const owner=byId(items,other.hostId);if(!wall(owner))continue;
+  const overlaps=t=>{const trial={...obj,startT:Math.min(a.t,t),endT:Math.max(a.t,t)};return polygonOverlap(cabinetFootprint(trial,w).corners,cabinetFootprint(other,owner).corners);};
+  const target=b.t>=a.t?obj.endT:obj.startT;
+  if(!overlaps(target))continue;
+  let lo=0,hi=1;
+  for(let n=0;n<28;n++){const f=(lo+hi)/2;if(overlaps(a.t+(target-a.t)*f))hi=f;else lo=f;}
+  const end=a.t+(target-a.t)*lo;
+  obj.startT=Math.min(a.t,end);obj.endT=Math.max(a.t,end);contact=other;
+ }
+ if(!contact){
+  const points=cabinetFootprint(obj,w).corners;
+  let bestGap=OPTIMIZATION_RULES.connectionSnap;
+  for(const other of items.filter(c=>c.kind==='cabinet'&&c.hostId!==w.id&&c.subtype===obj.subtype&&Math.abs(c.depth-obj.depth)<.025&&Math.abs(c.height-obj.height)<.025&&Math.abs(c.elevation-obj.elevation)<.025)){
+   const owner=byId(items,other.hostId);if(!wall(owner)||![[w.x1,w.z1],[w.x2,w.z2]].some(p=>[[owner.x1,owner.z1],[owner.x2,owner.z2]].some(q=>dist(...p,...q)<.025)))continue;
+   const gap=polygonGap(points,cabinetFootprint(other,owner).corners);
+   if(gap<bestGap){bestGap=gap;contact=other;}
+  }
+ }
+ if(contact&&contact.subtype===obj.subtype){
+  if((obj.endT-obj.startT)*len<MIN_CABINET_LENGTH)throw Error('تا یونیت کنج حداقل ۴۵ سانتی‌متر فضای نصب لازم است.');
+  const group=contact.cornerGroup||uid();contact.cornerGroup=group;obj.cornerGroup=group;
+ }
  items.push(obj);validateCabinets(items,w);
- return {items,selectedId:obj.id,end:{x:w.x1+(w.x2-w.x1)*capped,z:w.z1+(w.z2-w.z1)*capped,hostId:w.id,side:chosen},stoppedAtOpening:(upper||tall)&&Math.abs(capped-b.t)>.0001};
+ if(contact&&contact.subtype===obj.subtype){
+  const pa=cabinetFootprint(obj,w),owner=byId(items,contact.hostId),pb=cabinetFootprint(contact,owner),aEnd=b.t>=a.t?'end':'start',pt=aEnd==='end'?pa.end:pa.start;
+  const bEnd=Math.hypot(pt.x-pb.start.x,pt.z-pb.start.z)<Math.hypot(pt.x-pb.end.x,pt.z-pb.end.z)?'start':'end';
+  const inner=cabinetCornerTrims(w,owner,obj.side,obj.depth,aEnd==='end'?1:-1,bEnd==='start'?1:-1).inner;
+  items.push({id:uid(),kind:'corner',subtype:'join',name:'یونیت کنج',aCabinetId:obj.id,bCabinetId:contact.id,aEnd,bEnd,cornerGroup:obj.cornerGroup,contact:inner?'front':'back',doorMode:inner?'none':'door',countertopMode:inner?'bevel':'full'});
+ }
+ const finalT=contact?(b.t>=a.t?obj.endT:obj.startT):capped;
+ return {items,selectedId:obj.id,end:{x:w.x1+(w.x2-w.x1)*finalT,z:w.z1+(w.z2-w.z1)*finalT,hostId:w.id,side:chosen},stoppedAtOpening:(upper||tall)&&Math.abs(capped-b.t)>.0001};
 }
 /* Floor-to-ceiling units are inserted with a single placement point like
    appliances, but remain semantic cabinets for fabrication and front editing. */
-export function placeTallCabinet(source,point,{width=.60,depth=.60,rows=2,leaves=1,ceilingAligned=true,height=null,elevation=0}={}){
- if(!finite(point?.x,point?.z,width,depth,elevation)||width<MIN_CABINET_LENGTH||width>.90||
-  depth<.20||depth>1.2||!Number.isInteger(rows)||rows<1||rows>4||
+export function placeTallCabinet(source,point,{width=.50,depth=.60,rows=2,leaves=null,ceilingAligned=false,height=null,elevation=0}={}){
+ leaves=leaves??(width<=.55?1:2);
+ if(!finite(point?.x,point?.z,width,depth,elevation)||width<MIN_CABINET_LENGTH||width>1.10||
+  depth<.20||depth>1.2||!Number.isInteger(rows)||rows<1||rows>2||
   !Number.isInteger(leaves)||leaves<1||leaves>2)
   throw Error('ابعاد یا تعداد درب کابینت تمام‌قد معتبر نیست.');
  const near=nearestWall(source,point.x,point.z,.95);
@@ -1759,30 +1990,43 @@ export function placeTallCabinet(source,point,{width=.60,depth=.60,rows=2,leaves
  const ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
  const p=t=>({x:w.x1+ux*t,z:w.z1+uz*t});
  const cross=(point.x-near.x)*(-uz)+(point.z-near.z)*ux;
- const side=cross>=0?1:-1,unitHeight=ceilingAligned?w.height-elevation-.02:Number(height);
- const result=placeCabinet(source,{...p(centre-half),hostId:w.id,side},p(centre+half),{
+ const upperTop=Math.max(0,...source.filter(c=>c.kind==='cabinet'&&c.subtype==='upper').map(c=>c.elevation+c.height))||2.45;
+ const side=cross>=0?1:-1,unitHeight=height===null?Math.min(upperTop,w.height)-elevation:Number(height);
+ if(unitHeight+elevation>upperTop+.001)throw Error('ارتفاع قدی نمی‌تواند از بالای هوایی بیشتر باشد.');
+ let prepared=source,install=null,at=centre;
+ if(source.some(c=>c.kind==='cabinet'&&c.hostId===w.id&&c.side===side&&Math.min(c.endT*len,centre+half)-Math.max(c.startT*len,centre-half)>.001)){
+  prepared=copy(source);install={id:uid(),kind:'equipment',subtype:'tall-reservation',width,depth,height:unitHeight,elevation,installClearance:0};
+  if(!embedFridge(prepared,install,point))throw Error('برای قدی فضای نصب معتبر پیدا نشد.');
+  at=projectOnWall(w,install.x,install.z).t*len;
+ }
+ const result=placeCabinet(prepared,{...p(at-half),hostId:w.id,side},p(at+half),{
   kind:'tall',depth,height:unitHeight,elevation,side
  });
  const unit=byId(result.items,result.selectedId);
  if(Math.abs(lengthOf(unit)-width)>.015)throw Error('پنجره یا در اجازه نصب یونیت با این عرض را نمی‌دهد.');
- unit.ceilingAligned=!!ceilingAligned;unit.tallDoorRows=rows;unit.tallDoorLeaves=leaves;
+ if(install)unit.surround=install.surround;
+ unit.ceilingAligned=false;unit.upperAligned=true;unit.tallDoorRows=rows;unit.tallDoorLeaves=leaves;
  reflowFronts(result.items,unit,'doors');validateFronts(result.items,unit);
  return {items:result.items,selectedId:unit.id};
 }
-export function configureTallCabinet(source,id,{depth,rows,leaves}={}){
+export function configureTallCabinet(source,id,{depth,rows,leaves,frontOrientation,doorStyle}={}){
  const items=copy(source),unit=byId(items,id),w=byId(items,unit?.hostId);
  if(unit?.kind!=='cabinet'||unit.subtype!=='tall'||!wall(w))
   throw Error('یونیت تمام‌قد معتبر انتخاب نشده است.');
  if(rows!==undefined){
-  if(!Number.isInteger(rows)||rows<1||rows>4)throw Error('تعداد ردیف درب باید بین ۱ تا ۴ باشد.');
+  if(!Number.isInteger(rows)||rows<1||rows>2)throw Error('تعداد ردیف درب باید ۱ یا ۲ باشد.');
   unit.tallDoorRows=rows;
  }
  if(leaves!==undefined){
   if(!Number.isInteger(leaves)||leaves<1||leaves>2)throw Error('تعداد درب در عرض باید ۱ یا ۲ باشد.');
   unit.tallDoorLeaves=leaves;
  }
+ if(frontOrientation!==undefined){if(!['front','side'].includes(frontOrientation))throw Error('جهت نما معتبر نیست.');if(frontOrientation==='side'&&(depth??unit.depth)<.45&&doorStyle!=='open'&&unit.doorStyle!=='open')throw Error('برای در عمودی ۴۵ تا ۵۵، عمق نمای کناری حداقل ۴۵ لازم است؛ یا حالت بدون در را انتخاب کن.');unit.frontOrientation=frontOrientation;if(frontOrientation==='side')unit.tallDoorLeaves=1;}
  if(depth!==undefined)unit.depth=Number(depth);
- if(rows!==undefined||leaves!==undefined)reflowFronts(items,unit,'doors');
+ const frontage=unit.frontOrientation==='side'?Math.min(.55,unit.depth):lengthOf(unit),leafWidth=frontage/(unit.tallDoorLeaves||1);
+ if((doorStyle??unit.doorStyle)!=='open'&&(leafWidth<.45-1e-6||leafWidth>.55+1e-6))throw Error('عرض هر در عمودی قدی باید ۴۵ تا ۵۵ باشد؛ عرض باکس یا تعداد درها را هماهنگ کن.');
+ if(rows!==undefined||leaves!==undefined||frontOrientation!==undefined)reflowFronts(items,unit,'doors');
+ if(doorStyle!==undefined){if(!['flat','glass','open'].includes(doorStyle))throw Error('جنس در معتبر نیست.');for(const f of items.filter(f=>f.kind==='front'&&f.hostId===id))f.style=doorStyle;unit.doorStyle=doorStyle;}
  validateCabinets(items,w);
  return {items,selectedId:id};
 }
@@ -1800,7 +2044,7 @@ export function moveTallCabinet(source,id,point){
  });
  const created=byId(result.items,result.selectedId),newId=created.id;
  Object.assign(created,{id,frontPreset:unit.frontPreset||'doors',frontRules:unit.frontRules,
-  photoPreset:unit.photoPreset,decor:unit.decor});
+  photoPreset:unit.photoPreset,decor:unit.decor,frontOrientation:unit.frontOrientation,doorStyle:unit.doorStyle,upperAligned:unit.upperAligned});
  if(fronts.length){
   for(let index=result.items.length-1;index>=0;index--)
    if(result.items[index].kind==='front'&&result.items[index].hostId===newId)
@@ -2021,8 +2265,13 @@ export function removeObject(source,id){
    if(covers){for(const f of below)f.topT=target.topT;validateFronts(items,owner);}
   }
  }
+ if(target.kind==='cabinet'&&target.subtype==='tall'&&target.surround?.originalRun)restoreFridgeRun(items,target);
  if(target.kind==='equipment'){
-  if(target.subtype==='fridge'&&target.builtIn&&target.surround?.wallId)restoreFridgeRun(items,target);
+  const oldHost=byId(items,target.hostId);
+  if(oldHost?.kind==='cabinet'&&target.displacedUnitEdits?.length){
+   oldHost.unitEdits=[...(oldHost.unitEdits||[]),...copy(target.displacedUnitEdits)];delete oldHost.rowSolution;
+  }
+  if((target.subtype==='fridge'||target.subtype==='stove'&&target.model==='range')&&target.builtIn&&target.surround?.wallId)restoreFridgeRun(items,target);
   const host=byId(items,target.hostId);
   if(host?.kind==='cabinet'&&['base','tall'].includes(host.subtype)&&FRONT_PRESETS[host.frontPreset]){
    reflowFronts(items,host,host.frontPreset);
@@ -2033,6 +2282,16 @@ export function removeObject(source,id){
 }
 /* A move is one atomic replacement: clear old cutouts/apertures, relocate, and
    rebuild front bays. Failure leaves the original project untouched. */
+function preserveOverFridgeChoices(before,after,id){
+ const old=before.find(c=>c.kind==='cabinet'&&c.overFridgeId===id),fresh=after.find(c=>c.kind==='cabinet'&&c.overFridgeId===id);
+ if(!old||!fresh)return;
+ const oldFronts=before.filter(f=>f.kind==='front'&&f.hostId===old.id),freshId=fresh.id;
+ fresh.id=old.id;fresh.frontPreset=old.frontPreset;fresh.frontRules=old.frontRules;fresh.depthMode=old.depthMode;
+ fresh.depth=old.depthMode==='fridge'?byId(after,id).depth:old.depth;
+ for(let i=after.length-1;i>=0;i--)if(after[i].kind==='front'&&after[i].hostId===freshId)after.splice(i,1);
+ after.push(...copy(oldFronts));
+ validateCabinets(after,byId(after,fresh.hostId));
+}
 export function moveEquipment(source,id,point){
  const original=byId(source,id);
  if(original?.kind!=='equipment'||original.subtype==='hood')throw Error('برای جابه‌جایی، خود وسیله را انتخاب کن.');
@@ -2051,6 +2310,7 @@ export function moveEquipment(source,id,point){
  }
  if(original.subtype==='fridge'){
   created.facadeMode=created.builtIn?(original.facadeMode||'visible'):'visible';
+  preserveOverFridgeChoices(source,placed.items,id);
   return {items:placed.items,selectedId:id};
  }
  const changes={width:original.width,depth:original.depth,height:original.height,model:original.model,
@@ -2108,11 +2368,17 @@ export function editCabinet(source,id,{length,depth,height,elevation}){
  const items=copy(source),c=byId(items,id),w=byId(items,c?.hostId);
  if(!c||c.kind!=='cabinet'||!wall(w))throw Error('برای ویرایش کابینت باید دیوار میزبان وجود داشته باشد.');
  const len=lengthOf(w),target=Number(length??(c.endT-c.startT)*len);
+ if(c.subtype==='tall'&&length!==undefined&&c.frontOrientation!=='side'&&c.doorStyle!=='open'){
+  const leaves=Math.max(1,Math.ceil(target/.55-1e-6));
+  if(leaves>2||target/leaves<.45-1e-6)throw Error('عرض قدی برای یک یا دو درِ ۴۵ تا ۵۵ مناسب نیست.');
+  c.tallDoorLeaves=leaves;
+ }
  c.endT=c.startT+target/len;
+ if(c.subtype==='tall'&&Number(height??c.height)+Number(elevation??c.elevation)>(Math.max(0,...items.filter(x=>x.kind==='cabinet'&&x.subtype==='upper').map(x=>x.elevation+x.height))||2.45)+.001)throw Error('ارتفاع قدی بیشتر از هوایی است.');
  const manualTallHeight=c.subtype==='tall'&&(height!==undefined&&Math.abs(Number(height)-c.height)>.001||
   elevation!==undefined&&Math.abs(Number(elevation)-c.elevation)>.001);
  c.depth=Number(depth??c.depth);c.height=Number(height??c.height);c.elevation=Number(elevation??c.elevation);
- if(manualTallHeight)c.ceilingAligned=false;
+ if(manualTallHeight){c.ceilingAligned=false;c.upperAligned=false;}
  if(c.subtype==='upper'&&(height!==undefined||elevation!==undefined)){
   return {...applyAllUpperHeights(items,{height:c.height,elevation:c.elevation}),selectedId:id};
  }
@@ -2151,12 +2417,30 @@ export function countertopCutouts(items,c){
     cutDepth:e.subtype==='sink'?.24:.085};
   });
 }
+export function cabinetVoidRanges(items,c){
+ if(c?.subtype!=='upper')return [];
+ const len=lengthOf(c),dx=(c.x2-c.x1)/len,dz=(c.z2-c.z1)/len;
+ return items.filter(h=>h.kind==='equipment'&&h.subtype==='hood'&&['chimney','angled'].includes(h.model)).flatMap(h=>{
+  const e=byId(items,h.linkedStoveId),base=byId(items,e?.hostId);
+  if(!e||(base?.hostId??e.surround?.wallId)!==c.hostId||(base?.side??e.surround?.side)!==c.side)return [];
+  const centre=(e.x-c.x1)*dx+(e.z-c.z1)*dz;
+  const a=Math.max(0,centre-h.width/2),b=Math.min(len,centre+h.width/2);
+  return b>a?[{start:a-len/2,end:b-len/2}]:[];
+ });
+}
 /* A cupboard above a refrigerator has its own facade and depth choice. */
-export function addOverFridgeCabinet(source,fridgeId,{depth=.60}={}){
+export function addOverFridgeCabinet(source,fridgeId,{depth='base'}={}){
  const items=copy(source),e=byId(items,fridgeId);
  if(e?.subtype!=='fridge')throw Error('ابتدا یخچال را انتخاب کن.');
+ const depthMode=typeof depth==='string'?depth:'custom';
+ if(depth==='fridge')depth=e.depth;
+ if(depth==='base'){
+  const hostId=e.surround?.wallId||nearestWall(items,e.x,e.z,1)?.wall.id;
+  const bases=items.filter(c=>c.kind==='cabinet'&&c.subtype==='base'&&c.hostId===hostId).sort((a,b)=>Math.hypot((a.x1+a.x2)/2-e.x,(a.z1+a.z2)/2-e.z)-Math.hypot((b.x1+b.x2)/2-e.x,(b.z1+b.z2)/2-e.z));
+  depth=bases[0]?.depth??.6;
+ }
  const existing=items.find(c=>c.kind==='cabinet'&&c.overFridgeId===fridgeId);
- if(existing){existing.depth=Number(depth);validateCabinets(items,byId(items,existing.hostId));
+ if(existing){existing.depth=Number(depth);existing.depthMode=depthMode;validateCabinets(items,byId(items,existing.hostId));
   return {items,selectedId:existing.id};}
  const host=byId(items,e.surround?.wallId)||nearestWall(items,e.x,e.z,1)?.wall;
  if(!wall(host))throw Error('یخچال باید نزدیک دیوار باشد تا کابینت بالای آن نصب شود.');
@@ -2167,7 +2451,7 @@ export function addOverFridgeCabinet(source,fridgeId,{depth=.60}={}){
  const cross=(e.x-host.x1)*(host.z2-host.z1)-(e.z-host.z1)*(host.x2-host.x1);
  const side=e.surround?.side??(cross>0?-1:1);
  const c={id:uid(),kind:'cabinet',subtype:'over-fridge',name:'کابینت بالای یخچال',
-  hostId:host.id,overFridgeId:fridgeId,side,startT:a,endT:b,depth:Number(depth),
+  hostId:host.id,overFridgeId:fridgeId,side,startT:a,endT:b,depth:Number(depth),depthMode,
   height,elevation,cornerGroup:null};
  items.push(c);validateCabinets(items,host);reflowFronts(items,c,'doors');
  return {items,selectedId:c.id};
@@ -2214,7 +2498,9 @@ export function applyAllUpperHeights(source,{height,elevation}={}){
   if(elevation!==undefined)c.elevation=Number(elevation);
   if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
  }
+ const top=Math.max(...uppers.map(c=>c.height+c.elevation));
+ for(const tall of items.filter(c=>c.kind==='cabinet'&&c.subtype==='tall'))if(tall.upperAligned||tall.elevation+tall.height>top){tall.height=top-tall.elevation;reflowFronts(items,tall,'doors');}
  refitBridges(items);
- for(const id of new Set(uppers.map(c=>c.hostId)))validateCabinets(items,byId(items,id));
+ for(const id of new Set([...uppers,...items.filter(c=>c.kind==='cabinet'&&c.subtype==='tall'&&c.upperAligned)].map(c=>c.hostId)))validateCabinets(items,byId(items,id));
  return {items,selectedId:uppers[0].id};
 }

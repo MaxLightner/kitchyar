@@ -1,10 +1,10 @@
-import {FloorAR} from './floor-ar.js?v=unit63';
-import * as Geo from './geometry.js?v=unit63';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=unit63';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix60';
+import {FloorAR} from './floor-ar.js?v=kitchen64';
+import * as Geo from './geometry.js?v=kitchen64';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=kitchen64';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=kitchen64';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
-import {buildCutReport} from './report-data.js?v=nest35';
+import {buildCutReport} from './report-data.js?v=kitchen64';
 import {renderCutReport} from './report-view.js?v=sheetpager39';
 import {downloadCutReportXlsx} from './report-xlsx.js?v=nest35';
 import {DEFAULT_SHEET,validateSheetOptions} from './sheet-nesting.js?v=nest35';
@@ -37,7 +37,7 @@ let movingEquipmentId=null,pendingSmartLayout=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
 let wideLevel='wide';
 let facadesHidden=false,roomSurfacesVisible=false,fridgeFreestanding=false;
-let styleApplyToken=0,selectedGalleryStyleId=null;
+let styleApplyToken=0,selectedGalleryStyleId=null,galleryMode='model';
 let reportSheetOptions={...DEFAULT_SHEET};
 let miniLastHost=null,miniLastItems=null,miniLastCalibration='',miniLastFacadesHidden=null;
 const trackedView=()=>mode==='ar'||(mode==='3d'&&!!floor?.wideActive);
@@ -214,7 +214,8 @@ function projectMenu(id){
  const p=projects.find(x=>x.id===id);if(!p)return;
  dialogs.innerHTML='<div class="dialog-cover"><div class="dialog"><h2>'+esc(p.name)+'</h2><button data-action="rename" data-id="'+esc(id)+'">تغییر نام</button><button data-action="copy" data-id="'+esc(id)+'">ایجاد کپی</button><button class="danger" data-action="delete" data-id="'+esc(id)+'">حذف پروژه</button><button data-action="close-dialog">بستن</button></div></div>';
 }
-function openStyleGallery(){
+function openStyleGallery(mode='model'){
+ galleryMode=mode;
  selectedGalleryStyleId=null;
  dialogs.innerHTML='<div class="dialog-cover"><div class="dialog style-dialog"><div class="style-dialog-head"><h2>انتخاب نمونه آشپزخانه</h2><button data-action="close-dialog">×</button></div><p>هر سبک، چیدمان کدنویسی‌شده درب‌ها، کشوها، دستگیره‌ها و متریال‌ها دارد. حتی پیش از نصب کابینت می‌توانی سبک را انتخاب کنی.</p><div class="style-grid">'+
   KITCHEN_STYLES.map(s=>'<button data-action="select-style" data-style="'+s.id+'"><img src="'+assetUrl(s.image)+'" alt="نمونه '+s.label+'"><strong>'+s.label+'</strong><small>'+s.description+'</small></button>').join('')+
@@ -275,7 +276,7 @@ function drawTools(){
  if(activeTool==='material'){
   const chosen={...DEFAULT_MATERIALS,...currentProject()?.scene?.materials};
   const tileLayout=currentTileLayout();
-  sheet.innerHTML=head+'<div class="material-tool-head"><strong>متریال‌های مستقل آشپزخانه</strong><button data-action="open-style-gallery">گالری نمونه‌های آشپزخانه</button></div>'+
+  sheet.innerHTML=head+'<div class="material-tool-head"><strong>متریال‌های مستقل آشپزخانه</strong><button data-action="open-style-gallery" data-gallery-mode="color">گالری نمونه‌های آشپزخانه</button></div>'+
    Object.entries({baseBody:'بدنه نمایان زمینی',upperBody:'بدنه نمایان هوایی',baseFront:'درب و کشوی زمینی',upperFront:'درب هوایی',counter:'صفحه رویه',backsplash:'بین‌کابینتی خودکار'}).map(([key,title])=>
     '<div class="material-family"><strong>'+title+'</strong><div class="material-options">'+MATERIALS[key.endsWith('Front')?'front':key.endsWith('Body')?'body':key].map(m=>
     '<button data-action="set-material" data-surface="'+key+'" data-material="'+m.id+'" class="'+((key.endsWith('Front')||key.endsWith('Body')?resolveFinish(chosen,key.startsWith('upper')?'upper':'base',key.endsWith('Body')?'body':'front'):chosen[key])===m.id?'active':'')+'">'+
@@ -294,14 +295,14 @@ function drawTools(){
  }
  const tools=activeTool==='architecture'?[['wall','دیوار'],['window','پنجره ثابت'],['door','در']]:
   activeTool==='cabinets'?[['base','کابینت زمینی'],['upper','کابینت هوایی']]:
-  activeTool==='equipment'?[['fridge','یخچال'],['tall','یونیت کف تا سقف'],['stove','اجاق گاز'],['sink','سینک'],
+  activeTool==='equipment'?[['fridge','یخچال'],['tall','کابینت قدی'],['stove','اجاق گاز'],['sink','سینک'],
    ['dishwasher','ماشین ظرفشویی'],['washer','ماشین لباسشویی'],['oven','فر توکار'],['microwave','مایکروویو توکار']]:
   activeTool==='fronts'?[['front-smart','طراحی هوشمند کل آشپزخانه'],['front-doors','درب بازشو'],['front-drawers2','۲ کشوی مساوی'],['front-drawers3','۳ کشوی مساوی'],['front-drawers4','۴ کشوی مساوی'],['front-graduated','۳ کشوی پلکانی'],['front-mixed','کشوی بالا + دو درب'],['front-mixedLower','دو درب بالا + کشوی پایین']]:[];
  if(!tools.length){sheet.innerHTML=head+'<span>ابزارهای این بخش در مرحله بعد اضافه می‌شوند.</span>';return;}
  const wallTools=activeTool==='architecture';
  sheet.innerHTML=head+(activeTool==='fronts'?'<div class="front-tools-actions"><button class="style-gallery-trigger" data-action="open-style-gallery">▣ انتخاب مدل از گالری آشپزخانه</button><button data-action="open-front-rules">⚙ قوانین درب، کشو و هم‌ترازی</button></div>':'')+'<div class="tool-choices">'+tools.map(([id,label])=>
   '<button class="'+(drawing?.tool===id?'active':'')+'" data-action="tool" data-tool="'+id+'">'+label+'</button>').join('')+'</div>'+
-  (activeTool==='fronts'?'<p class="equipment-help">طرح هوشمند تمام کابینت‌ها را یک‌جا با سینک، گاز، فر و یخچال هماهنگ می‌کند. پیش‌نمایش را ببین و تأیید کن؛ برای تغییر یک کابینت آن را انتخاب کن و یک طرح دیگر بزن.</p>':activeTool==='equipment'?'<p class="equipment-help">یخچال و یونیت کف‌تا‌سقف مانند تجهیزات مستقل نصب می‌شوند؛ گاز و سینک روی صفحه و ماشین‌ها زیر صفحه قرار می‌گیرند.</p><label class="check-row">یخچال مستقل؛ بدون کابینت دور آن<input data-fridge-free type="checkbox" '+(fridgeFreestanding?'checked':'')+'></label>':wallTools?'<div class="tool-settings"><label>ضخامت دیوار (متر)<input data-setting="thickness" type="number" min=".07" max=".8" step=".01" value="'+settings.thickness+'"></label>'+
+  (activeTool==='fronts'?'<p class="equipment-help">طرح هوشمند تمام کابینت‌ها را یک‌جا با سینک، گاز، فر و یخچال هماهنگ می‌کند. پیش‌نمایش را ببین و تأیید کن؛ برای تغییر یک کابینت آن را انتخاب کن و یک طرح دیگر بزن.</p>':activeTool==='equipment'?'<p class="equipment-help">یخچال و کابینت قدی مانند تجهیزات مستقل نصب می‌شوند؛ گاز و سینک روی صفحه و ماشین‌ها زیر صفحه قرار می‌گیرند.</p><label class="check-row">یخچال مستقل؛ بدون کابینت دور آن<input data-fridge-free type="checkbox" '+(fridgeFreestanding?'checked':'')+'></label>':wallTools?'<div class="tool-settings"><label>ضخامت دیوار (متر)<input data-setting="thickness" type="number" min=".07" max=".8" step=".01" value="'+settings.thickness+'"></label>'+
    '<label>ارتفاع دیوارها و سقف (متر)<input data-setting="height" type="number" min="2" max="9" step=".1" value="'+settings.height+'"></label></div>':
    '<div class="tool-settings"><label>عمق زمینی (متر)<input data-setting="baseDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.baseDepth+'"></label>'+
    '<label>عمق هوایی (متر)<input data-setting="upperDepth" type="number" min=".2" max="1.2" step=".05" value="'+settings.upperDepth+'"></label>'+'<label>ارتفاع کابینت هوایی (متر)<input data-setting="upperHeight" type="number" min=".25" max="1.8" step=".01" value="'+settings.upperHeight+'"></label>'+'<label>ارتفاع نصب از کف (متر)<input data-setting="upperElevation" type="number" min="0" max="3" step=".01" value="'+settings.upperElevation+'"></label></div>')+
@@ -340,8 +341,10 @@ function drawSelection(){
    const width=(selectedUnit.endT-selectedUnit.startT)*Geo.lengthOf(host);
    panel.innerHTML='<div class="object-head"><strong>یونیت انتخاب‌شده · '+num(width)+' متر</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
     '<p class="unit-editor-hint">تغییر نوع همین یونیت؛ درب‌ها و کشوهای یونیت‌های مجاور دست‌نخورده می‌مانند.</p>'+
-    '<div class="unit-convert-actions">'+[['doors','درب لولایی'],['drawers2','۲ کشو'],['drawers3','۳ کشو'],['drawers4','۴ کشو']].map(([preset,label])=>
+    '<div class="unit-convert-actions">'+(host.subtype==='base'?[['doors','درب لولایی'],['drawers2','۲ کشو'],['drawers3','۳ کشو'],['drawers4','۴ کشو']]:[['doors','درب لولایی']]).map(([preset,label])=>
      '<button data-action="convert-unit" data-unit-preset="'+preset+'">'+label+'</button>').join('')+'</div>'+
+    '<label>مدل در این یونیت<select data-unit-option="doorStyle">'+[['flat','MDF صاف'],['frame','قاب‌دار'],['glass','شیشه'],['cnc','CNC'],['open','بدون در']].map(([v,l])=>'<option value="'+v+'" '+(currentItems().find(f=>f.id===selectedUnit.frontId)?.style===v?'selected':'')+'>'+l+'</option>').join('')+'</select></label>'+
+    (host.subtype==='upper'?'<label>بازشو<select data-unit-option="opening"><option value="vertical">عمودی</option><option value="horizontal" '+(currentItems().find(f=>f.id===selectedUnit.frontId)?.hinge==='top'?'selected':'')+' '+(host.height<.9?'disabled':'')+'>افقی</option></select></label><label>مکانیزم<select data-unit-option="mechanism"><option value="independent">مستقل</option><option value="bifold" '+(currentItems().find(f=>f.id===selectedUnit.frontId)?.mechanism==='bifold'?'selected':'')+' '+(host.height<.9?'disabled':'')+'>دو تکه با جک مشترک</option></select></label>':'')+
     '<small>یک بار لمس: تنظیمات نما · دو بار: بازکردن · نگه‌داشتن: انتخاب یونیت</small>';
    return;
   }
@@ -352,6 +355,8 @@ function drawSelection(){
  const previousScroll=panel.dataset.selectionId===obj.id?panel.scrollTop:0;
  const field=(key,title,val,min,step='.01')=>'<label>'+title+'<input type="number" data-edit="'+key+'" value="'+Number(val).toFixed(2)+'" min="'+min+'" step="'+step+'"></label>';
  let fields='',title=obj.name;
+ if(obj.kind==='corner')fields='<label>در کنج<select data-corner-option="doorMode"><option value="none" '+(obj.doorMode==='none'?'selected':'')+'>بدون در</option><option value="door" '+(obj.doorMode!=='none'?'selected':'')+'>دردار</option></select></label><label>صفحه کنج<select data-corner-option="countertopMode"><option value="bevel" '+(obj.countertopMode==='bevel'?'selected':'')+'>پخ</option><option value="full" '+(obj.countertopMode==='full'?'selected':'')+'>کامل</option></select></label><button data-action="corner-open">باز / بسته کردن در کنج</button>';
+
  if(obj.kind==='wall')fields=field('length','طول (متر)',Geo.lengthOf(obj),.1)+field('thickness','ضخامت (متر)',obj.thickness,.07)+field('height','ارتفاع همه دیوارها (متر)',obj.height,2);
  if(obj.kind==='opening'){
   const host=currentItems().find(x=>x.id===obj.hostId);
@@ -373,7 +378,7 @@ function drawSelection(){
  if(obj.kind==='front'){
   const host=currentItems().find(x=>x.id===obj.hostId);
   if(host){
-   const span=(obj.endT-obj.startT)*Geo.lengthOf(host),height=(obj.topT-obj.bottomT)*host.height;
+   const span=(obj.endT-obj.startT)*Geo.frontageLength(host),height=(obj.topT-obj.bottomT)*host.height;
    const choose=(key,title,options,value)=>'<label>'+title+'<select data-edit-front="'+key+'">'+options.map(([v,l])=>
     '<option value="'+v+'" '+(value===v?'selected':'')+'>'+l+'</option>').join('')+'</select></label>';
    fields=field('width','عرض نما (متر)',span,.15)+field('height','ارتفاع نما (متر)',height,.10)+
@@ -457,13 +462,13 @@ function drawSelection(){
  })():'';
  const tallControls=obj.kind==='cabinet'&&obj.subtype==='tall'?
   '<div class="model-choices"><strong>تقسیم درب‌های یونیت تمام‌قد</strong><small>تعداد ردیف‌های عمودی؛ ارتفاع هر ردیف و عرض هر درب را بعداً با دستگیره‌ها یا اندازهٔ عددی خودش تغییر بده.</small><div class="model-choices-grid">'+
-  [1,2,3,4].map(n=>'<button data-action="tall-rows" data-count="'+n+'" class="'+((obj.tallDoorRows||1)===n?'active':'')+'">'+n+' ردیف</button>').join('')+
+  [1,2].map(n=>'<button data-action="tall-rows" data-count="'+n+'" class="'+((obj.tallDoorRows||1)===n?'active':'')+'">'+n+' ردیف</button>').join('')+
   '</div><strong>تعداد درب در عرض</strong><div class="model-choices-grid">'+
   [1,2].map(n=>'<button data-action="tall-leaves" data-count="'+n+'" class="'+((obj.tallDoorLeaves||Math.ceil(Geo.lengthOf(obj)/.62))===n?'active':'')+'">'+n+' درب</button>').join('')+
   '</div><strong>عمق بدنه</strong><div class="model-choices-grid">'+
   [['.35','عمق هوایی · ۳۵'],['.60','عمق زمینی · ۶۰']].map(([depth,label])=>
    '<button data-action="tall-depth" data-depth="'+depth+'" class="'+(Math.abs(obj.depth-Number(depth))<.001?'active':'')+'">'+label+'</button>').join('')+
-  '</div><small>عمق دلخواه را هم در کادر عمق بالا وارد کن. ارتفاع پیش‌فرض تا زیر سقف است.</small></div>':'';
+  '</div><label>نمای قدی<select data-tall-option="frontOrientation"><option value="front">روبه‌رو</option><option value="side" '+(obj.frontOrientation==='side'?'selected':'')+'>کنار</option></select></label><label>در قدی<select data-tall-option="doorStyle">'+[['flat','MDF'],['glass','شیشه'],['open','بدون در']].map(([v,l])=>'<option value="'+v+'" '+(obj.doorStyle===v?'selected':'')+'>'+l+'</option>').join('')+'</select></label><small>عمق دلخواه را هم در کادر عمق بالا وارد کن. ارتفاع تا بالای کابینت هوایی است.</small></div>':'';
  const equipmentFacadeControls=obj.kind==='equipment'&&['washer','dishwasher'].includes(obj.subtype)?
   '<div class="equipment-facade-panel"><strong>هماهنگی نمای دستگاه با کابینت</strong><div class="model-choices-grid">'+
   [['visible','نمای خود دستگاه'],['matched','پنل هم‌رنگ'],['concealed','پشت درب قاب‌دار']].map(([id,label])=>
@@ -824,7 +829,7 @@ function applySelection(){
  if(obj.kind==='front'){
   const c=currentItems().find(x=>x.id===obj.hostId);
   const get=key=>document.querySelector('[data-edit-front="'+key+'"]')?.value;
-  const actualWidth=(obj.endT-obj.startT)*Geo.lengthOf(c),actualHeight=(obj.topT-obj.bottomT)*c.height;
+  const actualWidth=(obj.endT-obj.startT)*Geo.frontageLength(c),actualHeight=(obj.topT-obj.bottomT)*c.height;
   const shownWidth=Math.round(actualWidth*100)/100,shownHeight=Math.round(actualHeight*100)/100;
   const desiredWidth=value('width',shownWidth),desiredHeight=value('height',shownHeight);
   result=Geo.editFront(currentItems(),obj.id,{
@@ -854,6 +859,14 @@ document.addEventListener('input',e=>{
  p.scene.render[slider.dataset.render]=slider.type==='checkbox'?slider.checked:Number(slider.value);floor?.setLighting(renderSettings());
 });
 document.addEventListener('change',e=>{
+ if(e.target.matches('[data-corner-option]')){try{commitChange(Geo.configureCorner(currentItems(),selection,{[e.target.dataset.cornerOption]:e.target.value}));}catch(error){tell(error.message);}return;}
+ if(e.target.matches('[data-tall-option]')){try{commitChange(Geo.configureTallCabinet(currentItems(),selection,{[e.target.dataset.tallOption]:e.target.value}));}catch(error){tell(error.message);}return;}
+ if(e.target.matches('[data-unit-option]')&&selectedUnit){
+  try{const result=Geo.configureFrontUnit(currentItems(),selectedUnit.frontId,{[e.target.dataset.unitOption]:e.target.value});
+   commitChange(result,{skipAlignment:true});selectedUnit=Geo.frontUnitFor(currentItems(),selection);selection=selectedUnit.hostId;showScene();inspectorOpen=true;drawSelection();
+  }catch(error){tell(error.message);drawSelection();}return;
+ }
+
  if(e.target.matches('[data-fridge-free]')){fridgeFreestanding=e.target.checked;return;}
  if(e.target.matches('[data-setting="height"]')){
   const high=Number(e.target.value);
@@ -1208,7 +1221,7 @@ document.addEventListener('click',async e=>{
    showScene();return;
   }
  if(action==='toggle-surfaces'){roomSurfacesVisible=!roomSurfacesVisible;showScene();return;}
-  if(action==='open-style-gallery')return openStyleGallery();
+  if(action==='open-style-gallery')return openStyleGallery(button.dataset.galleryMode||'model');
   if(action==='open-front-rules')return openFrontRules(selection&&currentItems().some(o=>o.id===selection&&['cabinet','front'].includes(o.kind))?'connected':'global');
   if(action==='front-rule-scope')return openFrontRules(button.dataset.scope);
   if(action==='apply-front-rules'){
@@ -1261,6 +1274,11 @@ document.addEventListener('click',async e=>{
    if(!response.ok)throw Error('فایل دستورهای طرح تصویر در دسترس نیست.');
    const preset=await response.json();
    if(token!==styleApplyToken||currentProject()!==project)return;
+   if(galleryMode==='color'){
+    const scene=currentProject()?.scene||{},palette={...DEFAULT_MATERIALS,...scene.materials,baseFront:preset.materials.baseFront||preset.materials.front,upperFront:preset.materials.upperFront||preset.materials.front};
+    const painted=structuredClone(currentItems());for(const f of painted.filter(f=>f.kind==='front')){delete f.materialId;delete f.frameMaterialId;if(f.manualOverrides){delete f.manualOverrides.materialId;delete f.manualOverrides.frameMaterialId;}}
+    commitChange({items:painted,selectedId:selection},{materials:palette,skipAlignment:true});dialogs.replaceChildren();tell('فقط رنگ درها اعمال شد.');return;
+   }
    const result=Geo.applyKitchenLayout(currentItems(),style.id,{preset});
    commitChange(result,{styleId:style.id,stylePreset:preset});
    const appliedItems=project.scene.items;
@@ -1269,7 +1287,7 @@ document.addEventListener('click',async e=>{
    await new Promise(resolve=>setTimeout(resolve,450));
    if(token!==styleApplyToken||currentProject()!==project||project.scene.items!==appliedItems)return;
    // Keep a kitchen-style change as a single undo step.
-   project.scene.materials={...DEFAULT_MATERIALS,...preset.materials};
+   // Model samples preserve the current palette; color samples have a separate action.
    project.updatedAt=new Date().toISOString();save();
    showScene();dialogs.replaceChildren();
    tell(hadCabinets?'مدل، درب‌ها، کشوها و متریال‌ها اعمال شدند.':'مدل ذخیره شد؛ با نصب کابینت‌ها خودکار اعمال می‌شود.');return;
@@ -1352,9 +1370,10 @@ document.addEventListener('click',async e=>{
   if(action==='bridge'){
    commitChange(Geo.addVerticalBridge(currentItems(),selection,{edge:button.dataset.edge,depthMode:button.dataset.depth,width:Number(document.querySelector('[data-bridge-width]')?.value||.45)}));return;
   }
+  if(action==='corner-open'){const join=currentItems().find(x=>x.id===selection);if(join?.kind==='corner')commitChange(Geo.configureCorner(currentItems(),selection,{openFraction:join.openFraction?0:1}));return;}
   if(action==='fridge-over'){
    const e=currentItems().find(o=>o.id===selection&&o.subtype==='fridge');if(!e)return;
-   commitChange(Geo.addOverFridgeCabinet(currentItems(),e.id,{depth:button.dataset.depth==='fridge'?e.depth:button.dataset.depth==='base'?settings.baseDepth:Number(button.dataset.depth)}));return;
+   commitChange(Geo.addOverFridgeCabinet(currentItems(),e.id,{depth:['fridge','base'].includes(button.dataset.depth)?button.dataset.depth:Number(button.dataset.depth)}));return;
   }
   if(action==='rename')return rename(id);
   if(action==='delete')return remove(id);

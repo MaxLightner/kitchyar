@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../apps/preview');
 const port = Number(process.env.PORT || 4173);
-const types = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8'};
+const types = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json':'application/json; charset=utf-8', '.webp':'image/webp', '.png':'image/png', '.jpg':'image/jpeg', '.svg':'image/svg+xml'};
 http.createServer((req, res) => {
   const pathname = decodeURIComponent((req.url || '/').split('?')[0]);
   const filename = path.resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));

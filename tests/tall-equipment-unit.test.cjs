@@ -4,23 +4,23 @@ const assert=require('node:assert/strict');
 const wall=(id,z,height=3.6)=>({id,kind:'wall',x1:0,z1:z,x2:4,z2:z,height,thickness:.15});
 const tall=items=>items.find(o=>o.kind==='cabinet'&&o.subtype==='tall');
 
-test('equipment-style tall unit follows ceiling and offers independent door rows, leaves and depth',async()=>{
+test('equipment-style tall unit follows upper-cabinet top and offers independent door rows, leaves and depth',async()=>{
  const Geo=await import('../apps/preview/geometry.js');
- let p=Geo.placeTallCabinet([wall('w',0)],{x:2,z:.2});
+ let p=Geo.placeTallCabinet([wall('w',0)],{x:2,z:.2},{width:1.0});
  let c=tall(p.items);
- assert.equal(c.ceilingAligned,true);
- assert.ok(Math.abs(c.height-3.58)<.001);
- assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,2);
- p=Geo.configureTallCabinet(p.items,c.id,{rows:3,leaves:2,depth:.35});
+ assert.equal(c.upperAligned,true);
+ assert.ok(Math.abs(c.height-2.45)<.001);
+ assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,4);
+ p=Geo.configureTallCabinet(p.items,c.id,{rows:1,leaves:2,depth:.35});
  c=tall(p.items);
  assert.equal(c.depth,.35);
- assert.equal(c.tallDoorRows,3);
+ assert.equal(c.tallDoorRows,1);
  assert.equal(c.tallDoorLeaves,2);
- assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,6);
+ assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,2);
  p=Geo.setAllWallHeights(p.items,4.2);
  c=tall(p.items);
- assert.ok(Math.abs(c.height-4.18)<.001);
- assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,6);
+ assert.ok(Math.abs(c.height-2.45)<.001);
+ assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,2);
  assert.throws(()=>Geo.configureTallCabinet(p.items,c.id,{leaves:3}));
 });
 

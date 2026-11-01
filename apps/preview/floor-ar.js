@@ -3,12 +3,12 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=unit63';
-import {neighborGaps} from './edit-handles.js?v=fix60';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=kitchen64';
+import {neighborGaps} from './edit-handles.js?v=kitchen64';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
-import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=fix43';
+import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=kitchen64';
 import {roomOutline} from './room-surfaces.js?v=room40';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
 
@@ -526,6 +526,7 @@ export class FloorAR {
    if(obj.style!=='door'){const v=p(center,obj.sill);mark('bottom',v.x,v.y,v.z,0xf1b366);}
   }else if(obj.kind==='front'){
    const host=items.find(x=>x.id===obj.hostId),pose=frontPose(obj,host);if(!pose)return;
+   if(host.frontOrientation==='side')return; // Side fronts use their true elevation/numeric controls.
    const len=Math.hypot(host.x2-host.x1,host.z2-host.z1),ux=(host.x2-host.x1)/len,uz=(host.z2-host.z1)/len;
    const p=(along,y)=>({x:host.x1+ux*along-uz*pose.side*(host.depth/2+.055),
     y,z:host.z1+uz*along+ux*pose.side*(host.depth/2+.055)});
@@ -892,6 +893,7 @@ export class FloorAR {
   if(next===this.facadesHidden)return;
   this.facadesHidden=next;
   for(const root of this.frontRoots)root.visible=!next;
+  for(const control of this.frontControls.values())for(const jack of control.jacks||[])jack.mesh.visible=!next&&control.fraction>.03;
   // Visibility is view state: no remeshing, AO, project mutation or undo step.
   this.renderPreview();
  }
@@ -948,6 +950,23 @@ export class FloorAR {
   }else if(pivot){
    if(panel.hinge==='top')pivot.rotation.x=-pose.side*fraction*Math.PI*.48;
    else pivot.rotation.y=(panel.hinge==='right'?1:-1)*pose.side*fraction*Math.PI*.49;
+   if(panel.mechanism==='bifold'&&panel.hinge==='top'){
+    const upper=this.items.find(f=>f.kind==='front'&&f.hostId===panel.hostId&&(panel.unitKey?f.unitKey===panel.unitKey:f.bay===panel.bay)&&f.bottomT>panel.bottomT+.001);
+    if(upper){
+     const theta=fraction*Math.PI*.46,h=(upper.topT-upper.bottomT)*host.height;
+     pivot.rotation.x=pose.side*theta;
+     root.position.y=pose.y+h*(1-Math.cos(theta));
+     root.position.x=pose.x-Math.sin(pose.angle)*pose.side*h*Math.sin(theta);
+     root.position.z=pose.z+Math.cos(pose.angle)*pose.side*h*Math.sin(theta);
+    }
+   }
+  }
+  for(const jack of control.jacks||[]){
+   const theta=fraction*Math.PI*.48,nx=-Math.sin(pose.angle)*pose.side,nz=Math.cos(pose.angle)*pose.side;
+   const x=jack.edge*(pose.width/2-.035),a=new THREE.Vector3(pose.x+Math.cos(pose.angle)*x-nx*.18,pose.y-pose.height*.2,pose.z+Math.sin(pose.angle)*x-nz*.18);
+   const b=new THREE.Vector3(pose.x+Math.cos(pose.angle)*x+nx*pose.height*.5*Math.sin(theta),pose.y+pose.height/2-pose.height*.5*Math.cos(theta),pose.z+Math.sin(pose.angle)*x+nz*pose.height*.5*Math.sin(theta));
+   const direction=b.clone().sub(a),length=direction.length();jack.mesh.position.copy(a).add(b).multiplyScalar(.5);jack.mesh.scale.y=length;
+   jack.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());jack.mesh.visible=fraction>.03&&!this.facadesHidden;
   }
  }
  animateFront(id,to){
@@ -1094,6 +1113,23 @@ export class FloorAR {
   this.previewOrbit.x=(Math.min(...xs)+Math.max(...xs))/2;
   this.previewOrbit.z=(Math.min(...zs)+Math.max(...zs))/2;
   this.previewOrbit.radius=Math.max(3.5,(Math.max(...xs)-Math.min(...xs)+Math.max(...zs)-Math.min(...zs))*.85+2);
+  if(!this.previewViewChosen&&this.items.some(c=>c.kind==='cabinet')){
+   const orbit=this.previewOrbit,walls=this.items.filter(w=>w.kind==='wall'),cabinets=this.items.filter(c=>c.kind==='cabinet');
+   let best=-Infinity;
+   for(let i=0;i<16;i++){
+    const yaw=i*Math.PI/8,eye={x:orbit.x+orbit.radius*Math.cos(yaw),z:orbit.z+orbit.radius*Math.sin(yaw)};
+    let score=0;
+    for(const c of cabinets){
+     const len=Math.hypot(c.x2-c.x1,c.z2-c.z1),nx=-(c.z2-c.z1)/len*(c.side||1),nz=(c.x2-c.x1)/len*(c.side||1);
+     const target={x:(c.x1+c.x2)/2+nx*c.depth/2,z:(c.z1+c.z2)/2+nz*c.depth/2},dx=target.x-eye.x,dz=target.z-eye.z;
+     const blocked=walls.some(w=>{const wx=w.x2-w.x1,wz=w.z2-w.z1,det=dx*wz-dz*wx;if(Math.abs(det)<1e-7)return false;
+      const t=((w.x1-eye.x)*wz-(w.z1-eye.z)*wx)/det,u=((w.x1-eye.x)*dz-(w.z1-eye.z)*dx)/det;return t>0&&t<1&&u>0&&u<1;});
+     if(!blocked)score+=len*(1+Math.max(0,((eye.x-target.x)*nx+(eye.z-target.z)*nz)/Math.hypot(dx,dz)));
+    }
+    if(score>best){best=score;orbit.yaw=yaw;}
+   }
+   this.previewViewChosen=true;
+  }
  }
  renderPreview(){
   if(!this.previewRenderer||!this.previewCamera||!this.previewHost)return;
@@ -1443,17 +1479,23 @@ export class FloorAR {
    polygon.forEach((p,i)=>i?shape.lineTo(p.x,p.z):shape.moveTo(p.x,p.z));shape.closePath();
    // One low-poly extruded trapezoid links arbitrary-angle cabinet runs.
    // No boolean mesh and no shadow-catching internal overlap.
-   const body=new THREE.ExtrudeGeometry(shape,{depth:data.height,steps:1,bevelEnabled:false,curveSegments:1});
+   const body=new THREE.ExtrudeGeometry(shape,{depth:.018,steps:1,bevelEnabled:false,curveSegments:1});
    body.rotateX(Math.PI/2);
    const mat=new THREE.MeshStandardMaterial({color:0xe7e4dc,roughness:.78,side:THREE.DoubleSide});
-   const mesh=new THREE.Mesh(body,mat);mesh.position.y=data.elevation+data.height;
+   const mesh=new THREE.Mesh(body,mat);mesh.position.y=data.elevation+.018;
    mesh.userData.objectId=join.id;mesh.castShadow=true;mesh.receiveShadow=true;this.objectGroup.add(mesh);
-   const outerA=polygon[3],outerB=polygon[2],span=Math.hypot(outerB.x-outerA.x,outerB.z-outerA.z);
+   const outerA=data.frontA,outerB=data.frontB,span=Math.hypot(outerB.x-outerA.x,outerB.z-outerA.z);
    const frontMat=this.surfaceMaterial('front',resolveFinish(this.materialSettings,data.subtype==='upper'?'upper':'base','front'),span,data.height);
    const front=new THREE.Mesh(new THREE.BoxGeometry(span-.005,data.height-.018,.022),frontMat);
-   front.position.set((outerA.x+outerB.x)/2,data.elevation+data.height/2,(outerA.z+outerB.z)/2);
-   front.rotation.y=-Math.atan2(outerB.z-outerA.z,outerB.x-outerA.x);
-   front.userData.objectId=join.id;front.castShadow=true;this.objectGroup.add(front);
+   const cornerPivot=new THREE.Group(),cornerAngle=Math.atan2(outerB.z-outerA.z,outerB.x-outerA.x);
+   cornerPivot.position.set(outerA.x,data.elevation+data.height/2,outerA.z);cornerPivot.rotation.y=-cornerAngle+(join.openFraction||0)*Math.PI*.48;
+   front.position.x=span/2;front.userData.objectId=join.id;front.castShadow=true;
+   cornerPivot.add(front);cornerPivot.visible=join.doorMode!=='none';this.objectGroup.add(cornerPivot);
+   const backA=polygon[0],backB=polygon[1],backSpan=Math.hypot(backB.x-backA.x,backB.z-backA.z);
+   const back=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.02,backSpan),data.height,.018),mat);
+   back.position.set((backA.x+backB.x)/2,data.elevation+data.height/2,(backA.z+backB.z)/2);back.rotation.y=-Math.atan2(backB.z-backA.z,backB.x-backA.x);back.castShadow=true;this.objectGroup.add(back);
+   if(data.subtype==='upper'){const top=new THREE.Mesh(new THREE.ShapeGeometry(shape),mat);top.geometry.rotateX(Math.PI/2);top.position.y=data.elevation+data.height-.018;top.material.side=THREE.DoubleSide;this.objectGroup.add(top);}
+
    if(data.subtype==='base'){
     const counter=this.surfaceMaterial('counter',this.materialSettings.counter,span,.6);
     const cap=new THREE.Mesh(new THREE.ShapeGeometry(shape),counter);cap.geometry.rotateX(Math.PI/2);
@@ -1478,7 +1520,7 @@ export class FloorAR {
    };
    const frontZ=(c.side||1)*(c.depth/2+.025);
    // Before front design, the run is one clean envelope; inner dividers are generated with the doors/drawers.
-   if(c.subtype!=='bridge'&&!this.items.some(f=>f.kind==='front'&&f.hostId===c.id)&&
+   if(!cabinetVoidRanges(this.items,c).length&&c.subtype!=='bridge'&&!this.items.some(f=>f.kind==='front'&&f.hostId===c.id)&&
      !this.items.some(e=>e.kind==='equipment'&&e.hostId===c.id))
     addDetail(Math.max(.02,len-.016),Math.max(.02,c.height-.025),.018,0,y0+c.height/2,frontZ,bodyMat);
    // The carcass is actually hollow, even when all doors are closed. Every
@@ -1487,7 +1529,7 @@ export class FloorAR {
    const cuts=countertopCutouts(this.items,c);
    const panels=cabinetCarcassPanels(c,
     this.items.filter(f=>f.kind==='front'&&f.hostId===c.id),
-    this.items.filter(e=>e.kind==='equipment'&&e.hostId===c.id));
+    this.items.filter(e=>e.kind==='equipment'&&e.hostId===c.id),cabinetVoidRanges(this.items,c));
    const batch=buildCarcassPanelGeometry(panels);
    if(batch.indices.length){
     const geo=new THREE.BufferGeometry();
@@ -1715,6 +1757,7 @@ export class FloorAR {
   }
   // Each facade is a semantic, selectable object independent of its future internal unit.
   for(const panel of this.items.filter(o=>o.kind==='front')){
+   if(panel.style==='open')continue;
    const host=this.items.find(c=>c.id===panel.hostId&&c.kind==='cabinet');
    if(!host)continue;
    const pose=frontPose(panel,host),materialId=panel.materialId||resolveFinish(this.materialSettings,host.subtype,'front');
@@ -1756,15 +1799,23 @@ export class FloorAR {
     drawerBox.castShadow=true;drawerBox.receiveShadow=true;drawerBox.userData.objectId=panel.id;
     tray.add(drawerBox);this.objectGroup.add(tray);
    }
-   const control={root,pivot,pose,host,panel,tray,fraction:0};
+   const control={root,pivot,pose,host,panel,tray,fraction:0,jacks:[]};
+   if(panel.mechanism==='bifold'&&this.items.some(f=>f.kind==='front'&&f.hostId===panel.hostId&&(panel.unitKey?f.unitKey===panel.unitKey:f.bay===panel.bay)&&f.bottomT<panel.bottomT-.001)){
+    for(const edge of [-1,1]){const mesh=new THREE.Mesh(new THREE.CylinderGeometry(.006,.009,1,6),new THREE.MeshStandardMaterial({color:0x90999d,metalness:.7,roughness:.3}));this.objectGroup.add(mesh);control.jacks.push({edge,mesh});}
+   }
    this.frontControls.set(panel.id,control);this.applyFrontFraction(control,amount);
    const frameId=panel.style==='frame'?panel.frameMaterialId||materialId:materialId;
-   const faceMaterial=panel.id===this.selectedId?cabinetSelected.clone():
+   const faceMaterial=panel.style==='glass'?new THREE.MeshPhysicalMaterial({color:0x9fc9d2,transparent:true,opacity:.32,roughness:.12,metalness:.05,side:THREE.DoubleSide,depthWrite:false}):panel.id===this.selectedId?cabinetSelected.clone():
     this.surfaceMaterial('front',frameId,pose.width,pose.height,grain);
    const surface=new THREE.Mesh(this.applySurfaceUV(new THREE.BoxGeometry(pose.width,pose.height,pose.thickness),faceMaterial,
     pose.width,pose.height,pose.thickness),faceMaterial);
    surface.castShadow=true;surface.receiveShadow=true;surface.userData.objectId=panel.id;
    leaf.add(surface);
+   if(panel.style==='cnc'){
+    const grooveMaterial=new THREE.MeshStandardMaterial({color:0x66645d,roughness:.8});
+    for(const y of [-1,1]){const groove=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.05,pose.width-.10),.006,.003),grooveMaterial);groove.position.set(0,y*(pose.height/2-.05),pose.side*(pose.thickness/2+.002));leaf.add(groove);}
+    for(const x of [-1,1]){const groove=new THREE.Mesh(new THREE.BoxGeometry(.006,Math.max(.05,pose.height-.10),.003),grooveMaterial);groove.position.set(x*(pose.width/2-.05),0,pose.side*(pose.thickness/2+.002));leaf.add(groove);}
+   }
    const visibleZ=(pose.side||1)*(.012+pose.thickness/2);
    if(panel.style==='frame'&&pose.width>.20&&pose.height>.18){
     const innerMaterial=panel.id===this.selectedId?cabinetSelected.clone():
@@ -1828,6 +1879,14 @@ export class FloorAR {
     }
     add(new THREE.BoxGeometry(o.width,o.height,o.depth),steel,0,o.height/2,0);
     const front=o.depth/2+.02;
+    const applianceTrim=material(0x293338,{roughness:.55,metalness:.22});
+    add(new THREE.BoxGeometry(o.width*.92,.045,.025),applianceTrim,0,.034,front);
+    for(const x of [-o.width*.38,o.width*.38])add(new THREE.BoxGeometry(.035,.035,.06),applianceTrim,x,.018,o.depth*.34);
+    if(o.model==='side'){
+     add(new THREE.BoxGeometry(o.width*.22,.30,.021),applianceTrim,-o.width*.245,o.height*.57,front+.018);
+     add(new THREE.BoxGeometry(o.width*.13,.045,.028),dark,-o.width*.245,o.height*.65,front+.034);
+     add(new THREE.BoxGeometry(o.width*.15,.012,.055),silver,-o.width*.245,o.height*.49,front+.038);
+    }else add(new THREE.BoxGeometry(o.width*.25,.035,.016),applianceTrim,0,o.height*.89,front+.018);
     // Distinct dark door gaskets keep the actual appliance recognizable inside
     // a light MDF surround. Concealed mode later adds its own opaque door.
     const gasket=material(0x252d30,{metalness:.12,roughness:.56});
@@ -1911,8 +1970,15 @@ export class FloorAR {
     for(const x of [-wide*.25,wide*.25])add(new THREE.CylinderGeometry(.028,.028,.008,12),material(0xffeed1,{emissive:0xffd99c,emissiveIntensity:.6}),x,.01,.16);
     body.dispose();
    }else if(o.subtype==='stove'){
+    if(o.model==='range'){
+     const ovenBody=new THREE.Mesh(new THREE.BoxGeometry(o.width,o.height-.025,o.depth),steel);ovenBody.position.y=o.height/2;root.add(ovenBody);
+     const ovenGlass=new THREE.Mesh(new THREE.BoxGeometry(o.width*.8,o.height*.55,.02),dark);ovenGlass.position.set(0,o.height*.4,o.depth/2+.012);root.add(ovenGlass);
+     const ovenHandle=new THREE.Mesh(new THREE.BoxGeometry(o.width*.65,.025,.035),silver);ovenHandle.position.set(0,o.height*.73,o.depth/2+.035);root.add(ovenHandle);
+     root.position.y+=o.height;
+     for(const part of [ovenBody,ovenGlass,ovenHandle])part.position.y-=o.height;
+    }
     const induction=Boolean(o.induction||o.model==='induction'),count=
-     o.model==='gas2'?2:o.model==='gas3'?3:o.model==='gas5'?5:4;
+     o.model==='gas2'?2:o.model==='gas3'?3:['gas5','range'].includes(o.model)?5:4;
     const slab=.025;
     add(new THREE.BoxGeometry(o.width,slab,o.depth),dark,0,slab/2,0);
     add(new THREE.BoxGeometry(o.width*.96,.007,o.depth*.94),induction?dark:steel,0,slab+.003,0);

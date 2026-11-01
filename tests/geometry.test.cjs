@@ -903,8 +903,8 @@ test('drawing one long tall cabinet run creates multiple valid full-height colum
  const wall=items.find(o=>o.kind==='wall');
  items=G.placeCabinetRoute(items,{x:.2,z:0,hostId:wall.id,side:1},{x:2.75,z:0,hostId:wall.id},{kind:'tall'}).items;
  const towers=items.filter(c=>c.subtype==='tall');
- assert.equal(towers.length,3);
- assert.ok(towers.every(c=>G.lengthOf(c)>=.45&&G.lengthOf(c)<=.90+1e-5&&c.height>=1.8));
+ assert.equal(towers.length,5);
+ assert.ok(towers.every(c=>G.lengthOf(c)>=.45&&G.lengthOf(c)<=.55+1e-5&&c.height>=1.8));
  assert.ok(towers.every(c=>c.cornerGroup===towers[0].cornerGroup));
 });
 test('countertop edge, waterfall, raised bar, seat overhang and curves remain semantic and cutout-safe',async()=>{

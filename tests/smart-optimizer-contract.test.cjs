@@ -33,7 +33,7 @@ test('smart proposal moves a 120cm sink only with explicit approval and produces
  assert.ok(Math.abs(after.offsetT-before.offsetT)*4>.05);
  const {at,length,doors}=sinkBay(plan.items,after);
  assert.equal(doors.length,2,'sink has exactly two outward-opening door leaves');
- assert.ok(doors.every(f=>(f.endT-f.startT)*length>=.45));
+ assert.ok(doors.every(f=>(f.endT-f.startT)*length>=.45-1e-7));
  assert.ok(doors.some(f=>Math.abs(f.startT*length-at)<.005)&&
   doors.some(f=>Math.abs(f.endT*length-at)<.005),'the two leaves meet at the sink centre');
 });
