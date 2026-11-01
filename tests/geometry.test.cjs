@@ -1069,3 +1069,22 @@ test('gas hob participates in door and photo facade bays without touching unrela
   assert.ok(fronts.some(f=>Math.abs(f.endT*G.lengthOf(host)-center)<.015),preset+' keeps the hob centered');
  }
 });
+
+
+test('130cm frontage avoids four half-size leaves; small fixtures retain centered full doors',async()=>{
+ G||=await import('../apps/preview/geometry.js');
+ let items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+ items=G.placeCabinet(items,{x:.5,z:0,side:1},{x:1.8,z:0},{kind:'base'}).items;
+ const c=items.find(o=>o.kind==='cabinet'),len=G.lengthOf(c);
+ const fronts=G.planFronts(items,c,'doors');
+ assert.equal(fronts.length,3);
+ assert.ok(fronts.every(f=>(f.endT-f.startT)*len>.42),'three balanced doors beat four narrow 32cm leaves');
+ let equipped=G.placeWall([],{x:0,z:0},{x:5,z:0}).items;
+ equipped=G.placeCabinet(equipped,{x:.2,z:0,side:1},{x:4.8,z:0},{kind:'base'}).items;
+ equipped=G.placeEquipment(equipped,{x:2.3,z:.35},'sink').items;
+ const host=equipped.find(o=>o.kind==='cabinet'),sink=equipped.find(o=>o.subtype==='sink');
+ const center=sink.offsetT*G.lengthOf(host);
+ const leaves=G.planFronts(equipped,host,'doors');
+ assert.ok(leaves.some(f=>Math.abs(f.endT*G.lengthOf(host)-center)<.01&&
+  (f.endT-f.startT)*G.lengthOf(host)>=.45-1e-6),'a 60cm sink has a centered 45cm leaf');
+});
