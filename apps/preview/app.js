@@ -1,6 +1,6 @@
-import {FloorAR} from './floor-ar.js?v=ab44';
-import * as Geo from './geometry.js?v=fix43';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix43';
+import {FloorAR} from './floor-ar.js?v=fix45';
+import * as Geo from './geometry.js?v=fix45';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix45';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix43';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
@@ -57,7 +57,7 @@ function updateCalibrationPanel(){
 }
 function createProject(){
  const now=new Date().toISOString();
- const p={id:uid(),name:'آشپزخانه جدید',createdAt:now,updatedAt:now,scene:{items:[],render:{...defaultRender},frontRules:{...Geo.DEFAULT_FRONT_RULES},materials:{...DEFAULT_MATERIALS},tileLayout:{...DEFAULT_TILE_LAYOUT},calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}}},revision:0};
+ const p={id:uid(),name:'آشپزخانه جدید',createdAt:now,updatedAt:now,scene:{items:[],render:{...defaultRender},frontRules:{...Geo.DEFAULT_FRONT_RULES},materials:{...DEFAULT_MATERIALS},tileLayout:{...DEFAULT_TILE_LAYOUT},calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}},ceilingHeight:3.6},revision:0};
  projects.unshift(p);save();go('#/editor/'+p.id,true);
 }
 function welcome(){
@@ -92,6 +92,7 @@ const categories=[
 ];
 function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
+ settings.height=Number(p.scene?.ceilingHeight??p.scene?.items?.find(o=>o.kind==='wall')?.height??3.6);
  activeId=id;mode='ar';facadesHidden=false;roomSurfacesVisible=false;fridgeFreestanding=false;selectedUnit=null;lastFrontTap=null;activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
@@ -329,7 +330,7 @@ function drawSelection(){
  const previousScroll=panel.dataset.selectionId===obj.id?panel.scrollTop:0;
  const field=(key,title,val,min,step='.01')=>'<label>'+title+'<input type="number" data-edit="'+key+'" value="'+Number(val).toFixed(2)+'" min="'+min+'" step="'+step+'"></label>';
  let fields='',title=obj.name;
- if(obj.kind==='wall')fields=field('length','طول (متر)',Geo.lengthOf(obj),.1)+field('thickness','ضخامت (متر)',obj.thickness,.07)+field('height','ارتفاع (متر)',obj.height,.4);
+ if(obj.kind==='wall')fields=field('length','طول (متر)',Geo.lengthOf(obj),.1)+field('thickness','ضخامت (متر)',obj.thickness,.07)+field('height','ارتفاع همه دیوارها (متر)',obj.height,2);
  if(obj.kind==='opening'){
   const host=currentItems().find(x=>x.id===obj.hostId);
   fields=field('width','عرض (متر)',obj.width,.3)+field('height','ارتفاع (متر)',obj.height,.3)+
@@ -449,7 +450,7 @@ function showScene(){
  const items=currentItems(),host=document.getElementById('plan-host');
  const isPlan=mode==='2d';host.hidden=!isPlan;
  if(isPlan){
-  host.innerHTML=renderPlan(items,{selectedId:selection,drawing:drawing?{...drawing,height:settings.upperHeight,elevation:settings.upperElevation,freestanding:fridgeFreestanding}:null,hover,calibration:currentProject()?.scene?.calibration,showCalibration:!calibrationCollapsed,hideFronts:facadesHidden});
+  host.innerHTML=renderPlan(items,{selectedId:selection,drawing:drawing?{...drawing,height:settings.upperHeight,elevation:settings.upperElevation,depth:drawing.tool==='upper'?settings.upperDepth:settings.baseDepth,frontRules:currentFrontRules(),freestanding:fridgeFreestanding}:null,hover,calibration:currentProject()?.scene?.calibration,showCalibration:!calibrationCollapsed,hideFronts:facadesHidden});
   document.getElementById('scene-message').classList.add('hide-for-plan');
  }else {
   host.innerHTML='';
@@ -524,7 +525,7 @@ function showScene(){
  }
  if(trackedView())floor?.setEditPreview(items,selection,'centre',
   !!items.find(o=>o.id===selection&&o.kind==='opening')&&!drawing);
- floor?.setDrawing(drawing?.start||null,drawing?.tool,{height:drawing?.tool==='wall'?settings.height:settings.upperHeight,elevation:settings.upperElevation,hostId:drawing?.hostId,freestanding:fridgeFreestanding});
+ floor?.setDrawing(drawing?.start||null,drawing?.tool,{height:drawing?.tool==='wall'?settings.height:settings.upperHeight,elevation:settings.upperElevation,depth:drawing?.tool==='upper'?settings.upperDepth:settings.baseDepth,hostId:drawing?.hostId,freestanding:fridgeFreestanding});
  floor?.setLighting(renderSettings());
  const frontToggle=document.querySelector('[data-action="toggle-facades"]');
  if(frontToggle){
@@ -591,6 +592,7 @@ function undoChange(redo=false){
  const p=currentProject();dest.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene.materials},styleId:p.scene.styleId||null,stylePreset:structuredClone(p.scene?.stylePreset||null),frontRules:currentFrontRules(),tileLayout:currentTileLayout(),ceilingHeight:p.scene?.ceilingHeight||3.6});
  const snapshot=source.pop();p.scene.items=Array.isArray(snapshot)?snapshot:snapshot.items;
  if(!Array.isArray(snapshot)){p.scene.materials=snapshot.materials;p.scene.styleId=snapshot.styleId||null;p.scene.stylePreset=structuredClone(snapshot.stylePreset||null);p.scene.frontRules={...Geo.DEFAULT_FRONT_RULES,...snapshot.frontRules};p.scene.tileLayout={...DEFAULT_TILE_LAYOUT,...snapshot.tileLayout};p.scene.ceilingHeight=snapshot.ceilingHeight||3.6;}
+ settings.height=Number(p.scene?.ceilingHeight??p.scene?.items?.find(o=>o.kind==='wall')?.height??3.6);
  p.updatedAt=new Date().toISOString();save();selection=null;selectedUnit=null;drawing=null;showScene();
 }
 function selectAt(point,target,arId=null){
@@ -714,11 +716,16 @@ function placeAt(point){
   b=Geo.snapCabinetPoint(items,point.x,point.z,.85);
   if(!b)throw Error('نقطه پایان باید روی دیوار میزبان یا دیوار متصل به آن باشد.');
  }
- const result=tool==='wall'?Geo.placeWall(items,a,b,{thickness:settings.thickness,height:settings.height,tolerance:settings.pointSnap?.22:.001}):
+ let result=tool==='wall'?Geo.placeWall(items,a,b,{thickness:settings.thickness,height:settings.height,tolerance:settings.pointSnap?.22:.001}):
   Geo.placeCabinetRoute(items,a,b,{kind:tool,
    depth:tool==='upper'?settings.upperDepth:settings.baseDepth,height:tool==='upper'?settings.upperHeight:tool==='tall'?2.15:undefined,
    elevation:tool==='upper'?settings.upperElevation:undefined,groupId:drawing.groupId,frontRules:currentFrontRules()});
- commitChange(result);drawing={tool,start:result.end,groupId:result.groupId||drawing.groupId};hover=result.end||null;showScene();
+ if(tool==='wall'){
+  const unified=Geo.setAllWallHeights(result.items,settings.height);
+  result={...result,items:unified.items};
+ }
+ commitChange(result,tool==='wall'?{ceilingHeight:settings.height}:{});
+ drawing={tool,start:result.end,groupId:result.groupId||drawing.groupId};hover=result.end||null;showScene();
 }
 function controlPoint(){
  if(trackedView())return floor?.pick()||null;
@@ -763,7 +770,14 @@ function applySelection(){
    materialId:get('materialId'),frameMaterialId:get('frameMaterialId'),grainDirection:get('grainDirection'),style:get('style'),handleStyle:get('handleStyle'),
    hinge:obj.subtype==='door'?get('hinge'):undefined});
  }
- if(result)commitChange(result);
+ if(result){
+  const height=obj.kind==='wall'?Math.round(value('height',obj.height)*100)/100:undefined;
+  commitChange(result,{ceilingHeight:height});
+  if(height!==undefined){
+   settings.height=height;
+   const field=document.querySelector('[data-ceiling-height]');if(field)field.value=String(height);
+  }
+ }
 }
 document.addEventListener('input',e=>{
  const field=e.target.closest('[data-setting]');
@@ -783,6 +797,7 @@ document.addEventListener('change',e=>{
   if(!Number.isFinite(high)||high<2||high>9){tell('ارتفاع سقف باید بین ۲ تا ۹ متر باشد.');return;}
   const rounded=Math.round(high*100)/100;
   commitChange(Geo.setAllWallHeights(currentItems(),rounded),{ceilingHeight:rounded});
+  settings.height=rounded;
   tell('ارتفاع دیوارها و سقف '+num(rounded)+' متر شد.');return;
  }
  if(e.target.matches('[data-equipment-induction]')){
@@ -998,7 +1013,7 @@ document.addEventListener('pointermove',e=>{
  const resolved=snapped|| (cabinet?point:Geo.resolvePoint(currentItems(),drawing.start,point.x,point.z,settings));
  hover={x:resolved.x,z:resolved.z,...(snapped?{hostId:snapped.hostId,corner:snapped.corner}:{})};
  svg.querySelector('.live-preview')?.remove();
- const ghost=renderPreview(currentItems(),drawing,hover);
+ const ghost=renderPreview(currentItems(),{...drawing,height:settings.upperHeight,elevation:settings.upperElevation,depth:drawing.tool==='upper'?settings.upperDepth:settings.baseDepth,frontRules:currentFrontRules()},hover);
  if(ghost){
   const group=document.createElementNS('http://www.w3.org/2000/svg','g');
   group.innerHTML=ghost;const shape=group.firstElementChild;
