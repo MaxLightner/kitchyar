@@ -176,7 +176,7 @@ export function solveCabinetRun({
       for(let i=0;i<chosen.length-1;i++){
         const a=ordered[i],b=ordered[index];
         const required=(a.width+b.width)/2+
-          (['sink','stove'].includes(a.subtype)&&['sink','stove'].includes(b.subtype)?.45:.02);
+          (['sink','stove'].includes(a.subtype)&&['sink','stove'].includes(b.subtype) ? .45 : .02);
         if(Math.abs(chosen[i]-centre)<required-EPS){canContinue=false;break;}
       }
       if(canContinue)walk(index+1);
