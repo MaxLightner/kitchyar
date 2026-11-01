@@ -755,7 +755,13 @@ export function paintFronts(source,id,{scope='single',part='panel',materialId}={
 }
 function reflowFronts(items,c,preset=c?.frontPreset){
  if(!FRONT_PRESETS[preset])return;
- if(c.subtype==='base')cabinetOptimization(items,c,preset,{apply:true});
+ if(c.subtype==='base'){
+  const optimized=cabinetOptimization(items,c,preset,{apply:true});
+  for(const change of optimized.adjustments){
+   const fixture=byId(items,change.id);
+   if(fixture&&['sink','stove'].includes(fixture.subtype))reflowUpperAtFixture(items,fixture);
+  }
+ }
  const previous=items.filter(o=>o.kind==='front'&&o.hostId===c.id)
   .sort((a,b)=>a.bay-b.bay||a.part-b.part);
  const fresh=planFronts(items,c,preset);
