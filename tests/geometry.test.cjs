@@ -1018,3 +1018,21 @@ test('2D cabinet ghost uses the same minimum-length and collision rules as commi
  const valid=renderPreview(items,{tool:'base',start,depth:.60},G.snapCabinetPoint(items,1.2,0));
  assert.match(valid,/<polygon/);
 });
+
+
+test('inspector remains closed until its tab is requested and dimensions stay compact',async()=>{
+ const app=source('app.js'),css=source('styles.css'),floor=source('floor-ar.js');
+ assert.match(app,/data-action="toggle-inspector"/);
+ assert.match(app,/if\(key!==inspectorSelectionKey\)\{inspectorOpen=false;/);
+ assert.match(app,/if\(action==='toggle-inspector'\)/);
+ assert.match(app,/if\(e\.target\.matches\('\[data-setting="height"\]'\)\)/);
+ assert.match(app,/Geo\.setAllWallHeights\(currentItems\(\),rounded\)/);
+ assert.match(css,/\.object-editor-tab\[hidden\]/);
+ assert.match(floor,/sprite\.scale\.set\(\.90,\.13,1\)/);
+ const {renderPlanMeasurements}=await import('../apps/preview/edit-handles.js');
+ G||=await import('../apps/preview/geometry.js');
+ const items=G.placeWall([],{x:0,z:0},{x:3,z:0}).items;
+ const svg=renderPlanMeasurements(items,items[0].id,'right');
+ assert.match(svg,/height="\.17"/);
+ assert.match(svg,/scale\(0\.0065\)/);
+});
