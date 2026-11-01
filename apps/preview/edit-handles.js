@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=report33';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=room40';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -101,7 +101,7 @@ export function renderElevation(items,opening,drag=null){
  const marker=(side,x,y,color,label)=>
   '<g class="elevation-handle" data-open-handle="'+side+'" data-item-id="'+esc(opening.id)+'">'+
   '<circle cx="'+n(x)+'" cy="'+n(y)+'" r="13" fill="transparent"/>'+
-  '<circle cx="'+n(x)+'" cy="'+n(y)+'" r="8" fill="'+color+'" stroke="#fff" stroke-width="2"/>'+
+  '<circle cx="'+n(x)+'" cy="'+n(y)+'" r="4" fill="'+color+'" stroke="#fff" stroke-width="1.5"/>'+
   '<title>'+label+'</title></g>';
  let s='<div class="elevation-title"><strong>نمای روبروی '+(opening.style==='door'?'در':'پنجره')+'</strong><span>دستگیره‌ها را بکش · اسنپ ۱ سانتی‌متر</span></div>'+
   '<svg id="elevation-view" data-ppm="'+n(scale)+'" viewBox="0 0 320 225" role="img" aria-label="نمای روبروی دیوار و دستگیره‌های تغییر ابعاد">'+
@@ -163,7 +163,7 @@ export function renderCabinetElevation(items,cabinet,drag=null){
  const sy=y=>ground-y*scale,top=sy(cabinet.elevation+cabinet.height),bottom=sy(cabinet.elevation);
  const marker=(side,y,color,label)=>'<g class="elevation-handle" data-open-handle="'+side+'" data-item-id="'+esc(cabinet.id)+'">'+
   '<circle cx="160" cy="'+n(y)+'" r="15" fill="transparent"/>'+
-  '<circle cx="160" cy="'+n(y)+'" r="9" fill="'+color+'" stroke="#fff" stroke-width="2"/>'+
+  '<circle cx="160" cy="'+n(y)+'" r="4.5" fill="'+color+'" stroke="#fff" stroke-width="1.5"/>'+
   '<title>'+label+'</title></g>';
  const measured=drag?.id===cabinet.id;
  return '<div class="elevation-title"><strong>نمای روبه‌روی '+esc(cabinet.name)+'</strong><span>بالا: ارتفاع · پایین: تراز نصب</span></div>'+
@@ -195,7 +195,7 @@ export function renderFrontElevation(items,cabinet,selectedId=null,drag=null){
   if(o.id!==selectedId)return '';
   return '<g class="elevation-handle front-resize-grip" data-open-handle="'+side+'" data-item-id="'+esc(o.id)+'" tabindex="0" role="button" aria-label="تغییر '+(side==='right'?'عرض':'ارتفاع')+' با کشیدن">'+
    '<circle cx="'+n(x)+'" cy="'+n(y)+'" r="14" fill="transparent"/>'+
-   '<circle cx="'+n(x)+'" cy="'+n(y)+'" r="8" fill="'+color+'" stroke="#fff" stroke-width="2"/>'+
+   '<circle cx="'+n(x)+'" cy="'+n(y)+'" r="4" fill="'+color+'" stroke="#fff" stroke-width="1.5"/>'+
    '</g>';
  };
  let graphic='<rect x="'+n(left)+'" y="'+n(sy(1))+'" width="'+n(len*scale)+'" height="'+n(cabinet.height*scale)+'" rx="2" fill="#d7d4c9" stroke="#777e74"/>';

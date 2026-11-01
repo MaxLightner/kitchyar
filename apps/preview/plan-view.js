@@ -1,5 +1,5 @@
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=unit37';
-import {renderPlanMeasurements} from './edit-handles.js?v=report33';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=room40';
+import {renderPlanMeasurements} from './edit-handles.js?v=room40';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true,hideFronts=false}={}){
@@ -8,7 +8,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
  const cal=calibration?.a&&calibration?.b?calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}};
  const rect=typeof document!=='undefined'?document.getElementById('plan-host')?.getBoundingClientRect():null;
  const pixelsPerMetre=rect?Math.max(20,Math.min(rect.width/10,rect.height/8)):100;
- const touchRadius=Math.max(.24,29/pixelsPerMetre),visibleRadius=Math.max(.105,12/pixelsPerMetre);
+ const touchRadius=Math.max(.24,29/pixelsPerMetre),visibleRadius=Math.max(.0525,6/pixelsPerMetre);
  const angle=Math.atan2(cal.b.z-cal.a.z,cal.b.x-cal.a.x)*180/Math.PI;
  const rotation='translate('+f(cal.a.x)+' '+f(cal.a.z)+') rotate('+f(angle)+') translate('+f(-cal.a.x)+' '+f(-cal.a.z)+')';
  let out='<svg '+(mini?'class="mini-svg"':'id="plan-view" class="plan-svg"')+
@@ -27,6 +27,13 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   const bx=w.x1+(t+o.width/2)*dx,bz=w.z1+(t+o.width/2)*dz;
   out+='<line data-item-id="'+safe(o.id)+'" x1="'+f(ax)+'" y1="'+f(az)+'" x2="'+f(bx)+'" y2="'+f(bz)+
    '" stroke="'+(o.style==='door'?'#a78063':'#86b6c4')+'" stroke-width="'+(o.id===selectedId?'.15':'.105')+'" stroke-linecap="butt"/>';
+  if(o.style==='fixed'){
+   const panels={single:1,double:2,triple:3,quad:4}[o.windowModel]||1;
+   for(let i=1;i<panels;i++){
+    const x=ax+(bx-ax)*i/panels,z=az+(bz-az)*i/panels;
+    out+='<circle cx="'+f(x)+'" cy="'+f(z)+'" r=".035" fill="#f0ece1" stroke="#568d99" stroke-width=".012" pointer-events="none"/>';
+   }
+  }
   if(o.style==='door'){
    const swingX=ax+(bx-ax)*.7,swingZ=az+(bz-az)*.7;
    out+='<line x1="'+f(ax)+'" y1="'+f(az)+'" x2="'+f(swingX)+'" y2="'+f(swingZ)+'" stroke="#7d6854" stroke-width=".018" pointer-events="none"/>';
@@ -53,6 +60,11 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    }
   }else out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
    '" stroke="#ab9382" stroke-width="'+f(c.depth)+'" opacity=".65"/>';
+ }
+ for(const join of items.filter(x=>x.kind==='corner')){
+  const polygon=cornerFillFootprint(items,join);if(!polygon)continue;
+  out+='<polygon data-item-id="'+safe(join.id)+'" points="'+polygon.corners.map(p=>f(p.x)+','+f(p.z)).join(' ')+
+   '" fill="'+(join.id===selectedId?'#70bd9e':polygon.subtype==='upper'?'#d9ccba':'#e9decb')+'" stroke="#977f66" stroke-width=".028"/>';
  }
  for(const front of hideFronts?[]:items.filter(x=>x.kind==='front')){
   const cabinet=cabinets.find(c=>c.id===front.hostId),p=frontPose(front,cabinet);if(!p)continue;
@@ -118,7 +130,8 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
     '<line x1="'+f(cal.a.x)+'" y1="'+f(cal.a.z)+'" x2="'+f(cal.b.x)+'" y2="'+f(cal.b.z)+'" stroke="#d39d54" stroke-width=".027" stroke-dasharray=".075,.035" pointer-events="none"/>';
    for(const which of ['a','b']){const p=cal[which],color=which==='a'?'#e4a75d':'#4cafa3';
     out+='<g data-calibration="'+which+'" class="ab-touch"><circle cx="'+f(p.x)+'" cy="'+f(p.z)+'" r="'+f(touchRadius)+'" fill="transparent"/>'+
-     '<circle cx="'+f(p.x)+'" cy="'+f(p.z)+'" r="'+f(visibleRadius)+'" fill="'+color+'" stroke="#fff" stroke-width=".025" pointer-events="none"/>'+
+     '<line x1="'+f(p.x-visibleRadius)+'" y1="'+f(p.z-visibleRadius)+'" x2="'+f(p.x+visibleRadius)+'" y2="'+f(p.z+visibleRadius)+'" stroke="'+color+'" stroke-width=".038" stroke-linecap="round" pointer-events="none"/>'+
+     '<line x1="'+f(p.x-visibleRadius)+'" y1="'+f(p.z+visibleRadius)+'" x2="'+f(p.x+visibleRadius)+'" y2="'+f(p.z-visibleRadius)+'" stroke="'+color+'" stroke-width=".038" stroke-linecap="round" pointer-events="none"/>'+
      '<g transform="translate('+f(p.x)+' '+f(p.z)+') scale(.010)" pointer-events="none">'+
      '<text x="0" y="5" font-size="15px" font-weight="bold" text-anchor="middle" fill="#243c34">'+which.toUpperCase()+'</text></g></g>';
    }
@@ -187,7 +200,7 @@ export function renderPreview(items,drawing,hover){
  if(['fridge','stove','sink','dishwasher','washer','oven','microwave'].includes(tool)){
   const spec=EQUIPMENT_SPECS[tool];let p=hover,angle=0,valid=true;
   let installed=null;
-  try{const result=placeEquipment(items,hover,tool);installed=result.items.find(o=>o.id===result.selectedId);}catch{valid=false;}
+  try{const result=placeEquipment(items,hover,tool,{freestanding:tool==='fridge'&&!!drawing.freestanding});installed=result.items.find(o=>o.id===result.selectedId);}catch{valid=false;}
   if(tool==='fridge'){const snap=installed||snapFridgePoint(items,hover,spec.width,spec.depth);if(snap){p=snap;angle=snap.rotation;}}
   if(tool!=='fridge'&&!installed){
    const ranked=items.filter(c=>c.kind==='cabinet'&&

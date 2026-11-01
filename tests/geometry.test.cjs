@@ -219,7 +219,7 @@ test('direct window handles snap to one centimetre and preserve the opposite edg
  const left=H.resizeFromHandle(items,op.id,'left',{along:1.713}).items.find(o=>o.id===op.id);
  assert.equal(left.width,1.39);
  assert.ok(Math.abs(left.hostT*5+left.width/2-rightBefore)<1e-8,'opposite edge must not shift');
- assert.throws(()=>H.resizeFromHandle(items,op.id,'top',{y:2.91}),/بازشو|دیوار/);
+ assert.throws(()=>H.resizeFromHandle(items,op.id,'top',{y:3.91}),/بازشو|دیوار/);
  const minimum=H.resizeFromHandle(items,op.id,'left',{along:100}).items.find(o=>o.id===op.id);
  assert.equal(minimum.width,.3,'width is clamped to 30cm');
 });

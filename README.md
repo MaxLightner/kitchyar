@@ -1,5 +1,13 @@
 # Kitchyar — AR-first kitchen editor
 
+## Room geometry and editing (room40)
+
+- Cabinet strokes across acute or obtuse wall bends create a low-polygon trapezoidal corner connector, including at 20°. It follows both neighboring cabinet ends when host walls change.
+- New walls default to 3.60 m. Wall editing snaps dimensions to centimetres and propagates connected endpoints, openings and cabinets.
+- Ivory 1 m × 1 m ceramic floor and solid ceiling share a plan-derived outline. Both default to hidden and toggle together from the side toolbar. Ceiling height in settings resizes all walls with undo/redo.
+- Fridges can stand alone or replace a cabinet run; side-by-side models use larger dimensions and undersized leftover bays become side fillers, not tiny cabinets.
+- Five selectable faucet models, one- to four-leaf Iranian sliding-style windows, delayed return of window glazing after resize, half-size resize grips and cross-shaped A/B calibration marks.
+
 Welcome → Projects → Editor, plus a standalone fabrication report accessible directly from each project and beside AR/3D/2D in the editor header. Editor opens in AR, using the pinned Chido FloorScanner, multi-ray surface detection, stabilizing anchors and A/B calibration.
 
 ## Architecture tools (2026-10-31)

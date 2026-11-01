@@ -492,6 +492,7 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .front-visibility-toggle small{font-size:15px;font-weight:700;line-height:1.25;white-space:nowrap}
 .side-tools .side-basic .front-visibility-toggle.active{background:#25684f;color:#fff;border-color:#16523b;box-shadow:0 0 0 2px #a9d9bd80}
 .side-tools .side-basic .front-visibility-toggle:focus-visible{outline:3px solid #d69b4a;outline-offset:2px}
+.editor-menu input[data-ceiling-height]{width:100%;box-sizing:border-box;min-height:42px;padding:8px 11px;border:1px solid #96ac9b;border-radius:8px;background:#fffefa;color:#234334;font-size:16px}
 .unit-editor-hint{font-size:15px;line-height:1.8;color:#486354}
 .unit-convert-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
 .unit-convert-actions button{min-height:44px;padding:9px;font-size:15px;border:1px solid #b9ccbc;border-radius:9px;background:#edf5ed;color:#2f553e}
