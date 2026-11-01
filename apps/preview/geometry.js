@@ -750,13 +750,13 @@ function optimizeSmartFixturePositions(items){
  }
  return moves;
 }
-export function planSmartKitchen(source){
+export function planSmartKitchen(source,{optimizePositions=true}={}){
  const items=copy(source);
  const cabinetry=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge');
  if(!cabinetry.length)throw Error('برای طراحی هوشمند ابتدا کابینت‌ها را نصب کن.');
  // Search permitted positions jointly with facade widths. Any proposed
  // movement is returned as a diff and must be approved by the UI.
- const equipmentMoves=optimizeSmartFixturePositions(items);
+ const equipmentMoves=optimizePositions?optimizeSmartFixturePositions(items):[];
  for(const c of cabinetry)reflowFronts(items,c,'smart');
  for(const c of cabinetry)validateFronts(items,c);
  return {items,equipmentMoves,selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
