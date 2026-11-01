@@ -1,0 +1,17 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const {readFileSync}=require('node:fs');
+const {join}=require('node:path');
+const root=join(__dirname,'..');
+
+test('CI verifies the hybrid web app without assembling or publishing Android APKs',()=>{
+ const workflow=readFileSync(join(root,'.github/workflows/verify.yml'),'utf8');
+ assert.match(workflow,/npm run check/);
+ assert.doesNotMatch(workflow,/assembleDebug|upload-artifact|kitchyar-ui-alpha-apk|apps\/android|gradle -p/);
+ const contract=readFileSync(join(root,'docs/logic-contract.md'),'utf8');
+ assert.match(contract,/وب‌اپ هیبرید/);
+ const agentRules=readFileSync(join(root,'AGENTS.md'),'utf8');
+ assert.match(agentRules,/docs\/logic-contract\.md/);
+});
+
+test.todo('Resolve automatic 45–55 cm door widths against fixed sink-centre constraints without silent narrow panels');
