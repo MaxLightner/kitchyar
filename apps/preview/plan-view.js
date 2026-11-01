@@ -1,4 +1,4 @@
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=optimizer61';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=row62';
 import {renderPlanMeasurements} from './edit-handles.js?v=fix60';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);

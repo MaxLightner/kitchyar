@@ -1,5 +1,5 @@
-import {FloorAR} from './floor-ar.js?v=fix60';
-import * as Geo from './geometry.js?v=optimizer61';
+import {FloorAR} from './floor-ar.js?v=row62';
+import * as Geo from './geometry.js?v=row62';
 import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix60';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix60';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
@@ -581,7 +581,7 @@ function commitChange(result,{materials,styleId,stylePreset,frontRules,tileLayou
   const styled=Geo.applyKitchenLayout(result.items,p.scene.styleId,{cabinetIds:added,preset:p.scene.stylePreset||null});
   result={...result,items:styled.items};
  }
- if(!skipAlignment)result={...result,items:Geo.alignFrontSeams(result.items).items};
+ if(!skipAlignment)result={...result,items:Geo.alignFrontSeams(result.items,{cabinetIds:Geo.affectedCabinetIds(currentItems(),result.items)}).items};
  p.scene??={items:[]};p.scene.items=result.items;p.updatedAt=new Date().toISOString();p.revision=(p.revision||0)+1;
  if(materials)p.scene.materials={...DEFAULT_MATERIALS,...materials};
  if(styleId!==undefined)p.scene.styleId=styleId;
@@ -700,7 +700,7 @@ function placeAt(point){
    // is kept as a proposal until the user explicitly approves it.
    pendingSmartLayout=styled;
    const changes=styled.equipmentMoves.map(m=>'<li>'+
-    (m.subtype==='sink'?'سینک':'گاز')+' · '+(m.delta>0?'+':'')+m.delta+
+    (Geo.EQUIPMENT_SPECS[m.subtype]?.name||m.subtype)+' · '+(m.delta>0?'+':'')+m.delta+
     ' سانتی‌متر در امتداد کابینت</li>').join('')+
     (styled.layoutWarnings||[]).map(w=>'<li>'+
      (w.reason?esc(w.reason):'در '+w.count+' نمای کابینت، عرض خارج از بازه ترجیحی است ('+

@@ -163,7 +163,7 @@ test('refrigerator, sink and stove provide selectable parametric equipment',asyn
  assert.throws(()=>G.placeEquipment(items,{x:1,z:0},'sink'),/کابینت زمینی/);
  items=G.placeCabinet(items,{x:.2,z:0},{x:3,z:0},{kind:'base'}).items;
  items=G.placeEquipment(items,{x:.9,z:.32},'sink').items;
- items=G.placeEquipment(items,{x:2.1,z:.32},'stove').items;
+ items=G.placeEquipment(items,{x:2.4,z:.32},'stove').items;
  items=G.placeEquipment(items,{x:-1.5,z:1.4},'fridge').items;
  assert.deepEqual(items.filter(x=>x.kind==='equipment').map(x=>x.subtype),['sink','stove','hood','fridge']);
  assert.ok(items.find(x=>x.subtype==='sink').hostId,'sink is attached to base cabinet');
@@ -556,7 +556,7 @@ test('smart kitchen plans two sink doors, graduated hob drawers and overhead lif
  items=G.placeEquipment(items,{x:3.5,z:.35},'stove').items;
  const result=G.planSmartKitchen(items),fronts=result.items.filter(o=>o.kind==='front');
  const sink=result.items.find(e=>e.subtype==='sink'),stove=result.items.find(e=>e.subtype==='stove');
- const belowSink=fronts.filter(f=>f.hostId===base.id&&f.startT<=sink.offsetT&&f.endT>=sink.offsetT);
+ const belowSink=fronts.filter(f=>f.hostId===base.id&&f.startT<=sink.offsetT+1e-7&&f.endT>=sink.offsetT-1e-7);
  assert.equal(belowSink.length,2,'sink requires two swing leaves');
  assert.ok(belowSink.every(f=>f.subtype==='door'));
  const belowHob=fronts.filter(f=>f.hostId===base.id&&f.startT<=stove.offsetT&&f.endT>=stove.offsetT);

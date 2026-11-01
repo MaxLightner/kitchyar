@@ -369,10 +369,11 @@ export const EQUIPMENT_SPECS=Object.freeze({
  oven:{name:'فر توکار',width:.60,depth:.56,height:.60,elevation:.20},
  microwave:{name:'مایکروویو توکار',width:.60,depth:.43,height:.38,elevation:1.4},
  hood:{name:'هود',width:.75,depth:.45,height:.32,elevation:1.55},
- stove:{name:'اجاق گاز',width:.75,depth:.52,height:.045,elevation:.86},
- sink:{name:'سینک',width:.60,depth:.54,height:.045,elevation:.86}
+ stove:{name:'اجاق گاز',width:.90,depth:.52,height:.045,elevation:.86},
+ sink:{name:'سینک',width:.90,depth:.54,height:.045,elevation:.86}
 });
-const STOVE_WIDTHS={gas2:.32,gas3:.45,gas4:.60,gas5:.75,induction:.60};
+// Nominal design sizes, not manufacturer cut-out dimensions. Explicit sizes win.
+export const STOVE_WIDTHS=Object.freeze({gas2:.32,gas3:.45,gas4:.60,gas5:.90,induction:.60});
 const SINK_WIDTHS={60:.60,90:.90,120:1.20};
 export const FRIDGE_FEET=[18,22,24,28,30,32];
 const FRIDGE_DIMENSIONS={single:{18:[.72,.68,1.75],22:[.76,.70,1.83],24:[.82,.72,1.90],28:[.85,.74,1.93],30:[.88,.75,1.95],32:[.91,.77,1.98]},side:{18:[.86,.71,1.72],22:[.89,.73,1.78],24:[.92,.75,1.82],28:[.95,.78,1.86],30:[.99,.80,1.89],32:[1.04,.83,1.92]},combination:{18:[.72,.68,1.76],22:[.76,.70,1.83],24:[.80,.72,1.88],28:[.84,.75,1.94],30:[.88,.77,1.96],32:[.90,.79,1.99]}};
@@ -546,7 +547,7 @@ function layoutBays(items,c,preset){
     }
    }
    if(centre===null||centre<-.1||centre>len+.1)continue;
-   const half=['sink','stove'].includes(e.subtype)?Math.max(.45,e.width/2+.02):e.width/2+.02;
+   const half=e.subtype==='stove'?e.width/2:e.subtype==='sink'?Math.max(.45,e.width/2+.02):e.width/2+.02;
    fixtures.push({a:Math.max(0,centre-half),b:Math.min(len,centre+half),type:e.subtype,e});
   }
   fixtures.sort((a,b)=>a.a-b.a);
@@ -573,13 +574,13 @@ function layoutBays(items,c,preset){
  // A short end remainder joins the fixture bay, but should not push its
  // facade off the appliance centre. Grow the opposite side by the same amount
  // when there is room, without entering the next appliance's bay.
- if(fixtures[0].a<MIN_CABINET_LENGTH){
+ if(fixtures[0].type!=='stove'&&fixtures[0].a<MIN_CABINET_LENGTH){
   const absorbed=fixtures[0].a;
   fixtures[0].a=0;
   if(['sink','stove'].includes(fixtures[0].type))fixtures[0].b=Math.min(fixtures[0].b+absorbed,fixtures[1]?.a??len);
  }
  const last=fixtures.at(-1);
- if(len-last.b<MIN_CABINET_LENGTH){
+ if(last.type!=='stove'&&len-last.b<MIN_CABINET_LENGTH){
   const absorbed=len-last.b;
   last.b=len;
   if(['sink','stove'].includes(last.type))last.a=Math.max(last.a-absorbed,fixtures.at(-2)?.b??0);
@@ -592,14 +593,14 @@ function layoutBays(items,c,preset){
    const rightRoom=(fixtures[i+1]?.a??len)-right.b;
    // Absorb the narrow gap into a fixture symmetrically whenever feasible.
    // A half-and-half extension shifts both appliance centres off their facade.
-   if(['sink','stove'].includes(right.type)&&rightRoom>=gap-1e-6&&
+   if(right.type==='sink'&&rightRoom>=gap-1e-6&&
     (rightRoom>=leftRoom||leftRoom<gap-1e-6||!['sink','stove'].includes(left.type))){
     right.a-=gap;right.b+=gap;
-   }else if(['sink','stove'].includes(left.type)&&leftRoom>=gap-1e-6){
+   }else if(left.type==='sink'&&leftRoom>=gap-1e-6){
     left.a-=gap;left.b+=gap;
-   }else if(['sink','stove'].includes(right.type)&&rightRoom>=gap-1e-6){
+   }else if(right.type==='sink'&&rightRoom>=gap-1e-6){
     right.a-=gap;right.b+=gap;
-   }else{left.b+=gap/2;right.a-=gap/2;}
+   }else if(left.type!=='stove'&&right.type!=='stove'){left.b+=gap/2;right.a-=gap/2;}
   }
  }
  const result=[];let cursor=0;
@@ -687,6 +688,10 @@ export function planFronts(items,c,preset='doors'){
 /* Evaluate the whole cabinet bay before changing equipment positions.
    The 45–55 cm interval is a soft target, while actual fitting and
    sink-centred outward-opening pairs are stronger requirements. */
+function hasFixedHobWidth(items,c,front){
+ return c.subtype==='base'&&items.some(e=>e.kind==='equipment'&&e.subtype==='stove'&&e.hostId===c.id&&
+  front.startT<=(e.offsetT??.5)&&front.endT>=(e.offsetT??.5));
+}
 function smartFacadeCost(items,c){
  let fronts;
  try{fronts=planFronts(items,c,'smart');}
@@ -694,7 +699,7 @@ function smartFacadeCost(items,c){
  const len=lengthOf(c);
  let cost=fronts.reduce((total,f)=>{
   const width=(f.endT-f.startT)*len;
-  return total+75*facadeWidthPenalty(width);
+  return total+(hasFixedHobWidth(items,c,f)?0:75*facadeWidthPenalty(width));
  },0);
  for(const fixture of items.filter(e=>e.kind==='equipment'&&e.subtype==='sink'&&e.hostId===c.id)){
   const centre=(fixture.offsetT??.5)*len;
@@ -719,16 +724,16 @@ function smartFacadeCost(items,c){
   if(!bay.length)return Infinity;
   const start=Math.min(...bay.map(f=>f.startT))*len,
    end=Math.max(...bay.map(f=>f.endT))*len;
-  if(Math.abs((start+end)/2-centre)>.005)return Infinity;
+  if(Math.abs((start+end)/2-centre)>.005||Math.abs(end-start-fixture.width)>.005)return Infinity;
  }
  return cost;
 }
 /* Only an explicit Smart action proposes relocations. Manual equipment
    placement never silently moves another item; the UI confirms the proposal
    before committing it. Locked fixture positions are preserved. */
-function optimizeSmartFixturePositions(items){
+function optimizeSmartFixturePositions(items,cabinetIds){
  const moves=[];
- for(const fixture of items.filter(e=>e.kind==='equipment'&&['sink','stove'].includes(e.subtype))){
+ for(const fixture of items.filter(e=>e.kind==='equipment'&&['sink','stove','washer','dishwasher','oven'].includes(e.subtype)&&cabinetIds.has(e.hostId))){
   if(fixture.positionLocked||fixture.locked||fixture.manualPositionLocked)continue;
   const host=byId(items,fixture.hostId);
   if(host?.kind!=='cabinet'||host.subtype!=='base')continue;
@@ -762,18 +767,18 @@ function optimizeSmartFixturePositions(items){
  }
  return moves;
 }
-export function planSmartKitchen(source,{optimizePositions=true}={}){
+export function planSmartKitchen(source,{optimizePositions=true,cabinetIds=null}={}){
  const items=copy(source);
- const cabinetry=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge');
+ const cabinetry=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge'&&(!cabinetIds||cabinetIds.includes(c.id)));
  if(!cabinetry.length)throw Error('برای طراحی هوشمند ابتدا کابینت‌ها را نصب کن.');
  // Search permitted positions jointly with facade widths. Any proposed
  // movement is returned as a diff and must be approved by the UI.
- const equipmentMoves=optimizePositions?optimizeSmartFixturePositions(items):[];
+ const equipmentMoves=optimizePositions?optimizeSmartFixturePositions(items,new Set(cabinetry.map(c=>c.id))):[];
  for(const c of cabinetry)reflowFronts(items,c,'smart');
  for(const c of cabinetry)validateFronts(items,c);
  const layoutWarnings=[];
  for(const c of cabinetry){
-  const len=lengthOf(c),outside=items.filter(f=>f.kind==='front'&&f.hostId===c.id)
+  const len=lengthOf(c),outside=items.filter(f=>f.kind==='front'&&f.hostId===c.id&&!hasFixedHobWidth(items,c,f))
    .map(f=>(f.endT-f.startT)*len)
    .filter(width=>facadeWidthPenalty(width)>.0000001);
   if(outside.length)layoutWarnings.push({cabinetId:c.id,count:outside.length,
@@ -933,8 +938,28 @@ export function configureFrontRules(source,rules,{scope='global',targetId=null}=
 /* Align comparable horizontal drawer rails between connected cabinets. The
    seam is shared by every panel touching it; manually resized cabinets anchor
    their neighbors and are never silently reshaped. */
-export function alignFrontSeams(source){
- const items=copy(source),cabinets=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge');
+// Detect changed rows without running a facade solver on unrelated sides.
+export function affectedCabinetIds(before,after){
+ const old=new Map(before.map(o=>[o.id,o])),next=new Map(after.map(o=>[o.id,o]));
+ const rows=new Set();
+ const add=o=>{
+  if(!o)return;
+  if(o.kind==='front')return add(next.get(o.hostId)||old.get(o.hostId));
+  if(o.kind==='equipment'){
+   if(o.subtype==='hood')return add(next.get(o.linkedStoveId)||old.get(o.linkedStoveId));
+   return add(next.get(o.hostId)||old.get(o.hostId));
+  }
+  if(o.kind==='cabinet')rows.add(o.hostId+':'+(o.side||1));
+  if(o.kind==='wall')for(const c of [...before,...after])if(c.kind==='cabinet'&&c.hostId===o.id)rows.add(c.hostId+':'+(c.side||1));
+ };
+ for(const id of new Set([...old.keys(),...next.keys()])){
+  if(JSON.stringify(old.get(id))===JSON.stringify(next.get(id)))continue;
+  add(old.get(id));add(next.get(id));
+ }
+ return after.filter(c=>c.kind==='cabinet'&&rows.has(c.hostId+':'+(c.side||1))).map(c=>c.id);
+}
+export function alignFrontSeams(source,{cabinetIds=null}={}){
+ const items=copy(source),cabinets=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge'&&(!cabinetIds||cabinetIds.includes(c.id)));
  const visited=new Set();let alignedCount=0;
  for(const root of cabinets){
   if(visited.has(root.id))continue;
@@ -1486,8 +1511,13 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
  const obj={id:uid(),kind:'equipment',subtype,name:spec.name,width:spec.width,
   depth:spec.depth,height:spec.height,elevation:spec.elevation,x:point.x,z:point.z,rotation:0,
   model:EQUIPMENT_MODELS[subtype][0].id,...(subtype==='stove'?{induction:false}:{}),
-  ...(subtype==='sink'?{sinkSize:60,faucetModel:'arc'}:{}),
+  ...(subtype==='sink'?{sinkSize:90,faucetModel:'arc'}:{}),
   ...(subtype==='fridge'?{fridgeFeet:24}:{})};
+ if(model&&subtype!=='fridge'){
+  if(!EQUIPMENT_MODELS[subtype].some(m=>m.id===model))throw Error('مدل تجهیزات نامعتبر است.');
+  obj.model=model;
+  if(subtype==='stove')obj.width=STOVE_WIDTHS[model];
+ }
  if(subtype==='fridge'){
   const chosenModel=model||'single',chosenFeet=Number(fridgeFeet??24);
   if(!EQUIPMENT_MODELS.fridge.some(m=>m.id===chosenModel)||!FRIDGE_FEET.includes(chosenFeet))throw Error('مدل یا ظرفیت یخچال نامعتبر است.');
@@ -1522,9 +1552,9 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
    const len=lengthOf(c),t=Math.max(0,Math.min(1,((point.x-c.x1)*(c.x2-c.x1)+(point.z-c.z1)*(c.z2-c.z1))/(len*len)));
    const x=c.x1+t*(c.x2-c.x1),z=c.z1+t*(c.z2-c.z1);
    return {c,t,d:Math.hypot(point.x-x,point.z-z)};
-  }).filter(r=>r.d<=r.c.depth/2+.20&&lengthOf(r.c)>=spec.width+.04).sort((a,b)=>a.d-b.d);
+  }).filter(r=>r.d<=r.c.depth/2+.20&&lengthOf(r.c)>=obj.width+.04).sort((a,b)=>a.d-b.d);
   const best=ranked[0];if(!best)throw Error('برای نصب سینک و گاز، کابینت زمینی با طول کافی لازم است.');
-  const len=lengthOf(best.c),margin=(spec.width/2+.02)/len;
+  const len=lengthOf(best.c),margin=(obj.width/2+.02)/len;
   obj.hostId=best.c.id;obj.offsetT=Math.max(margin,Math.min(1-margin,best.t));obj.depthT=0;
   const pos=equipmentPosition(obj,items);Object.assign(obj,pos);
   for(const other of items.filter(o=>o.kind==='equipment'&&o.hostId===obj.hostId&&!(subtype==='stove'&&o.subtype==='oven')))

@@ -3,7 +3,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=optimizer61';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=row62';
 import {neighborGaps} from './edit-handles.js?v=fix60';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
@@ -60,8 +60,8 @@ export class FloorAR {
   this.session=await requesting;
   try{
    this.scene=new THREE.Scene();this.camera=new THREE.PerspectiveCamera();
-   this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-   this.renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.5));
+   this.renderer=new THREE.WebGLRenderer({antialias:false,alpha:true,powerPreference:'high-performance'});
+   this.renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.25));
    this.renderer.shadowMap.enabled=true;
    this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
    this.renderer.toneMapping=THREE.ACESFilmicToneMapping;
@@ -74,7 +74,7 @@ export class FloorAR {
    this.floorGroup=new THREE.Group();this.scene.add(this.floorGroup);
     this.ambient=new THREE.HemisphereLight(0xffffff,0x7d8b80,1.0);this.scene.add(this.ambient);
     this.sun=new THREE.DirectionalLight(0xfff4e2,2.1);
-    this.sun.castShadow=true;this.sun.shadow.mapSize.set(2048,2048);
+    this.sun.castShadow=true;this.sun.shadow.mapSize.set(1024,1024);
     this.sun.shadow.camera.left=-6;this.sun.shadow.camera.right=6;
     this.sun.shadow.camera.top=6;this.sun.shadow.camera.bottom=-6;
     this.sun.shadow.camera.near=.1;this.sun.shadow.camera.far=22;
@@ -1036,7 +1036,8 @@ export class FloorAR {
   this.sun.shadow.camera.top=10;this.sun.shadow.camera.bottom=-10;
   this.previewScene.add(this.sun,this.sun.target);
   this.ambient=new THREE.HemisphereLight(0xe7f2fb,0xa59b8c,1.35);this.previewScene.add(this.ambient);
-  this.previewRenderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'default'});
+  this.previewRenderer=new THREE.WebGLRenderer({antialias:false,alpha:false,powerPreference:'high-performance'});
+  this.previewRenderer.setPixelRatio(Math.min(devicePixelRatio||1,1.25));
   this.previewRenderer.shadowMap.enabled=true;
   this.previewRenderer.shadowMap.type=THREE.PCFSoftShadowMap;
   this.previewRenderer.outputColorSpace=THREE.SRGBColorSpace;
@@ -1768,7 +1769,7 @@ export class FloorAR {
     if(panel.handleStyle!=='knob'&&(isDrawer||horizontal))handle.rotation.z=Math.PI/2;
     handle.position.set(isDrawer||horizontal?0:panel.hinge==='left'?pose.width/2-.055:-pose.width/2+.055,
      horizontal?-pose.height/2+.055:isDrawer?pose.height*.19:0,visibleZ+.015*(pose.side||1));
-    handle.userData.objectId=panel.id;handle.castShadow=true;leaf.add(handle);
+    handle.userData.objectId=panel.id;handle.castShadow=false;leaf.add(handle);
    }
   }
   if(this.renderSettings.taskLighting){
@@ -1988,12 +1989,13 @@ export class FloorAR {
    cast.push({mesh:n,center,radius});
   });
   const ray=new THREE.Raycaster(),normal=new THREE.Vector3(),tangent=new THREE.Vector3(),bitangent=new THREE.Vector3();
-  const axes=[[0,0],[.68,0],[-.68,0],[0,.68],[0,-.68]];
+  const axes=[[0,0],[.68,0],[0,.68]];
+  let raysLeft=6000; // Bound the synchronous bake during interactive edits.
   for(const subject of cast){
    const mesh=subject.mesh,geo=mesh.geometry,position=geo.getAttribute('position'),normals=geo.getAttribute('normal');
-   if(position.count>1200)continue; // Never bake AO on detailed imported equipment.
+   if(position.count>1200||subject.radius<.05||raysLeft<position.count*axes.length)continue;
    const nearby=cast.filter(q=>q!==subject&&q.center.distanceTo(subject.center)<q.radius+subject.radius+.78)
-    .map(q=>q.mesh);
+    .slice(0,24).map(q=>q.mesh);
    if(!nearby.length)continue;
    const colours=[];
    for(let i=0;i<position.count;i++){
@@ -2003,6 +2005,7 @@ export class FloorAR {
     tangent.crossVectors(normal,ref).normalize();bitangent.crossVectors(normal,tangent).normalize();
     let blocked=0;
     for(const [x,y] of axes){
+     raysLeft--;
      const dir=normal.clone().addScaledVector(tangent,x).addScaledVector(bitangent,y).normalize();
      ray.set(world.clone().addScaledVector(normal,.018),dir);ray.near=.005;ray.far=.66;
      const hit=ray.intersectObjects(nearby,false)[0];
