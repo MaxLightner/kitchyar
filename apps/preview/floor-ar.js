@@ -3,8 +3,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=fix59';
-import {neighborGaps} from './edit-handles.js?v=fix59';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=fix60';
+import {neighborGaps} from './edit-handles.js?v=fix60';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
