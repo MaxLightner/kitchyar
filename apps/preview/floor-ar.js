@@ -3,7 +3,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,frontOpeningCavity,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=report33';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=unit37';
 import {neighborGaps} from './edit-handles.js?v=report33';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=report33';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=report33';
@@ -23,7 +23,7 @@ export class FloorAR {
    this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10,taskLighting:true,taskIntensity:1.8};
    this.materialSettings={...DEFAULT_MATERIALS};this.tileLayout={...DEFAULT_TILE_LAYOUT};this.textureCache=new Map();
    this.wideRenderer=null;this.wideCamera=null;this.wideActive=false;this.wideLevel='wide';
-   this.facadesHidden=false;this.frontRoots=[];
+   this.facadesHidden=false;this.frontRoots=[];this.frontControls=new Map();this.frontMotions=new Map();
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
@@ -800,6 +800,47 @@ export class FloorAR {
   // Visibility is view state: no remeshing, AO, project mutation or undo step.
   this.renderPreview();
  }
+ applyFrontFraction(control,fraction){
+  const {root,pivot,pose,host,panel,tray}=control;
+  control.fraction=fraction;
+  if(panel.subtype==='drawer'){
+   const slide=Math.min(host.depth*.70,.38)*fraction;
+   root.position.set(pose.x-Math.sin(pose.angle)*pose.side*slide,pose.y,
+    pose.z+Math.cos(pose.angle)*pose.side*slide);
+   if(tray)tray.position.copy(root.position);
+  }else if(pivot){
+   if(panel.hinge==='top')pivot.rotation.x=-pose.side*fraction*Math.PI*.48;
+   else pivot.rotation.y=(panel.hinge==='right'?1:-1)*pose.side*fraction*Math.PI*.49;
+  }
+ }
+ animateFront(id,to){
+  const control=this.frontControls.get(id);if(!control)return;
+  this.frontMotions.set(id,{from:control.fraction,to,start:performance.now(),duration:to?420:520});
+  if(this.frontAnimationFrame)return;
+  const tick=now=>{
+   this.frontAnimationFrame=null;
+   for(const [key,motion] of this.frontMotions){
+    const current=this.frontControls.get(key);
+    if(!current){this.frontMotions.delete(key);continue;}
+    const t=Math.min(1,Math.max(0,(now-motion.start)/motion.duration));
+    // Cubic ease-out produces a deliberately slow, soft-closing final motion.
+    const eased=1-(1-t)**3;
+    this.applyFrontFraction(current,motion.from+(motion.to-motion.from)*eased);
+    if(t>=1)this.frontMotions.delete(key);
+   }
+   if(this.previewRenderer&&this.previewCamera)this.previewRenderer.render(this.previewScene,this.previewCamera);
+   if(this.frontMotions.size)this.frontAnimationFrame=requestAnimationFrame(tick);
+  };
+  this.frontAnimationFrame=requestAnimationFrame(tick);
+ }
+ syncFrontOpeningState(items){
+  const before=new Map(this.items.filter(f=>f.kind==='front').map(f=>[f.id,f.openFraction||0]));
+  this.itemsSource=items;this.itemsSignature=JSON.stringify(items);this.items=structuredClone(items);
+  for(const f of this.items.filter(f=>f.kind==='front')){
+   const previous=before.get(f.id)||0,next=f.openFraction||0;
+   if(Math.abs(previous-next)>.001)this.animateFront(f.id,next);
+  }
+ }
  setMaterials(materials={}){
   const next={...DEFAULT_MATERIALS,...materials};
   if(JSON.stringify(next)===JSON.stringify(this.materialSettings))return;
@@ -943,6 +984,8 @@ export class FloorAR {
   return ray?.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),point)?{x:point.x,z:point.z}:null;
  }
  stopPreview(){
+  if(this.frontAnimationFrame)cancelAnimationFrame(this.frontAnimationFrame);
+  this.frontAnimationFrame=null;this.frontMotions.clear();this.frontControls.clear();
   this.clearSelectionHighlight();
   this.previewResize?.disconnect();this.previewRenderer?.dispose();this.previewRenderer?.domElement.remove();
   this.previewRenderer=null;this.previewHost=null;this.previewScene=null;this.objectGroup=null;this.floorGroup=null;
@@ -990,8 +1033,11 @@ export class FloorAR {
     if(!w)continue;
     const len=Math.hypot(w.x2-w.x1,w.z2-w.z1),dir=Math.sign(seg.endT-seg.startT);
     if(!dir)continue;
-    let x=seg.startT+(i>0?dir*cabinetTurnTrim(this.items.find(o=>o.id===route.segments[i-1].wallId),w)/len:0),
-     y=seg.endT-(i<route.segments.length-1?dir*cabinetTurnTrim(w,this.items.find(o=>o.id===route.segments[i+1].wallId))/len:0);
+    const prev=i>0?route.segments[i-1]:null,next=i<route.segments.length-1?route.segments[i+1]:null;
+    let x=seg.startT+(prev?dir*cabinetCornerTrims(this.items.find(o=>o.id===prev.wallId),w,prev.side,depth,
+     Math.sign(prev.endT-prev.startT),dir).after/len:0),
+     y=seg.endT-(next?dir*cabinetCornerTrims(w,this.items.find(o=>o.id===next.wallId),seg.side,depth,
+      dir,Math.sign(next.endT-next.startT)).before/len:0);
     let stopped=false;
     if(upper)try{const old=y;y=limitCabinetEnd(this.items,w,x,y,{kind:'upper',elevation,height:high});stopped=Math.abs(old-y)>.0001;}catch{y=x;stopped=true;}
     if(Math.abs(y-x)*len<.03){if(stopped)break;continue;}
@@ -1107,6 +1153,8 @@ export class FloorAR {
  }
  rebuildObjects(){
   if(!this.objectGroup)return;
+  if(this.frontAnimationFrame)cancelAnimationFrame(this.frontAnimationFrame);
+  this.frontAnimationFrame=null;this.frontMotions.clear();this.frontControls.clear();
   this.frontRoots=[];
   const selectedId=this.selectedId;
   this.clearSelectionHighlight();
@@ -1242,22 +1290,8 @@ export class FloorAR {
     carcass.userData.objectId=c.id;carcass.userData.cabinet=true;carcass.userData.carcass=true;
     this.objectGroup.add(carcass);
    }
-   // The moving drawer tray is an interior part; it remains visible when its
-   // front slides out. Shelves and user-defined internal dividers come later.
-   const opened=this.items.filter(f=>f.kind==='front'&&f.subtype==='drawer'&&f.hostId===c.id&&f.openFraction>.01)
-    .map(f=>({front:f,cavity:frontOpeningCavity(f,c)})).filter(entry=>entry.cavity);
-   if(opened.length){
-    const inside=material(0xf4f5f2,{roughness:.82});
-    for(const {front,cavity:v} of opened){
-     const height=v.yHigh-v.yLow,slide=Math.min(c.depth*.70,.38)*front.openFraction;
-     const depth=Math.min(c.depth*.75,.48),z=v.faceZ-v.side*depth/2+v.side*slide;
-     addDetail(v.width-.025,.016,depth,v.x,v.yLow+.02,z,inside);
-     for(const x of [v.x-v.width/2+.018,v.x+v.width/2-.018])
-      addDetail(.014,Math.min(.13,height-.035),depth,x,v.yLow+.075,z,inside);
-     addDetail(v.width-.025,Math.min(.13,height-.035),.015,v.x,v.yLow+.075,z-v.side*depth/2,inside);
-    }
-    inside.dispose();
-   }
+   // Every cavity is built at cabinet installation time, regardless of its
+   // doors' open state. Drawer boxes are generated with the facades below.
    if(c.subtype!=='bridge'&&decor.endPanel!=='none')for(const end of [-1,1]){
     const point=end<0?{x:c.x1,z:c.z1}:{x:c.x2,z:c.z2};
     const concealed=this.items.some(other=>other.kind==='cabinet'&&other.id!==c.id&&
@@ -1478,25 +1512,41 @@ export class FloorAR {
    root.userData.objectId=panel.id;root.userData.frontRoot=true;
    root.visible=!this.facadesHidden;this.frontRoots.push(root);this.objectGroup.add(root);
    const amount=Math.max(0,Math.min(1,panel.openFraction||0));
-   let leaf=root;
-   if(amount>.01&&panel.subtype==='drawer'){
-    const distance=Math.min(host.depth*.70,.38)*amount;
-    root.position.x-=Math.sin(pose.angle)*(pose.side||1)*distance;
-    root.position.z+=Math.cos(pose.angle)*(pose.side||1)*distance;
-   }else if(amount>.01&&panel.subtype==='door'){
-    const pivot=new THREE.Group(),face=new THREE.Group();
+   let leaf=root,pivot=null;
+   if(panel.subtype==='door'){
+    pivot=new THREE.Group();const face=new THREE.Group();
     if(panel.hinge==='top'){
      pivot.position.y=pose.height/2;
-     pivot.rotation.x=-(pose.side||1)*amount*Math.PI*.48;
      face.position.y=-pose.height/2;
     }else{
      const left=panel.hinge!=='right';
      pivot.position.x=(left?-1:1)*pose.width/2;
-     pivot.rotation.y=(left?-1:1)*(pose.side||1)*amount*Math.PI*.49;
      face.position.x=(left?1:-1)*pose.width/2;
     }
     root.add(pivot);pivot.add(face);leaf=face;
    }
+   let tray=null;
+   if(panel.subtype==='drawer'){
+    const depth=Math.min(host.depth*.75,.48),width=Math.max(.10,pose.width-.036),
+     wall=.012,low=-pose.height/2+.025,rail=Math.max(.045,Math.min(.14,pose.height*.52));
+    const z=-pose.side*(depth/2+.017),back=-pose.side*(depth+.011);
+    const trayPanels=[
+     {x:0,y:low,z,width,height:.014,depth},
+     {x:-width/2+wall/2,y:low+rail/2,z,width:wall,height:rail,depth},
+     {x:width/2-wall/2,y:low+rail/2,z,width:wall,height:rail,depth},
+     {x:0,y:low+rail/2,z:back,width,height:rail,depth:wall}
+    ];
+    const batch=buildCarcassPanelGeometry(trayPanels),geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.Float32BufferAttribute(batch.positions,3));
+    geo.setAttribute('normal',new THREE.Float32BufferAttribute(batch.normals,3));
+    geo.setIndex(batch.indices);
+    tray=new THREE.Group();tray.position.copy(root.position);tray.rotation.copy(root.rotation);
+    const drawerBox=new THREE.Mesh(geo,material(0xf4f5f2,{roughness:.82}));
+    drawerBox.castShadow=true;drawerBox.receiveShadow=true;drawerBox.userData.objectId=panel.id;
+    tray.add(drawerBox);this.objectGroup.add(tray);
+   }
+   const control={root,pivot,pose,host,panel,tray,fraction:0};
+   this.frontControls.set(panel.id,control);this.applyFrontFraction(control,amount);
    const frameId=panel.style==='frame'?panel.frameMaterialId||materialId:materialId;
    const faceMaterial=panel.id===this.selectedId?cabinetSelected.clone():
     this.surfaceMaterial('front',frameId,pose.width,pose.height,grain);
@@ -1738,6 +1788,8 @@ export class FloorAR {
 
  async stop(){if(this.session)try{await this.session.end();}catch{this.cleanup();}}
  cleanup(){
+  if(this.frontAnimationFrame)cancelAnimationFrame(this.frontAnimationFrame);
+  this.frontAnimationFrame=null;this.frontMotions.clear();this.frontControls.clear();
   this.hitSource?.cancel();this.lowerHitSource?.cancel?.();for(const s of this.sources)try{s.cancel();}catch{}
   this.clearSelectionHighlight();
   this.disableWideView();this.wideRenderer?.dispose();this.wideRenderer?.domElement.remove();

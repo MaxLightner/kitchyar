@@ -148,15 +148,15 @@ test('ceramic layouts generate clipped batched geometry in six patterns without 
 test('carcass is always hollow; drawer trays animate and the lower sheet has no select button',()=>{
  const app=read('app.js'),renderer=read('floor-ar.js'),elevation=read('edit-handles.js');
  assert.match(app,/data-action="toggle-front"/);
- assert.match(app,/Geo\.setFrontOpening\(currentItems\(\),front\.id,opening\)/);
+ assert.match(app,/commitFrontOpening\(front\.id,opening\)/);
  assert.doesNotMatch(app,/'<button data-action="select">انتخاب<\/button>/);
  assert.match(app,/class="side-tools"/,'the existing side select tool stays available');
- assert.match(renderer,/frontOpeningCavity\(f,c\)/);
+ assert.match(renderer,/this\.frontControls\.set\(panel\.id,control\)/);
  assert.match(renderer,/cabinetCarcassPanels\(c,/);
  assert.match(renderer,/buildCarcassPanelGeometry\(panels\)/);
- assert.match(renderer,/if\(opened\.length\)/);
+ assert.match(renderer,/const trayPanels=\[/);
  assert.doesNotMatch(renderer,/else box\(c,0,len,y0,y0\+c\.height,c\.depth/);
- assert.match(renderer,/f\.subtype==='drawer'/);
+ assert.match(renderer,/panel\.subtype==='drawer'/);
  assert.match(renderer,/pivot\.rotation\.y=/);
  assert.match(renderer,/pivot\.rotation\.x=/);
  assert.match(elevation,/is-open/);

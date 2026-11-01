@@ -149,6 +149,20 @@ export function cabinetPath(items,start,target){
  return best;
 }
 export function cabinetTurnTrim(a,b){return Math.max(.14,(a?.thickness||.12)/2+.05,(b?.thickness||.12)/2+.05);}
+// Joining two deep cabinet runs is NOT the same as joining thin walls. On
+// interior corners the incoming run stops at the outer face of the next run,
+// avoiding the old .6 m x .6 m self-intersection. Outer corners stay compact.
+export function cabinetCornerTrims(a,b,entrySide=1,depth=.6,dirA=1,dirB=1){
+ const lenA=lengthOf(a),lenB=lengthOf(b);
+ if(lenA<.1||lenB<.1)return {before:.02,after:.02};
+ const u={x:(a.x2-a.x1)*dirA/lenA,z:(a.z2-a.z1)*dirA/lenA},
+  v={x:(b.x2-b.x1)*dirB/lenB,z:(b.z2-b.z1)*dirB/lenB};
+ const cross=u.x*v.z-u.z*v.x,inner=cross*entrySide*dirA>.0001;
+ const width=depth+Math.max(a.thickness,b.thickness)/2+.007;
+ const wallClearance=cabinetTurnTrim(a,b);
+ return {before:inner?Math.min(1.1,width/Math.max(.45,Math.abs(cross))):wallClearance,
+  after:wallClearance};
+}
 /* Stop a near-corner stroke cleanly against the adjoining wall. A 10–35 cm
    accidental scrap is not installed as a separate cabinet. */
 function finishAtCorner(items,w,t){
@@ -170,9 +184,15 @@ export function placeCabinetRoute(source,start,target,opts={}){
   const seg=route.segments[i],w=byId(items,seg.wallId),len=lengthOf(w),dir=Math.sign(seg.endT-seg.startT);
   if(!dir)continue;
   let a=seg.startT,b=seg.endT;
-  if(i>0)a+=dir*cabinetTurnTrim(byId(items,route.segments[i-1].wallId),w)/len;
+  if(i>0){
+   const previous=route.segments[i-1],prevWall=byId(items,previous.wallId);
+   a+=dir*cabinetCornerTrims(prevWall,w,previous.side,opts.depth||.6,
+    Math.sign(previous.endT-previous.startT),dir).after/len;
+  }
   else a=finishAtCorner(items,w,a);
-  if(i<route.segments.length-1)b-=dir*cabinetTurnTrim(w,byId(items,route.segments[i+1].wallId))/len;
+  if(i<route.segments.length-1){const next=route.segments[i+1];
+   b-=dir*cabinetCornerTrims(w,byId(items,next.wallId),seg.side,opts.depth||.6,
+    dir,Math.sign(next.endT-next.startT)).before/len;}
   else b=finishAtCorner(items,w,b);
   if(Math.abs(b-a)*len<MIN_CABINET_LENGTH)continue;
   const pt=t=>({x:w.x1+(w.x2-w.x1)*t,z:w.z1+(w.z2-w.z1)*t});
@@ -814,6 +834,41 @@ export function setFrontOpening(source,id,fraction){
  f.openFraction=amount;
  return {items,selectedId:id};
 }
+// A unit is the shared bay behind a door pair or a vertical drawer stack.
+// It can be selected without deleting or replacing its host cabinet run.
+export function frontUnitFor(source,id){
+ const front=byId(source,id);if(front?.kind!=='front')return null;
+ const host=byId(source,front.hostId);if(host?.kind!=='cabinet')return null;
+ const members=source.filter(f=>f.kind==='front'&&f.hostId===host.id&&
+  (Number.isInteger(front.bay)&&f.bay===front.bay||!Number.isInteger(front.bay)&&f.id===front.id));
+ return {hostId:host.id,frontId:id,bay:front.bay,
+  startT:Math.min(...members.map(f=>f.startT)),endT:Math.max(...members.map(f=>f.endT)),
+  bottomT:Math.min(...members.map(f=>f.bottomT)),topT:Math.max(...members.map(f=>f.topT)),
+  frontIds:members.map(f=>f.id)};
+}
+export function convertFrontUnit(source,id,preset){
+ if(!['doors','drawers2','drawers3','drawers4'].includes(preset))throw Error('نوع یونیت انتخاب‌شده معتبر نیست.');
+ const unit=frontUnitFor(source,id);if(!unit)throw Error('ابتدا یک درب یا کشو انتخاب کن.');
+ const items=copy(source),host=byId(items,unit.hostId),old=byId(items,id),rules=resolvedFrontRules(host);
+ const width=(unit.endT-unit.startT)*lengthOf(host),count=preset==='doors'?
+  Math.max(1,Math.ceil((width-1e-6)/rules.maxDoorWidth)):Number(preset.slice(-1));
+ if(preset==='doors'&&width/count<rules.minDoorWidth-.00001)throw Error('عرض یونیت از حداقل عرض درب کمتر می‌شود.');
+ const replacement=[];
+ for(let j=0;j<count;j++){
+  const isDoor=preset==='doors',startT=isDoor?unit.startT+(unit.endT-unit.startT)*j/count:unit.startT,
+   endT=isDoor?unit.startT+(unit.endT-unit.startT)*(j+1)/count:unit.endT,
+   bottomT=isDoor?unit.bottomT:unit.bottomT+(unit.topT-unit.bottomT)*j/count,
+   topT=isDoor?unit.topT:unit.bottomT+(unit.topT-unit.bottomT)*(j+1)/count;
+  replacement.push({...old,id:uid(),subtype:isDoor?'door':'drawer',name:isDoor?'درب کابینت':'کشوی کابینت',
+   preset,bay:unit.bay,part:j,startT,endT,bottomT,topT,
+   hinge:isDoor?(count===1?rules.singleHinge:rules.pairHinge==='outer'?(j%2?'right':'left'):(j%2?'left':'right')):'none',
+   openFraction:0,manualOverrides:{}});
+ }
+ const deleted=new Set(unit.frontIds);
+ const result=items.filter(f=>!deleted.has(f.id));result.push(...replacement);
+ host.frontPreset='custom';validateFronts(result,host);
+ return {items:result,selectedId:replacement[0].id,unitCount:replacement.length};
+}
 function validateFronts(items,c){
  const fronts=items.filter(o=>o.kind==='front'&&o.hostId===c.id),len=lengthOf(c);
  for(const f of fronts){
@@ -914,22 +969,32 @@ export function wallJointCaps(w,items=[]){
    for(const e of [false,true]){
     const x=e?other.x2:other.x1,z=e?other.z2:other.z1;
     if((end?w.endNodeId:w.startNodeId)&&
-       (end?w.endNodeId:w.startNodeId)===(e?other.endNodeId:other.startNodeId)||dist(px,pz,x,z)<.002){
+       (end?w.endNodeId:w.startNodeId)===(e?other.endNodeId:other.startNodeId)||dist(px,pz,x,z)<.025){
      const length=lengthOf(other);
      if(length>.099)linked.push({other,ux:(e?other.x1-other.x2:other.x2-other.x1)/length,
       uz:(e?other.z1-other.z2:other.z2-other.z1)/length});
     }
    }
   }
-  if(linked.length!==1)return 0;
-  const next=linked[0],cross=ux*next.uz-uz*next.ux;
+  if(!linked.length)return 0;
+  // A T- or cross-junction has multiple outgoing walls. The side's nearest
+  // angular neighbour determines its miter; don't leave a protruding square.
+  const s=end?-side:side;
+  const options=linked.length===1?linked:linked.filter(n=>
+   (ux*n.uz-uz*n.ux)*s>.0001).sort((a,b)=>{
+    const ca=Math.atan2(ux*a.uz-uz*a.ux,ux*a.ux+uz*a.uz);
+    const cb=Math.atan2(ux*b.uz-uz*b.ux,ux*b.ux+uz*b.uz);
+    return Math.abs(ca)-Math.abs(cb);
+   });
+  if(!options.length)return 0;
+  const next=options[0],cross=ux*next.uz-uz*next.ux;
   if(Math.abs(cross)<.0001)return 0;
   // At an end node local +Z is opposite to the outgoing ray's left side.
-  const s=end?-side:side,h=w.thickness/2,otherH=next.other.thickness/2;
+  const h=w.thickness/2,otherH=next.other.thickness/2;
   const p1={x:-uz*s*h,z:ux*s*h};
   const p2={x:next.uz*s*otherH,z:-next.ux*s*otherH};
   const t=((p2.x-p1.x)*next.uz-(p2.z-p1.z)*next.ux)/cross;
-  const limit=Math.min(.45,Math.max(w.thickness,next.other.thickness)*2);
+  const limit=Math.min(.45,len*.45,Math.max(w.thickness,next.other.thickness)*2);
   return (end?-1:1)*Math.max(-limit,Math.min(limit,t));
  };
  return {startPlus:cap(false,1),startMinus:cap(false,-1),
@@ -1368,7 +1433,21 @@ export function removeObject(source,id){
  const deleted=new Set([id]);let changed=true;
  while(changed){changed=false;for(const o of source)if((o.hostId&&deleted.has(o.hostId)||o.linkedStoveId&&deleted.has(o.linkedStoveId)||o.overFridgeId&&deleted.has(o.overFridgeId))&&!deleted.has(o.id)){deleted.add(o.id);changed=true;}}
  const items=copy(source).filter(o=>!deleted.has(o.id));
- if(target.kind==='front'){const owner=byId(items,target.hostId);if(owner)owner.frontPreset='custom';}
+ if(target.kind==='front'){
+  const owner=byId(items,target.hostId);
+  if(owner){
+   owner.frontPreset='custom';
+   // Deleting the top drawer of a mixed unit extends the doors below up to
+   // the worktop, instead of leaving an unmanufacturable empty band.
+   const below=items.filter(f=>f.kind==='front'&&f.hostId===owner.id&&
+    Math.abs(f.topT-target.bottomT)<.012&&
+    Math.min(f.endT,target.endT)-Math.max(f.startT,target.startT)>.012);
+   const covers=below.length&&below.every(f=>f.startT>=target.startT-.008&&f.endT<=target.endT+.008)&&
+    Math.min(...below.map(f=>f.startT))<=target.startT+.008&&
+    Math.max(...below.map(f=>f.endT))>=target.endT-.008;
+   if(covers){for(const f of below)f.topT=target.topT;validateFronts(items,owner);}
+  }
+ }
  if(target.kind==='equipment'){
   // Old integrated units and inset refrigerators replaced cabinet geometry;
   // explicitly restore that missing run on deletion, including its facade.

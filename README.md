@@ -38,6 +38,13 @@ Editor defaults to AR. After a tracked AR session has recognized and locked the 
 - Every board uses exactly 12 triangles, and all boards of a cabinet are combined into **one indexed draw mesh** with one plain-white, texture-free interior material. Finished exposed ends, countertop and toe kick remain separate. Open drawers retain their moving trays.
 - The editor's new **درب‌ها** sidebar button conceals or restores all door/drawer fronts (including specialty niche doors) in tracked AR, 3D and 2D. It updates mesh visibility without recomputing ambient occlusion or changing the project, undo history or facade cutting report. Interior shelf/partition **editing** and carcass manufacturing-sheet nesting are future steps.
 
+### Unit-level facade interaction and motion
+
+- Interiors are generated with their host cabinets and stay present whether selected or not. Every drawer has a separate low-poly white drawer box, including when the facade is hidden. Only the facade leaf is concealed by the visibility toggle.
+- Front opening is an independent 420–520 ms cubic-ease motion, with a gentle soft-close finish. It moves/rotates existing groups (doors and their handles, drawer fronts and their boxes), without remeshing the kitchen, recomputing raycast AO or refreshing textures. Undo still records the target opening state.
+- A closed front is single-tapped for settings, double-tapped to open, and triple-tapped to select its entire bay/unit; an opened front closes on a fresh single tap. In unit selection, convert just that bay to hinged doors or two, three or four drawers with actual internal boxes while neighbouring units keep their original layouts.
+- Removing a top drawer in a mixed door/drawer bay automatically extends the lower pair of doors to the underside of the worktop. Adjacent cabinet runs on an interior L-corner now reserve actual cabinet depth, not just wall thickness, to prevent protruding interpenetrations; oblique and multi-way wall caps use a nearby angular joint instead of a square stub.
+
 ## Surface library, kitchen styles, and editable equipment
 
 - `در و کشو → گالری`: four generated kitchen style photographs are actionable presets, not decorative mockups. Selecting a style recalculates semantic door/drawer layouts and applies a coordinated material palette; individual fronts remain editable afterward.

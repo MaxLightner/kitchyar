@@ -1,6 +1,6 @@
-import {FloorAR} from './floor-ar.js?v=carcass36';
-import * as Geo from './geometry.js?v=report33';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=carcass36';
+import {FloorAR} from './floor-ar.js?v=unit37';
+import * as Geo from './geometry.js?v=unit37';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=unit37';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=report33';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=report33';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=report33';
@@ -14,6 +14,7 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const date=value=>new Date(value).toLocaleDateString('fa-IR',{year:'numeric',month:'short',day:'numeric'});
 let projects=[],floor=null,desktopPreview=null,mode='ar',activeTool=null,activeId=null,toastTimer=null,loadError=null;
 let selection=null,drawing=null,hover=null,pendingUpperEdit=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null,planCalibrationDrag=null;
+let selectedUnit=null,lastFrontTap=null;
 let paintScope='single',paintPart='panel';
 let movingEquipmentId=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
@@ -79,7 +80,7 @@ const categories=[
 ];
 function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
- activeId=id;mode='ar';facadesHidden=false;activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
+ activeId=id;mode='ar';facadesHidden=false;selectedUnit=null;lastFrontTap=null;activeTool=null;selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><aside class="elevation-panel" id="elevation-panel" hidden></aside><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
@@ -297,6 +298,20 @@ function openCutSheet(c){
 }
 function drawSelection(){
  const panel=document.getElementById('object-editor');if(!panel)return;
+ if(selectedUnit&&!drawing){
+  const host=currentItems().find(o=>o.id===selectedUnit.hostId);
+  if(host){
+   const width=(selectedUnit.endT-selectedUnit.startT)*Geo.lengthOf(host);
+   panel.hidden=false;
+   panel.innerHTML='<div class="object-head"><strong>یونیت انتخاب‌شده · '+num(width)+' متر</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
+    '<p class="unit-editor-hint">تغییر نوع همین یونیت؛ درب‌ها و کشوهای یونیت‌های مجاور دست‌نخورده می‌مانند.</p>'+
+    '<div class="unit-convert-actions">'+[['doors','درب لولایی'],['drawers2','۲ کشو'],['drawers3','۳ کشو'],['drawers4','۴ کشو']].map(([preset,label])=>
+     '<button data-action="convert-unit" data-unit-preset="'+preset+'">'+label+'</button>').join('')+'</div>'+
+    '<small>یک بار لمس: تنظیمات نما · دو بار: بازکردن · سه بار: انتخاب یونیت</small>';
+   return;
+  }
+  selectedUnit=null;
+ }
  const obj=currentItems().find(x=>x.id===selection);
  panel.hidden=!obj||!!drawing;if(!obj||drawing)return;
  const previousScroll=panel.dataset.selectionId===obj.id?panel.scrollTop:0;
@@ -509,7 +524,7 @@ function showScene(){
  buttons.forEach(b=>b.disabled=b.dataset.action==='undo'?!undoStack.length:!redoStack.length);
  drawSelection();drawTools();
 }
-function commitChange(result,{materials,styleId,frontRules,tileLayout}={}){
+function commitChange(result,{materials,styleId,frontRules,tileLayout,skipAlignment=false}={}){
  if(!result||!Array.isArray(result.items))throw Error('تغییر هندسه معتبر نیست.');
  const p=currentProject();if(!p)return;
  undoStack.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene?.materials},styleId:p.scene?.styleId||null,frontRules:currentFrontRules(),tileLayout:currentTileLayout()});if(undoStack.length>60)undoStack.shift();redoStack=[];
@@ -520,22 +535,35 @@ function commitChange(result,{materials,styleId,frontRules,tileLayout}={}){
   const styled=Geo.applyKitchenLayout(result.items,p.scene.styleId,{cabinetIds:added});
   result={...result,items:styled.items};
  }
- result={...result,items:Geo.alignFrontSeams(result.items).items};
+ if(!skipAlignment)result={...result,items:Geo.alignFrontSeams(result.items).items};
  p.scene??={items:[]};p.scene.items=result.items;p.updatedAt=new Date().toISOString();p.revision=(p.revision||0)+1;
  if(materials)p.scene.materials={...DEFAULT_MATERIALS,...materials};
  if(styleId!==undefined)p.scene.styleId=styleId;
  if(frontRules)p.scene.frontRules={...frontRules};
  if(tileLayout)p.scene.tileLayout={...tileLayout};
- save();selection=result.selectedId||null;showScene();
+ save();selectedUnit=null;lastFrontTap=null;selection=result.selectedId||null;showScene();
+}
+function commitFrontOpening(frontId,opening){
+ const p=currentProject();if(!p)return;
+ const result=Geo.setFrontOpening(currentItems(),frontId,opening);
+ undoStack.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene.materials},
+  styleId:p.scene.styleId||null,frontRules:currentFrontRules(),tileLayout:currentTileLayout()});
+ if(undoStack.length>60)undoStack.shift();redoStack=[];
+ p.scene.items=result.items;p.updatedAt=new Date().toISOString();p.revision=(p.revision||0)+1;
+ save();selection=frontId;selectedUnit=null;
+ floor?.syncFrontOpeningState(result.items);
+ desktopPreview?.syncFrontOpeningState(result.items);
+ showScene();
 }
 function undoChange(redo=false){
  const source=redo?redoStack:undoStack,dest=redo?undoStack:redoStack;if(!source.length)return;
  const p=currentProject();dest.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene.materials},styleId:p.scene.styleId||null,frontRules:currentFrontRules(),tileLayout:currentTileLayout()});
  const snapshot=source.pop();p.scene.items=Array.isArray(snapshot)?snapshot:snapshot.items;
  if(!Array.isArray(snapshot)){p.scene.materials=snapshot.materials;p.scene.styleId=snapshot.styleId||null;p.scene.frontRules={...Geo.DEFAULT_FRONT_RULES,...snapshot.frontRules};p.scene.tileLayout={...DEFAULT_TILE_LAYOUT,...snapshot.tileLayout};}
- p.updatedAt=new Date().toISOString();save();selection=null;drawing=null;showScene();
+ p.updatedAt=new Date().toISOString();save();selection=null;selectedUnit=null;drawing=null;showScene();
 }
 function selectAt(point,target,arId=null){
+ selectedUnit=null;
  const items=currentItems(),id=arId||target?.closest?.('[data-item-id]')?.dataset.itemId;
  let hit=items.find(x=>x.id===id);
  if(!hit&&point){
@@ -555,6 +583,29 @@ function selectAt(point,target,arId=null){
   document.querySelectorAll('[data-category]').forEach(button=>button.classList.remove('active'));
  }
  selection=next;showScene();
+}
+function handleFrontTap(hitId,event){
+ const previous=lastFrontTap,now=performance.now(),nearPrevious=previous&&now-previous.time<560&&
+  Math.hypot(event.clientX-previous.x,event.clientY-previous.y)<24;
+ // An opening leaf may swing away from the cursor on the second tap. The
+ // third tap still addresses the original unit if it lands on its carcass.
+ const front=currentItems().find(f=>f.id===hitId&&f.kind==='front')||
+  (nearPrevious&&previous.count===2&&currentItems().find(f=>f.id===previous.id&&f.kind==='front'));
+ if(!front){lastFrontTap=null;return false;}
+ const same=nearPrevious&&previous.id===front.id;
+ const count=same?Math.min(3,lastFrontTap.count+1):1;
+ lastFrontTap={id:front.id,count,time:now,x:event.clientX,y:event.clientY};
+ if(count===3){
+  selectedUnit=Geo.frontUnitFor(currentItems(),front.id);
+  if(selectedUnit){selection=selectedUnit.hostId;showScene();}
+  return true;
+ }
+ if(count===2||count===1&&front.openFraction>.01){
+  commitFrontOpening(front.id,front.openFraction>.01?0:1);
+  return true;
+ }
+ selectedUnit=null;selection=front.id;showScene();
+ return true;
 }
 function initialPreviewForTool(tool){
  if(tool.startsWith('front-')){
@@ -934,7 +985,8 @@ document.addEventListener('pointerup',e=>{
     hover=point;
     if(['wall','base','upper','tall'].includes(drawing.tool)){showScene();return;}
     placeAt(point);
-  }else selectAt(trackedView()?null:point,e.target,arId);
+  }else if(!handleFrontTap(arId||e.target.closest?.('[data-item-id]')?.dataset.itemId,e))
+   selectAt(trackedView()?null:point,e.target,arId);
  }catch(error){tell(error.message);}
 });
 document.addEventListener('pointercancel',e=>{
@@ -975,6 +1027,11 @@ document.addEventListener('click',async e=>{
   }
   if(action==='more')return projectMenu(id);
   if(action==='close-dialog'){dialogs.innerHTML='';pendingUpperEdit=null;return;}
+  if(action==='convert-unit'){
+   if(!selectedUnit)throw Error('ابتدا با سه لمس پشت‌سرهم یونیت را انتخاب کن.');
+   commitChange(Geo.convertFrontUnit(currentItems(),selectedUnit.frontId,button.dataset.unitPreset),{skipAlignment:true});
+   tell('نوع یونیت تغییر کرد.');return;
+  }
   if(action==='toggle-facades'){
    facadesHidden=!facadesHidden;
    if(facadesHidden&&currentItems().some(o=>o.id===selection&&o.kind==='front'))selection=null;
@@ -1051,7 +1108,7 @@ document.addEventListener('click',async e=>{
    const front=currentItems().find(o=>o.id===selection&&o.kind==='front');
    if(!front)throw Error('ابتدا درب یا کشوی موردنظر را انتخاب کن.');
    const opening=front.openFraction>.01?0:1;
-   commitChange(Geo.setFrontOpening(currentItems(),front.id,opening));
+   commitFrontOpening(front.id,opening);
    tell(opening?'درب یا کشو باز شد؛ فضای داخلی این قسمت نمایش داده می‌شود.':'درب یا کشو بسته شد.');return;
   }
   if(action==='paint-scope'){
@@ -1164,7 +1221,7 @@ document.addEventListener('click',async e=>{
    document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));
    showScene();tell('روی محل جدید وسیله در پلان یا AR بزن.');return;
   }
-  if(action==='close-object'){selection=null;showScene();return;}
+  if(action==='close-object'){selection=null;selectedUnit=null;showScene();return;}
   if(action==='delete-object'){if(selection){movingEquipmentId=null;commitChange(Geo.removeObject(currentItems(),selection));selection=null;showScene();}return;}
   if(action==='save'){touch(activeId);document.getElementById('save-indicator').textContent='ذخیره‌شده';return tell('پروژه ذخیره شد.');}
   if(action==='start-ar')return beginAR();
