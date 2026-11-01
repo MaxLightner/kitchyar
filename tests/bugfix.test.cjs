@@ -45,7 +45,7 @@ test('fridge relocation and deletion restore a single cabinet run, without forci
  assert.equal(bases.length,1);
  assert.equal(bases[0].startT,original.startT);
  assert.equal(bases[0].endT,original.endT);
- assert.equal(bases[0].frontPreset,null);
+ assert.equal(bases[0].frontPreset??null,null,'no facade preset must be introduced by fridge removal');
  assert.equal(items.filter(o=>o.kind==='front').length,0);
 });
 
