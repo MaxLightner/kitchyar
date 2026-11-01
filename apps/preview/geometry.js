@@ -1075,6 +1075,18 @@ function validateCabinets(items,w){
      Math.min(c.elevation+c.height,o.sill+o.height)-Math.max(c.elevation,o.sill)>.015)
     throw Error('کابینت با در یا پنجره روی دیوار تداخل دارد.');
   const fp=cabinetFootprint(c,w);
+  // Inverse collision validation: newly created cabinets must respect a fridge
+  // that has already carved its place out of the same run.
+  for(const fridge of items.filter(e=>e.kind==='equipment'&&e.subtype==='fridge')){
+   if(Math.min(c.elevation+c.height,fridge.elevation+fridge.height)-
+      Math.max(c.elevation,fridge.elevation)<=.015)continue;
+   const offset=fridge.builtIn?(fridge.surround?.bayOffset||0):0,angle=fridge.rotation||0;
+   const reserved=fridge.builtIn?{...fridge,
+    x:fridge.x+offset*Math.cos(angle),z:fridge.z+offset*Math.sin(angle),
+    width:Math.max(fridge.width+.055,fridge.surround?.bayWidth||0)}:fridge;
+   if(polygonOverlap(fp.corners,equipmentFootprint(reserved)))
+    throw Error('کابینت جدید با محل یخچال برخورد دارد؛ ابتدا محدوده نصب را اصلاح کن.');
+  }
   for(const other of items)if(wall(other)&&other.id!==w.id&&polygonOverlap(fp.corners,wallFootprint(other,items)))
    throw Error('کابینت به دیوار مجاور برخورد می‌کند؛ فاصله از گوشه را بیشتر کن.');
   for(const other of items)if(other.kind==='cabinet'&&other.id!==c.id&&other.hostId!==c.hostId){
@@ -1538,7 +1550,9 @@ export function editWall(source,id,{length,thickness,height}){
   if(other.startNodeId===node){other.x1=x;other.z1=z;}
   if(other.endNodeId===node){other.x2=x;other.z2=z;}
  }
- w.thickness=thick;w.height=high;
+ if(high<2||high>9)throw Error('ارتفاع همهٔ دیوارها باید بین ۲ تا ۹ متر باشد.');
+ w.thickness=thick;
+ for(const other of items)if(wall(other))other.height=high;
  for(const other of items)if(wall(other)){if(lengthOf(other)<.10)throw Error('دیوار کوتاه می‌شود.');validateHostOpenings(items,other);validateCabinets(items,other);}
  return {items,selectedId:id};
 }
