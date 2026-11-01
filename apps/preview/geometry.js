@@ -1431,6 +1431,16 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
 export function editEquipment(source,id,{width,depth,height,model,induction,sinkSize,fridgeFeet,facadeMode,faucetModel}={}){
  const items=copy(source),e=byId(items,id);
  if(!e||e.kind!=='equipment')throw Error('تجهیزات انتخاب نشده‌اند.');
+ // Applying the inspector without changing a value must not destroy/recreate
+ // refrigerator bays, rebuild hob fronts or churn persistent object IDs.
+ const unchanged=[['width',width],['depth',depth],['height',height],
+  ['fridgeFeet',fridgeFeet],['sinkSize',sinkSize]].every(([key,value])=>
+   value===undefined||Number(value)===Number(e[key]))&&
+  (model===undefined||model===e.model)&&
+  (induction===undefined||Boolean(induction)===Boolean(e.induction))&&
+  (facadeMode===undefined||facadeMode===e.facadeMode)&&
+  (faucetModel===undefined||faucetModel===e.faucetModel);
+ if(unchanged)return {items,selectedId:id};
  if(e.subtype==='fridge'&&[width,depth,height,model,fridgeFeet].some(v=>v!==undefined)){
   const nextModel=model??e.model,nextFeet=fridgeFeet??e.fridgeFeet??24;
   const standard=fridgeDimensions(nextModel,nextFeet);
