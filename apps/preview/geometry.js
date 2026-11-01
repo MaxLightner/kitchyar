@@ -636,7 +636,9 @@ export function planFronts(items,c,preset='doors'){
     maxDoorWidth:rules.maxDoorWidth,targetDoorWidth:Math.max(rules.minDoorWidth,Math.min(rules.maxDoorWidth,.50))});
    const leaves=explicitLeaves??(sink&&forcePair?2:partition.count);
    const width=span/leaves;
-   const maximum=sink&&forcePair?Math.max(rules.maxDoorWidth,DEFAULT_CABINET_OPTIMIZATION.sinkPairMaxWidth):rules.maxDoorWidth;
+   const nearBoundarySingle=leaves===1&&span<=DEFAULT_CABINET_OPTIMIZATION.singleLeafMaxWidth+1e-6;
+   const maximum=sink&&forcePair||nearBoundarySingle?
+    Math.max(rules.maxDoorWidth,DEFAULT_CABINET_OPTIMIZATION.singleLeafMaxWidth):rules.maxDoorWidth;
    if((!partition.feasible&&!sink)||!Number.isInteger(leaves)||leaves<1||
     width<rules.minDoorWidth-1e-6||width>maximum+1e-6)
     throw Error('عرض این قسمت با تقسیم مجاز درب‌ها سازگار نیست؛ تعداد درها یا چیدمان تجهیزات باید دوباره بهینه شود.');
