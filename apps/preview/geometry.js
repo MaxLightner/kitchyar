@@ -352,7 +352,7 @@ export const EQUIPMENT_MODELS=Object.freeze({
  washer:[{id:'front',label:'درب از جلو'},{id:'integrated',label:'پنهان در کابینت'}],
  oven:[{id:'electric',label:'فر برقی توکار'},{id:'gas',label:'فر گازی توکار'}],
  microwave:[{id:'built-in',label:'مایکروویو توکار'},{id:'compact',label:'کامپکت'}],
- hood:[{id:'slim',label:'مخفی کشویی'},{id:'chimney',label:'شومینه‌ای'},{id:'angled',label:'مورب'},{id:'concealed',label:'مخفی کابینتی'},{id:'cabinet-framed',label:'داخل قاب کابینت'}],
+ hood:[{id:'slim',label:'مخفی کشویی'},{id:'chimney',label:'اکسپوز شومینه‌ای'},{id:'angled',label:'اکسپوز مورب'},{id:'concealed',label:'مخفی کابینتی'},{id:'cabinet-framed',label:'داخل قاب کابینت'}],
  stove:[{id:'gas5',label:'۵ شعله'},{id:'gas3',label:'۳ شعله'},{id:'gas2',label:'۲ شعله'},
   {id:'gas4',label:'۴ شعله (قدیمی)'},{id:'induction',label:'القایی (قدیمی)'}],
  sink:[{id:'single',label:'تک‌کاسه'},{id:'double',label:'دوکاسه'},{id:'drainer',label:'آبچکان (قدیمی)'}]
@@ -457,7 +457,7 @@ export function styleEquipmentFacade(source,id,facadeMode){
  return {items,selectedId:id};
 }
 export const DEFAULT_FRONT_RULES=Object.freeze({
- minDoorWidth:.30,maxDoorWidth:.62,gap:.003,alignRows:true,
+ minDoorWidth:.45,maxDoorWidth:.55,gap:.003,alignRows:true,
  singleHinge:'left',pairHinge:'outer',handleStyle:'bar'
 });
 const RULE_KEYS=Object.keys(DEFAULT_FRONT_RULES);
@@ -547,7 +547,7 @@ function layoutBays(items,c,preset){
     }
    }
    if(centre===null||centre<-.1||centre>len+.1)continue;
-   const half=e.subtype==='stove'?e.width/2:e.subtype==='sink'?Math.max(.45,e.width/2+.02):e.width/2+.02;
+   const half=e.subtype==='stove'?e.width/2:e.subtype==='sink'?Math.max(.45,Math.min(.55,lengthOf(byId(items,e.hostId)||c)/Math.max(1,Math.round(lengthOf(byId(items,e.hostId)||c)/.5)))):e.width/2+.02;
    fixtures.push({a:Math.max(0,centre-half),b:Math.min(len,centre+half),type:e.subtype,e});
   }
   fixtures.sort((a,b)=>a.a-b.a);
@@ -617,11 +617,12 @@ export function planFronts(items,c,preset='doors'){
  const make=(kind,bay,part,left,right,bottom,top,hinge='none')=>({
   id:uid(),kind:'front',subtype:kind,name:kind==='door'?'درب کابینت':'کشوی کابینت',
   hostId:c.id,preset,bay,part,startT:left,endT:right,bottomT:bottom,topT:top,
-  hinge,finish:'cream',style:c.photoPreset?.front?.style||'flat',handleStyle:photoZone(c)?.handleStyle||c.photoPreset?.front?.handleStyle||rules.handleStyle,handleFinish:c.photoPreset?.front?.handleFinish||'steel',grainDirection:c.photoPreset?.front?.grainDirection||'auto',gap:rules.gap
+  widthConflict:kind==='door'&&hinge!=='top'&&((right-left)*length<.45-1e-6||(right-left)*length>.55+1e-6),hinge,finish:'cream',style:c.photoPreset?.front?.style||'flat',handleStyle:photoZone(c)?.handleStyle||c.photoPreset?.front?.handleStyle||rules.handleStyle,handleFinish:c.photoPreset?.front?.handleFinish||'steel',grainDirection:c.photoPreset?.front?.grainDirection||'auto',gap:rules.gap
  });
  for(let i=0;i<bays.length;i++){
   const {a:metresA,b:metresB,type}=bays[i],a=metresA/length,b=metresB/length,span=metresB-metresA;
   const sink=type==='sink',stove=type==='stove';
+  if(stove&&c.subtype==='upper'&&items.some(e=>e.kind==='equipment'&&e.subtype==='hood'&&e.linkedStoveId===bays[i].e.id&&['chimney','angled'].includes(e.model)))continue;
   const oven=type==='oven'||stove&&items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&
    Math.hypot(e.x-bays[i].e.x,e.z-bays[i].e.z)<.55);
   if(oven||['dishwasher','washer'].includes(type))continue; // Keep appliance faces unobstructed.
@@ -636,9 +637,9 @@ export function planFronts(items,c,preset='doors'){
   const doors=(low,high,forcePair=false,topHinge=false,explicitLeaves=null)=>{
    const required=Math.max(1,Math.ceil((span-1e-7)/rules.maxDoorWidth));
    const leaves=explicitLeaves??(topHinge?1:sink&&forcePair?
-    Math.max(2,2*Math.ceil(required/2)):
+    2:
     Math.max(forcePair&&span>=2*rules.minDoorWidth-1e-6?2:1,required));
-   if(span/leaves<rules.minDoorWidth-1e-6||explicitLeaves!==null&&span/leaves>rules.maxDoorWidth+1e-6)
+   if(!topHinge&&span/leaves<.15-1e-6)
     throw Error('عرض این قسمت برای تعداد درب یا حداقل و حداکثر عرض مجاز سازگار نیست.');
    for(let j=0;j<leaves;j++){
     const left=a+(b-a)*j/leaves,right=a+(b-a)*(j+1)/leaves;
@@ -665,7 +666,9 @@ export function planFronts(items,c,preset='doors'){
    }
    continue;
   }
-  if(layout==='lift')doors(0,1,false,true);
+  if(c.subtype==='over-fridge')doors(0,1,false,true);
+  else if(layout==='lift'&&c.height>=.90-1e-6){doors(0,.5,false,true);doors(.5,1,false,true);}
+  else if(layout==='lift')doors(0,1);
   else if(layout==='doors'||layout==='sinkDoors')doors(0,1,sink||layout==='sinkDoors');
   else if(layout==='mixed'||layout==='mixedLower'){
    const drawerTop=layout==='mixed',split=drawerTop?.72:.28;
@@ -699,7 +702,7 @@ function smartFacadeCost(items,c){
  const len=lengthOf(c);
  let cost=fronts.reduce((total,f)=>{
   const width=(f.endT-f.startT)*len;
-  return total+(hasFixedHobWidth(items,c,f)?0:75*facadeWidthPenalty(width));
+  return total+(hasFixedHobWidth(items,c,f)||f.hinge==='top'?0:75*facadeWidthPenalty(width));
  },0);
  for(const fixture of items.filter(e=>e.kind==='equipment'&&e.subtype==='sink'&&e.hostId===c.id)){
   const centre=(fixture.offsetT??.5)*len;
@@ -737,6 +740,7 @@ function optimizeSmartFixturePositions(items,cabinetIds){
   if(fixture.positionLocked||fixture.locked||fixture.manualPositionLocked)continue;
   const host=byId(items,fixture.hostId);
   if(host?.kind!=='cabinet'||host.subtype!=='base')continue;
+  if(host.frontPreset==='custom')continue; // A manual unit boundary must survive an automatic pass.
   const len=lengthOf(host),original=(fixture.offsetT??.5)*len;
   const margin=fixture.width/2+.02;
   let bestAlong=original,bestCost=smartFacadeCost(items,host);
@@ -774,11 +778,11 @@ export function planSmartKitchen(source,{optimizePositions=true,cabinetIds=null}
  // Search permitted positions jointly with facade widths. Any proposed
  // movement is returned as a diff and must be approved by the UI.
  const equipmentMoves=optimizePositions?optimizeSmartFixturePositions(items,new Set(cabinetry.map(c=>c.id))):[];
- for(const c of cabinetry)reflowFronts(items,c,'smart');
+ for(const c of cabinetry)if(c.frontPreset!=='custom')reflowFronts(items,c,'smart');
  for(const c of cabinetry)validateFronts(items,c);
  const layoutWarnings=[];
  for(const c of cabinetry){
-  const len=lengthOf(c),outside=items.filter(f=>f.kind==='front'&&f.hostId===c.id&&!hasFixedHobWidth(items,c,f))
+  const len=lengthOf(c),outside=items.filter(f=>f.kind==='front'&&f.hostId===c.id&&f.hinge!=='top'&&!hasFixedHobWidth(items,c,f))
    .map(f=>(f.endT-f.startT)*len)
    .filter(width=>facadeWidthPenalty(width)>.0000001);
   if(outside.length)layoutWarnings.push({cabinetId:c.id,count:outside.length,
@@ -788,12 +792,12 @@ export function planSmartKitchen(source,{optimizePositions=true,cabinetIds=null}
    const fs=items.filter(f=>f.kind==='front'&&f.hostId===c.id);
    const member=fs.find(f=>f.startT*len<=centre+.00001&&f.endT*len>=centre-.00001);
    const doors=fs.filter(f=>member&&f.bay===member.bay&&f.subtype==='door');
-   if(doors.length!==OPTIMIZATION_RULES.sinkDoorLeaves)
+   if(doors.length!==OPTIMIZATION_RULES.sinkDoorLeaves||doors.some(f=>(f.endT-f.startT)*len<.45-1e-6||(f.endT-f.startT)*len>.55+1e-6))
     layoutWarnings.push({cabinetId:c.id,equipmentId:sink.id,
-     reason:'درهای زیر سینک هنوز دو لنگه متقارن نیستند؛ قفل محل یا محدودیت فضا بررسی شود.'});
+     reason:'دو درِ هم‌مرکز زیر سینک باید عرض ۴۵ تا ۵۵ داشته باشند؛ قفل محل یا محدودیت فضا بررسی شود.'});
   }
  }
- return {items,equipmentMoves,layoutWarnings,
+ return {items,equipmentMoves,layoutWarnings,valid:!layoutWarnings.some(w=>w.equipmentId)&&!items.some(f=>f.kind==='front'&&f.subtype==='door'&&f.hinge!=='top'&&cabinetry.some(c=>c.id===f.hostId&&((f.endT-f.startT)*lengthOf(c)<.45-1e-6||(f.endT-f.startT)*lengthOf(c)>.55+1e-6))),
   selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
 }
 /* Catalog styles alter actual semantic door/drawer layouts, not just colors. */
@@ -1011,6 +1015,7 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
  const manual=f.manualOverrides??={};
  if(width!==undefined){
   const val=Math.round(Number(width)*100)/100;
+  if(f.subtype==='door'&&(hinge??f.hinge)!=='top'&&(val<.45||val>.55))throw Error('عرض درب عمودی باید بین ۴۵ تا ۵۵ سانتی‌متر باشد.');
   if(!Number.isFinite(val)||val<.15||val>1.2)throw Error('عرض نمای درب یا کشو معتبر نیست.');
   const next=f.startT+val/lengthOf(c),old=f.endT;
   // The shared vertical seam moves both adjacent leaves, with no crack or overlap.
@@ -1037,6 +1042,7 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
   f.topT=next;
   manual.geometry=true;
  }
+ if(hinge==='top'&&c.subtype==='upper'&&c.height<.90-1e-6)throw Error('بازشوی افقی به ارتفاع حداقل ۹۰ سانتی‌متر کابینت هوایی نیاز دارد.');
  if(hinge!==undefined){if(f.subtype!=='door'||!['left','right','top'].includes(hinge))throw Error('جهت لولا نامعتبر است.');if(f.hinge!==hinge)manual.hinge=true;f.hinge=hinge;}
  if(finish!==undefined){if(!['cream','wood','graphite'].includes(finish))throw Error('رنگ درب نامعتبر است.');if(f.finish!==finish)manual.finish=true;f.finish=finish;}
  if(style!==undefined){if(!['flat','frame'].includes(style))throw Error('سبک درب نامعتبر است.');if(f.style!==style)manual.style=true;f.style=style;}
@@ -1098,7 +1104,7 @@ export function convertFrontUnit(source,id,preset){
   replacement.push({...old,id:uid(),subtype:isDoor?'door':'drawer',name:isDoor?'درب کابینت':'کشوی کابینت',
    preset,bay:unit.bay,part:j,startT,endT,bottomT,topT,
    hinge:isDoor?(count===1?rules.singleHinge:rules.pairHinge==='outer'?(j%2?'right':'left'):(j%2?'left':'right')):'none',
-   openFraction:0,manualOverrides:{}});
+   openFraction:0,manualOverrides:{...old.manualOverrides,geometry:true}});
  }
  const deleted=new Set(unit.frontIds);
  const result=items.filter(f=>!deleted.has(f.id));result.push(...replacement);
@@ -1173,7 +1179,7 @@ function syncEquipment(items){
  for(const hood of items.filter(o=>o.kind==='equipment'&&o.subtype==='hood')){
   const p=equipmentPosition(hood,items);if(!p)throw Error('هود باید به گاز متصل باشد.');
   Object.assign(hood,p);
-  const stove=byId(items,hood.linkedStoveId);hood.width=Math.max(.60,stove.width);
+  const stove=byId(items,hood.linkedStoveId);hood.width=stove.width;
  }
  validateEquipmentSpacing(items);
 }
@@ -1568,7 +1574,7 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
   if(FRONT_PRESETS[c?.frontPreset])reflowFronts(items,c);
  }
  if(subtype==='stove')items.push({id:uid(),kind:'equipment',subtype:'hood',name:'هود',
-  model:'slim',linkedStoveId:obj.id,width:Math.max(.60,obj.width),depth:.45,height:.32,
+  model:'slim',linkedStoveId:obj.id,width:obj.width,depth:.45,height:.32,
   elevation:1.55,x:obj.x,z:obj.z,rotation:obj.rotation});
  syncEquipment(items);validateEquipmentSpacing(items);
  if(subtype==='fridge'&&obj.builtIn)try{
@@ -1711,6 +1717,7 @@ export function editEquipment(source,id,{width,depth,height,model,induction,sink
  }
  syncEquipment(items);validateEquipmentSpacing(items);
  // Only the equipment's own cabinet needs a new bay layout after resizing a sink or stove.
+ if(e.subtype==='hood')reflowUpperAtFixture(items,byId(items,e.linkedStoveId));
  if(['sink','stove'].includes(e.subtype)){
   const host=byId(items,e.hostId);
   if(host?.kind==='cabinet'&&FRONT_PRESETS[host.frontPreset])reflowFronts(items,host);
@@ -1725,7 +1732,7 @@ export function placeCabinet(source,start,end,{kind='base',depth,height,elevatio
  const w=found,len=lengthOf(w),a=projectOnWall(w,start.x,start.z),b=projectOnWall(w,end.x,end.z);
  if(b.distance>.65)throw Error('پایان کابینت باید روی همان دیوار میزبان باشد.');
  if(!['base','upper','tall'].includes(kind))throw Error('نوع کابینت نامعتبر است.');
- const upper=kind==='upper',tall=kind==='tall',d=Number(depth??(upper?.35:.60)),h=Number(height??(upper?.72:tall?2.15:.78)),e=Number(elevation??(upper?1.55:.08));
+ const upper=kind==='upper',tall=kind==='tall',d=Number(depth??(upper?.35:.60)),h=Number(height??(upper?.90:tall?2.15:.78)),e=Number(elevation??(upper?1.55:.08));
  const capped=limitCabinetEnd(items,w,a.t,b.t,{kind,height:h,elevation:e});
  let from=Math.min(a.t,capped),to=Math.max(a.t,capped);
  if((to-from)*len<MIN_CABINET_LENGTH)throw Error('طول کابینت باید حداقل ۴۵ سانتی‌متر باشد.');
@@ -2106,6 +2113,9 @@ export function editCabinet(source,id,{length,depth,height,elevation}){
   elevation!==undefined&&Math.abs(Number(elevation)-c.elevation)>.001);
  c.depth=Number(depth??c.depth);c.height=Number(height??c.height);c.elevation=Number(elevation??c.elevation);
  if(manualTallHeight)c.ceilingAligned=false;
+ if(c.subtype==='upper'&&(height!==undefined||elevation!==undefined)){
+  return {...applyAllUpperHeights(items,{height:c.height,elevation:c.elevation}),selectedId:id};
+ }
  if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
  if(['upper','base'].includes(c.subtype))refitBridges(items);
  validateCabinets(items,w);return {items,selectedId:id};
@@ -2200,6 +2210,7 @@ export function applyAllUpperHeights(source,{height,elevation}={}){
  const items=copy(source),uppers=items.filter(c=>c.kind==='cabinet'&&c.subtype==='upper');
  if(!uppers.length)throw Error('کابینت هوایی وجود ندارد.');
  for(const c of uppers){if(height!==undefined)c.height=Number(height);
+  if(c.height<.90-1e-6)for(const f of items.filter(f=>f.kind==='front'&&f.hostId===c.id&&f.hinge==='top')){f.hinge='left';if(f.manualOverrides)delete f.manualOverrides.hinge;}
   if(elevation!==undefined)c.elevation=Number(elevation);
   if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
  }

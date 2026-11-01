@@ -1,4 +1,4 @@
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=row62';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=unit63';
 import {renderPlanMeasurements} from './edit-handles.js?v=fix60';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
@@ -239,7 +239,7 @@ export function renderPreview(items,drawing,hover){
   try{
    preview=placeCabinetRoute(items,start,target,{
     kind:tool,depth:drawing.depth??(tool==='upper'?.35:.60),
-    height:tool==='upper'?(drawing.height??.72):tool==='tall'?2.15:undefined,
+    height:tool==='upper'?(drawing.height??.90):tool==='tall'?2.15:undefined,
     elevation:tool==='upper'?(drawing.elevation??1.55):undefined,
     groupId:drawing.groupId,frontRules:drawing.frontRules
    });
@@ -281,7 +281,7 @@ export function renderPreview(items,drawing,hover){
    }else{
     const a=start?projectOnWall(host,start.x,start.z).t:Math.max(0,projectOnWall(host,hover.x,hover.z).t-1/len);
     let b=start?projectOnWall(host,hover.x,hover.z).t:Math.min(1,a+1/len);
-    if(tool==='upper')try{b=limitCabinetEnd(items,host,a,b,{kind:'upper',height:drawing?.height??.72,elevation:drawing?.elevation??1.55});}catch{b=a;}
+    if(tool==='upper')try{b=limitCabinetEnd(items,host,a,b,{kind:'upper',height:drawing?.height??.90,elevation:drawing?.elevation??1.55});}catch{b=a;}
     if(Math.abs(b-a)*len>.02){
      const cabinet={startT:Math.min(a,b),endT:Math.max(a,b),depth:width,side:start?.side||1};
      corners=cabinetFootprint(cabinet,host).corners;

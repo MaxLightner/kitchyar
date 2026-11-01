@@ -3,7 +3,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=row62';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=unit63';
 import {neighborGaps} from './edit-handles.js?v=fix60';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
@@ -872,6 +872,21 @@ export class FloorAR {
   this.updateEditHandles();
   this.renderPreview();
  }
+ setUnitSelection(unit=null){
+  const signature=JSON.stringify(unit);
+  if(signature===this.unitSelectionSignature&&this.unitFrame?.parent)return;
+  this.unitSelectionSignature=signature;
+  if(this.unitFrame){this.unitFrame.removeFromParent();this.unitFrame.geometry.dispose();this.unitFrame.material.dispose();this.unitFrame=null;}
+  if(!unit||!this.floorGroup)return;
+  const c=this.items.find(o=>o.id===unit.hostId);if(!c)return;
+  const dx=c.x2-c.x1,dz=c.z2-c.z1,len=Math.hypot(dx,dz),t=(unit.startT+unit.endT)/2;
+  const box=new THREE.BoxGeometry((unit.endT-unit.startT)*len+.018,(unit.topT-unit.bottomT)*c.height+.018,c.depth+.035);
+  const edges=new THREE.EdgesGeometry(box);box.dispose();
+  this.unitFrame=new THREE.LineSegments(edges,new THREE.LineBasicMaterial({color:0x19aa79,depthTest:false}));
+  this.unitFrame.position.set(c.x1+dx*t,c.elevation+c.height*(unit.bottomT+unit.topT)/2,c.z1+dz*t);
+  this.unitFrame.rotation.y=-Math.atan2(dz,dx);this.unitFrame.renderOrder=100;
+  this.floorGroup.add(this.unitFrame);this.renderPreview();
+ }
  setFacadesHidden(hidden){
   const next=!!hidden;
   if(next===this.facadesHidden)return;
@@ -1107,6 +1122,7 @@ export class FloorAR {
   return ray?.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),point)?{x:point.x,z:point.z}:null;
  }
  stopPreview(){
+  this.setUnitSelection(null);
   if(this.frontAnimationFrame)cancelAnimationFrame(this.frontAnimationFrame);
   this.frontAnimationFrame=null;this.frontMotions.clear();this.frontControls.clear();
   this.clearSelectionHighlight();
@@ -1150,7 +1166,7 @@ export class FloorAR {
    const snapped=snapCabinetPoint(this.items,p.x,p.z,.85);
    const route=snapped?cabinetPath(this.items,a,snapped):null;
    if(!route){group.visible=false;return;}
-   const upper=kind==='upper',depth=upper?.35:.60,elevation=upper?(this.drawing.elevation??1.55):.08,high=upper?(this.drawing.height??.72):.78;
+   const upper=kind==='upper',depth=upper?.35:.60,elevation=upper?(this.drawing.elevation??1.55):.08,high=upper?(this.drawing.height??.90):.78;
    for(let i=0;i<route.segments.length;i++){
     const seg=route.segments[i],w=this.items.find(o=>o.id===seg.wallId);
     if(!w)continue;
@@ -1259,13 +1275,13 @@ export class FloorAR {
     from=a?project(a):project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
     to=project(p);
     if(kind==='upper')try{
-     const t=limitCabinetEnd(this.items,host,from.t,to.t,{kind:'upper',height:this.drawing.height??.72,elevation:this.drawing.elevation??1.55});
+     const t=limitCabinetEnd(this.items,host,from.t,to.t,{kind:'upper',height:this.drawing.height??.90,elevation:this.drawing.elevation??1.55});
      to=project({x:host.x1+t*(host.x2-host.x1),z:host.z1+t*(host.z2-host.z1)});
     }catch{group.visible=false;return;}
     if(!a&&Math.hypot(to.x-from.x,to.z-from.z)<.3){
      from=project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
     }
-    width=kind==='upper'?.35:.60;level=kind==='upper'?(this.drawing.elevation??1.55):.08;height=kind==='upper'?(this.drawing.height??.72):.78;colour=kind==='upper'?0xe5c79a:0xbca289;
+    width=kind==='upper'?.35:.60;level=kind==='upper'?(this.drawing.elevation??1.55):.08;height=kind==='upper'?(this.drawing.height??.90):.78;colour=kind==='upper'?0xe5c79a:0xbca289;
     const nx=-(host.z2-host.z1)/len*(a?.side||1),nz=(host.x2-host.x1)/len*(a?.side||1);
     const offset=host.thickness/2+.004+width/2;
     from={x:from.x+nx*offset,z:from.z+nz*offset};
@@ -2022,6 +2038,7 @@ export class FloorAR {
 
  async stop(){if(this.session)try{await this.session.end();}catch{this.cleanup();}}
  cleanup(){
+  this.setUnitSelection(null);
   if(this.frontAnimationFrame)cancelAnimationFrame(this.frontAnimationFrame);
   this.frontAnimationFrame=null;this.frontMotions.clear();this.frontControls.clear();
   this.hitSource?.cancel();this.lowerHitSource?.cancel?.();for(const s of this.sources)try{s.cancel();}catch{}

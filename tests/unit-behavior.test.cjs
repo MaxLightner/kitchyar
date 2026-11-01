@@ -16,6 +16,8 @@ test('three taps select one complete cabinet unit, not the entire kitchen run',a
  assert.equal(changed.items.filter(x=>x.kind==='front'&&x.bay===0).length,3);
  assert.equal(changed.items.find(x=>x.id==='next').subtype,'drawer');
  assert.equal(items.length,4,'original items remain unchanged');
+ const planned=g.planSmartKitchen(changed.items);
+ assert.deepEqual(planned.items,changed.items,'automatic planning must preserve the manually converted unit');
 });
 test('deleting top drawer stretches lower paired doors to worktop',async()=>{
  const g=await import('../apps/preview/geometry.js');

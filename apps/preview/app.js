@@ -1,6 +1,6 @@
-import {FloorAR} from './floor-ar.js?v=row62';
-import * as Geo from './geometry.js?v=row62';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix60';
+import {FloorAR} from './floor-ar.js?v=unit63';
+import * as Geo from './geometry.js?v=unit63';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=unit63';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix60';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
@@ -15,6 +15,22 @@ const date=value=>new Date(value).toLocaleDateString('fa-IR',{year:'numeric',mon
 let projects=[],floor=null,desktopPreview=null,mode='ar',activeTool=null,activeId=null,toastTimer=null,loadError=null;
 let selection=null,drawing=null,hover=null,pendingUpperEdit=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null,planCalibrationDrag=null;
 let selectedUnit=null,lastFrontTap=null;
+let unitPress=null;
+function cancelUnitPress(){if(unitPress)clearTimeout(unitPress.timer);unitPress=null;}
+window.addEventListener('blur',cancelUnitPress);
+document.addEventListener('contextmenu',e=>{if(unitPress)e.preventDefault();});
+function beginUnitPress(e){
+ if(drawing||movingEquipmentId||!e.target.closest('.editor-scene')||e.target.closest('button,input,[data-handle],[data-open-handle]'))return;
+ const id=trackedView()?floor?.pickObject(e.clientX,e.clientY):mode==='3d'?desktopPreview?.pickPreviewObject(e.clientX,e.clientY):e.target.closest('[data-item-id]')?.dataset.itemId;
+ const unit=Geo.frontUnitFor(currentItems(),id);if(!unit)return;
+ cancelUnitPress();
+ const press={pointerId:e.pointerId,x:e.clientX,y:e.clientY,unit,fired:false};
+ press.timer=setTimeout(()=>{
+  if(unitPress!==press)return;
+  press.fired=true;selectedUnit=unit;selection=unit.hostId;lastFrontTap=null;showScene();
+  inspectorOpen=true;drawSelection();
+ },500);unitPress=press;
+}
 let inspectorOpen=false,inspectorSelectionKey=null;
 let paintScope='single',paintPart='panel';
 let movingEquipmentId=null,pendingSmartLayout=null;
@@ -25,7 +41,7 @@ let styleApplyToken=0,selectedGalleryStyleId=null;
 let reportSheetOptions={...DEFAULT_SHEET};
 let miniLastHost=null,miniLastItems=null,miniLastCalibration='',miniLastFacadesHidden=null;
 const trackedView=()=>mode==='ar'||(mode==='3d'&&!!floor?.wideActive);
-const settings={thickness:.12,height:3.6,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.72,upperElevation:1.55};
+const settings={thickness:.12,height:3.6,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.90,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8};
 const renderSettings=()=>({...defaultRender,...currentProject()?.scene?.render});
 try{
@@ -326,7 +342,7 @@ function drawSelection(){
     '<p class="unit-editor-hint">تغییر نوع همین یونیت؛ درب‌ها و کشوهای یونیت‌های مجاور دست‌نخورده می‌مانند.</p>'+
     '<div class="unit-convert-actions">'+[['doors','درب لولایی'],['drawers2','۲ کشو'],['drawers3','۳ کشو'],['drawers4','۴ کشو']].map(([preset,label])=>
      '<button data-action="convert-unit" data-unit-preset="'+preset+'">'+label+'</button>').join('')+'</div>'+
-    '<small>یک بار لمس: تنظیمات نما · دو بار: بازکردن · سه بار: انتخاب یونیت</small>';
+    '<small>یک بار لمس: تنظیمات نما · دو بار: بازکردن · نگه‌داشتن: انتخاب یونیت</small>';
    return;
   }
   selectedUnit=null;
@@ -385,7 +401,7 @@ function drawSelection(){
   (obj.subtype==='sink'?'<strong>عرض سینک</strong><div class="model-choices-grid">'+[60,90,120].map(n=>
    '<button data-action="sink-size" data-size="'+n+'" class="'+((obj.sinkSize||Math.round(obj.width*100))===n?'active':'')+'">'+n+' سانتی‌متر</button>').join('')+'</div>':'')+
   '</div>':'';
- const extras=obj.kind==='cabinet'&&obj.subtype==='upper'?'<div class="object-extras"><button data-action="toggle-task-light">'+(renderSettings().taskLighting?'خاموش‌کردن نور زیر همه کابینت‌ها':'روشن‌کردن نور زیر همه کابینت‌ها')+'</button><p>قفسهٔ رابط بین کابینت زمینی و هوایی</p><label>عرض قفسه (متر)<input type="number" data-bridge-width min=".45" max="1.20" step=".01" value=".45"></label><div class="model-choices-grid"><button data-action="bridge" data-edge="start" data-depth="base">سمت چپ · عمق زمینی</button><button data-action="bridge" data-edge="end" data-depth="base">سمت راست · عمق زمینی</button><button data-action="bridge" data-edge="start" data-depth="upper">سمت چپ · عمق هوایی</button><button data-action="bridge" data-edge="end" data-depth="upper">سمت راست · عمق هوایی</button></div></div>':obj.kind==='equipment'&&obj.subtype==='fridge'?'<div class="object-extras"><strong>کابینت بالای یخچال</strong><div class="model-choices-grid"><button data-action="fridge-over" data-depth=".60">عمق ۶۰ سانتی‌متر</button><button data-action="fridge-over" data-depth="fridge">عمق خود یخچال</button></div></div>':obj.kind==='cabinet'&&obj.subtype==='base'?'<div class="object-extras"><strong>برش‌های صفحه کابینت</strong>'+((Geo.countertopCutouts(currentItems(),obj).map(h=>'<p>'+ (h.type==='sink'?'سینک':'گاز')+' · '+Math.round(h.width*100)+' × '+Math.round(h.depth*100)+' سانتی‌متر · از ابتدای کابینت '+Math.round(h.left*100)+' سانتی‌متر</p>').join(''))||'<p>برشی ثبت نشده است.</p>')+'</div>':'';
+ const extras=obj.kind==='cabinet'&&obj.subtype==='upper'?'<div class="object-extras"><button data-action="toggle-task-light">'+(renderSettings().taskLighting?'خاموش‌کردن نور زیر همه کابینت‌ها':'روشن‌کردن نور زیر همه کابینت‌ها')+'</button><p>قفسهٔ رابط بین کابینت زمینی و هوایی</p><label>عرض قفسه (متر)<input type="number" data-bridge-width min=".45" max="1.20" step=".01" value=".45"></label><div class="model-choices-grid"><button data-action="bridge" data-edge="start" data-depth="base">سمت چپ · عمق زمینی</button><button data-action="bridge" data-edge="end" data-depth="base">سمت راست · عمق زمینی</button><button data-action="bridge" data-edge="start" data-depth="upper">سمت چپ · عمق هوایی</button><button data-action="bridge" data-edge="end" data-depth="upper">سمت راست · عمق هوایی</button></div></div>':obj.kind==='equipment'&&obj.subtype==='fridge'?'<div class="object-extras"><strong>کابینت بالای یخچال</strong><div class="model-choices-grid"><button data-action="fridge-over" data-depth="base">عمق کابینت زمینی</button><button data-action="fridge-over" data-depth="fridge">عمق خود یخچال</button></div></div>':obj.kind==='cabinet'&&obj.subtype==='base'?'<div class="object-extras"><strong>برش‌های صفحه کابینت</strong>'+((Geo.countertopCutouts(currentItems(),obj).map(h=>'<p>'+ (h.type==='sink'?'سینک':'گاز')+' · '+Math.round(h.width*100)+' × '+Math.round(h.depth*100)+' سانتی‌متر · از ابتدای کابینت '+Math.round(h.left*100)+' سانتی‌متر</p>').join(''))||'<p>برشی ثبت نشده است.</p>')+'</div>':'';
  const paintControls=obj.kind==='front'?'<div class="paint-panel"><strong>رنگ‌آمیزی درب و کشو</strong><div class="paint-choice">'+
   [['single','فقط همین'],['connected','متصل‌ها'],['layer','همه هم‌سطح‌ها'],['all','کل آشپزخانه']].map(([id,name])=>
    '<button data-action="paint-scope" data-scope="'+id+'" class="'+(paintScope===id?'active':'')+'">'+name+'</button>').join('')+
@@ -468,6 +484,14 @@ function showScene(){
  if(isPlan){
   host.innerHTML=renderPlan(items,{selectedId:selection,drawing:drawing?{...drawing,height:settings.upperHeight,elevation:settings.upperElevation,depth:drawing.tool==='upper'?settings.upperDepth:settings.baseDepth,frontRules:currentFrontRules(),freestanding:fridgeFreestanding}:null,hover,calibration:currentProject()?.scene?.calibration,showCalibration:!calibrationCollapsed,hideFronts:facadesHidden});
   document.getElementById('scene-message').classList.add('hide-for-plan');
+  if(selectedUnit){
+   const c=items.find(c=>c.id===selectedUnit.hostId);
+   if(c){const len=Geo.lengthOf(c),ux=(c.x2-c.x1)/len,uz=(c.z2-c.z1)/len;
+    const points=[[selectedUnit.startT,-1],[selectedUnit.endT,-1],[selectedUnit.endT,1],[selectedUnit.startT,1]].map(([t,side])=>
+     (c.x1+ux*len*t-uz*c.depth*side/2)+','+(c.z1+uz*len*t+ux*c.depth*side/2)).join(' ');
+    host.querySelector('svg')?.insertAdjacentHTML('beforeend','<polygon class="selected-unit-outline" points="'+points+'" fill="none" stroke="#19aa79" stroke-width=".035" pointer-events="none"/>');
+   }
+  }
  }else {
   host.innerHTML='';
   document.getElementById('scene-message').classList.remove('hide-for-plan');
@@ -482,7 +506,7 @@ function showScene(){
    Geo.nearestCabinet(items,hover)?.cabinet):null;
   let pending=null;
   if(previewHost)try{
-   pending=drawing.tool==='front-smart'?Geo.planSmartKitchen(items,{optimizePositions:false}).items:
+   pending=drawing.tool==='front-smart'?Geo.planSmartKitchen(items,{optimizePositions:false,cabinetIds:[previewHost.id]}).items:
     items.filter(o=>!(o.kind==='front'&&o.hostId===previewHost.id))
      .concat(Geo.planFronts(items,previewHost,drawing.tool.slice(6)));
   }catch{}
@@ -527,6 +551,7 @@ function showScene(){
  const tileLayout=currentTileLayout();
  floor?.setSceneState(items,selection,materials,tileLayout);
  floor?.setFacadesHidden(facadesHidden);
+ floor?.setUnitSelection(selectedUnit);
  floor?.setRoomSurfaces(roomSurfacesVisible,currentProject()?.scene?.ceilingHeight||3.6);
  if(mode==='3d'){
   if(!floor?.wideActive&&!desktopPreview){
@@ -536,6 +561,7 @@ function showScene(){
   }
   desktopPreview?.setSceneState(items,selection,materials,tileLayout);
   desktopPreview?.setFacadesHidden(facadesHidden);
+  desktopPreview?.setUnitSelection(selectedUnit);
   desktopPreview?.setRoomSurfaces(roomSurfacesVisible,currentProject()?.scene?.ceilingHeight||3.6);
   desktopPreview?.setLighting(renderSettings());
  }
@@ -694,7 +720,7 @@ function placeAt(point){
   const balanced=Geo.planSmartKitchen(items);
   const styled=scene?.styleId&&scene?.stylePreset?
    {...Geo.applyKitchenLayout(balanced.items,scene.styleId,{preset:scene.stylePreset}),
-    equipmentMoves:balanced.equipmentMoves,layoutWarnings:balanced.layoutWarnings}:balanced;
+    valid:balanced.valid,equipmentMoves:balanced.equipmentMoves,layoutWarnings:balanced.layoutWarnings}:balanced;
   if(styled.equipmentMoves?.length||styled.layoutWarnings?.length){
    // No silent equipment movement in an existing manual design. The change
    // is kept as a proposal until the user explicitly approves it.
@@ -708,7 +734,7 @@ function placeAt(point){
    dialogs.innerHTML='<div class="dialog-cover"><div class="dialog"><h2>پیشنهاد بهینه‌سازی چیدمان</h2>'+
     '<p>تغییر مکان تجهیزات یا استثناهای عرض نما پیش از اعمال نمایش داده می‌شوند. اگر موردی نامناسب است انصراف بده؛ هیچ تغییر بی‌تأیید ثبت نمی‌شود.</p>'+
     '<ul>'+changes+'</ul><div class="dialog-actions">'+
-    '<button class="primary" data-action="confirm-smart-layout">تأیید و اعمال طرح</button>'+
+    '<button class="primary" data-action="confirm-smart-layout" '+(styled.valid===false?'disabled':'')+'>تأیید و اعمال طرح</button>'+
     '<button data-action="cancel-smart-layout">انصراف</button></div></div></div>';
    return;
   }
@@ -791,9 +817,7 @@ function applySelection(){
   const changes={length:value('length',Geo.lengthOf(obj)),depth:value('depth',obj.depth),
    height:value('height',obj.height),elevation:value('elevation',obj.elevation)};
   if(obj.subtype==='upper'&&(Math.abs(changes.height-obj.height)>.001||Math.abs(changes.elevation-obj.elevation)>.001)){
-   // Ask before a global height change; the current cabinet can always be edited alone.
-   dialogs.innerHTML='<div class="dialog-cover"><div class="dialog"><h2>ارتفاع کابینت هوایی</h3><p>این ارتفاع و تراز نصب به همهٔ کابینت‌های هوایی اعمال شود؟</p><div class="dialog-actions"><button data-action="upper-height-single">فقط همین کابینت</button><button class="primary" data-action="upper-height-all">اعمال به همه</button><button data-action="upper-height-cancel">لغو</button></div></div></div>';
-   pendingUpperEdit={id:obj.id,changes};return;
+   settings.upperHeight=changes.height;settings.upperElevation=changes.elevation;
   }
   result=Geo.editCabinet(currentItems(),obj.id,changes);
  }
@@ -855,6 +879,10 @@ document.addEventListener('change',e=>{
  const slider=e.target.closest('[data-render]');if(slider){touch(activeId);return;}
  const field=e.target.closest('[data-setting]');if(!field)return;
  const name=field.dataset.setting;settings[name]=field.type==='checkbox'?field.checked:Number(field.value);
+ if(['upperHeight','upperElevation'].includes(name)&&currentItems().some(c=>c.kind==='cabinet'&&c.subtype==='upper')){
+  try{commitChange(Geo.applyAllUpperHeights(currentItems(),{height:settings.upperHeight,elevation:settings.upperElevation}));}
+  catch(error){const c=currentItems().find(c=>c.kind==='cabinet'&&c.subtype==='upper');settings.upperHeight=c.height;settings.upperElevation=c.elevation;field.value=String(settings[name]);tell(error.message);}
+ }
   if(['upperHeight','upperElevation','upperDepth','baseDepth'].includes(name)&&drawing)showScene();
 });
 /* Dedicated resize gesture: no document mutation until pointer release. */
@@ -969,6 +997,7 @@ function pickPlanHandle(e){
  return hit;
 }
 document.addEventListener('pointerdown',e=>{
+ beginUnitPress(e);
  const whichPlan=pickPlanCalibration(e);
  if(whichPlan){
   const svg=document.querySelector('#plan-view'),cursor=svg?planPoint(svg,e):null;
@@ -996,6 +1025,7 @@ document.addEventListener('pointerdown',e=>{
  const hit=planHit|| (direct?{id:direct.dataset.itemId,side:direct.dataset.openHandle||direct.dataset.handle}:
   trackedView()&&!drawing&&!e.target.closest('button,input,aside,.editor-header,.bottom-panel,.side-tools')?floor?.pickHandle(e.clientX,e.clientY):null);
  if(!hit||drawing||!currentItems().some(o=>o.id===hit.id))return;
+ cancelUnitPress();
  const initial=handlePosition(currentItems(),hit.id,hit.side);
  if(!initial)return;
  const elevationSvg=handle?.closest('#elevation-view');
@@ -1020,6 +1050,7 @@ document.addEventListener('pointerdown',e=>{
  e.preventDefault();e.stopPropagation();
 });
 document.addEventListener('pointermove',e=>{
+ if(unitPress&&e.pointerId===unitPress.pointerId&&Math.hypot(e.clientX-unitPress.x,e.clientY-unitPress.y)>8)cancelUnitPress();
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){
   const drag=planCalibrationDrag;
   if(Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<3){e.preventDefault();return;}
@@ -1072,6 +1103,7 @@ document.addEventListener('pointermove',e=>{
  }
 });
 document.addEventListener('pointerup',e=>{
+ if(unitPress&&unitPress.pointerId===e.pointerId){const fired=unitPress.fired;cancelUnitPress();if(fired){e.preventDefault();return;}}
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();return;}
  if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();
   const p=currentProject();if(p&&floor){p.scene.calibration=floor.calibrationSnapshot();save();}
@@ -1115,6 +1147,7 @@ document.addEventListener('pointerup',e=>{
  }catch(error){tell(error.message);}
 });
 document.addEventListener('pointercancel',e=>{
+ cancelUnitPress();
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();}
  if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();}
  if(dragHandle&&e.pointerId===dragHandle.pointerId)finishResize(true);
@@ -1155,6 +1188,7 @@ document.addEventListener('click',async e=>{
   if(action==='confirm-smart-layout'){
    const proposal=pendingSmartLayout;pendingSmartLayout=null;dialogs.replaceChildren();
    if(!proposal)throw Error('پیشنهاد طراحی منقضی شده است؛ دوباره طراحی هوشمند را اجرا کن.');
+   if(proposal.valid===false)throw Error('تقسیم درهای عمودی هنوز در بازهٔ ۴۵ تا ۵۵ نیست؛ محل تجهیزات یا طول ردیف باید اصلاح شود.');
    commitChange(proposal);drawing={tool:'front-smart',start:null};
    hover=initialPreviewForTool('front-smart');showScene();return;
   }
@@ -1162,8 +1196,10 @@ document.addEventListener('click',async e=>{
   if(action==='more')return projectMenu(id);
   if(action==='close-dialog'){dialogs.innerHTML='';pendingUpperEdit=null;pendingSmartLayout=null;return;}
   if(action==='convert-unit'){
-   if(!selectedUnit)throw Error('ابتدا با سه لمس پشت‌سرهم یونیت را انتخاب کن.');
+   if(!selectedUnit)throw Error('برای انتخاب یونیت، روی آن نگه دار.');
    commitChange(Geo.convertFrontUnit(currentItems(),selectedUnit.frontId,button.dataset.unitPreset),{skipAlignment:true});
+   selectedUnit=Geo.frontUnitFor(currentItems(),selection);
+   if(selectedUnit){selection=selectedUnit.hostId;showScene();inspectorOpen=true;drawSelection();}
    tell('نوع یونیت تغییر کرد.');return;
   }
   if(action==='toggle-facades'){
@@ -1318,7 +1354,7 @@ document.addEventListener('click',async e=>{
   }
   if(action==='fridge-over'){
    const e=currentItems().find(o=>o.id===selection&&o.subtype==='fridge');if(!e)return;
-   commitChange(Geo.addOverFridgeCabinet(currentItems(),e.id,{depth:button.dataset.depth==='fridge'?e.depth:Number(button.dataset.depth)}));return;
+   commitChange(Geo.addOverFridgeCabinet(currentItems(),e.id,{depth:button.dataset.depth==='fridge'?e.depth:button.dataset.depth==='base'?settings.baseDepth:Number(button.dataset.depth)}));return;
   }
   if(action==='rename')return rename(id);
   if(action==='delete')return remove(id);
