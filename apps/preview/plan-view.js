@@ -1,5 +1,5 @@
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=room41';
-import {renderPlanMeasurements} from './edit-handles.js?v=room41';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,cabinetPath,cabinetTurnTrim,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=fix42';
+import {renderPlanMeasurements} from './edit-handles.js?v=fix42';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true,hideFronts=false}={}){
@@ -138,6 +138,11 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    out+='</g>';
   }
  const selection=items.find(x=>x.id===selectedId);
+ if(selection?.kind==='equipment'&&selection.subtype!=='hood'&&!mini){
+  out+='<g class="resize-handle" data-handle="move" data-item-id="'+safe(selection.id)+'">'+
+   '<circle cx="'+f(selection.x)+'" cy="'+f(selection.z)+'" r="'+f(touchRadius)+'" fill="transparent"/>'+
+   '<circle cx="'+f(selection.x)+'" cy="'+f(selection.z)+'" r="'+f(visibleRadius)+'" fill="#d8a15b" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';
+ }
  if(selection&&['wall','cabinet'].includes(selection.kind)&&!mini){
   for(const [side,x,z] of [['start',selection.x1,selection.z1],['end',selection.x2,selection.z2]]){
    out+='<g class="resize-handle" data-handle="'+side+'" data-item-id="'+safe(selection.id)+'">'+

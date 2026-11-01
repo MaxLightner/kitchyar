@@ -29,19 +29,23 @@ export const DEFAULT_MATERIALS=Object.freeze({body:'ivory-matte',front:'ivory-ma
 // material palette. Photographs are references; the rules are what is applied.
 export const KITCHEN_STYLES=Object.freeze([
  {id:'modern-oak',label:'مدرن چوب روشن',image:'assets/styles/modern-oak.webp',
-  description:'درب‌های صاف، کشوهای هوشمند و دستگیره مخفی',
+  config:'assets/styles/modern-oak.json',
+  description:'سه کشوی پهن با درب صاف بلوطی، صفحه سفید و دستگیره مخفی',
   layout:{base:'smart',upper:'doors',panel:'flat',handle:'hidden',finish:'wood'},
   materials:{body:'ivory-matte',front:'oak',baseFront:'oak',upperFront:'oak',baseBody:'ivory-matte',upperBody:'ivory-matte',counter:'quartz-white',backsplash:'tile-zellige'}},
  {id:'soft-cream',label:'کلاسیک کرم',image:'assets/styles/soft-cream.webp',
-  description:'درب قاب‌دار، کشوی پایین، دستگیره میله‌ای',
+  config:'assets/styles/soft-cream.json',
+  description:'درب قاب‌دار کرم و سه کشو با دستگیره میله‌ای برنجی',
   layout:{base:'mixedLower',upper:'doors',panel:'frame',handle:'bar',finish:'cream',frameMaterial:'ivory-matte'},
   materials:{body:'ivory-matte',front:'ivory-matte',baseFront:'ivory-matte',upperFront:'ivory-matte',baseBody:'ivory-matte',upperBody:'ivory-matte',counter:'quartz-white',backsplash:'tile-stone'}},
  {id:'graphite',label:'مینیمال گرافیتی',image:'assets/styles/graphite.webp',
-  description:'سه کشوی زمینی، درب هوایی صاف و دستگیره مخفی',
+  config:'assets/styles/graphite.json',
+  description:'دو کشوی عریض گرافیتی و دستگیره میله‌ای مشکی',
   layout:{base:'drawers3',upper:'doors',panel:'flat',handle:'hidden',finish:'graphite'},
   materials:{body:'graphite-matte',front:'graphite-matte',baseFront:'graphite-matte',upperFront:'graphite-matte',baseBody:'graphite-matte',upperBody:'graphite-matte',counter:'marble-grey',backsplash:'tile-stone'}},
  {id:'walnut-sage',label:'گردویی و سیج',image:'assets/styles/walnut-sage.webp',
-  description:'سه کشوی پلکانی، نمای گردویی و کاشی سبز',
+  config:'assets/styles/walnut-sage.json',
+  description:'سه کشوی گردویی با دستگیره برنجی و کاشی سبز سیج',
   layout:{base:'graduated',upper:'doors',panel:'flat',handle:'bar',finish:'wood'},
   materials:{body:'walnut',front:'walnut',baseFront:'walnut',upperFront:'walnut',baseBody:'walnut',upperBody:'walnut',counter:'quartz-white',backsplash:'tile-sage'}}
 ]);

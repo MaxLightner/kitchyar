@@ -3,12 +3,12 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=room41';
-import {neighborGaps} from './edit-handles.js?v=room41';
-import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=report33';
-import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=report33';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=fix42';
+import {neighborGaps} from './edit-handles.js?v=fix42';
+import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=fix42';
+import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix42';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
-import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=carcass36';
+import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=fix42';
 import {roomOutline} from './room-surfaces.js?v=room40';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
@@ -20,6 +20,7 @@ export class FloorAR {
   Object.assign(this,{root,update,exit,session:null,renderer:null,locked:false,current:null,origin:null});
   this.scanner=new FloorScanner();this.rig=new AnchorStabilizer();this.sources=[];this.anchors=[];
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
+   this.basePosition=null;this.baseYaw=0;this.alignment={x:0,z:0,yaw:0,scale:1};
    this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;this.calibrationOffset=null;this.savedCalibration=null;this.calibrationVisible=true;
    this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10,taskLighting:true,taskIntensity:1.8};
    this.materialSettings={...DEFAULT_MATERIALS};this.tileLayout={...DEFAULT_TILE_LAYOUT};this.textureCache=new Map();
@@ -33,6 +34,22 @@ export class FloorAR {
    valid:this.scanner.validHits,inliers:this.scanner.inlierHits,raw:this.scanner.rawHits,
    anchors:this.anchors.length,depth:this.renderer?.xr?.hasDepthSensing?.()||false,
    direction:this.points?.a&&this.points?.b?Math.round(this.gridYaw*180/Math.PI):null,...extra});
+ }
+ _applyAlignment(){
+  if(!this.floorGroup||!this.basePosition)return;
+  const offset=new THREE.Vector3(this.alignment.x,0,this.alignment.z).applyAxisAngle(new THREE.Vector3(0,1,0),this.baseYaw);
+  this.floorGroup.position.copy(this.basePosition).add(offset);
+  this.floorGroup.rotation.y=this.baseYaw+this.alignment.yaw;
+  this.floorGroup.scale.setScalar(this.alignment.scale);
+ }
+ _alignedBasePoint(projectPoint){
+  const v=projectPoint.clone().multiplyScalar(this.alignment.scale)
+   .applyAxisAngle(new THREE.Vector3(0,1,0),this.alignment.yaw);
+  return v.add(new THREE.Vector3(this.alignment.x,0,this.alignment.z));
+ }
+ _basePoint(worldPoint){
+  return worldPoint.clone().sub(this.basePosition)
+   .applyAxisAngle(new THREE.Vector3(0,1,0),-this.baseYaw);
  }
  async start(){
   if(this.session)return;
@@ -185,14 +202,22 @@ export class FloorAR {
  }
  async scan(){
   if(!this.session)return;
+  if(this.scanPromise)return this.scanPromise;
+  const pending=this._scanOnce();this.scanPromise=pending;
+  try{return await pending;}finally{if(this.scanPromise===pending)this.scanPromise=null;}
+ }
+ async _scanOnce(){
+  const session=this.session;
   this.scanner.reset();this.locked=false;this.current=null;this.points={a:null,b:null};
+  this.basePosition=null;this.baseYaw=0;this.alignment={x:0,z:0,yaw:0,scale:1};
   this.rig=new AnchorStabilizer();this.candidates=[];this.pending=false;
   for(const a of this.anchors)try{a.anchor.delete();}catch{}this.anchors=[];
-  this.hitSource?.cancel();
+  const oldHit=this.hitSource;this.hitSource=null;oldHit?.cancel();
   for(const s of this.sources)try{s.cancel();}catch{}this.sources=[];
   this.net.visible=false;this.net.rotation.z=0;this.gridYaw=0;this.whiteFloor.visible=false;this.shadowFloor.visible=false;
   this.previewGroup.visible=false;this.ruler.visible=false;this.marks.forEach(m=>m.visible=false);
-  const viewer=await this.session.requestReferenceSpace('viewer');
+  const viewer=await session.requestReferenceSpace('viewer');
+  if(session!==this.session)return;
   this.lowerHitSource?.cancel?.();this.lowerHitSource=null;
   if(window.XRRigidTransform){try{
    const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1),new THREE.Vector3(0,-.38,-1).normalize());
@@ -200,14 +225,16 @@ export class FloorAR {
    this.lowerHitSource=await this.session.requestHitTestSource({space:lower,entityTypes:['plane']});
   }catch(error){console.debug('Lower reticle hit-test unavailable',error);}}
 
-  this.hitSource=await this.session.requestHitTestSource({space:viewer,entityTypes:['plane']});
+  const source=await session.requestHitTestSource({space:viewer,entityTypes:['plane']});
+  if(session!==this.session){source.cancel();return;}this.hitSource=source;
   if(window.XRRigidTransform){
    for(const [x,y] of RAYS){
     try{
      const direction=new THREE.Vector3(x,y,-1).normalize();
      const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1),direction);
      const ray=viewer.getOffsetReferenceSpace(new XRRigidTransform({}, {x:q.x,y:q.y,z:q.z,w:q.w}));
-     this.sources.push(await this.session.requestHitTestSource({space:ray,entityTypes:['plane']}));
+     const optional=await session.requestHitTestSource({space:ray,entityTypes:['plane']});
+    if(session!==this.session){optional.cancel();return;}this.sources.push(optional);
     }catch(error){console.debug('Optional Chido hit ray unavailable',error);break;}
    }
   }
@@ -216,7 +243,7 @@ export class FloorAR {
  confirm(){
   if(!this.scanner.ready||!this.scanner.point||this.locked)return false;
   this.locked=true;this.origin=this.scanner.point.clone();
-  this.floorGroup.position.copy(this.origin);
+  this.basePosition=this.origin.clone();this.baseYaw=0;this._applyAlignment();
   this.net.material.uniforms.reveal.value=2.8;this.net.material.uniforms.pulse.value=0;
   this.net.material.uniforms.opacity.value=.39;this.net.visible=true;
   this.whiteFloor.visible=true;this.shadowFloor.visible=true;
@@ -262,7 +289,13 @@ export class FloorAR {
   if(!Number.isFinite(actual)||actual<.1||actual>20||measured<.1)throw Error('فاصله معتبر نیست.');
   const ratio=actual/measured;
   if(Math.abs(ratio-1)>.2)throw Error('اختلاف بیشتر از ۲۰٪ است؛ اندازه‌گیری را تکرار کن.');
-  this.report('مقیاس نمایش تصحیح شد؛ داده هندسی پروژه ثابت است.',{distance:measured,ratio});
+  const anchor=this._alignedBasePoint(a),next=this.alignment.scale*ratio;
+  if(next<.8||next>1.2)throw Error('اصلاح مقیاس باید در محدوده ۲۰٪ باشد.');
+  this.alignment.scale=next;
+  const rotated=a.clone().multiplyScalar(next).applyAxisAngle(new THREE.Vector3(0,1,0),this.alignment.yaw);
+  this.alignment.x=anchor.x-rotated.x;this.alignment.z=anchor.z-rotated.z;
+  this._applyAlignment();
+  this.report('مقیاس فیزیکی پروژه تصحیح شد؛ مختصات اصلی طراحی تغییر نکرد.',{distance:measured,ratio});
   return ratio;
  }
  setCalibrationVisible(visible){
@@ -308,8 +341,11 @@ export class FloorAR {
   if(!pose){if(time-this.lastReport>400){this.report('ردیابی از دست رفت؛ گوشی را آرام حرکت بده.',{tracking:false});this.lastReport=time;}
    this.renderer.render(this.scene,this.camera);return;}
   const viewer=new THREE.Vector3(pose.transform.position.x,pose.transform.position.y,pose.transform.position.z);
-  if(this.hitSource){
-   const center=frame.getHitTestResults(this.hitSource),extra=[];
+  if(this.hitSource&&!this.scanPromise){
+   let center=[];try{center=frame.getHitTestResults(this.hitSource);}catch(error){
+    this.report('منبع اسکن کف قطع شد؛ دوباره اسکن کن.',{tracking:false});return;
+   }
+   const extra=[];
    for(const s of this.sources)try{extra.push(...frame.getHitTestResults(s));}catch{}
    if(!this.locked){
     const q=pose.transform.orientation;
@@ -374,12 +410,12 @@ export class FloorAR {
    if(this.candidates.every(p=>p.distanceTo(hit.point)>.42))this.candidates.push(hit.point.clone());
   }
   if(!frame.createAnchor||!window.XRRigidTransform)return;
-  if(this.anchors.length<5&&!this.pending){
+  if(this.anchors.length<5&&!this.pending&&!this.scanPromise){
    const p=this.candidates.find(p=>this.anchors.every(a=>a.requested.distanceTo(p)>.42));
    if(p){
     this.pending=true;
     frame.createAnchor(new XRRigidTransform({x:p.x,y:p.y,z:p.z}),this.space)
-     .then(anchor=>this.anchors.push({anchor,requested:p.clone()})).catch(()=>{})
+     .then(anchor=>{if(this.scanPromise){anchor.delete();return;}this.anchors.push({anchor,requested:p.clone()});}).catch(()=>{})
      .finally(()=>{this.pending=false;});
    }
   }
@@ -392,7 +428,7 @@ export class FloorAR {
   if(samples.length>=3){
    const fit=this.rig.update(samples,Math.min(.1,Math.max(.001,(time-this.lastTime)/1000)));
    const p=transformPoint(this.origin.toArray(),fit.pose);
-   this.floorGroup.position.set(p[0],p[1],p[2]);this.floorGroup.rotation.y=fit.pose.yaw;
+   this.basePosition.set(p[0],p[1],p[2]);this.baseYaw=fit.pose.yaw;this._applyAlignment();
   }
   this.lastTime=time;
  }
@@ -456,7 +492,7 @@ export class FloorAR {
  }
  _rayFromTouch(clientX,clientY){
   if(!this.locked||!this.lastPose||!this.renderer)return null;
-  const r=this.renderer.domElement.getBoundingClientRect();
+  const r=(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement).getBoundingClientRect();
   return this.screenRay(this.lastPose,false,(clientX-r.left)/r.width*2-1,1-(clientY-r.top)/r.height*2);
  }
  updateEditHandles(items=this.items){
@@ -501,6 +537,8 @@ export class FloorAR {
      w.z1+uz*centre+nz*offset,0xe9ad63);
     mark('bottom',w.x1+ux*centre+nx*offset,obj.elevation,
      w.z1+uz*centre+nz*offset,0x61b5c1);
+  }else if(obj.kind==='equipment'&&obj.subtype!=='hood'){
+   mark('move',obj.x,obj.elevation+obj.height*.5,obj.z,0xeab16b);
   }else if(obj.kind==='wall'){
    mark('start',obj.x1,.15,obj.z1,0x64d2a5);
    mark('end',obj.x2,.15,obj.z2,0x64d2a5);
@@ -510,7 +548,7 @@ export class FloorAR {
   if(!this.locked||!this.ruler?.visible||!this.lastPose||!this.renderer)return null;
   // Chido's screen-space hit testing tolerates fingers over the visible A/B badges,
   // even where a world-space XR ray misses their small physical spheres.
-  const matrices=this.activeViewMatrices(),rect=this.renderer.domElement.getBoundingClientRect();
+  const matrices=this.activeViewMatrices(),rect=(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement).getBoundingClientRect();
   if(matrices&&rect.width&&rect.height){
    this.floorGroup.updateWorldMatrix(true,true);
    const {cameraView,projection}=matrices;
@@ -543,6 +581,10 @@ export class FloorAR {
   const local=this.floorGroup.worldToLocal(ray.at(distance,new THREE.Vector3()));
   local.y=0;return local;
  }
+ dragEquipmentPoint(clientX,clientY){
+  const p=this._calibrationFloorPoint(clientX,clientY);
+  return p?{x:p.x,z:p.z}:null;
+ }
  beginCalibrationDrag(clientX,clientY,which){
   this.calibrationOffset=null;
   const at=this._calibrationFloorPoint(clientX,clientY),old=this.points[which];
@@ -551,18 +593,35 @@ export class FloorAR {
  endCalibrationDrag(){this.calibrationOffset=null;}
  dragCalibrationPoint(clientX,clientY,which){
   const local=this._calibrationFloorPoint(clientX,clientY);
-  if(!local||!['a','b'].includes(which))return false;
+  if(!local||!['a','b'].includes(which)||!this.points.a||!this.points.b||!this.basePosition)return false;
   if(this.calibrationOffset)local.add(this.calibrationOffset);
-  const other=this.points[which==='a'?'b':'a'];
-  if(other&&local.distanceTo(other)<.1)return false;
-  this.points[which]=local;this.drawRuler();
-  this.report('نقطه '+which.toUpperCase()+' جابه‌جا شد؛ جهت شبکه همزمان تنظیم شد.',{
-   distance:this.points.a&&this.points.b?this.points.a.distanceTo(this.points.b):null});
+  this.floorGroup.updateWorldMatrix(true,false);
+  const target=this._basePoint(this.floorGroup.localToWorld(local.clone()));
+  const a=this.points.a,b=this.points.b;
+  if(which==='a'){
+   const rotated=a.clone().multiplyScalar(this.alignment.scale)
+    .applyAxisAngle(new THREE.Vector3(0,1,0),this.alignment.yaw);
+   this.alignment.x=target.x-rotated.x;this.alignment.z=target.z-rotated.z;
+  }else{
+   const baseA=this._alignedBasePoint(a),wanted=target.clone().sub(baseA),reference=b.clone().sub(a);
+   const distance=wanted.length(),original=reference.length();
+   if(distance<.1||original<.1)return false;
+   const scale=distance/original;
+   if(scale<.8||scale>1.2){this.report('برای تثبیت دقیق، فاصله A/B را در محدوده ۲۰٪ اندازه مرجع بگذار.');return false;}
+   this.alignment.scale=scale;
+   this.alignment.yaw=Math.atan2(reference.z,reference.x)-Math.atan2(wanted.z,wanted.x);
+   const rotated=a.clone().multiplyScalar(scale)
+    .applyAxisAngle(new THREE.Vector3(0,1,0),this.alignment.yaw);
+   this.alignment.x=baseA.x-rotated.x;this.alignment.z=baseA.z-rotated.z;
+  }
+  this._applyAlignment();
+  this.report('مرجع A/B کل پروژه را جابه‌جا و هم‌جهت می‌کند.',{distance:a.distanceTo(b),
+   projectAlignment:{...this.alignment}});
   return true;
  }
  pickHandle(clientX,clientY){
   if(!this.editGroup||!this.lastPose||!this.renderer)return null;
-  const matrices=this.activeViewMatrices(),rect=this.renderer.domElement.getBoundingClientRect();
+  const matrices=this.activeViewMatrices(),rect=(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement).getBoundingClientRect();
   if(matrices&&rect.width&&rect.height){
    this.floorGroup.updateWorldMatrix(true,true);
    const {cameraView,projection}=matrices;
@@ -583,7 +642,7 @@ export class FloorAR {
  dragScreenHandlePoint(clientX,clientY,drag){
   const o=drag.originalItems?.find(v=>v.id===drag.id);
   const w=o?.kind==='wall'?o:drag.originalItems?.find(v=>v.id===o?.hostId);
-  const matrices=this.activeViewMatrices(),rect=this.renderer?.domElement.getBoundingClientRect();
+  const matrices=this.activeViewMatrices(),rect=(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer?.domElement)?.getBoundingClientRect();
   if(!w||!matrices||!rect?.width||!rect?.height||!this.floorGroup)return null;
   const len=Math.hypot(w.x2-w.x1,w.z2-w.z1);if(len<.001)return null;
   const ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
@@ -695,6 +754,9 @@ export class FloorAR {
    label('طول '+len.toFixed(2)+' m',(o.x1+o.x2)/2,o.elevation+o.height+.24,(o.z1+o.z2)/2);
     label('ارتفاع '+o.height.toFixed(2)+' m',(o.x1+o.x2)/2+.26,o.elevation+o.height/2,(o.z1+o.z2)/2+.24);
     label('از کف '+o.elevation.toFixed(2)+' m',(o.x1+o.x2)/2-.26,Math.max(.17,o.elevation/2),(o.z1+o.z2)/2-.24);
+  }else if(o.kind==='equipment'){
+   box(o.width,o.height,o.depth,o.x,o.elevation+o.height/2,o.z,o.rotation||0);
+   label(o.name+' · '+o.width.toFixed(2)+' m',o.x,o.elevation+o.height+.20,o.z);
   }else if(o.kind==='wall'){
    const len=Math.hypot(o.x2-o.x1,o.z2-o.z1);
    box(len,o.height,o.thickness,(o.x1+o.x2)/2,o.height/2,(o.z1+o.z2)/2,Math.atan2(o.z2-o.z1,o.x2-o.x1));
@@ -1375,6 +1437,10 @@ export class FloorAR {
     return mesh;
    };
    const frontZ=(c.side||1)*(c.depth/2+.025);
+   // Before front design, the run is one clean envelope; inner dividers are generated with the doors/drawers.
+   if(c.subtype!=='bridge'&&!this.items.some(f=>f.kind==='front'&&f.hostId===c.id)&&
+     !this.items.some(e=>e.kind==='equipment'&&e.hostId===c.id))
+    addDetail(Math.max(.02,len-.016),Math.max(.02,c.height-.025),.018,0,y0+c.height/2,frontZ,bodyMat);
    // The carcass is actually hollow, even when all doors are closed. Every
    // panel is a 12-triangle box, batched into ONE mesh/material per cabinet.
    // The interior stays matte white; only exposed finished ends use bodyMat.
@@ -1668,11 +1734,15 @@ export class FloorAR {
     inset.position.z=visibleZ*.82;inset.userData.objectId=panel.id;leaf.add(inset);
    }
    if(panel.handleStyle!=='hidden'){
-    const metal=material(0x8c9493,{metalness:.64,roughness:.25});
+    const finish=panel.handleFinish||'steel',color=finish==='brass'?0xc8a257:finish==='black'?0x303638:0x8c9493;
+    const metal=material(color,{metalness:.66,roughness:.23});
     const isDrawer=panel.subtype==='drawer',horizontal=panel.hinge==='top';
-    const handle=new THREE.Mesh(new THREE.CylinderGeometry(.009,.009,
-     isDrawer||horizontal?Math.min(.28,pose.width*.48):Math.min(.24,pose.height*.53),10),metal);
-    if(isDrawer||horizontal)handle.rotation.z=Math.PI/2;
+    const barLength=isDrawer||horizontal?Math.min(host.photoPreset?.front?.handleLength||.34,pose.width*.63):
+     Math.min(host.photoPreset?.front?.handleLength||.25,pose.height*.60);
+    const handle=panel.handleStyle==='knob'?
+     new THREE.Mesh(new THREE.SphereGeometry(.018,12,8),metal):
+     new THREE.Mesh(new THREE.CylinderGeometry(.008,.008,barLength,10),metal);
+    if(panel.handleStyle!=='knob'&&(isDrawer||horizontal))handle.rotation.z=Math.PI/2;
     handle.position.set(isDrawer||horizontal?0:panel.hinge==='left'?pose.width/2-.055:-pose.width/2+.055,
      horizontal?-pose.height/2+.055:isDrawer?pose.height*.19:0,visibleZ+.015*(pose.side||1));
     handle.userData.objectId=panel.id;handle.castShadow=true;leaf.add(handle);

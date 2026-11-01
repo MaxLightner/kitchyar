@@ -470,7 +470,7 @@ test('no cabinet segment shorter than 45cm, including resizing',async()=>{
  assert.ok(G.lengthOf(changed)>=.45-1e-6);
 });
 
-test('built-in refrigerator stays 70cm clear of a connected corner wall',async()=>{
+test('built-in refrigerator can reach a connected corner with only physical-wall clearance',async()=>{
  G||=await import('../apps/preview/geometry.js');
  let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
  items=G.placeWall(items,{x:0,z:0},{x:0,z:4}).items;
@@ -478,7 +478,8 @@ test('built-in refrigerator stays 70cm clear of a connected corner wall',async()
  const result=G.placeEquipment(items,{x:.25,z:.40},'fridge');
  const fridge=result.items.find(o=>o.subtype==='fridge');
  assert.ok(fridge.builtIn);
- assert.ok(fridge.x-fridge.width/2-.055/2>=.70-1e-6);
+ assert.ok(fridge.x-fridge.width/2>=.06,'fridge does not intersect the perpendicular wall');
+ assert.ok(fridge.x-fridge.width/2<.15,'fridge can sit against the corner without a 70cm gap');
  assert.ok(result.items.filter(o=>o.kind==='cabinet').every(c=>G.lengthOf(c)>=.45));
 });
 

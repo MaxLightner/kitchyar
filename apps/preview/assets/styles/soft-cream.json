@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "units": "metre",
+  "description": "Reference-image authored facade and material rules. Cabinet lengths are adapted to each kitchen while preserving patterns and proportions.",
+  "id": "soft-cream",
+  "image": "soft-cream.webp",
+  "zones": {
+    "base": {
+      "unitWidth": 0.64,
+      "pattern": [
+        "drawers3",
+        "drawers3",
+        "doors"
+      ],
+      "drawerWeights": [
+        0.33,
+        0.34,
+        0.33
+      ],
+      "sinkLayout": "sinkDoors",
+      "stoveLayout": "doors",
+      "handleStyle": "bar"
+    },
+    "upper": {
+      "unitWidth": 0.62,
+      "pattern": [
+        "doors"
+      ],
+      "handleStyle": "bar"
+    },
+    "tall": {
+      "unitWidth": 0.55,
+      "pattern": [
+        "doors"
+      ],
+      "handleStyle": "bar"
+    }
+  },
+  "front": {
+    "style": "frame",
+    "handleStyle": "bar",
+    "handleFinish": "brass",
+    "grainDirection": "auto",
+    "frameMaterial": "ivory-matte",
+    "handleLength": 0.27
+  },
+  "materials": {
+    "body": "ivory-matte",
+    "front": "ivory-matte",
+    "baseFront": "ivory-matte",
+    "upperFront": "ivory-matte",
+    "baseBody": "ivory-matte",
+    "upperBody": "ivory-matte",
+    "counter": "quartz-white",
+    "backsplash": "tile-stone"
+  }
+}

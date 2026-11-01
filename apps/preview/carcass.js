@@ -48,10 +48,7 @@ export function cabinetCarcassPanels(c,fronts=[],equipment=[]){
  const edges=[];
  if(groups.size){
   for(const {start,end} of groups.values())edges.push((start-.5)*len,(end-.5)*len);
- }else{
-  const n=Math.max(1,Math.ceil(len/.85));
-  for(let i=1;i<n;i++)edges.push(-len/2+len*i/n);
- }
+ } // No internal bays until doors/drawers exist; appliance clearances remain.
  for(const b of applianceBays)edges.push(b.start,b.end);
  const boundaries=edges.filter(x=>x>-len/2+.12&&x<len/2-.12).sort((a,b)=>a-b);
  let previous=-len/2;

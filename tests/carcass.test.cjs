@@ -13,11 +13,11 @@ test('carcass boards are hollow, white-ready, 18mm and independent of closed fac
  assert.equal(parts.filter(p=>p.part==='back').length,1);
  assert.equal(parts.filter(p=>p.part==='top').length,0,'base uses a separate solid countertop');
  assert.ok(parts.some(p=>p.part==='bottom'));
- assert.equal(parts.filter(p=>p.part==='divider').length,2,'wide blank run is split into real bays');
+ assert.equal(parts.filter(p=>p.part==='divider').length,0,'blank run has no internal units before facades');
  assert.ok(parts.every(p=>p.width>0&&p.depth>0&&p.height>0));
  assert.ok(!parts.some(p=>p.width>1&&p.height>.5&&p.depth>.5),'no full cabinet filler');
  assert.deepEqual(cabinetCarcassPanels(cabinet,[front('a',0,0,.5),front('b',1,.5,1)]).length,
-  parts.length-1,'facade bays control divider positions, not whether shell exists');
+  parts.length+1,'facade design generates internal bay dividers');
 });
 
 test('paired doors and stacked drawers do not create duplicate unit dividers',async()=>{

@@ -1,4 +1,4 @@
-import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront} from './geometry.js?v=room41';
+import {lengthOf,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment} from './geometry.js?v=fix42';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -22,6 +22,7 @@ export function neighborGaps(items,opening){
 }
 export function resizeFromHandle(items,id,side,position){
  const object=byId(items,id);if(!object)throw Error('آبجکت انتخاب‌شده پیدا نشد.');
+ if(object.kind==='equipment'&&side==='move')return moveEquipment(items,id,{x:snapCm(position.x),z:snapCm(position.z)});
  if(object.kind==='opening'){
   const w=byId(items,object.hostId);if(!w)throw Error('دیوار میزبان پیدا نشد.');
   const len=lengthOf(w),old=openingEdges(object,w),bottom=object.sill,top=object.sill+object.height;
@@ -68,6 +69,7 @@ export function resizeFromHandle(items,id,side,position){
 }
 export function handlePosition(items,id,side){
  const o=byId(items,id);if(!o)return null;
+ if(o.kind==='equipment'&&side==='move')return {x:o.x,z:o.z,y:o.elevation+o.height/2};
  if(o.kind==='opening'){
   const w=byId(items,o.hostId),e=w?openingEdges(o,w):null;if(!e)return null;
   if(side==='left')return {along:e.left,y:o.sill+o.height/2};

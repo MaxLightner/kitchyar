@@ -1,9 +1,9 @@
-import {FloorAR} from './floor-ar.js?v=room41';
-import * as Geo from './geometry.js?v=room41';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=room41';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=room41';
-import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=report33';
-import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=report33';
+import {FloorAR} from './floor-ar.js?v=fix42';
+import * as Geo from './geometry.js?v=fix42';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix42';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix42';
+import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix42';
+import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix42';
 import {buildCutReport} from './report-data.js?v=nest35';
 import {renderCutReport} from './report-view.js?v=sheetpager39';
 import {downloadCutReportXlsx} from './report-xlsx.js?v=nest35';
@@ -20,7 +20,7 @@ let movingEquipmentId=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
 let wideLevel='wide';
 let facadesHidden=false,roomSurfacesVisible=false,fridgeFreestanding=false;
-let styleApplyToken=0;
+let styleApplyToken=0,selectedGalleryStyleId=null;
 let reportSheetOptions={...DEFAULT_SHEET};
 let miniLastHost=null,miniLastItems=null,miniLastCalibration='',miniLastFacadesHidden=null;
 const trackedView=()=>mode==='ar'||(mode==='3d'&&!!floor?.wideActive);
@@ -197,10 +197,10 @@ function projectMenu(id){
  dialogs.innerHTML='<div class="dialog-cover"><div class="dialog"><h2>'+esc(p.name)+'</h2><button data-action="rename" data-id="'+esc(id)+'">تغییر نام</button><button data-action="copy" data-id="'+esc(id)+'">ایجاد کپی</button><button class="danger" data-action="delete" data-id="'+esc(id)+'">حذف پروژه</button><button data-action="close-dialog">بستن</button></div></div>';
 }
 function openStyleGallery(){
- const selected=currentProject()?.scene?.styleId;
+ selectedGalleryStyleId=null;
  dialogs.innerHTML='<div class="dialog-cover"><div class="dialog style-dialog"><div class="style-dialog-head"><h2>انتخاب نمونه آشپزخانه</h2><button data-action="close-dialog">×</button></div><p>هر سبک، چیدمان کدنویسی‌شده درب‌ها، کشوها، دستگیره‌ها و متریال‌ها دارد. حتی پیش از نصب کابینت می‌توانی سبک را انتخاب کنی.</p><div class="style-grid">'+
-  KITCHEN_STYLES.map(s=>'<button class="'+(selected===s.id?'active':'')+'" data-action="choose-style" data-style="'+s.id+'"><img src="'+assetUrl(s.image)+'" alt="نمونه '+s.label+'"><strong>'+s.label+'</strong><small>'+s.description+'</small></button>').join('')+
-  '</div><button data-action="close-dialog">انصراف</button></div></div>';
+  KITCHEN_STYLES.map(s=>'<button data-action="select-style" data-style="'+s.id+'"><img src="'+assetUrl(s.image)+'" alt="نمونه '+s.label+'"><strong>'+s.label+'</strong><small>'+s.description+'</small></button>').join('')+
+  '</div><div class="dialog-actions"><button class="primary" data-action="apply-style" disabled>اعمال طرح انتخاب‌شده</button><button data-action="close-dialog">انصراف</button></div></div></div>';
 }
 const currentFrontRules=()=>({...Geo.DEFAULT_FRONT_RULES,...currentProject()?.scene?.frontRules});
 function openFrontRules(scope='global'){
@@ -553,21 +553,22 @@ function showScene(){
  buttons.forEach(b=>b.disabled=b.dataset.action==='undo'?!undoStack.length:!redoStack.length);
  drawSelection();drawTools();
 }
-function commitChange(result,{materials,styleId,frontRules,tileLayout,ceilingHeight,skipAlignment=false}={}){
+function commitChange(result,{materials,styleId,stylePreset,frontRules,tileLayout,ceilingHeight,skipAlignment=false}={}){
  if(!result||!Array.isArray(result.items))throw Error('تغییر هندسه معتبر نیست.');
  const p=currentProject();if(!p)return;
- undoStack.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene?.materials},styleId:p.scene?.styleId||null,frontRules:currentFrontRules(),tileLayout:currentTileLayout(),ceilingHeight:p.scene?.ceilingHeight||3.6});if(undoStack.length>60)undoStack.shift();redoStack=[];
+ undoStack.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene?.materials},styleId:p.scene?.styleId||null,stylePreset:structuredClone(p.scene?.stylePreset||null),frontRules:currentFrontRules(),tileLayout:currentTileLayout(),ceilingHeight:p.scene?.ceilingHeight||3.6});if(undoStack.length>60)undoStack.shift();redoStack=[];
  const existing=new Set(currentItems().filter(c=>c.kind==='cabinet').map(c=>c.id));
  const added=result.items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge'&&!existing.has(c.id)).map(c=>c.id);
  for(const c of result.items.filter(c=>added.includes(c.id)))c.frontRules={...currentFrontRules()};
  if(added.length&&p.scene?.styleId){
-  const styled=Geo.applyKitchenLayout(result.items,p.scene.styleId,{cabinetIds:added});
+  const styled=Geo.applyKitchenLayout(result.items,p.scene.styleId,{cabinetIds:added,preset:p.scene.stylePreset||null});
   result={...result,items:styled.items};
  }
  if(!skipAlignment)result={...result,items:Geo.alignFrontSeams(result.items).items};
  p.scene??={items:[]};p.scene.items=result.items;p.updatedAt=new Date().toISOString();p.revision=(p.revision||0)+1;
  if(materials)p.scene.materials={...DEFAULT_MATERIALS,...materials};
  if(styleId!==undefined)p.scene.styleId=styleId;
+ if(stylePreset!==undefined)p.scene.stylePreset=structuredClone(stylePreset);
  if(frontRules)p.scene.frontRules={...frontRules};
  if(tileLayout)p.scene.tileLayout={...tileLayout};
  if(ceilingHeight!==undefined)p.scene.ceilingHeight=ceilingHeight;
@@ -577,7 +578,7 @@ function commitFrontOpening(frontId,opening){
  const p=currentProject();if(!p)return;
  const result=Geo.setFrontOpening(currentItems(),frontId,opening);
  undoStack.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene.materials},
-  styleId:p.scene.styleId||null,frontRules:currentFrontRules(),tileLayout:currentTileLayout(),ceilingHeight:p.scene?.ceilingHeight||3.6});
+  styleId:p.scene.styleId||null,stylePreset:structuredClone(p.scene?.stylePreset||null),frontRules:currentFrontRules(),tileLayout:currentTileLayout(),ceilingHeight:p.scene?.ceilingHeight||3.6});
  if(undoStack.length>60)undoStack.shift();redoStack=[];
  p.scene.items=result.items;p.updatedAt=new Date().toISOString();p.revision=(p.revision||0)+1;
  save();selection=frontId;selectedUnit=null;
@@ -587,9 +588,9 @@ function commitFrontOpening(frontId,opening){
 }
 function undoChange(redo=false){
  const source=redo?redoStack:undoStack,dest=redo?undoStack:redoStack;if(!source.length)return;
- const p=currentProject();dest.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene.materials},styleId:p.scene.styleId||null,frontRules:currentFrontRules(),tileLayout:currentTileLayout(),ceilingHeight:p.scene?.ceilingHeight||3.6});
+ const p=currentProject();dest.push({items:structuredClone(currentItems()),materials:{...DEFAULT_MATERIALS,...p.scene.materials},styleId:p.scene.styleId||null,stylePreset:structuredClone(p.scene?.stylePreset||null),frontRules:currentFrontRules(),tileLayout:currentTileLayout(),ceilingHeight:p.scene?.ceilingHeight||3.6});
  const snapshot=source.pop();p.scene.items=Array.isArray(snapshot)?snapshot:snapshot.items;
- if(!Array.isArray(snapshot)){p.scene.materials=snapshot.materials;p.scene.styleId=snapshot.styleId||null;p.scene.frontRules={...Geo.DEFAULT_FRONT_RULES,...snapshot.frontRules};p.scene.tileLayout={...DEFAULT_TILE_LAYOUT,...snapshot.tileLayout};p.scene.ceilingHeight=snapshot.ceilingHeight||3.6;}
+ if(!Array.isArray(snapshot)){p.scene.materials=snapshot.materials;p.scene.styleId=snapshot.styleId||null;p.scene.stylePreset=structuredClone(snapshot.stylePreset||null);p.scene.frontRules={...Geo.DEFAULT_FRONT_RULES,...snapshot.frontRules};p.scene.tileLayout={...DEFAULT_TILE_LAYOUT,...snapshot.tileLayout};p.scene.ceilingHeight=snapshot.ceilingHeight||3.6;}
  p.updatedAt=new Date().toISOString();save();selection=null;selectedUnit=null;drawing=null;showScene();
 }
 function selectAt(point,target,arId=null){
@@ -671,7 +672,10 @@ function placeAt(point){
  if(!drawing||!point)return;
  const items=currentItems(),tool=drawing.tool;
  if(tool==='front-smart'){
-  commitChange(Geo.planSmartKitchen(items));drawing={tool,start:null};hover=initialPreviewForTool(tool);showScene();return;
+  const scene=currentProject()?.scene;
+  const styled=scene?.styleId&&scene?.stylePreset?
+   Geo.applyKitchenLayout(items,scene.styleId,{preset:scene.stylePreset}):Geo.planSmartKitchen(items);
+  commitChange(styled);drawing={tool,start:null};hover=initialPreviewForTool(tool);showScene();return;
  }
  if(tool.startsWith('front-')){
   const c=items.find(o=>o.id===drawing.hostId&&o.kind==='cabinet')||Geo.nearestCabinet(items,point)?.cabinet;
@@ -794,6 +798,15 @@ document.addEventListener('change',e=>{
 /* Dedicated resize gesture: no document mutation until pointer release. */
 function positionForResize(e,drag){
  const original=drag.initial,scene=document.querySelector('.editor-scene');
+ const selectedEquipment=drag.originalItems.find(o=>o.id===drag.id);
+ if(selectedEquipment?.kind==='equipment'){
+  if(trackedView()){
+   const p=floor?.dragEquipmentPoint(e.clientX,e.clientY);
+   return p?{x:p.x+(drag.moveOffset?.x||0),z:p.z+(drag.moveOffset?.z||0)}:null;
+  }
+  if(mode==='3d')return desktopPreview?.pickPreviewPoint(e.clientX,e.clientY)||null;
+  const svg=scene?.querySelector('#plan-view');return svg?planPoint(svg,e):null;
+ }
  if(drag.surface==='elevation'){
   const pixels=drag.pixelsPerMetre||1;
   return {...original,along:(original.along||0)+(e.clientX-drag.startClientX)/pixels,
@@ -934,6 +947,10 @@ document.addEventListener('pointerdown',e=>{
   previewItems:null,moved:false,error:null,pointerId:e.pointerId,
   anchorCentre:wall?original.hostT*Geo.lengthOf(wall):null,
   anchorScale:elevationSvg?Number(elevationSvg.dataset.ppm):null};
+ if(original?.kind==='equipment'&&trackedView()){
+  const p=floor?.dragEquipmentPoint(e.clientX,e.clientY);
+  if(p)dragHandle.moveOffset={x:original.x-p.x,z:original.z-p.z};
+ }
  const scene=document.querySelector('.editor-scene');
  scene?.classList.add('is-resizing');
  if(original?.kind==='opening'&&original.style==='fixed'&&trackedView())floor?.setWindowResizeActive(original.id,true);
@@ -1111,27 +1128,40 @@ document.addEventListener('click',async e=>{
    commitChange(result,{frontRules:result.frontRules});dialogs.innerHTML='';
    tell(scope==='single'?'تنظیمات همین نما ثبت شد.':scope==='connected'?'قوانین کابینت‌های متصل اعمال شد.':'قوانین عمومی کل آشپزخانه اعمال شد.');return;
   }
-  if(action==='choose-style'){
+  if(action==='select-style'){
    const style=KITCHEN_STYLES.find(s=>s.id===button.dataset.style);
+   if(!style)throw Error('مدل انتخاب‌شده پیدا نشد.');
+   selectedGalleryStyleId=style.id;
+   dialogs.querySelectorAll('[data-action="select-style"]').forEach(b=>b.classList.toggle('active',b.dataset.style===style.id));
+   const apply=dialogs.querySelector('[data-action="apply-style"]');
+   if(apply){apply.disabled=false;apply.dataset.style=style.id;}
+   return;
+  }
+  if(action==='apply-style'){
+   const style=KITCHEN_STYLES.find(s=>s.id===selectedGalleryStyleId&&s.id===button.dataset.style);
    if(!style)throw Error('مدل انتخاب‌شده پیدا نشد.');
    const project=currentProject(),token=++styleApplyToken;
    if(!project)throw Error('پروژه فعال نیست.');
    const hadCabinets=currentItems().some(c=>c.kind==='cabinet'&&c.subtype!=='bridge');
-   dialogs.querySelectorAll('[data-action="choose-style"]').forEach(b=>b.disabled=true);
+   dialogs.querySelectorAll('[data-action="select-style"],[data-action="apply-style"]').forEach(b=>b.disabled=true);
    dialogs.querySelector('.style-dialog-head')?.insertAdjacentHTML('afterend',
     '<p id="style-progress" class="style-progress" role="status">مرحله ۱ از ۲ · در حال تنظیم تقسیم‌بندی درب‌ها و کشوها…</p>');
    // Paint the progress state before the potentially expensive semantic update.
    await new Promise(resolve=>requestAnimationFrame(resolve));
    if(token!==styleApplyToken||currentProject()!==project)return;
-   const result=Geo.applyKitchenLayout(currentItems(),style.id);
-   commitChange(result,{styleId:style.id});
+   const response=await fetch(assetUrl(style.config));
+   if(!response.ok)throw Error('فایل دستورهای طرح تصویر در دسترس نیست.');
+   const preset=await response.json();
+   if(token!==styleApplyToken||currentProject()!==project)return;
+   const result=Geo.applyKitchenLayout(currentItems(),style.id,{preset});
+   commitChange(result,{styleId:style.id,stylePreset:preset});
    const appliedItems=project.scene.items;
    const status=dialogs.querySelector('#style-progress');
    if(status)status.textContent='مرحله ۲ از ۲ · تنظیم متریال‌ها پس از به‌روزرسانی درب‌ها…';
    await new Promise(resolve=>setTimeout(resolve,450));
    if(token!==styleApplyToken||currentProject()!==project||project.scene.items!==appliedItems)return;
    // Keep a kitchen-style change as a single undo step.
-   project.scene.materials={...DEFAULT_MATERIALS,...style.materials};
+   project.scene.materials={...DEFAULT_MATERIALS,...preset.materials};
    project.updatedAt=new Date().toISOString();save();
    showScene();dialogs.replaceChildren();
    tell(hadCabinets?'مدل، درب‌ها، کشوها و متریال‌ها اعمال شدند.':'مدل ذخیره شد؛ با نصب کابینت‌ها خودکار اعمال می‌شود.');return;
