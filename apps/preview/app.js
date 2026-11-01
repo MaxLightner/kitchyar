@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=fix60';
-import * as Geo from './geometry.js?v=fix60';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix60';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix60';
+import {FloorAR} from './floor-ar.js?v=opt1';
+import * as Geo from './geometry.js?v=opt1';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=opt1';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=opt1';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
 import {buildCutReport} from './report-data.js?v=nest35';

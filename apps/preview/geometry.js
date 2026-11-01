@@ -4,6 +4,7 @@
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
 import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=fix43';
+import {solveCabinetRun,partitionDoorSpan,DEFAULT_CABINET_OPTIMIZATION} from './cabinet-optimizer.js?v=opt1';
 export const SNAP_RADIUS=.50;
 const cm=value=>Math.round(value*100)/100;
 const uid=()=>globalThis.crypto?.randomUUID?.()||'node-'+Math.random().toString(36).slice(2);
@@ -455,7 +456,7 @@ export function styleEquipmentFacade(source,id,facadeMode){
  return {items,selectedId:id};
 }
 export const DEFAULT_FRONT_RULES=Object.freeze({
- minDoorWidth:.30,maxDoorWidth:.62,gap:.003,alignRows:true,
+ minDoorWidth:.45,maxDoorWidth:.55,gap:.003,alignRows:true,
  singleHinge:'left',pairHinge:'outer',handleStyle:'bar'
 });
 const RULE_KEYS=Object.keys(DEFAULT_FRONT_RULES);
@@ -474,7 +475,15 @@ function checkedFrontRules(input,base=DEFAULT_FRONT_RULES){
   throw Error('جهت لولا، دستگیره یا هم‌ترازی معتبر نیست.');
  return rules;
 }
-export const resolvedFrontRules=c=>checkedFrontRules(c?.frontRuleOverrides||{},checkedFrontRules(c?.frontRules||{}));
+export const resolvedFrontRules=c=>{
+ const saved={...(c?.frontRules||{})};
+ // Migrate the former application defaults; explicit non-default user values remain intact.
+ if(saved.minDoorWidth===.30&&saved.maxDoorWidth===.62){
+  saved.minDoorWidth=DEFAULT_CABINET_OPTIMIZATION.minDoorWidth;
+  saved.maxDoorWidth=DEFAULT_CABINET_OPTIMIZATION.maxDoorWidth;
+ }
+ return checkedFrontRules(c?.frontRuleOverrides||{},checkedFrontRules(saved));
+};
 const cabinetLayer=c=>['base','tall'].includes(c?.subtype)?'base':'upper';
 function adjacentCabinets(a,b){
  return cabinetLayer(a)===cabinetLayer(b)&&Math.abs(a.elevation-b.elevation)<.025&&
@@ -530,78 +539,72 @@ export function frontPose(front,c){
 }
 /* Split facade bays around fixture widths before choosing doors and drawers. All
    dimensions remain semantic, independent of future internal cabinet units. */
-function layoutBays(items,c,preset){
- const len=lengthOf(c),fixtures=[],unitWidth=preset==='photo'?Number(photoZone(c)?.unitWidth)||.88:.55;
- if(preset==='smart'||preset==='photo'||items.some(e=>e.kind==='equipment'&&['sink','stove','oven','dishwasher','washer'].includes(e.subtype)&&e.hostId===c.id)){
-  for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove','oven','dishwasher','washer'].includes(o.subtype))){
-   if(['dishwasher','washer','oven'].includes(e.subtype)&&c.subtype!=='base')continue;
-   let centre=null;
-   if(c.subtype==='base'&&e.hostId===c.id)centre=(e.offsetT??.5)*len;
-   if(c.subtype==='upper'&&e.subtype!=='oven'){
-    const base=byId(items,e.hostId);
-    if(base?.kind==='cabinet'&&base.hostId===c.hostId&&base.side===c.side){
-     const px=e.x,pz=e.z,dx=c.x2-c.x1,dz=c.z2-c.z1;
-     centre=((px-c.x1)*dx+(pz-c.z1)*dz)/len;
-    }
+function cabinetRunFixtures(items,c){
+ const len=lengthOf(c),fixtures=[];
+ if(c.subtype==='base'){
+  const hosted=items.filter(o=>o.kind==='equipment'&&
+   ['sink','stove','oven','dishwasher','washer'].includes(o.subtype)&&o.hostId===c.id);
+  for(const e of hosted){
+   if(e.subtype==='oven'){
+    const stove=hosted.find(o=>o.subtype==='stove'&&
+     Math.abs((o.offsetT??.5)-(e.offsetT??.5))*len<.55);
+    if(stove)continue;
    }
-   if(centre===null||centre<-.1||centre>len+.1)continue;
-   const half=['sink','stove'].includes(e.subtype)?Math.max(.45,e.width/2+.02):e.width/2+.02;
-   fixtures.push({a:Math.max(0,centre-half),b:Math.min(len,centre+half),type:e.subtype,e});
+   const pairedOven=e.subtype==='stove'&&hosted.some(o=>o.subtype==='oven'&&
+    Math.abs((o.offsetT??.5)-(e.offsetT??.5))*len<.55);
+   fixtures.push({id:e.id,subtype:e.subtype,width:e.width,
+    centre:(e.offsetT??.5)*len,locked:e.positionLocked===true||e.locked===true,
+    hasOven:pairedOven});
   }
-  fixtures.sort((a,b)=>a.a-b.a);
-  for(let i=fixtures.length-1;i>0;i--)if(fixtures[i].a<fixtures[i-1].b-.01){
-   // Preserve a valid contiguous bay even if the objects were installed very close.
-   fixtures[i-1].b=Math.max(fixtures[i-1].b,fixtures[i].b);
-   fixtures.splice(i,1);
-  }
+  return fixtures;
  }
- const rules=resolvedFrontRules(c);
- const addGap=(result,a,b)=>{
-  const size=b-a;if(size<.001)return;
-  // Facade leaves may be narrower than a 45cm cabinet carcass: they are not separate boxes.
-  // Pick a balanced count near 50cm, also honoring the configured maximum leaf width.
-  const count=preset==='photo'?Math.max(1,Math.ceil(size/unitWidth)):
-   ['doors','smart'].includes(preset)?Math.max(1,Math.round(size/.50),Math.ceil(size/rules.maxDoorWidth)):1;
-  const n=preset==='photo'&&count>1&&size/count<MIN_CABINET_LENGTH?count-1:count;
-  for(let j=0;j<n;j++)result.push({a:a+size*j/n,b:a+size*(j+1)/n,type:'free'});
- };
- if(!fixtures.length){const result=[];addGap(result,0,len);return result;}
- // A short end remainder joins the fixture bay, but should not push its
- // facade off the appliance centre. Grow the opposite side by the same amount
- // when there is room, without entering the next appliance's bay.
- if(fixtures[0].a<MIN_CABINET_LENGTH){
-  const absorbed=fixtures[0].a;
-  fixtures[0].a=0;
-  if(['sink','stove'].includes(fixtures[0].type))fixtures[0].b=Math.min(fixtures[0].b+absorbed,fixtures[1]?.a??len);
- }
- const last=fixtures.at(-1);
- if(len-last.b<MIN_CABINET_LENGTH){
-  const absorbed=len-last.b;
-  last.b=len;
-  if(['sink','stove'].includes(last.type))last.a=Math.max(last.a-absorbed,fixtures.at(-2)?.b??0);
- }
- for(let i=1;i<fixtures.length;i++){
-  const gap=fixtures[i].a-fixtures[i-1].b;
-  if(gap>0&&gap<MIN_CABINET_LENGTH){
-   const left=fixtures[i-1],right=fixtures[i];
-   const leftRoom=left.a-(fixtures[i-2]?.b??0);
-   const rightRoom=(fixtures[i+1]?.a??len)-right.b;
-   // Absorb the narrow gap into a fixture symmetrically whenever feasible.
-   // A half-and-half extension shifts both appliance centres off their facade.
-   if(['sink','stove'].includes(right.type)&&rightRoom>=gap-1e-6&&
-    (rightRoom>=leftRoom||leftRoom<gap-1e-6||!['sink','stove'].includes(left.type))){
-    right.a-=gap;right.b+=gap;
-   }else if(['sink','stove'].includes(left.type)&&leftRoom>=gap-1e-6){
-    left.a-=gap;left.b+=gap;
-   }else if(['sink','stove'].includes(right.type)&&rightRoom>=gap-1e-6){
-    right.a-=gap;right.b+=gap;
-   }else{left.b+=gap/2;right.a-=gap/2;}
+ if(c.subtype==='upper'){
+  for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove'].includes(o.subtype))){
+   const base=byId(items,e.hostId);
+   if(base?.kind!=='cabinet'||base.hostId!==c.hostId||base.side!==c.side)continue;
+   const dx=c.x2-c.x1,dz=c.z2-c.z1;
+   const centre=((e.x-c.x1)*dx+(e.z-c.z1)*dz)/len;
+   const hasOven=e.subtype==='stove'&&items.some(o=>o.kind==='equipment'&&
+    o.subtype==='oven'&&o.hostId===base.id&&
+    Math.abs((o.offsetT??.5)-(e.offsetT??.5))*lengthOf(base)<.55);
+   fixtures.push({id:e.id,subtype:e.subtype,width:e.width,centre,locked:true,hasOven,clipToRun:true});
   }
  }
- const result=[];let cursor=0;
- for(const fixture of fixtures){addGap(result,cursor,fixture.a);result.push(fixture);cursor=fixture.b;}
- addGap(result,cursor,len);
- return result;
+ return fixtures;
+}
+function cabinetOptimization(items,c,preset,{apply=false}={}){
+ const length=lengthOf(c),rules=resolvedFrontRules(c),zone=photoZone(c);
+ const fixtures=cabinetRunFixtures(items,c);
+ const solution=solveCabinetRun({
+  length,fixtures,preferredUnitWidth:preset==='photo'?Number(zone?.unitWidth)||1:1,
+  rules:{
+   ...DEFAULT_CABINET_OPTIMIZATION,
+   minDoorWidth:rules.minDoorWidth,
+   maxDoorWidth:rules.maxDoorWidth,
+   targetDoorWidth:Math.max(rules.minDoorWidth,Math.min(rules.maxDoorWidth,.50))
+  },
+  allowFixtureMoves:apply&&c.subtype==='base'
+ });
+ if(!solution.feasible)throw Error(solution.message||'تقسیم معتبر کابینت پیدا نشد.');
+ if(apply&&solution.adjustments.length){
+  const fixtureById=new Map(fixtures.map(f=>[f.id,f]));
+  for(const adjustment of solution.adjustments){
+   const fixture=byId(items,adjustment.id),record=fixtureById.get(adjustment.id);
+   if(!fixture||!record)continue;
+   const next=adjustment.to/length;
+   fixture.offsetT=next;
+   if(record.hasOven){
+    for(const oven of items.filter(o=>o.kind==='equipment'&&o.subtype==='oven'&&
+      o.hostId===c.id&&Math.abs((o.offsetT??.5)-record.centre/lengthOf(c))<.55/lengthOf(c)))
+     oven.offsetT=next;
+   }
+  }
+  syncEquipment(items);
+ }
+ return solution;
+}
+function layoutBays(items,c,preset){
+ return cabinetOptimization(items,c,preset).bays;
 }
 export function planFronts(items,c,preset='doors'){
  const config=FRONT_PRESETS[preset];
@@ -629,12 +632,14 @@ export function planFronts(items,c,preset='doors'){
     span>.9?'drawers3':'mixed'));
   let part=0;
   const doors=(low,high,forcePair=false,topHinge=false,explicitLeaves=null)=>{
-   const required=Math.max(1,Math.ceil((span-1e-7)/rules.maxDoorWidth));
-   const leaves=explicitLeaves??(topHinge?1:sink&&forcePair?
-    Math.max(2,2*Math.ceil(required/2)):
-    Math.max(forcePair&&span>=2*rules.minDoorWidth-1e-6?2:1,required));
-   if(span/leaves<rules.minDoorWidth-1e-6||explicitLeaves!==null&&span/leaves>rules.maxDoorWidth+1e-6)
-    throw Error('عرض این قسمت برای تعداد درب یا حداقل و حداکثر عرض مجاز سازگار نیست.');
+   const partition=partitionDoorSpan(span,{minDoorWidth:rules.minDoorWidth,
+    maxDoorWidth:rules.maxDoorWidth,targetDoorWidth:Math.max(rules.minDoorWidth,Math.min(rules.maxDoorWidth,.50))});
+   const leaves=explicitLeaves??(sink&&forcePair?2:partition.count);
+   const width=span/leaves;
+   const maximum=rules.maxDoorWidth;
+   if((!partition.feasible&&!sink)||!Number.isInteger(leaves)||leaves<1||
+    width<rules.minDoorWidth-1e-6||width>maximum+1e-6)
+    throw Error('عرض این قسمت با تقسیم مجاز درب‌ها سازگار نیست؛ تعداد درها یا چیدمان تجهیزات باید دوباره بهینه شود.');
    for(let j=0;j<leaves;j++){
     const left=a+(b-a)*j/leaves,right=a+(b-a)*(j+1)/leaves;
     const hinge=topHinge?'top':leaves===1?rules.singleHinge:
@@ -665,16 +670,29 @@ export function planFronts(items,c,preset='doors'){
   else if(layout==='mixed'||layout==='mixedLower'){
    const drawerTop=layout==='mixed',split=drawerTop?.72:.28;
    doors(drawerTop?0:split,drawerTop?split:1,true);
-   result.push(make('drawer',i,part++,a,b,drawerTop?split:0,drawerTop?1:split));
+   const columns=partitionDoorSpan(span,{minDoorWidth:rules.minDoorWidth,
+    maxDoorWidth:rules.maxDoorWidth,targetDoorWidth:Math.max(rules.minDoorWidth,Math.min(rules.maxDoorWidth,.50))});
+   if(!columns.feasible)throw Error('عرض جبهه کشو با بازه مجاز ۴۵ تا ۵۵ سانتی‌متر قابل تقسیم نیست.');
+   for(let column=0;column<columns.count;column++){
+    const left=a+(b-a)*column/columns.count,right=a+(b-a)*(column+1)/columns.count;
+    result.push(make('drawer',i,part++,left,right,drawerTop?split:0,drawerTop?1:split));
+   }
   }else{
    const rows=FRONT_PRESETS[layout]?.rows||3;
    const customWeights=preset==='photo'&&Array.isArray(photo?.drawerWeights)&&photo.drawerWeights.length===rows?photo.drawerWeights:null;
    const weights=customWeights&&customWeights.every(v=>Number.isFinite(v)&&v>0)?customWeights.map(v=>v/customWeights.reduce((a,b)=>a+b,0)):
     layout==='graduated'?[.46,.33,.21]:Array(rows).fill(1/rows);
+   const columns=partitionDoorSpan(span,{minDoorWidth:rules.minDoorWidth,
+    maxDoorWidth:rules.maxDoorWidth,targetDoorWidth:Math.max(rules.minDoorWidth,Math.min(rules.maxDoorWidth,.50))});
+   if(!columns.feasible)throw Error('عرض جبهه کشو با بازه مجاز ۴۵ تا ۵۵ سانتی‌متر قابل تقسیم نیست.');
    let low=0;
    for(let j=0;j<rows;j++){
     const high=j===rows-1?1:low+weights[j];
-    result.push(make('drawer',i,j,a,b,low,high));low=high;
+    for(let column=0;column<columns.count;column++){
+     const left=a+(b-a)*column/columns.count,right=a+(b-a)*(column+1)/columns.count;
+     result.push(make('drawer',i,part++,left,right,low,high));
+    }
+    low=high;
    }
   }
  }
@@ -684,18 +702,7 @@ export function planSmartKitchen(source){
  const items=copy(source);
  const cabinetry=items.filter(c=>c.kind==='cabinet'&&c.subtype!=='bridge');
  if(!cabinetry.length)throw Error('برای طراحی هوشمند ابتدا کابینت‌ها را نصب کن.');
- // Only tiny, reversible equipment corrections are allowed. Try the closest
- // 5 cm module center (at most 2.5 cm), preserving every collision constraint.
- for(const e of items.filter(o=>o.kind==='equipment'&&['sink','stove'].includes(o.subtype))){
-  const host=byId(items,e.hostId);if(!host)continue;
-  const len=lengthOf(host),old=e.offsetT;
-  const target=Math.round(old*len*20)/20/len;
-  const margin=(e.width/2+.02)/len;
-  if(Math.abs(target-old)*len>.025||target<margin||target>1-margin)continue;
-  e.offsetT=target;
-  try{syncEquipment(items);validateEquipmentSpacing(items);}
-  catch{e.offsetT=old;syncEquipment(items);}
- }
+ // reflowFronts invokes the single shared run solver before generating any facade.
  for(const c of cabinetry)reflowFronts(items,c,'smart');
  for(const c of cabinetry)validateFronts(items,c);
  return {items,selectedId:items.find(o=>o.kind==='front')?.id||cabinetry[0].id};
@@ -748,6 +755,13 @@ export function paintFronts(source,id,{scope='single',part='panel',materialId}={
 }
 function reflowFronts(items,c,preset=c?.frontPreset){
  if(!FRONT_PRESETS[preset])return;
+ if(c.subtype==='base'){
+  const optimized=cabinetOptimization(items,c,preset,{apply:true});
+  for(const change of optimized.adjustments){
+   const fixture=byId(items,change.id);
+   if(fixture&&['sink','stove'].includes(fixture.subtype))reflowUpperAtFixture(items,fixture);
+  }
+ }
  const previous=items.filter(o=>o.kind==='front'&&o.hostId===c.id)
   .sort((a,b)=>a.bay-b.bay||a.part-b.part);
  const fresh=planFronts(items,c,preset);
