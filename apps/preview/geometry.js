@@ -1195,7 +1195,40 @@ function embedFridge(items,obj,point){
   }).reduce((a,b)=>Math.max(a,b),0);
  const leftLimit=half+wallClearance(false),rightLimit=len-half-wallClearance(true);
  if(leftLimit>rightLimit)return false;
- const mid=Math.max(leftLimit,Math.min(rightLimit,along));
+ let mid=Math.max(leftLimit,Math.min(rightLimit,along));
+ // A shallow-angle adjoining wall can intrude far beyond its thickness.
+ // Resolve the real fridge rectangle against every wall, then slide just
+ // enough along the same run. This also handles 20°/non-square corners.
+ const wallPolygons=items.filter(wall).map(other=>wallFootprint(other,items));
+ const collidesAt=at=>{
+  const candidate={...obj,x:w.x1+ux*at+nx*(w.thickness/2+obj.depth/2+.02),
+   z:w.z1+uz*at+nz*(w.thickness/2+obj.depth/2+.02),
+   rotation:Math.atan2(uz,ux)+(side<0?Math.PI:0)};
+  const footprint=equipmentFootprint(candidate);
+  return wallPolygons.some(poly=>polygonOverlap(footprint,poly));
+ };
+ if(collidesAt(mid)){
+  const nearestClear=direction=>{
+   const allowed=Math.min(1.5,direction>0?rightLimit-mid:mid-leftLimit);
+   let previous=0;
+   for(let step=.08;previous<allowed-1e-6;step+=.08){
+    const distance=Math.min(step,allowed),at=mid+direction*distance;
+    if(!collidesAt(at)){
+     let lower=previous,upper=distance;
+     for(let n=0;n<8;n++){
+      const m=(lower+upper)/2;
+      if(collidesAt(mid+direction*m))lower=m;else upper=m;
+     }
+     return mid+direction*upper;
+    }
+    previous=distance;
+   }
+   return null;
+  };
+  const candidates=[nearestClear(-1),nearestClear(1)].filter(Number.isFinite);
+  if(!candidates.length)return false;
+  mid=candidates.sort((a,b)=>Math.abs(a-mid)-Math.abs(b-mid))[0];
+ }
  let cutLeft=mid-half,cutRight=mid+half;
  // An appliance may enter a narrow residual cabinet bay. Absorb the entire
  // remainder into its surround instead of refusing the drag or leaving a
