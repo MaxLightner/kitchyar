@@ -3,7 +3,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=fix54';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=fix55';
 import {neighborGaps} from './edit-handles.js?v=fix43';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
@@ -1794,19 +1794,26 @@ export class FloorAR {
     }
     add(new THREE.BoxGeometry(o.width,o.height,o.depth),steel,0,o.height/2,0);
     const front=o.depth/2+.02;
+    // Distinct dark door gaskets keep the actual appliance recognizable inside
+    // a light MDF surround. Concealed mode later adds its own opaque door.
+    const gasket=material(0x252d30,{metalness:.12,roughness:.56});
     if(o.model==='side'){
      for(const side of [-1,1]){
+      add(new THREE.BoxGeometry(o.width*.475,o.height*.968,.017),gasket,side*o.width*.245,o.height/2,front-.019);
       add(new THREE.BoxGeometry(o.width*.46,o.height*.95,.028),steel,side*o.width*.245,o.height/2,front);
       add(new THREE.CylinderGeometry(.008,.008,.42,8),silver,side*o.width*.07,o.height*.62,front+.04);
      }
     }else if(o.model==='combination'){
+     add(new THREE.BoxGeometry(o.width*.965,o.height*.957,.017),gasket,0,o.height/2,front-.019);
      add(new THREE.BoxGeometry(o.width*.94,o.height*.64,.028),steel,0,o.height*.67,front);
      add(new THREE.BoxGeometry(o.width*.94,o.height*.29,.028),steel,0,o.height*.16,front);
      add(new THREE.CylinderGeometry(.01,.01,.38,8),silver,o.width*.39,o.height*.71,front+.04);
     }else{
+     add(new THREE.BoxGeometry(o.width*.965,o.height*.965,.017),gasket,0,o.height/2,front-.019);
      add(new THREE.BoxGeometry(o.width*.94,o.height*.94,.028),steel,0,o.height/2,front);
      add(new THREE.CylinderGeometry(.009,.009,.35,8),silver,o.width*.38,o.height*.72,front+.04);
     }
+    gasket.dispose();
     if(o.builtIn&&['matched','concealed'].includes(o.facadeMode)){
      const finish=this.surfaceMaterial('front',resolveFinish(this.materialSettings,'base','front'),o.width,o.height);
      add(new THREE.BoxGeometry(o.width*.985,o.height*.982,.025),finish,0,o.height/2,front+.055);

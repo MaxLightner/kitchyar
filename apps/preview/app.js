@@ -1,7 +1,7 @@
-import {FloorAR} from './floor-ar.js?v=fix54';
-import * as Geo from './geometry.js?v=fix54';
-import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix54';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix54';
+import {FloorAR} from './floor-ar.js?v=fix55';
+import * as Geo from './geometry.js?v=fix55';
+import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix55';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix55';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
 import {buildCutReport} from './report-data.js?v=nest35';
@@ -372,9 +372,10 @@ function drawSelection(){
  }
  const faucetControls=obj.subtype==='sink'?'<div class="model-choices"><strong>مدل شیرآلات</strong><div class="model-choices-grid">'+Geo.FAUCET_MODELS.map(m=>
   '<button data-action="faucet-model" data-model="'+m.id+'" class="'+((obj.faucetModel||'arc')===m.id?'active':'')+'">'+m.label+'</button>').join('')+'</div></div>':'';
- const fridgeControls=obj.subtype==='fridge'?'<div class="model-choices"><strong>نصب یخچال</strong><div class="model-choices-grid">'+
-  '<button data-action="fridge-installation" data-free="true" class="'+(!obj.builtIn?'active':'')+'">مستقل و آزاد</button>'+
-  '<button data-action="fridge-installation" data-free="false" class="'+(obj.builtIn?'active':'')+'">بین کابینت‌ها</button></div></div>':'';
+ const fridgeControls=obj.subtype==='fridge'?'<div class="model-choices"><strong>حالت یخچال</strong><div class="model-choices-grid">'+
+  [['free','مستقل · بدنه فلزی'],['framed','فریم MDF · یخچال فلزی'],['concealed','مخفی · درب MDF']].map(([id,label])=>
+   '<button data-action="fridge-mode" data-mode="'+id+'" class="'+((!obj.builtIn?'free':['concealed','matched'].includes(obj.facadeMode)?'concealed':'framed')===id?'active':'')+'">'+label+'</button>').join('')+
+  '</div><small>در حالت فریم‌دار، بدنه و درب اصلی یخچال دیده می‌شوند. فقط حالت مخفی پوشش MDF دارد.</small></div>':'';
  const models=obj.kind==='equipment'?Geo.EQUIPMENT_MODELS[obj.subtype]||[]:[];
  const modelOptions=models.length?'<div class="model-choices"><strong>مدل '+esc(obj.name)+'</strong><div class="model-choices-grid">'+models.filter(m=>!['gas4','induction','drainer'].includes(m.id)||m.id===obj.model).map(m=>
   '<button data-action="equipment-model" data-model="'+esc(m.id)+'" class="'+((obj.model||models[0].id)===m.id?'active':'')+'">'+esc(m.label)+'</button>').join('')+'</div>'+
@@ -438,7 +439,7 @@ function drawSelection(){
    '<label>موقعیت روی عرض (۰ تا ۱)<input type="number" data-specialty="offsetT" value="'+(o.offsetT??.5)+'" min="0" max="1" step=".05"></label></div>'+
    '<button class="primary" data-action="apply-specialty">ساخت / به‌روزرسانی فضا</button><small>ابعاد، قفسه‌ها و جنس ظاهر قابل ویرایش‌اند؛ مدل ثابت وارد نمی‌شود.</small></details>';
  })():'';
- const equipmentFacadeControls=obj.kind==='equipment'&&['washer','dishwasher','fridge'].includes(obj.subtype)?
+ const equipmentFacadeControls=obj.kind==='equipment'&&['washer','dishwasher'].includes(obj.subtype)?
   '<div class="equipment-facade-panel"><strong>هماهنگی نمای دستگاه با کابینت</strong><div class="model-choices-grid">'+
   [['visible','نمای خود دستگاه'],['matched','پنل هم‌رنگ'],['concealed','پشت درب قاب‌دار']].map(([id,label])=>
    '<button data-action="equipment-facade" data-facade="'+id+'" class="'+((obj.facadeMode||'visible')===id?'active':'')+'" '+(obj.subtype==='fridge'&&!obj.builtIn&&id!=='visible'?'disabled':'')+'>'+label+'</button>').join('')+
@@ -1309,8 +1310,8 @@ document.addEventListener('click',async e=>{
    if(obj?.subtype==='fridge')commitChange(Geo.editEquipment(currentItems(),obj.id,{fridgeFeet:Number(button.dataset.feet)}));
    return;
   }
-  if(action==='fridge-installation'){
-   commitChange(Geo.setFridgeInstallation(currentItems(),selection,button.dataset.free==='true'));
+  if(action==='fridge-mode'){
+   commitChange(Geo.setFridgeMode(currentItems(),selection,button.dataset.mode));
    return;
   }
   if(action==='faucet-model'){
