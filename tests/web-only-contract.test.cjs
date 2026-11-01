@@ -14,4 +14,13 @@ test('CI verifies the hybrid web app without assembling or publishing Android AP
  assert.match(agentRules,/docs\/logic-contract\.md/);
 });
 
-test.todo('Resolve automatic 45–55 cm door widths against fixed sink-centre constraints without silent narrow panels');
+test('latest design contract governs joint optimization and agent edits',()=>{
+ const contract=readFileSync(join(root,'docs/logic-contract.md'),'utf8');
+ const agents=readFileSync(join(root,'AGENTS.md'),'utf8');
+ assert.match(contract,/حل‌گر یکپارچه/);
+ assert.match(contract,/۴۵ تا ۵۵ سانتی‌متر/);
+ assert.match(contract,/موقعیت ترجیحی/);
+ assert.match(contract,/تأیید/);
+ assert.match(agents,/متوقف شو و قبل از ویرایش گزارش بده/);
+ assert.match(agents,/هیچ تغییری نده/);
+});

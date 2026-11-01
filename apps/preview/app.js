@@ -1,5 +1,5 @@
 import {FloorAR} from './floor-ar.js?v=fix60';
-import * as Geo from './geometry.js?v=fix60';
+import * as Geo from './geometry.js?v=optimizer61';
 import {renderPlan,renderPreview,planPoint} from './plan-view.js?v=fix60';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=fix60';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=fix43';
@@ -17,7 +17,7 @@ let selection=null,drawing=null,hover=null,pendingUpperEdit=null,undoStack=[],re
 let selectedUnit=null,lastFrontTap=null;
 let inspectorOpen=false,inspectorSelectionKey=null;
 let paintScope='single',paintPart='panel';
-let movingEquipmentId=null;
+let movingEquipmentId=null,pendingSmartLayout=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
 let wideLevel='wide';
 let facadesHidden=false,roomSurfacesVisible=false,fridgeFreestanding=false;
@@ -482,7 +482,7 @@ function showScene(){
    Geo.nearestCabinet(items,hover)?.cabinet):null;
   let pending=null;
   if(previewHost)try{
-   pending=drawing.tool==='front-smart'?Geo.planSmartKitchen(items).items:
+   pending=drawing.tool==='front-smart'?Geo.planSmartKitchen(items,{optimizePositions:false}).items:
     items.filter(o=>!(o.kind==='front'&&o.hostId===previewHost.id))
      .concat(Geo.planFronts(items,previewHost,drawing.tool.slice(6)));
   }catch{}
@@ -691,8 +691,27 @@ function placeAt(point){
  const items=currentItems(),tool=drawing.tool;
  if(tool==='front-smart'){
   const scene=currentProject()?.scene;
+  const balanced=Geo.planSmartKitchen(items);
   const styled=scene?.styleId&&scene?.stylePreset?
-   Geo.applyKitchenLayout(items,scene.styleId,{preset:scene.stylePreset}):Geo.planSmartKitchen(items);
+   {...Geo.applyKitchenLayout(balanced.items,scene.styleId,{preset:scene.stylePreset}),
+    equipmentMoves:balanced.equipmentMoves,layoutWarnings:balanced.layoutWarnings}:balanced;
+  if(styled.equipmentMoves?.length||styled.layoutWarnings?.length){
+   // No silent equipment movement in an existing manual design. The change
+   // is kept as a proposal until the user explicitly approves it.
+   pendingSmartLayout=styled;
+   const changes=styled.equipmentMoves.map(m=>'<li>'+
+    (m.subtype==='sink'?'سینک':'گاز')+' · '+(m.delta>0?'+':'')+m.delta+
+    ' سانتی‌متر در امتداد کابینت</li>').join('')+
+    (styled.layoutWarnings||[]).map(w=>'<li>'+
+     (w.reason?esc(w.reason):'در '+w.count+' نمای کابینت، عرض خارج از بازه ترجیحی است ('+
+       w.smallest+' تا '+w.largest+' سانتی‌متر).')+'</li>').join('');
+   dialogs.innerHTML='<div class="dialog-cover"><div class="dialog"><h2>پیشنهاد بهینه‌سازی چیدمان</h2>'+
+    '<p>تغییر مکان تجهیزات یا استثناهای عرض نما پیش از اعمال نمایش داده می‌شوند. اگر موردی نامناسب است انصراف بده؛ هیچ تغییر بی‌تأیید ثبت نمی‌شود.</p>'+
+    '<ul>'+changes+'</ul><div class="dialog-actions">'+
+    '<button class="primary" data-action="confirm-smart-layout">تأیید و اعمال طرح</button>'+
+    '<button data-action="cancel-smart-layout">انصراف</button></div></div></div>';
+   return;
+  }
   commitChange(styled);drawing={tool,start:null};hover=initialPreviewForTool(tool);showScene();return;
  }
  if(tool.startsWith('front-')){
@@ -1133,8 +1152,15 @@ document.addEventListener('click',async e=>{
   if(action==='report-scroll'){
    document.getElementById(button.dataset.target)?.scrollIntoView({behavior:'smooth',block:'start'});return;
   }
+  if(action==='confirm-smart-layout'){
+   const proposal=pendingSmartLayout;pendingSmartLayout=null;dialogs.replaceChildren();
+   if(!proposal)throw Error('پیشنهاد طراحی منقضی شده است؛ دوباره طراحی هوشمند را اجرا کن.');
+   commitChange(proposal);drawing={tool:'front-smart',start:null};
+   hover=initialPreviewForTool('front-smart');showScene();return;
+  }
+  if(action==='cancel-smart-layout'){pendingSmartLayout=null;dialogs.replaceChildren();return;}
   if(action==='more')return projectMenu(id);
-  if(action==='close-dialog'){dialogs.innerHTML='';pendingUpperEdit=null;return;}
+  if(action==='close-dialog'){dialogs.innerHTML='';pendingUpperEdit=null;pendingSmartLayout=null;return;}
   if(action==='convert-unit'){
    if(!selectedUnit)throw Error('ابتدا با سه لمس پشت‌سرهم یونیت را انتخاب کن.');
    commitChange(Geo.convertFrontUnit(currentItems(),selectedUnit.frontId,button.dataset.unitPreset),{skipAlignment:true});
