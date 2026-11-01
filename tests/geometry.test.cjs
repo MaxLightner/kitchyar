@@ -315,7 +315,7 @@ test('UI renders bottom controls, direct A/B drag, live corner ghost, and equipm
  assert.match(floor,/pickCalibrationHandle\(clientX,clientY\)/);
  assert.match(floor,/dragCalibrationPoint\(clientX,clientY,which\)/);
  assert.match(floor,/cabinetPath\(this\.items,a,snapped\)/);
- assert.match(plan,/cabinetPath\(items,start,target\)/);
+ assert.match(plan,/placeCabinetRoute\(items,start,target,/);
  assert.match(css,/\.bottom-panel \.draw-controls/);
 });
 
