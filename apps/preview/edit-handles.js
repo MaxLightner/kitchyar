@@ -132,8 +132,9 @@ export function renderPlanMeasurements(items,id,side){
  const len=lengthOf(w),ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len,nx=-uz,nz=ux;
  const pos=(t,offset)=>({x:w.x1+ux*t+nx*offset,z:w.z1+uz*t+nz*offset});
  const line=(a,b)=>'<line x1="'+n(a.x)+'" y1="'+n(a.z)+'" x2="'+n(b.x)+'" y2="'+n(b.z)+'" class="measure-line"/>';
- const label=(a,text)=>'<g class="measure-tag"><rect x="'+n(a.x-.33)+'" y="'+n(a.z-.115)+'" width=".66" height=".23" rx=".08"/>'+
-   '<g transform="translate('+n(a.x)+' '+n(a.z)+') scale(0.0095)"><text x="0" y="5" text-anchor="middle">'+esc(text)+'</text></g></g>';
+ const label=(a,text)=>{const width=Math.min(.82,Math.max(.30,.10+text.length*.029));
+  return '<g class="measure-tag"><rect x="'+n(a.x-width/2)+'" y="'+n(a.z-.085)+'" width="'+n(width)+'" height=".17" rx=".045"/>'+
+   '<g transform="translate('+n(a.x)+' '+n(a.z)+') scale(0.0065)"><text x="0" y="5" text-anchor="middle">'+esc(text)+'</text></g></g>';};
  let out='<g class="live-measurements" pointer-events="none">';
  if(o.kind==='opening'){
   const gaps=neighborGaps(items,o),a=gaps.left,b=gaps.right;
