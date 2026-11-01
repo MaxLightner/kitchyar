@@ -566,11 +566,37 @@ function layoutBays(items,c,preset){
   for(let j=0;j<n;j++)result.push({a:a+size*j/n,b:a+size*(j+1)/n,type:'free'});
  };
  if(!fixtures.length){const result=[];addGap(result,0,len);return result;}
- if(fixtures[0].a<MIN_CABINET_LENGTH)fixtures[0].a=0;
- if(len-fixtures.at(-1).b<MIN_CABINET_LENGTH)fixtures.at(-1).b=len;
+ // A short end remainder joins the fixture bay, but should not push its
+ // facade off the appliance centre. Grow the opposite side by the same amount
+ // when there is room, without entering the next appliance's bay.
+ if(fixtures[0].a<MIN_CABINET_LENGTH){
+  const absorbed=fixtures[0].a;
+  fixtures[0].a=0;
+  if(['sink','stove'].includes(fixtures[0].type))fixtures[0].b=Math.min(fixtures[0].b+absorbed,fixtures[1]?.a??len);
+ }
+ const last=fixtures.at(-1);
+ if(len-last.b<MIN_CABINET_LENGTH){
+  const absorbed=len-last.b;
+  last.b=len;
+  if(['sink','stove'].includes(last.type))last.a=Math.max(last.a-absorbed,fixtures.at(-2)?.b??0);
+ }
  for(let i=1;i<fixtures.length;i++){
   const gap=fixtures[i].a-fixtures[i-1].b;
-  if(gap>0&&gap<MIN_CABINET_LENGTH){fixtures[i-1].b+=gap/2;fixtures[i].a-=gap/2;}
+  if(gap>0&&gap<MIN_CABINET_LENGTH){
+   const left=fixtures[i-1],right=fixtures[i];
+   const leftRoom=left.a-(fixtures[i-2]?.b??0);
+   const rightRoom=(fixtures[i+1]?.a??len)-right.b;
+   // Absorb the narrow gap into a fixture symmetrically whenever feasible.
+   // A half-and-half extension shifts both appliance centres off their facade.
+   if(['sink','stove'].includes(right.type)&&rightRoom>=gap-1e-6&&
+    (rightRoom>=leftRoom||leftRoom<gap-1e-6||!['sink','stove'].includes(left.type))){
+    right.a-=gap;right.b+=gap;
+   }else if(['sink','stove'].includes(left.type)&&leftRoom>=gap-1e-6){
+    left.a-=gap;left.b+=gap;
+   }else if(['sink','stove'].includes(right.type)&&rightRoom>=gap-1e-6){
+    right.a-=gap;right.b+=gap;
+   }else{left.b+=gap/2;right.a-=gap/2;}
+  }
  }
  const result=[];let cursor=0;
  for(const fixture of fixtures){addGap(result,cursor,fixture.a);result.push(fixture);cursor=fixture.b;}
@@ -604,7 +630,9 @@ export function planFronts(items,c,preset='doors'){
   let part=0;
   const doors=(low,high,forcePair=false,topHinge=false,explicitLeaves=null)=>{
    const required=Math.max(1,Math.ceil((span-1e-7)/rules.maxDoorWidth));
-   const leaves=explicitLeaves??(topHinge?1:Math.max(forcePair&&span>=2*rules.minDoorWidth-1e-6?2:1,required));
+   const leaves=explicitLeaves??(topHinge?1:sink&&forcePair?
+    Math.max(2,2*Math.ceil(required/2)):
+    Math.max(forcePair&&span>=2*rules.minDoorWidth-1e-6?2:1,required));
    if(span/leaves<rules.minDoorWidth-1e-6||explicitLeaves!==null&&span/leaves>rules.maxDoorWidth+1e-6)
     throw Error('عرض این قسمت برای تعداد درب یا حداقل و حداکثر عرض مجاز سازگار نیست.');
    for(let j=0;j<leaves;j++){
