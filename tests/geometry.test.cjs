@@ -144,10 +144,11 @@ test('renderer has real ray-tested AO, directional shadows, reflection probe and
  assert.match(floor,/this\.previewGroup=new THREE\.Group/);
  assert.match(floor,/upper\?1\/3:-1\/3/);
 });
-test('UI font sizes are at least 15px and drawing controls belong to bottom panel',()=>{
+test('legible controls and compact measurement labels coexist with bottom drawing controls',()=>{
  const css=source('styles.css'),app=source('app.js');
  for(const match of css.matchAll(/font(?:-size)?:\s*(\d+(?:\.\d+)?)px/g))
-  assert.ok(Number(match[1])>=15,'font below 15px: '+match[0]);
+  assert.ok(Number(match[1])>=13,'font below 13px: '+match[0]);
+ assert.match(css,/button,input,small,label,\.drawing-hint,\.scan-card small\{font-size:15px\}/);
  for(const action of ['confirm-drawing','cancel-drawing'])
   assert.match(app,new RegExp('data-action="'+action+'"'));
  for(const action of ['record-start','record-end','cancel-start','finish-line'])
