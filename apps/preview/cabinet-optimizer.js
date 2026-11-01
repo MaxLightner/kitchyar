@@ -7,7 +7,8 @@ export const DEFAULT_CABINET_OPTIMIZATION=Object.freeze({
   fixtureClearance:.02,
   searchStep:.05,
   maxFixtureShift:.35,
-  sinkPairMaxWidth:.62
+  sinkPairMaxWidth:.62,
+  singleLeafMaxWidth:.62
 });
 
 const finite=(...values)=>values.every(Number.isFinite);
@@ -21,8 +22,15 @@ export function partitionDoorSpan(span,options={}){
     return {feasible:false,reason:'invalid-span',span};
   const minCount=Math.ceil((span-EPS)/rules.maxDoorWidth);
   const maxCount=Math.floor((span+EPS)/rules.minDoorWidth);
-  if(minCount>maxCount)return {feasible:false,reason:'outside-door-width-range',span,
-    minCount,maxCount,minDoorWidth:rules.minDoorWidth,maxDoorWidth:rules.maxDoorWidth};
+  if(minCount>maxCount){
+    // A single 60 cm-class cabinet is a normal carcass size; do not split it
+    // into two undersized 30 cm leaves merely to satisfy the preferred band.
+    if(span<=rules.singleLeafMaxWidth+EPS)
+      return {feasible:true,count:1,width:span,widths:[span],score:
+        Math.pow(span-rules.targetDoorWidth,2),exception:'single-leaf-near-boundary'};
+    return {feasible:false,reason:'outside-door-width-range',span,
+      minCount,maxCount,minDoorWidth:rules.minDoorWidth,maxDoorWidth:rules.maxDoorWidth};
+  }
   let best=null;
   for(let count=minCount;count<=maxCount;count++){
     const width=span/count;
