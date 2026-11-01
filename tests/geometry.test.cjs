@@ -1110,3 +1110,12 @@ test('AR floor rescan reuses live hit-test sources and leaves the XR session ope
  assert.ok(app.indexOf("document.getElementById('scan-card')?.classList.remove('complete')",rescan)<
   app.indexOf('await floor.scan()',rescan),'scan status must update before WebXR promises settle');
 });
+
+
+test('direct drag handles use the same current geometry module as equipment buttons',()=>{
+ const app=source('app.js'),handles=source('edit-handles.js'),floor=source('floor-ar.js'),plan=source('plan-view.js');
+ const imports=[app,handles,floor,plan].map(s=>Number(s.match(/\.\/geometry\.js\?v=fix(\d+)/)?.[1]||0));
+ assert.ok(imports[0]>0&&imports.every(version=>version===imports[0]),'equipment drag, plan, AR and editor must share one geometry version');
+ assert.match(handles,/side==='move'\)return moveEquipment\(items,id,/);
+ assert.match(app,/data-action="move-equipment"/);
+});
