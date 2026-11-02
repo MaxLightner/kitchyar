@@ -1,6 +1,6 @@
 /* Read-only manufacturing overview from the semantic kitchen project.
    This is deliberately a schematic schedule, never a CNC nesting/cut program. */
-import {lengthOf,countertopCutouts,frontPose} from './geometry.js?v=report33';
+import {lengthOf,countertopCutouts,frontPose} from './geometry.js?v=kitchen64';
 import {MATERIALS,DEFAULT_MATERIALS,resolveFinish} from './materials.js?v=report33';
 import {nestFronts} from './sheet-nesting.js?v=nest35';
 
@@ -19,19 +19,19 @@ export function buildCutReport(project,sheetOptions={}){
   const c=cabinets[i],len=lengthOf(c),code=`C${String(i+1).padStart(2,'0')}`;
   const view={code,id:c.id,kind:c.subtype,lengthMm:mm(len),heightMm:mm(c.height),
    elevationMm:mm(c.elevation||0),depthMm:mm(c.depth),fronts:[]};
-  const faces=items.filter(f=>f.kind==='front'&&f.hostId===c.id)
+  const faces=items.filter(f=>f.kind==='front'&&f.style!=='open'&&f.hostId===c.id)
    .sort((a,b)=>a.startT-b.startT||b.topT-a.topT||a.bottomT-b.bottomT);
   for(const f of faces){
    const pose=frontPose(f,c);if(!pose)continue;
    const drawer=f.subtype==='drawer',n=drawer?++drawers:++doors;
    const codeFront=(drawer?'R':'D')+String(n).padStart(3,'0');
-   const widthMm=mm(pose.width),heightMm=mm(pose.height),materialId=f.materialId||
+   const widthMm=mm(pose.width),heightMm=mm(pose.height),materialId=f.style==='glass'?'glass-clear':f.materialId||
     resolveFinish(settings,c.subtype,'front');
    const row={code:codeFront,cabinet:code,hostId:c.id,id:f.id,
     type:drawer?'کشو':'درب',widthMm,heightMm,quantity:1,
-    gapMm:mm(f.gap??.003),material:findLabel('front',materialId),materialId,
+    gapMm:mm(f.gap??.003),material:materialId==='glass-clear'?'شیشه':findLabel('front',materialId),materialId,
     wood:!!MATERIALS.front.find(m=>m.id===materialId)?.wood,
-    style:f.style==='frame'?'قاب‌دار':'صاف',hinge:drawer?'—':
+    style:({frame:'قاب‌دار',glass:'شیشه‌ای',cnc:'CNC',flat:'صاف'}[f.style]||'صاف'),hinge:drawer?'—':
      ({left:'چپ',right:'راست',top:'بالا'}[f.hinge]||'نامشخص'),
     grain:f.grainDirection==='horizontal'||(f.grainDirection!=='vertical'&&drawer)?'افقی':'عمودی',
     xStartMm:mm(f.startT*len),yBottomMm:mm(f.bottomT*c.height),
@@ -87,7 +87,7 @@ export function buildCutReport(project,sheetOptions={}){
   finish();
  }
  countertop.sort((a,b)=>a.code.localeCompare(b.code));
- const nesting=nestFronts(fronts,sheetOptions);
+ const nesting=nestFronts(fronts.filter(f=>f.materialId!=='glass-clear'),sheetOptions);
  if(fronts.some(f=>f.style==='قاب‌دار'))warnings.push('درب قاب‌دار در این گزارش فقط با ابعاد کلی نما نمایش داده شده؛ قطعات تشکیل‌دهنده قاب هنوز تفکیک نشده‌اند.');
  if(countertop.length>1)warnings.push('صفحه‌ها بر اساس امتداد هر دیوار تفکیک شده‌اند. محل اتصال گوشه‌ها و جهت برش فارسی‌بر باید پیش از تولید تعیین شود.');
  if(countertop.some(c=>c.curveMm||c.cornerRadiusMm||c.raisedMm||c.waterfall!=='none'))warnings.push('فرم‌های آبشاری، منحنی، گوشه گرد و صفحه دوارتفاعی در جدول ثبت‌اند اما پلان برش آن‌ها مستطیل شماتیک است؛ اندازه‌گیری واقعی فرم باید پیش از برش تأیید شود.');

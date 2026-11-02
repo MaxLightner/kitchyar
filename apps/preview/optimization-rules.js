@@ -7,7 +7,7 @@
 export const OPTIMIZATION_RULES=Object.freeze({
  preferredMin:.45,preferredMax:.55,
  fixtureSearchStep:.01,maxFixtureShift:.38,
- sinkDoorLeaves:2
+ sinkDoorLeaves:2,connectionSnap:.30
 });
 export function facadeWidthPenalty(width){
  const {preferredMin:min,preferredMax:max}=OPTIMIZATION_RULES;

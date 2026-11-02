@@ -6,7 +6,7 @@ export const CARCASS_BACK_THICKNESS=.008;
 const near=(a,b,epsilon=.012)=>Math.abs(a-b)<epsilon;
 const panel=(part,x,y,z,width,height,depth)=>({part,x,y,z,width,height,depth});
 
-export function cabinetCarcassPanels(c,fronts=[],equipment=[]){
+export function cabinetCarcassPanels(c,fronts=[],equipment=[],voids=[]){
  const len=Math.hypot(c.x2-c.x1,c.z2-c.z1),height=Number(c.height),depth=Number(c.depth);
  if(len<.20||height<.10||depth<.10)return [];
  const t=Math.min(CARCASS_THICKNESS,len/12,height/10,depth/10),backT=Math.min(CARCASS_BACK_THICKNESS,depth/20);
@@ -57,7 +57,15 @@ export function cabinetCarcassPanels(c,fronts=[],equipment=[]){
   parts.push(panel('divider',x,y0+height/2,side*backT/2,t,height-2*t,depth-backT));
   previous=x;
  }
- return parts;
+ if(c.frontOrientation==='side'){
+  const right=parts.findIndex(p=>p.part==='right-side');if(right>=0)parts.splice(right,1);
+  parts.push(panel('closed-front',0,y0+height/2,side*(depth/2-t/2),innerWidth,height,t));
+ }
+ return parts.flatMap(p=>{
+  let spans=[{start:p.x-p.width/2,end:p.x+p.width/2}];
+  for(const v of voids)spans=spans.flatMap(s=>v.start>=s.end||v.end<=s.start?[s]:[{start:s.start,end:Math.min(s.end,v.start)},{start:Math.max(s.start,v.end),end:s.end}].filter(s=>s.end-s.start>.005));
+  return spans.map(s=>({...p,x:(s.start+s.end)/2,width:s.end-s.start}));
+ });
 }
 
 // One indexed BufferGeometry for an entire carcass: 24 vertices and 12 triangles

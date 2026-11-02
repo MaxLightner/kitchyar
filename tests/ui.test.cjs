@@ -55,14 +55,16 @@ test('AR settings are in the same DOM overlay, and all panels have dismiss gestu
  assert.match(app,/data-action="hide-tools" aria-label="بستن پنل ابزار"/);
  assert.match(app,/selectAt\(trackedView\(\)\?null:point,e\.target,arId\)/);
 });
-test('style gallery selects a photograph then applies its JSON facades and materials in one undo step',()=>{
+test('style gallery separates model application from front-only color application',()=>{
  const app=read('app.js');
  assert.match(app,/data-action="apply-style" disabled/);
  assert.match(app,/action==='select-style'/);
  assert.match(app,/fetch\(assetUrl\(style\.config\)\)/);
  assert.match(app,/commitChange\(result,\{styleId:style\.id,stylePreset:preset\}\)/);
  assert.match(app,/await new Promise\(resolve=>setTimeout\(resolve,450\)\)/);
- assert.match(app,/project\.scene\.materials=\{\.\.\.DEFAULT_MATERIALS,\.\.\.preset\.materials\}/);
+ assert.match(app,/galleryMode==='color'/);
+ assert.match(app,/baseFront:preset\.materials\.baseFront/);
+ assert.doesNotMatch(app,/project\.scene\.materials=\{\.\.\.DEFAULT_MATERIALS,\.\.\.preset\.materials\}/);
  assert.doesNotMatch(app,/commitChange\(result,\{materials:preset\.materials,styleId:style\.id\}\)/);
 });
 
