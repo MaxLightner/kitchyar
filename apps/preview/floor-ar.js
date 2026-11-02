@@ -1882,7 +1882,7 @@ export class FloorAR {
      if(!entry){this.furnitureAssets.set(o.model,{loading:true});fetch(assetUrl('assets/models/'+o.model+'.json')).then(r=>{if(!r.ok)throw Error('table model');return r.json();}).then(data=>{this.furnitureAssets.set(o.model,{data});if(this.objectGroup)this.rebuildObjects();}).catch(()=>this.furnitureAssets.set(o.model,{failed:true}));}
      if(entry?.data){
       const d=entry.data,geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(d.positions,3));geo.setIndex(d.indices);if(d.uvs)geo.setAttribute('uv',new THREE.Float32BufferAttribute(d.uvs,2));geo.computeVertexNormals();
-      this.furnitureTextures??=new Map();if(!this.furnitureTextures.has(o.model)){const t=new THREE.TextureLoader().load(assetUrl('assets/models/'+o.model+'.webp'),()=>{if(this.objectGroup)this.rebuildObjects();});t.colorSpace=THREE.SRGBColorSpace;this.furnitureTextures.set(o.model,t);}
+      this.furnitureTextures??=new Map();if(!this.furnitureTextures.has(o.model)){const t=new THREE.TextureLoader().load(assetUrl('assets/models/'+o.model+'.webp'),()=>{if(this.objectGroup)this.rebuildObjects();});t.colorSpace=THREE.SRGBColorSpace;t.flipY=false;this.furnitureTextures.set(o.model,t);}
       const mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({map:this.furnitureTextures.get(o.model),color:0xffffff,roughness:.6}));mesh.scale.set(o.width,o.height,o.depth);mesh.userData.objectId=o.id;mesh.castShadow=true;mesh.receiveShadow=true;root.add(mesh);continue;
      }
     }
