@@ -1,4 +1,4 @@
-import * as G from './geometry.js?v=library65';
+import * as G from './geometry.js?v=controls66';
 
 export const PARTS=Object.freeze([
  ['board','تخته ساده'],['box','باکس باز'],['shelf','طبقه'],['crown','تاج کلاسیک'],

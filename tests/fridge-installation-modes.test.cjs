@@ -14,9 +14,9 @@ test('fridge returns from a free installation to its framed cabinet bay',async()
  assert.equal(hidden.items.find(e=>e.id===id).facadeMode,'concealed');
  let free=Geo.setFridgeMode(hidden.items,id,'free');
  fridge=free.items.find(e=>e.id===id);
- assert.equal(fridge.builtIn,undefined);
+ assert.equal(fridge.builtIn,true,'visible mode keeps the wall-attached reserved bay');
  assert.equal(fridge.facadeMode,'visible');
- assert.ok(fridge.previousBuiltInPoint);
+ assert.ok(Math.hypot(fridge.x-installedX,fridge.z-installedZ)<.001);
  const returned=Geo.setFridgeMode(free.items,id,'framed');
  fridge=returned.items.find(e=>e.id===id);
  assert.equal(fridge.builtIn,true);

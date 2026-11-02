@@ -1,4 +1,4 @@
-import {lengthOf,frontageLength,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment} from './geometry.js?v=library65';
+import {lengthOf,frontageLength,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment,moveWholeObject} from './geometry.js?v=controls66';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -23,6 +23,7 @@ export function neighborGaps(items,opening){
 export function resizeFromHandle(items,id,side,position){
  const object=byId(items,id);if(!object)throw Error('آبجکت انتخاب‌شده پیدا نشد.');
  if(object.kind==='equipment'&&side==='move')return moveEquipment(items,id,{x:snapCm(position.x),z:snapCm(position.z)});
+ if(['wall','cabinet'].includes(object.kind)&&side==='move')return moveWholeObject(items,id,position);
  if(object.kind==='opening'){
   const w=byId(items,object.hostId);if(!w)throw Error('دیوار میزبان پیدا نشد.');
   const len=lengthOf(w),old=openingEdges(object,w),bottom=object.sill,top=object.sill+object.height;
@@ -89,7 +90,7 @@ export function handlePosition(items,id,side){
   const len=lengthOf(w),along=(side==='start'?o.startT:side==='end'?o.endT:(o.startT+o.endT)/2)*len;
    return {along,y:side==='top'?o.elevation+o.height:side==='bottom'?o.elevation:o.elevation+o.height/2};
  }
- if(o.kind==='wall')return {x:side==='start'?o.x1:o.x2,z:side==='start'?o.z1:o.z2};
+ if(o.kind==='wall')return {along:side==='move'?lengthOf(o)/2:side==='start'?0:lengthOf(o),y:.15,x:side==='move'?(o.x1+o.x2)/2:side==='start'?o.x1:o.x2,z:side==='move'?(o.z1+o.z2)/2:side==='start'?o.z1:o.z2};
  return null;
 }
 export function renderElevation(items,opening,drag=null){

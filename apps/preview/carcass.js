@@ -65,6 +65,11 @@ export function cabinetCarcassPanels(c,fronts=[],equipment=[],voids=[]){
   parts.push(panel('divider',x,y0+height/2,side*backT/2,t,height-2*t,depth-backT));
   previous=x;
  }
+ if(c.subtype==='tall')for(let i=1;i<=(c.tallShelves??4);i++){
+  const y=y0+height*i/((c.tallShelves??4)+1);
+  if(equipment.some(e=>e.hostId===c.id&&y>(e.elevation??0)-t&&y<(e.elevation??0)+e.height+t))continue;
+  parts.push(panel('adjustable-shelf',0,y,side*backT/2,innerWidth,t,depth-backT-.015));
+ }
  if(c.frontOrientation==='side'){
   const right=parts.findIndex(p=>p.part==='right-side');if(right>=0)parts.splice(right,1);
   parts.push(panel('closed-front',0,y0+height/2,side*(depth/2-t/2),innerWidth,height,t));
