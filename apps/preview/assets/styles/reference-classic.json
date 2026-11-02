@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "id": "reference-classic",
+  "zones": {
+    "base": {
+      "pattern": [
+        "doors"
+      ],
+      "sinkLayout": "sinkDoors",
+      "stoveLayout": "graduated",
+      "unitWidth": 0.5,
+      "handleStyle": "knob"
+    },
+    "upper": {
+      "pattern": [
+        "doors"
+      ],
+      "sinkLayout": "lift",
+      "unitWidth": 0.5,
+      "handleStyle": "knob"
+    },
+    "tall": {
+      "pattern": [
+        "doors"
+      ],
+      "unitWidth": 0.5,
+      "handleStyle": "knob"
+    }
+  },
+  "front": {
+    "style": "raised",
+    "handleStyle": "knob",
+    "handleFinish": "brass",
+    "grainDirection": "auto"
+  },
+  "materials": {
+    "baseFront": "ivory-matte",
+    "upperFront": "ivory-matte",
+    "baseBody": "ivory-matte",
+    "upperBody": "ivory-matte",
+    "body": "ivory-matte",
+    "front": "ivory-matte",
+    "counter": "quartz-white",
+    "backsplash": "light-stone"
+  },
+  "reference": {
+    "panel": "raised",
+    "hood": "classic",
+    "tiers": null,
+    "lowerMaterial": null,
+    "upperMaterial": null,
+    "glass": false,
+    "cross": false,
+    "drawerHandle": "knob",
+    "decor": {
+      "crown": "classic",
+      "pilaster": "classic"
+    }
+  }
+}

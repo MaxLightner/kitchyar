@@ -10,6 +10,8 @@ test('equipment-style tall unit follows upper-cabinet top and offers independent
  let c=tall(p.items);
  assert.equal(c.upperAligned,true);
  assert.ok(Math.abs(c.height-2.45)<.001);
+ assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,0);
+ p=Geo.configureTallCabinet(p.items,c.id,{enabled:true});
  assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,4);
  p=Geo.configureTallCabinet(p.items,c.id,{rows:1,leaves:2,depth:.35});
  c=tall(p.items);
@@ -29,6 +31,7 @@ test('moving an independent tall unit keeps its fronts, identities and manual fi
  const base=[wall('one',0),wall('two',3)];
  let result=Geo.placeTallCabinet(base,{x:1.3,z:.2},{rows:2,leaves:1});
  const id=result.selectedId;
+ result=Geo.configureTallCabinet(result.items,id,{enabled:true});
  const door=result.items.find(f=>f.kind==='front'&&f.hostId===id);
  result=Geo.editFront(result.items,door.id,{finish:'graphite'});
  const before=result.items.find(f=>f.id===door.id);

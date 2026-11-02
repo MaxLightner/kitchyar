@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "id": "reference-grey",
+  "zones": {
+    "base": {
+      "pattern": [
+        "doors"
+      ],
+      "sinkLayout": "sinkDoors",
+      "stoveLayout": "graduated",
+      "unitWidth": 0.5,
+      "handleStyle": "hidden"
+    },
+    "upper": {
+      "pattern": [
+        "doors"
+      ],
+      "sinkLayout": "lift",
+      "unitWidth": 0.5,
+      "handleStyle": "hidden"
+    },
+    "tall": {
+      "pattern": [
+        "doors"
+      ],
+      "unitWidth": 0.5,
+      "handleStyle": "hidden"
+    }
+  },
+  "front": {
+    "style": "flat",
+    "handleStyle": "hidden",
+    "handleFinish": "brass",
+    "grainDirection": "auto"
+  },
+  "materials": {
+    "baseFront": "warm-grey",
+    "upperFront": "warm-grey",
+    "baseBody": "warm-grey",
+    "upperBody": "warm-grey",
+    "body": "warm-grey",
+    "front": "warm-grey",
+    "counter": "black-stone",
+    "backsplash": "black-stone"
+  },
+  "reference": {
+    "panel": "flat",
+    "hood": "concealed",
+    "tiers": {
+      "lowerHeight": 0.9,
+      "lowerDepth": 0.35,
+      "upperDepth": 0.6
+    },
+    "lowerMaterial": "oak",
+    "upperMaterial": "warm-grey",
+    "glass": false,
+    "cross": false,
+    "drawerHandle": "hidden",
+    "decor": {
+      "crown": "none",
+      "pilaster": "none"
+    }
+  }
+}
