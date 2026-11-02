@@ -1,15 +1,15 @@
-import {partPose} from './design-library.js?v=library65';
+import {partPose} from './design-library.js?v=controls66';
 /* Chido v0.5.7 floor detection adapter, pinned to its exact source commit. */
 import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/vendor/three.module.js';
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=library65';
-import {neighborGaps} from './edit-handles.js?v=library65';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=controls66';
+import {neighborGaps} from './edit-handles.js?v=controls66';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=library65';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
-import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=library65';
+import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=controls66';
 import {roomOutline} from './room-surfaces.js?v=room40';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
 
@@ -194,6 +194,7 @@ export class FloorAR {
   this.wideRenderer.render(this.scene,this.wideCamera);
  }
  activeViewMatrices(){
+  if(this.previewCamera){this.previewCamera.updateMatrixWorld(true);return {cameraView:this.previewCamera.matrixWorldInverse,projection:this.previewCamera.projectionMatrix};}
   if(this.wideActive&&this.wideCamera){
    this.wideCamera.updateMatrixWorld(true);
    return {cameraView:this.wideCamera.matrixWorldInverse,projection:this.wideCamera.projectionMatrix};
@@ -501,7 +502,7 @@ export class FloorAR {
  }
  _rayFromTouch(clientX,clientY){
   if(!this.locked||!this.lastPose||!this.renderer)return null;
-  const r=(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement).getBoundingClientRect();
+  const r=(this.previewRenderer?.domElement||(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement)).getBoundingClientRect();
   return this.screenRay(this.lastPose,false,(clientX-r.left)/r.width*2-1,1-(clientY-r.top)/r.height*2);
  }
  updateEditHandles(items=this.items){
@@ -543,6 +544,7 @@ export class FloorAR {
     mark(side,w.x1+ux*t*len+nx*offset,obj.elevation+obj.height/2,
      w.z1+uz*t*len+nz*offset,0x64d2a5);
     const centre=(obj.startT+obj.endT)*len/2;
+    mark('move',w.x1+ux*centre+nx*offset,obj.elevation+obj.height/2,w.z1+uz*centre+nz*offset,0xeab16b);
     mark('top',w.x1+ux*centre+nx*offset,obj.elevation+obj.height+.015,
      w.z1+uz*centre+nz*offset,0xe9ad63);
     mark('bottom',w.x1+ux*centre+nx*offset,obj.elevation,
@@ -550,6 +552,7 @@ export class FloorAR {
   }else if(obj.kind==='equipment'&&obj.subtype!=='hood'){
    mark('move',obj.x,obj.elevation+obj.height*.5,obj.z,0xeab16b);
   }else if(obj.kind==='wall'){
+   mark('move',(obj.x1+obj.x2)/2,.15,(obj.z1+obj.z2)/2,0xeab16b);
    mark('start',obj.x1,.15,obj.z1,0x64d2a5);
    mark('end',obj.x2,.15,obj.z2,0x64d2a5);
   }
@@ -558,7 +561,7 @@ export class FloorAR {
   if(!this.locked||!this.ruler?.visible||!this.lastPose||!this.renderer)return null;
   // Chido's screen-space hit testing tolerates fingers over the visible A/B badges,
   // even where a world-space XR ray misses their small physical spheres.
-  const matrices=this.activeViewMatrices(),rect=(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement).getBoundingClientRect();
+  const matrices=this.activeViewMatrices(),rect=(this.previewRenderer?.domElement||(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement)).getBoundingClientRect();
   if(matrices&&rect.width&&rect.height){
    this.floorGroup.updateWorldMatrix(true,true);
    const {cameraView,projection}=matrices;
@@ -628,12 +631,12 @@ export class FloorAR {
   return true;
  }
  pickHandle(clientX,clientY){
-  if(!this.editGroup||!this.lastPose||!this.renderer)return null;
-  const matrices=this.activeViewMatrices(),rect=(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement).getBoundingClientRect();
+  if(!this.editGroup||!this.previewRenderer&&(!this.lastPose||!this.renderer))return null;
+  const matrices=this.activeViewMatrices(),rect=(this.previewRenderer?.domElement||(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer.domElement)).getBoundingClientRect();
   if(matrices&&rect.width&&rect.height){
    this.floorGroup.updateWorldMatrix(true,true);
    const {cameraView,projection}=matrices;
-   let nearest=null,distance=60;
+   let nearest=null,distance=28;
    for(const marker of this.editGroup.children){
     const pos=marker.getWorldPosition(new THREE.Vector3()).applyMatrix4(cameraView).applyMatrix4(projection);
     if(pos.z<-.8||pos.z>1.1||Math.abs(pos.x)>1.2||Math.abs(pos.y)>1.2)continue;
@@ -650,7 +653,7 @@ export class FloorAR {
  dragScreenHandlePoint(clientX,clientY,drag){
   const o=drag.originalItems?.find(v=>v.id===drag.id);
   const w=o?.kind==='wall'?o:drag.originalItems?.find(v=>v.id===o?.hostId);
-  const matrices=this.activeViewMatrices(),rect=(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer?.domElement)?.getBoundingClientRect();
+  const matrices=this.activeViewMatrices(),rect=(this.previewRenderer?.domElement||(this.wideActive&&this.wideRenderer?this.wideRenderer.domElement:this.renderer?.domElement))?.getBoundingClientRect();
   if(!w||!matrices||!rect?.width||!rect?.height||!this.floorGroup)return null;
   const len=Math.hypot(w.x2-w.x1,w.z2-w.z1);if(len<.001)return null;
   const ux=(w.x2-w.x1)/len,uz=(w.z2-w.z1)/len;
@@ -1062,7 +1065,7 @@ export class FloorAR {
   if(this.previewRenderer)return;
   this.previewHost=host;this.previewScene=new THREE.Scene();this.previewScene.background=new THREE.Color(0xe9ede8);
   this.floorGroup=new THREE.Group();this.objectGroup=new THREE.Group();
-  this.floorGroup.add(this.objectGroup);this.previewScene.add(this.floorGroup);
+  this.floorGroup.add(this.objectGroup);this.editGroup=new THREE.Group();this.editPreviewGroup=new THREE.Group();this.floorGroup.add(this.editGroup,this.editPreviewGroup);this.previewScene.add(this.floorGroup);
   const grid=new THREE.GridHelper(24,120,0xb3c2b6,0xd5ddd4);grid.position.y=-.012;
   this.previewScene.add(grid);
   this.previewCamera=new THREE.PerspectiveCamera(46,1,.02,100);
@@ -1082,6 +1085,7 @@ export class FloorAR {
   host.appendChild(this.previewRenderer.domElement);
   const canvas=this.previewRenderer.domElement;
   canvas.addEventListener('pointerdown',e=>{
+   if(this.pickHandle(e.clientX,e.clientY))return;
    this.previewDrag={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false};
    try{canvas.setPointerCapture(e.pointerId);}catch{}
   });
@@ -1148,6 +1152,12 @@ export class FloorAR {
   const r=this.previewRenderer.domElement.getBoundingClientRect();
   const mouse=new THREE.Vector2((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);
   const ray=new THREE.Raycaster();ray.setFromCamera(mouse,this.previewCamera);return ray;
+ }
+ pickBurner(clientX,clientY){
+  const ray=this.previewRenderer?this.previewRay(clientX,clientY):(()=>{const r=this._rayFromTouch(clientX,clientY);return r?new THREE.Raycaster(r.origin,r.direction,.02,15):null;})();
+  const hits=ray?.intersectObjects(this.objectGroup?.children||[],true)||[];
+  for(const h of hits){if(!pickable(h.object))continue;if(h.object.userData.burner)return h.object.userData.burner;if(h.object.isMesh&&h.object.material?.opacity!==0)return null;}
+  return null;
  }
  pickPreviewObject(clientX,clientY){
   if(this.previewWasDragged){this.previewWasDragged=false;return null;}
@@ -1344,7 +1354,7 @@ export class FloorAR {
     pin.position.set(pos.x,.08,pos.z);pin.renderOrder=22;group.add(pin);
    }
   }
-  group.visible=true;
+  group.visible=true;this.renderPreview();
  }
  rebuildObjects(){
   if(!this.objectGroup)return;
@@ -1819,7 +1829,10 @@ export class FloorAR {
     this.surfaceMaterial('front',frameId,pose.width,pose.height,grain);
    const framed=['frame','raised','cross','glass-grid'].includes(panel.style),rail=Math.min(.065,pose.width*.16,pose.height*.16);
    const faceBox=(w,h,d,x=0,y=0,z=0,mat=faceMaterial)=>{
-    const surface=new THREE.Mesh(this.applySurfaceUV(new THREE.BoxGeometry(w,h,d),mat,w,h,d),mat.clone());
+    let geometry;
+    const bevel=Math.min(.003,d/3,w/5,h/5);
+    if(w>.03&&h>.03&&d>.009){const shape=new THREE.Shape();shape.moveTo(-w/2+bevel,-h/2+bevel);shape.lineTo(w/2-bevel,-h/2+bevel);shape.lineTo(w/2-bevel,h/2-bevel);shape.lineTo(-w/2+bevel,h/2-bevel);shape.closePath();geometry=new THREE.ExtrudeGeometry(shape,{depth:d-2*bevel,bevelEnabled:true,bevelSegments:1,steps:1,bevelSize:bevel,bevelThickness:bevel,curveSegments:1});geometry.translate(0,0,-d/2+bevel);}else geometry=new THREE.BoxGeometry(w,h,d);
+    const surface=new THREE.Mesh(this.applySurfaceUV(geometry,mat,w,h,d),mat.clone());
     surface.position.set(x,y,z);surface.castShadow=true;surface.receiveShadow=true;surface.userData.objectId=panel.id;leaf.add(surface);return surface;
    };
    if(framed){
@@ -1842,6 +1855,8 @@ export class FloorAR {
     for(const y of [-1,1]){const groove=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.05,pose.width-.10),.006,.003),grooveMaterial);groove.position.set(0,y*(pose.height/2-.05),pose.side*(pose.thickness/2+.002));leaf.add(groove);}
     for(const x of [-1,1]){const groove=new THREE.Mesh(new THREE.BoxGeometry(.006,Math.max(.05,pose.height-.10),.003),grooveMaterial);groove.position.set(x*(pose.width/2-.05),0,pose.side*(pose.thickness/2+.002));leaf.add(groove);}
    }
+   const outlineGeometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-pose.width/2,-pose.height/2,0),new THREE.Vector3(pose.width/2,-pose.height/2,0),new THREE.Vector3(pose.width/2,pose.height/2,0),new THREE.Vector3(-pose.width/2,pose.height/2,0),new THREE.Vector3(-pose.width/2,-pose.height/2,0)]);
+   const outline=new THREE.Line(outlineGeometry,new THREE.LineBasicMaterial({color:0x625b51,transparent:true,opacity:.38,depthWrite:false}));outline.position.z=pose.side*(pose.thickness/2+.0005);outline.userData.objectId=panel.id;leaf.add(outline);
    const visibleZ=(pose.side||1)*(.012+pose.thickness/2);
    if(panel.handleStyle!=='hidden'){
     const finish=panel.handleFinish||'steel',color=finish==='brass'?0xc8a257:finish==='black'?0x303638:0x8c9493;
@@ -1857,6 +1872,11 @@ export class FloorAR {
     handle.position.set(isDrawer||horizontal?0:panel.hinge==='left'?pose.width/2-.055:-pose.width/2+.055,
      horizontal?-pose.height/2+.055:isDrawer?pose.height*.19:0,visibleZ+.015*(pose.side||1));
     handle.userData.objectId=panel.id;handle.castShadow=false;leaf.add(handle);
+    if(panel.handleStyle==='knob'){
+     handle.scale.set(1,.8,1);
+     if(isDrawer&&pose.width>=.60){handle.position.x=-pose.width/2+.09;const second=handle.clone();second.position.x=pose.width/2-.09;leaf.add(second);}
+    }
+
    }
   }
   for(const o of this.items.filter(o=>o.kind==='scene-object')){
@@ -1940,7 +1960,7 @@ export class FloorAR {
    if(o.subtype==='fridge'){
     if(o.builtIn){
      const surround=material(0xd9d1c3,{roughness:.38,metalness:.03});
-     const top=Math.max(o.height+.16,2.15),edge=.028,span=Math.max(o.width+.12,o.surround?.bayWidth||0),shift=o.surround?.bayOffset||0;
+     const top=o.height+.035,edge=.028,span=Math.max(o.width+.12,o.surround?.bayWidth||0),shift=o.surround?.bayOffset||0;
      add(new THREE.BoxGeometry(edge,top,o.depth+.12),surround,shift-span/2,top/2,0);
      add(new THREE.BoxGeometry(edge,top,o.depth+.12),surround,shift+span/2,top/2,0);
      add(new THREE.BoxGeometry(span,.14,o.depth+.12),surround,shift,top-.07,0);
@@ -2075,9 +2095,13 @@ export class FloorAR {
     const x=o.width*.255,z=o.depth*.225;
     const positions=count===2?[[-x,0],[x,0]]:count===3?[[-x,-z],[x,-z],[0,z]]:
      count===5?[[-x,-z],[-x,z],[x,-z],[x,z],[0,0]]:[[-x,-z],[-x,z],[x,-z],[x,z]];
-    for(const [bx,bz] of positions){
+    for(const [index,[bx,bz]] of positions.entries()){
      const burner=add(new THREE.TorusGeometry(bx===0&&bz===0?.073:.058,induction?.0035:.007,8,20),
       induction?silver:dark,bx,slab+.009,bz,-Math.PI/2);burner.castShadow=false;
+     const on=!!o.burnersOn?.[index],flame=material(on?0x168dff:0x151a1d,{emissive:on?0x047cff:0x000000,emissiveIntensity:on?3:0,roughness:.45});
+     const disc=add(new THREE.CylinderGeometry(.083,.083,.005,20),new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}),bx,slab+.014,bz);disc.userData.burner={id:o.id,index};
+     const ring=add(new THREE.TorusGeometry(.065,.008,5,24),flame,bx,slab+.022,bz,-Math.PI/2);ring.userData.burner={id:o.id,index};
+
     }
     if(!induction)for(let i=0;i<Math.min(count,5);i++)
      add(new THREE.CylinderGeometry(.012,.012,.012,10),dark,

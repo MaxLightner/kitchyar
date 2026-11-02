@@ -1,7 +1,7 @@
-import {footprint} from './scene-objects.js?v=library65';
-import {partPose} from './design-library.js?v=library65';
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=library65';
-import {renderPlanMeasurements} from './edit-handles.js?v=library65';
+import {footprint} from './scene-objects.js?v=controls66';
+import {partPose} from './design-library.js?v=controls66';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=controls66';
+import {renderPlanMeasurements} from './edit-handles.js?v=controls66';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true,hideFronts=false}={}){
@@ -109,6 +109,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    const burners=count===2?[[-x,0],[x,0]]:count===3?[[-x,-z],[x,-z],[0,z]]:
     count===5?[[-x,-z],[-x,z],[x,-z],[x,z],[0,0]]:[[-x,-z],[-x,z],[x,-z],[x,z]];
    for(const [bx,bz] of burners)out+='<circle cx="'+f(bx)+'" cy="'+f(bz)+'" r="'+f(bx===0&&bz===0?.074:.056)+'" stroke="'+ring+'" fill="none" stroke-width=".016"/>';
+   for(const [index,[bx,bz]] of burners.entries())out+='<circle data-item-id="'+safe(e.id)+'" data-burner="'+index+'" cx="'+f(bx)+'" cy="'+f(bz)+'" r=".095" fill="'+(e.burnersOn?.[index]?'#168dff':'transparent')+'" fill-opacity=".65" stroke="none"/>';
   }else if(e.subtype==='sink'){
    const double=e.model==='double',drainer=e.model==='drainer';
    const bowlWidth=double?Math.min(.44,(e.width-.17)/2):Math.min(.48,e.width-(drainer?.20:.13));
@@ -154,7 +155,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    '<circle cx="'+f(selection.x)+'" cy="'+f(selection.z)+'" r="'+f(visibleRadius)+'" fill="#d8a15b" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';
  }
  if(selection&&['wall','cabinet'].includes(selection.kind)&&!mini){
-  for(const [side,x,z] of [['start',selection.x1,selection.z1],['end',selection.x2,selection.z2]]){
+  for(const [side,x,z] of [['start',selection.x1,selection.z1],['end',selection.x2,selection.z2],['move',(selection.x1+selection.x2)/2,(selection.z1+selection.z2)/2]]){
    out+='<g class="resize-handle" data-handle="'+side+'" data-item-id="'+safe(selection.id)+'">'+
      '<circle cx="'+f(x)+'" cy="'+f(z)+'" r="'+f(touchRadius)+'" fill="transparent"/>'+
      '<circle cx="'+f(x)+'" cy="'+f(z)+'" r="'+f(visibleRadius)+'" fill="#51b090" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>';

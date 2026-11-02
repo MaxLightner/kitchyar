@@ -378,7 +378,7 @@ test('touch handles have large targets for selected cabinets and height editing'
  assert.match(app,/renderCabinetElevation/);
  assert.match(floor,/mark\('top'/);
  assert.match(floor,/mark\('bottom'/);
- assert.match(floor,/distance=60/);
+ assert.match(floor,/distance=28/);
 });
 
 test('new stove sizes, induction toggle and sink widths are separately editable',async()=>{
@@ -421,7 +421,7 @@ test('AR window manipulation projects touch deltas onto wall and displays elevat
  const app=source('app.js'),floor=source('floor-ar.js');
  assert.match(floor,/dragScreenHandlePoint\(clientX,clientY,drag\)/);
  assert.match(floor,/this\.cameraSideForWall\(w\)\*\(w\.thickness\/2\+\.06\)/);
- assert.match(app,/floor\?\.dragScreenHandlePoint/);
+ assert.match(app,/renderer\?\.dragScreenHandlePoint/);
  assert.match(app,/elevation\.hidden=!\(isPlan\|\|trackedView\(\)\)/);
  assert.match(app,/floor\?\.setEditPreview\(items,selection/);
 });
