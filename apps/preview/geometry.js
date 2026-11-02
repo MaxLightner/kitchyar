@@ -4,7 +4,7 @@
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
 import {solveRow,splitRegularGap} from './row-solver.js?v=kitchen64';
-import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=fix43';
+import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=library65';
 import {OPTIMIZATION_RULES,facadeWidthPenalty,chooseFacadeBayCount} from './optimization-rules.js?v=kitchen64';
 export const SNAP_RADIUS=.50;
 const cm=value=>Math.round(value*100)/100;
@@ -490,7 +490,7 @@ function checkedFrontRules(input,base=DEFAULT_FRONT_RULES){
   rules.maxDoorWidth>1.2||rules.maxDoorWidth<rules.minDoorWidth||rules.gap<.001||rules.gap>.012)
   throw Error('حداقل و حداکثر عرض درب یا فاصله بین نماها معتبر نیست.');
  if(!['left','right'].includes(rules.singleHinge)||!['outer','inner'].includes(rules.pairHinge)||
-  !['bar','knob','hidden'].includes(rules.handleStyle)||typeof rules.alignRows!=='boolean')
+  !['bar','knob','cup','hidden'].includes(rules.handleStyle)||typeof rules.alignRows!=='boolean')
   throw Error('جهت لولا، دستگیره یا هم‌ترازی معتبر نیست.');
  return rules;
 }
@@ -549,7 +549,8 @@ export function frontPose(front,c){
    width:Math.max(.1,frontage*(front.endT-front.startT)-(front.gap??.003)),height:Math.max(.08,c.height*(front.topT-front.bottomT)-(front.gap??.003)),thickness:.019};
  }
  const side=c.side||1,nx=-uz*side,nz=ux*side;
- const mid=(front.startT+front.endT)/2,face=c.depth/2+.014,gap=front.gap??.003;
+ const tier=c.upperTiers,depth=tier?(front.tier==='upper'?tier.upperDepth:tier.lowerDepth):c.depth;
+ const mid=(front.startT+front.endT)/2,face=depth-c.depth/2+.014+(front.opening==='sliding'?(front.part%2)*.026:0),gap=front.gap??.003;
  return {x:c.x1+ux*len*mid+nx*face,z:c.z1+uz*len*mid+nz*face,
   y:(c.elevation??.08)+c.height*(front.bottomT+front.topT)/2,
   angle:Math.atan2(uz,ux),side,width:Math.max(.10,(front.endT-front.startT)*len-gap),
@@ -662,12 +663,13 @@ export function planFronts(items,c,preset='doors'){
  const config=FRONT_PRESETS[preset];
  if(!config||c?.kind!=='cabinet')throw Error('برای نصب نما باید کابینت و طرح معتبر انتخاب شود.');
  if(['upper','over-fridge','tall'].includes(c.subtype)&&!['doors','smart','photo'].includes(preset))throw Error('کشو فقط روی کابینت زمینی نصب می‌شود؛ ستون تمام‌قد و هوایی درب دارند.');
- if(c.subtype==='bridge')return [];
+ if(c.subtype==='bridge'||c.subtype==='tall'&&c.tallFrontsEnabled===false)return [];
  const length=lengthOf(c),bays=c.subtype==='tall'?[{a:0,b:length,type:'free'}]:layoutBays(items,c,preset),result=[],rules=resolvedFrontRules(c),photo=preset==='photo'?photoZone(c):null;
  const make=(kind,bay,part,left,right,bottom,top,hinge='none')=>({
   id:uid(),kind:'front',subtype:kind,name:kind==='door'?'درب کابینت':'کشوی کابینت',
   hostId:c.id,preset,bay,part,startT:left,endT:right,bottomT:bottom,topT:top,
-  widthConflict:kind==='door'&&hinge!=='top'&&((right-left)*(c.frontOrientation==='side'?Math.min(.55,c.depth):length)<.45-1e-6||(right-left)*(c.frontOrientation==='side'?Math.min(.55,c.depth):length)>.55+1e-6),hinge,finish:'cream',style:c.doorStyle||c.photoPreset?.front?.style||'flat',handleStyle:photoZone(c)?.handleStyle||c.photoPreset?.front?.handleStyle||rules.handleStyle,handleFinish:c.photoPreset?.front?.handleFinish||'steel',grainDirection:c.photoPreset?.front?.grainDirection||'auto',gap:rules.gap
+  ...(c.subtype==='tall'?{opening:c.tallOpening||'hinged'}:{}),
+  widthConflict:kind==='door'&&hinge!=='top'&&((right-left)*(c.frontOrientation==='side'?Math.min(.55,c.depth):length)<.45-1e-6||(right-left)*(c.frontOrientation==='side'?Math.min(.55,c.depth):length)>.55+1e-6),hinge,finish:'cream',style:c.doorStyle||c.photoPreset?.front?.style||'flat',handleStyle:c.tallHandleStyle||photoZone(c)?.handleStyle||c.photoPreset?.front?.handleStyle||rules.handleStyle,handleFinish:c.photoPreset?.front?.handleFinish||'steel',grainDirection:c.photoPreset?.front?.grainDirection||'auto',gap:rules.gap
  });
  for(let i=0;i<bays.length;i++){
   const {a:metresA,b:metresB,type}=bays[i],a=metresA/length,b=metresB/length,span=metresB-metresA;
@@ -677,7 +679,13 @@ export function planFronts(items,c,preset='doors'){
    continue;
   }
   const sink=type==='sink',stove=type==='stove';
-  if(stove&&c.subtype==='upper'&&items.some(e=>e.kind==='equipment'&&e.subtype==='hood'&&e.linkedStoveId===bays[i].e.id&&['chimney','angled'].includes(e.model)))continue;
+  if(stove&&c.subtype==='upper'){
+   const hood=items.find(e=>e.kind==='equipment'&&e.subtype==='hood'&&e.linkedStoveId===bays[i].e.id);
+   if(hood&&(['chimney','angled'].includes(hood.model)||hood.coverStyle&&hood.coverStyle!=='concealed')){
+    if(hood.coverStyle==='wood'&&c.height>.75&&!c.upperTiers){const n=Math.max(1,Math.ceil(span/.55));for(let j=0;j<n;j++)result.push({...make('door',i,j,a+(b-a)*j/n,a+(b-a)*(j+1)/n,.62,1,j%2?'right':'left'),style:'cross'});}
+    continue;
+   }
+  }
   const oven=type==='oven'||stove&&items.some(e=>e.kind==='equipment'&&e.subtype==='oven'&&
    Math.hypot(e.x-bays[i].e.x,e.z-bays[i].e.z)<.55);
   if(oven||['dishwasher','washer'].includes(type))continue; // Keep appliance faces unobstructed.
@@ -741,6 +749,17 @@ export function planFronts(items,c,preset='doors'){
     result.push(make('drawer',i,j,a,b,low,high));low=high;
    }
   }
+ }
+ if(c.upperTiers){
+  const split=c.upperTiers.lowerHeight/c.height,lower=result.map(f=>f.unitKey?f:{...f,topT:f.topT*split,bottomT:f.bottomT*split,tier:'lower'});
+  const top=[],seen=new Set();
+  // Top tier covers the whole run, including above an exposed lower hood.
+  const count=Math.max(1,Math.ceil(length/.55)),width=length/count;
+  for(let j=0;j<count;j++){
+   const horizontal=width<.45;
+   top.push({...make('door',10000+j,0,j/count,(j+1)/count,split,1,horizontal?'top':j%2?'right':'left'),tier:'upper'});
+  }
+  return [...lower,...top];
  }
  return result;
 }
@@ -921,7 +940,7 @@ export function applyKitchenLayout(source,styleId,{cabinetIds=null,preset=null}=
   (!cabinetIds||cabinetIds.includes(c.id)));
  for(const c of cabinets){
   // A manually split facade is an explicit exception to the chosen kitchen sample.
-  if(c.frontPreset==='custom'||items.some(f=>f.kind==='front'&&f.hostId===c.id&&
+  if(c.subtype==='tall'&&c.tallFrontsEnabled===false||c.frontPreset==='custom'||items.some(f=>f.kind==='front'&&f.hostId===c.id&&
    f.manualOverrides&&Object.values(f.manualOverrides).some(Boolean)))continue;
   if(preset)c.photoPreset=structuredClone(preset);
   reflowFronts(items,c,preset?'photo':c.subtype==='base'?spec.base:spec.upper);
@@ -1157,8 +1176,8 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
  if(hinge==='top'&&c.subtype==='upper'&&c.height<.90-1e-6)throw Error('بازشوی افقی به ارتفاع حداقل ۹۰ سانتی‌متر کابینت هوایی نیاز دارد.');
  if(hinge!==undefined){if(f.subtype!=='door'||!['left','right','top'].includes(hinge))throw Error('جهت لولا نامعتبر است.');if(f.hinge!==hinge)manual.hinge=true;f.hinge=hinge;}
  if(finish!==undefined){if(!['cream','wood','graphite'].includes(finish))throw Error('رنگ درب نامعتبر است.');if(f.finish!==finish)manual.finish=true;f.finish=finish;}
- if(style!==undefined){if(!['flat','frame','glass','cnc','open'].includes(style))throw Error('سبک درب نامعتبر است.');if(f.style!==style)manual.style=true;f.style=style;}
- if(handleStyle!==undefined){if(!['bar','knob','hidden'].includes(handleStyle))throw Error('دستگیره نامعتبر است.');if(f.handleStyle!==handleStyle)manual.handleStyle=true;f.handleStyle=handleStyle;}
+ if(style!==undefined){if(!['flat','frame','raised','cross','glass','glass-grid','fluted','cnc','open'].includes(style))throw Error('سبک درب نامعتبر است.');if(f.style!==style)manual.style=true;f.style=style;}
+ if(handleStyle!==undefined){if(!['bar','knob','cup','hidden'].includes(handleStyle))throw Error('دستگیره نامعتبر است.');if(f.handleStyle!==handleStyle)manual.handleStyle=true;f.handleStyle=handleStyle;}
  if(materialId!==undefined){if((f.materialId||'')!==materialId)manual.materialId=true;f.materialId=materialId||undefined;}
  if(frameMaterialId!==undefined){if((f.frameMaterialId||'')!==frameMaterialId)manual.frameMaterialId=true;f.frameMaterialId=frameMaterialId||undefined;}
  if(grainDirection!==undefined){if(!['auto','vertical','horizontal'].includes(grainDirection))throw Error('جهت بافت معتبر نیست.');if((f.grainDirection||'auto')!==grainDirection)manual.grainDirection=true;f.grainDirection=grainDirection;}
@@ -1214,7 +1233,7 @@ function adoptLegacyUnits(items,c){
 export function configureFrontUnit(source,id,{doorStyle,opening,mechanism}={}){
  let items=copy(source),unit=frontUnitFor(items,id);if(!unit)throw Error('یک یونیت را انتخاب کن.');
  const host=byId(items,unit.hostId),old=byId(items,id),len=lengthOf(host);
- if(doorStyle!==undefined&&!['flat','frame','glass','cnc','open'].includes(doorStyle))throw Error('مدل در معتبر نیست.');
+ if(doorStyle!==undefined&&!['flat','frame','raised','cross','glass','glass-grid','fluted','cnc','open'].includes(doorStyle))throw Error('مدل در معتبر نیست.');
  if(opening!==undefined&&!['vertical','horizontal'].includes(opening))throw Error('جهت بازشو معتبر نیست.');
  if(mechanism!==undefined&&!['independent','bifold'].includes(mechanism))throw Error('مکانیزم معتبر نیست.');
  if((opening==='horizontal'||mechanism==='bifold')&&host.subtype==='upper'&&host.height<.90-1e-6)throw Error('هوایی افقی حداقل ۹۰ سانتی‌متر ارتفاع لازم دارد.');
@@ -1427,8 +1446,8 @@ function validateCabinets(items,w){
   if(!finite(c.startT,c.endT,c.depth,c.height,c.elevation)||c.startT*len<-.00001||c.endT*len>len+.00001||
     (c.endT-c.startT)*len<MIN_CABINET_LENGTH-.00001||c.depth<.2||c.depth>1.2||c.height<.25||c.elevation<0||c.elevation+c.height>w.height+.001)
    throw Error('ابعاد کابینت با دیوار میزبان ناسازگار است.');
-  if(c.subtype==='tall'&&(c.height<1.8||(c.endT-c.startT)*len>1.101))
-   throw Error('عرض ستون تمام‌قد حداکثر ۱۱۰ و ارتفاع آن حداقل ۱۸۰ سانتی‌متر است.');
+  if(c.subtype==='tall'&&(c.height<1.8||(c.endT-c.startT)*len>(c.tallFrontsEnabled===false||c.tallOpening==='sliding'?3.001:1.101)))
+   throw Error('ابعاد قدی معتبر نیست؛ ارتفاع حداقل ۱۸۰ و عرض باکس یا ریلی حداکثر ۳۰۰ سانتی‌متر است.');
   for(const e of items.filter(e=>e.kind==='equipment'&&e.hostId===c.id&&['oven','microwave'].includes(e.subtype)))
    if(c.subtype==='tall'&&c.elevation+(e.subtype==='microwave'?1.47:.72)+e.height>c.elevation+c.height-.015)
     throw Error('ارتفاع ستون تمام‌قد برای تجهیزات توکار کافی نیست.');
@@ -1577,6 +1596,9 @@ function embedFridge(items,obj,point){
   const add=(startT,endT)=>{
    if((endT-startT)*len<MIN_CABINET_LENGTH)return;
    const piece={...c,id:segments.length?uid():c.id,startT,endT};
+   const offset=(startT-c.startT)*len,span=(endT-startT)*len;
+   piece.unitEdits=(c.unitEdits||[]).filter(u=>u.start>=offset-.001&&u.end<=offset+span+.001).map(u=>({...u,start:u.start-offset,end:u.end-offset}));delete piece.rowSolution;
+   if(piece.frontPreset==='custom')piece.frontPreset='smart';
    segments.push(piece);
   };
   add(c.startT,Math.min(c.endT,cutL));
@@ -1687,7 +1709,7 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
  const obj={id:uid(),kind:'equipment',subtype,name:spec.name,width:spec.width,
   depth:spec.depth,height:spec.height,elevation:spec.elevation,x:point.x,z:point.z,rotation:0,
   model:subtype==='stove'?'gas5':EQUIPMENT_MODELS[subtype][0].id,...(subtype==='stove'?{induction:false}:{}),
-  ...(subtype==='sink'?{sinkSize:90,faucetModel:'arc'}:{}),
+  ...(subtype==='sink'?{sinkSize:90,faucetModel:'arc',drainerLeft:false,drainerRight:true,sinkFinish:'silver'}:{}),
   ...(subtype==='fridge'?{fridgeFeet:24}:{})};
  if(model&&subtype!=='fridge'){
   if(!EQUIPMENT_MODELS[subtype].some(m=>m.id===model))throw Error('مدل تجهیزات نامعتبر است.');
@@ -1765,6 +1787,14 @@ export function placeEquipment(source,point,subtype,{freestanding=false,model=nu
   return {items:result.items,selectedId:obj.id};
  }catch{ /* A freestanding fridge remains valid when an overhead unit cannot fit. */ }
  return {items,selectedId:obj.id};
+}
+export function configureEquipmentAppearance(source,id,choices){
+ const items=copy(source),e=byId(items,id);if(e?.kind!=='equipment')throw Error('تجهیز را انتخاب کن.');
+ if(e.subtype==='sink'){
+  for(const k of ['drainerLeft','drainerRight'])if(k in choices)e[k]=Boolean(choices[k]);
+  if(choices.sinkFinish!==undefined){if(!['silver','ceramic','black'].includes(choices.sinkFinish))throw Error('رنگ سینک نامعتبر است.');e.sinkFinish=choices.sinkFinish;}
+ }else if(e.subtype==='fridge'&&choices.realistic!==undefined)e.realistic=Boolean(choices.realistic);
+ return {items,selectedId:id};
 }
 export function editEquipment(source,id,{width,depth,height,model,induction,sinkSize,fridgeFeet,facadeMode,faucetModel}={}){
  const items=copy(source),e=byId(items,id);
@@ -1940,16 +1970,33 @@ export function placeCabinet(source,start,end,{kind='base',depth,height,elevatio
  const obj={id:uid(),kind:'cabinet',subtype:kind,name:upper?'کابینت هوایی':tall?'ستون تمام‌قد':'کابینت زمینی',
   hostId:w.id,startT:from,endT:to,side:chosen,depth:d,height:h,elevation:e,cornerGroup:cornerGroup||null,
   frontRules:checkedFrontRules(frontRules||{})};
+ // Clip both ends against real adjoining wall footprints before checking
+ // cabinet contacts. Drawing exactly to a wall joint must remain valid.
+ for(const obstacle of items.filter(o=>wall(o)&&o.id!==w.id)){
+  const polygon=wallFootprint(obstacle,items),overlaps=(l,r)=>polygonOverlap(cabinetFootprint({...obj,startT:l,endT:r},w).corners,polygon,0);
+  if(!overlaps(obj.startT,obj.endT))continue;
+  const step=.005/len,begin=obj.startT,end=obj.endT;
+  let left=begin,right=end;
+  while(left<end&&overlaps(left,Math.min(end,left+step)))left+=step;
+  while(right>left&&overlaps(Math.max(left,right-step),right))right-=step;
+  obj.startT=left;obj.endT=right;
+  if((right-left)*len<MIN_CABINET_LENGTH||overlaps(left,right))throw Error('برای کابینت کنار دیوار فضای کافی نیست.');
+ }
+ a.t=b.t>=a.t?obj.startT:obj.endT;
  let contact=null;
  for(const other of items.filter(c=>c.kind==='cabinet'&&c.hostId!==w.id&&Math.min(c.elevation+c.height,obj.elevation+obj.height)-Math.max(c.elevation,obj.elevation)>.02)){
   const owner=byId(items,other.hostId);if(!wall(owner))continue;
-  const overlaps=t=>{const trial={...obj,startT:Math.min(a.t,t),endT:Math.max(a.t,t)};return polygonOverlap(cabinetFootprint(trial,w).corners,cabinetFootprint(other,owner).corners);};
-  const target=b.t>=a.t?obj.endT:obj.startT;
-  if(!overlaps(target))continue;
-  let lo=0,hi=1;
-  for(let n=0;n<28;n++){const f=(lo+hi)/2;if(overlaps(a.t+(target-a.t)*f))hi=f;else lo=f;}
-  const end=a.t+(target-a.t)*lo;
-  obj.startT=Math.min(a.t,end);obj.endT=Math.max(a.t,end);contact=other;
+  const polygon=cabinetFootprint(other,owner).corners;
+  const overlaps=(l,r)=>polygonOverlap(cabinetFootprint({...obj,startT:l,endT:r},w).corners,polygon,0);
+  if(!overlaps(obj.startT,obj.endT))continue;
+  const start=obj.startT,end=obj.endT,step=.005/len,free=[];let run=null;
+  for(let at=start;at<end;at+=step){const next=Math.min(end,at+step),blocked=overlaps(at,next);if(!blocked&&run===null)run=at;if(blocked&&run!==null){free.push([run,at]);run=null;}}
+  if(run!==null)free.push([run,end]);
+  const candidates=free.filter(([l,r])=>(r-l)*len>=MIN_CABINET_LENGTH);
+  candidates.sort((x,y)=>(y[1]-y[0])-(x[1]-x[0]));
+  if(!candidates.length)throw Error('تا یونیت کنج حداقل ۴۵ سانتی‌متر فضای نصب لازم است.');
+  [obj.startT,obj.endT]=candidates[0];contact=other;
+
  }
  if(!contact){
   const points=cabinetFootprint(obj,w).corners;
@@ -1978,7 +2025,7 @@ export function placeCabinet(source,start,end,{kind='base',depth,height,elevatio
    appliances, but remain semantic cabinets for fabrication and front editing. */
 export function placeTallCabinet(source,point,{width=.50,depth=.60,rows=2,leaves=null,ceilingAligned=false,height=null,elevation=0}={}){
  leaves=leaves??(width<=.55?1:2);
- if(!finite(point?.x,point?.z,width,depth,elevation)||width<MIN_CABINET_LENGTH||width>1.10||
+ if(!finite(point?.x,point?.z,width,depth,elevation)||width<MIN_CABINET_LENGTH||width>3||
   depth<.20||depth>1.2||!Number.isInteger(rows)||rows<1||rows>2||
   !Number.isInteger(leaves)||leaves<1||leaves>2)
   throw Error('ابعاد یا تعداد درب کابینت تمام‌قد معتبر نیست.');
@@ -2006,10 +2053,11 @@ export function placeTallCabinet(source,point,{width=.50,depth=.60,rows=2,leaves
  if(Math.abs(lengthOf(unit)-width)>.015)throw Error('پنجره یا در اجازه نصب یونیت با این عرض را نمی‌دهد.');
  if(install)unit.surround=install.surround;
  unit.ceilingAligned=false;unit.upperAligned=true;unit.tallDoorRows=rows;unit.tallDoorLeaves=leaves;
- reflowFronts(result.items,unit,'doors');validateFronts(result.items,unit);
+ unit.tallFrontsEnabled=false;unit.frontPreset=null;
+ for(let i=result.items.length-1;i>=0;i--)if(result.items[i].kind==='front'&&result.items[i].hostId===unit.id)result.items.splice(i,1);
  return {items:result.items,selectedId:unit.id};
 }
-export function configureTallCabinet(source,id,{depth,rows,leaves,frontOrientation,doorStyle}={}){
+export function configureTallCabinet(source,id,{depth,rows,leaves,frontOrientation,doorStyle,enabled,opening,handleStyle}={}){
  const items=copy(source),unit=byId(items,id),w=byId(items,unit?.hostId);
  if(unit?.kind!=='cabinet'||unit.subtype!=='tall'||!wall(w))
   throw Error('یونیت تمام‌قد معتبر انتخاب نشده است.');
@@ -2023,10 +2071,14 @@ export function configureTallCabinet(source,id,{depth,rows,leaves,frontOrientati
  }
  if(frontOrientation!==undefined){if(!['front','side'].includes(frontOrientation))throw Error('جهت نما معتبر نیست.');if(frontOrientation==='side'&&(depth??unit.depth)<.45&&doorStyle!=='open'&&unit.doorStyle!=='open')throw Error('برای در عمودی ۴۵ تا ۵۵، عمق نمای کناری حداقل ۴۵ لازم است؛ یا حالت بدون در را انتخاب کن.');unit.frontOrientation=frontOrientation;if(frontOrientation==='side')unit.tallDoorLeaves=1;}
  if(depth!==undefined)unit.depth=Number(depth);
+ if(enabled!==undefined){unit.tallFrontsEnabled=Boolean(enabled);if(!enabled){for(let i=items.length-1;i>=0;i--)if(items[i].kind==='front'&&items[i].hostId===id)items.splice(i,1);unit.frontPreset=null;return {items,selectedId:id};}}
+ if(opening!==undefined){if(!['hinged','sliding'].includes(opening))throw Error('نوع بازشو معتبر نیست.');unit.tallOpening=opening;}
+ if(handleStyle!==undefined){if(!['bar','knob','cup','hidden'].includes(handleStyle))throw Error('دستگیره معتبر نیست.');unit.tallHandleStyle=handleStyle;}
  const frontage=unit.frontOrientation==='side'?Math.min(.55,unit.depth):lengthOf(unit),leafWidth=frontage/(unit.tallDoorLeaves||1);
- if((doorStyle??unit.doorStyle)!=='open'&&(leafWidth<.45-1e-6||leafWidth>.55+1e-6))throw Error('عرض هر در عمودی قدی باید ۴۵ تا ۵۵ باشد؛ عرض باکس یا تعداد درها را هماهنگ کن.');
- if(rows!==undefined||leaves!==undefined||frontOrientation!==undefined)reflowFronts(items,unit,'doors');
- if(doorStyle!==undefined){if(!['flat','glass','open'].includes(doorStyle))throw Error('جنس در معتبر نیست.');for(const f of items.filter(f=>f.kind==='front'&&f.hostId===id))f.style=doorStyle;unit.doorStyle=doorStyle;}
+ if(unit.tallFrontsEnabled!==false&&unit.tallOpening!=='sliding'&&(doorStyle??unit.doorStyle)!=='open'&&(leafWidth<.45-1e-6||leafWidth>.55+1e-6))throw Error('عرض هر در عمودی قدی باید ۴۵ تا ۵۵ باشد؛ عرض باکس یا تعداد درها را هماهنگ کن.');
+ if(unit.tallFrontsEnabled!==false&&(enabled||rows!==undefined||leaves!==undefined||frontOrientation!==undefined||opening!==undefined||handleStyle!==undefined))reflowFronts(items,unit,'doors');
+ if(doorStyle!==undefined){if(!['flat','frame','raised','cross','glass','glass-grid','open'].includes(doorStyle))throw Error('جنس در معتبر نیست.');for(const f of items.filter(f=>f.kind==='front'&&f.hostId===id))f.style=doorStyle;unit.doorStyle=doorStyle;}
+ for(const f of items.filter(f=>f.kind==='front'&&f.hostId===id)){f.opening=unit.tallOpening||'hinged';if(unit.tallHandleStyle)f.handleStyle=unit.tallHandleStyle;}
  validateCabinets(items,w);
  return {items,selectedId:id};
 }
@@ -2044,7 +2096,7 @@ export function moveTallCabinet(source,id,point){
  });
  const created=byId(result.items,result.selectedId),newId=created.id;
  Object.assign(created,{id,frontPreset:unit.frontPreset||'doors',frontRules:unit.frontRules,
-  photoPreset:unit.photoPreset,decor:unit.decor,frontOrientation:unit.frontOrientation,doorStyle:unit.doorStyle,upperAligned:unit.upperAligned});
+  tallFrontsEnabled:unit.tallFrontsEnabled,tallOpening:unit.tallOpening,tallHandleStyle:unit.tallHandleStyle,photoPreset:unit.photoPreset,decor:unit.decor,frontOrientation:unit.frontOrientation,doorStyle:unit.doorStyle,upperAligned:unit.upperAligned});
  if(fronts.length){
   for(let index=result.items.length-1;index>=0;index--)
    if(result.items[index].kind==='front'&&result.items[index].hostId===newId)
@@ -2128,6 +2180,12 @@ export function setAllWallHeights(source,height){
  if(!Number.isFinite(target)||target<2||target>9)throw Error('ارتفاع سقف باید بین ۲ تا ۹ متر باشد.');
  const items=copy(source);
  for(const w of items.filter(wall))w.height=target;
+ for(const ceiling of items.filter(o=>o.kind==='scene-object'&&o.type==='ceiling'))ceiling.height=target;
+ for(const c of items.filter(c=>c.kind==='cabinet'&&c.upperTiers)){
+  if(target-c.elevation-c.upperTiers.lowerHeight<.2)throw Error('ارتفاع سقف برای هوایی دوطبقه کافی نیست.');
+  c.height=target-c.elevation;c.upperTiers.ceilingHeight=target;reflowFronts(items,c);
+ }
+
  for(const c of items.filter(o=>o.kind==='cabinet'&&o.subtype==='tall'&&o.ceilingAligned)){
   c.height=target-c.elevation-.02;
   if(FRONT_PRESETS[c.frontPreset])reflowFronts(items,c);
@@ -2248,7 +2306,7 @@ export function removeObject(source,id){
  if(!target)throw Error('آبجکت پیدا نشد.');
  if(target.subtype==='hood')throw Error('هود همیشه همراه گاز است؛ مدل آن را تغییر بده.');
  const deleted=new Set([id]);let changed=true;
- while(changed){changed=false;for(const o of source)if((o.hostId&&deleted.has(o.hostId)||o.linkedStoveId&&deleted.has(o.linkedStoveId)||o.overFridgeId&&deleted.has(o.overFridgeId)||o.kind==='corner'&&(deleted.has(o.aCabinetId)||deleted.has(o.bCabinetId)))&&!deleted.has(o.id)){deleted.add(o.id);changed=true;}}
+ while(changed){changed=false;for(const o of source)if((o.groupId&&deleted.has(o.groupId)||o.hostId&&deleted.has(o.hostId)||o.linkedStoveId&&deleted.has(o.linkedStoveId)||o.overFridgeId&&deleted.has(o.overFridgeId)||o.kind==='corner'&&(deleted.has(o.aCabinetId)||deleted.has(o.bCabinetId)))&&!deleted.has(o.id)){deleted.add(o.id);changed=true;}}
  const items=copy(source).filter(o=>!deleted.has(o.id));
  if(target.kind==='front'){
   const owner=byId(items,target.hostId);
@@ -2368,7 +2426,7 @@ export function editCabinet(source,id,{length,depth,height,elevation}){
  const items=copy(source),c=byId(items,id),w=byId(items,c?.hostId);
  if(!c||c.kind!=='cabinet'||!wall(w))throw Error('برای ویرایش کابینت باید دیوار میزبان وجود داشته باشد.');
  const len=lengthOf(w),target=Number(length??(c.endT-c.startT)*len);
- if(c.subtype==='tall'&&length!==undefined&&c.frontOrientation!=='side'&&c.doorStyle!=='open'){
+ if(c.subtype==='tall'&&c.tallFrontsEnabled!==false&&c.tallOpening!=='sliding'&&length!==undefined&&c.frontOrientation!=='side'&&c.doorStyle!=='open'){
   const leaves=Math.max(1,Math.ceil(target/.55-1e-6));
   if(leaves>2||target/leaves<.45-1e-6)throw Error('عرض قدی برای یک یا دو درِ ۴۵ تا ۵۵ مناسب نیست.');
   c.tallDoorLeaves=leaves;
@@ -2420,7 +2478,7 @@ export function countertopCutouts(items,c){
 export function cabinetVoidRanges(items,c){
  if(c?.subtype!=='upper')return [];
  const len=lengthOf(c),dx=(c.x2-c.x1)/len,dz=(c.z2-c.z1)/len;
- return items.filter(h=>h.kind==='equipment'&&h.subtype==='hood'&&['chimney','angled'].includes(h.model)).flatMap(h=>{
+ return items.filter(h=>h.kind==='equipment'&&h.subtype==='hood'&&(['chimney','angled'].includes(h.model)||h.coverStyle&&h.coverStyle!=='concealed')).flatMap(h=>{
   const e=byId(items,h.linkedStoveId),base=byId(items,e?.hostId);
   if(!e||(base?.hostId??e.surround?.wallId)!==c.hostId||(base?.side??e.surround?.side)!==c.side)return [];
   const centre=(e.x-c.x1)*dx+(e.z-c.z1)*dz;

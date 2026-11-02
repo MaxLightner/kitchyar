@@ -7,6 +7,14 @@ const near=(a,b,epsilon=.012)=>Math.abs(a-b)<epsilon;
 const panel=(part,x,y,z,width,height,depth)=>({part,x,y,z,width,height,depth});
 
 export function cabinetCarcassPanels(c,fronts=[],equipment=[],voids=[]){
+ if(c.upperTiers){
+  const {lowerHeight,lowerDepth,upperDepth}=c.upperTiers,split=lowerHeight/c.height;
+  return [[0,lowerHeight,lowerDepth,'lower'],[lowerHeight,c.height-lowerHeight,upperDepth,'upper']].flatMap(([offset,height,depth,tier])=>{
+   const child={...c,upperTiers:null,height,depth,elevation:c.elevation+offset};
+   const faces=fronts.filter(f=>f.tier===tier).map(f=>({...f,bottomT:(f.bottomT*c.height-offset)/height,topT:(f.topT*c.height-offset)/height}));
+   return cabinetCarcassPanels(child,faces,equipment,tier==='upper'?[]:voids).map(p=>({...p,z:p.z+(c.side||1)*(depth-c.depth)/2}));
+  });
+ }
  const len=Math.hypot(c.x2-c.x1,c.z2-c.z1),height=Number(c.height),depth=Number(c.depth);
  if(len<.20||height<.10||depth<.10)return [];
  const t=Math.min(CARCASS_THICKNESS,len/12,height/10,depth/10),backT=Math.min(CARCASS_BACK_THICKNESS,depth/20);

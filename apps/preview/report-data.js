@@ -1,7 +1,7 @@
 /* Read-only manufacturing overview from the semantic kitchen project.
    This is deliberately a schematic schedule, never a CNC nesting/cut program. */
-import {lengthOf,countertopCutouts,frontPose} from './geometry.js?v=kitchen64';
-import {MATERIALS,DEFAULT_MATERIALS,resolveFinish} from './materials.js?v=report33';
+import {lengthOf,countertopCutouts,frontPose} from './geometry.js?v=library65';
+import {MATERIALS,DEFAULT_MATERIALS,resolveFinish} from './materials.js?v=library65';
 import {nestFronts} from './sheet-nesting.js?v=nest35';
 
 const mm=metres=>Math.round(metres*1000);
@@ -25,13 +25,13 @@ export function buildCutReport(project,sheetOptions={}){
    const pose=frontPose(f,c);if(!pose)continue;
    const drawer=f.subtype==='drawer',n=drawer?++drawers:++doors;
    const codeFront=(drawer?'R':'D')+String(n).padStart(3,'0');
-   const widthMm=mm(pose.width),heightMm=mm(pose.height),materialId=f.style==='glass'?'glass-clear':f.materialId||
+   const widthMm=mm(pose.width),heightMm=mm(pose.height),materialId=['glass','glass-grid'].includes(f.style)?'glass-clear':f.materialId||
     resolveFinish(settings,c.subtype,'front');
    const row={code:codeFront,cabinet:code,hostId:c.id,id:f.id,
     type:drawer?'کشو':'درب',widthMm,heightMm,quantity:1,
     gapMm:mm(f.gap??.003),material:materialId==='glass-clear'?'شیشه':findLabel('front',materialId),materialId,
     wood:!!MATERIALS.front.find(m=>m.id===materialId)?.wood,
-    style:({frame:'قاب‌دار',glass:'شیشه‌ای',cnc:'CNC',flat:'صاف'}[f.style]||'صاف'),hinge:drawer?'—':
+    style:({raised:'کلاسیک برجسته',cross:'ضربدری','glass-grid':'شیشه تقسیم‌شده',fluted:'شیاردار',frame:'قاب‌دار',glass:'شیشه‌ای',cnc:'CNC',flat:'صاف'}[f.style]||'صاف'),hinge:drawer?'—':
      ({left:'چپ',right:'راست',top:'بالا'}[f.hinge]||'نامشخص'),
     grain:f.grainDirection==='horizontal'||(f.grainDirection!=='vertical'&&drawer)?'افقی':'عمودی',
     xStartMm:mm(f.startT*len),yBottomMm:mm(f.bottomT*c.height),
@@ -41,6 +41,7 @@ export function buildCutReport(project,sheetOptions={}){
   cabinetViews.push(view);
  }
 
+ if(items.some(o=>o.kind==='design-part'))warnings.push('قطعات دستی و تزئینات کتابخانه باید جداگانه برای ساخت اندازه‌برداری شوند؛ در برآورد ورق نما لحاظ نشده‌اند.');
  const base=cabinets.filter(c=>c.subtype==='base');
  const grouped=new Map();
  for(const c of base){

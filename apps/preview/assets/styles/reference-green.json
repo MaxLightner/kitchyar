@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "id": "reference-green",
+  "zones": {
+    "base": {
+      "pattern": [
+        "doors"
+      ],
+      "sinkLayout": "sinkDoors",
+      "stoveLayout": "graduated",
+      "unitWidth": 0.5,
+      "handleStyle": "knob"
+    },
+    "upper": {
+      "pattern": [
+        "doors"
+      ],
+      "sinkLayout": "lift",
+      "unitWidth": 0.5,
+      "handleStyle": "knob"
+    },
+    "tall": {
+      "pattern": [
+        "doors"
+      ],
+      "unitWidth": 0.5,
+      "handleStyle": "knob"
+    }
+  },
+  "front": {
+    "style": "frame",
+    "handleStyle": "knob",
+    "handleFinish": "brass",
+    "grainDirection": "auto"
+  },
+  "materials": {
+    "baseFront": "deep-green",
+    "upperFront": "deep-green",
+    "baseBody": "deep-green",
+    "upperBody": "deep-green",
+    "body": "deep-green",
+    "front": "deep-green",
+    "counter": "oak-counter",
+    "backsplash": "light-stone"
+  },
+  "reference": {
+    "panel": "frame",
+    "hood": "fluted",
+    "tiers": null,
+    "lowerMaterial": null,
+    "upperMaterial": null,
+    "glass": false,
+    "cross": false,
+    "drawerHandle": "knob",
+    "decor": {
+      "crown": "modern",
+      "pilaster": "none"
+    }
+  }
+}

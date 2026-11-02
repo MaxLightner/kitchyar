@@ -1,5 +1,7 @@
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=kitchen64';
-import {renderPlanMeasurements} from './edit-handles.js?v=kitchen64';
+import {footprint} from './scene-objects.js?v=library65';
+import {partPose} from './design-library.js?v=library65';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=library65';
+import {renderPlanMeasurements} from './edit-handles.js?v=library65';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true,hideFronts=false}={}){
@@ -60,6 +62,14 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    }
   }else out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
    '" stroke="#ab9382" stroke-width="'+f(c.depth)+'" opacity=".65"/>';
+ }
+ for(const o of items.filter(o=>o.kind==='scene-object')){
+  out+='<polygon data-item-id="'+safe(o.id)+'" points="'+footprint(o).map(p=>f(p.x)+','+f(p.z)).join(' ')+'" fill="'+(o.id===selectedId?'#70bd9e':o.type==='ceiling'?'#c4d6de':'#b8a888')+'" fill-opacity="'+(o.type==='ceiling'?'.12':'.95')+'" '+(o.type==='ceiling'?'pointer-events="stroke"':'')+' stroke="#577466" stroke-width=".025"/>';
+  if(o.type==='island-l')out+='<rect data-item-id="'+safe(o.id)+'" transform="translate('+f(o.x)+' '+f(o.z)+') rotate('+f(o.rotation*180/Math.PI)+')" x="'+f(-o.width/2)+'" y="'+f(o.depth/2)+'" width="'+f(o.armDepth)+'" height="'+f(o.armLength)+'" fill="#b8a888" stroke="#577466" stroke-width=".025"/>';
+ }
+ for(const part of items.filter(p=>p.kind==='design-part')){
+  const p=partPose(items,part);if(!p)continue;
+  out+='<g data-item-id="'+safe(part.id)+'" transform="translate('+f(p.x)+' '+f(p.z)+') rotate('+f(p.angle*180/Math.PI)+')"><rect x="'+f(-p.width/2)+'" y="'+f(-p.depth/2)+'" width="'+f(p.width)+'" height="'+f(p.depth)+'" fill="'+(part.id===selectedId?'#70bd9e':'#bb9b6b')+'" stroke="#6d5d48" stroke-width=".02"/></g>';
  }
  for(const join of items.filter(x=>x.kind==='corner')){
   const polygon=cornerFillFootprint(items,join);if(!polygon)continue;
