@@ -416,7 +416,7 @@ export const CABINET_DECOR_OPTIONS=Object.freeze({
 });
 export function resolvedCabinetDecor(c){return {...DEFAULT_CABINET_DECOR,...c?.decor};}
 export const DEFAULT_COUNTERTOP_DESIGN=Object.freeze({
- edge:'square',waterfall:'none',overhang:0,raisedHeight:0,cornerRadius:0,curve:0
+ edge:'round',waterfall:'none',overhang:0,raisedHeight:0,cornerRadius:0,curve:0
 });
 export const COUNTERTOP_EDGES=Object.freeze(['square','round','bevel','thick']);
 export const COUNTERTOP_WATERFALLS=Object.freeze(['none','start','end','both']);

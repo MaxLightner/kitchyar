@@ -36,8 +36,27 @@ export function fitApplianceModel(THREE,template,o,key){
   if(!part.isMesh)return;
   // Each visual has its own disposable mesh/material; texture bitmaps stay cached.
   part.geometry=part.geometry.clone();
+  if(key==='gas5'&&part.geometry.index){
+   // The source Gas mesh carries a small disconnected raised plate (~70 cm).
+   // Keep the actual 5-burner cooktop instead of flattening that plate into it.
+   const pos=part.geometry.getAttribute('position'),indices=part.geometry.index,kept=[];
+   for(let i=0;i<indices.count;i+=3){
+    const a=indices.getX(i),b=indices.getX(i+1),c=indices.getX(i+2);
+    if(Math.max(pos.getY(a),pos.getY(b),pos.getY(c))<.08)kept.push(a,b,c);
+   }
+   if(kept.length>1000){part.geometry.setIndex(kept);part.geometry.computeBoundingBox();}
+  }
   part.material=Array.isArray(part.material)?part.material.map(m=>m.clone()):part.material.clone();
   part.castShadow=true;part.receiveShadow=true;part.userData.objectId=o.id;
+  for(const mat of Array.isArray(part.material)?part.material:[part.material]){
+   if(!mat.isMeshStandardMaterial&&!mat.isMeshPhysicalMaterial)continue;
+   mat.envMapIntensity=1.25;
+   if(key==='fridge'){
+    mat.metalness=Math.max(.85,mat.metalness??0);
+    mat.roughness=.36;mat.ior=9;
+   }else if(key==='gas5')mat.roughness=Math.max(.23,mat.roughness??0);
+   else mat.roughness=Math.max(.19,mat.roughness??0);
+  }
   if(key==='sink'){
    for(const mat of Array.isArray(part.material)?part.material:[part.material]){
     if(o.sinkFinish==='black'){mat.color.setHex(0x171c1d);mat.metalness=.45;mat.roughness=.18;}
@@ -47,9 +66,9 @@ export function fitApplianceModel(THREE,template,o,key){
  });
  group.updateMatrixWorld(true);
  const bounds=new THREE.Box3().setFromObject(group);
- if(key==='faucet'){
-  // Its source geometry retains unused sink vertices; only indexed triangles
-  // belong to the faucet, so measure the visible indexed geometry.
+ if(key==='faucet'||key==='gas5'){
+  // Source geometry may retain unused sink vertices or disconnected stove parts.
+  // Fit using indexed, actually rendered triangles.
   bounds.makeEmpty();
   const vertex=new THREE.Vector3();
   group.traverse(part=>{
@@ -71,12 +90,22 @@ export function fitApplianceModel(THREE,template,o,key){
   const sx=o.width/Math.max(.001,size.x),sz=o.depth/Math.max(.001,size.z);
   group.scale.set(sx,Math.min(sx,sz),sz);
   group.position.set(-center.x*sx,0,-center.z*sz);
- }else{
+ }else if(key==='gas5'){
   const sx=Math.max(.1,o.width-.012)/Math.max(.001,size.x);
-  const sy=o.height/Math.max(.001,size.y);
   const sz=Math.max(.1,o.depth-.012)/Math.max(.001,size.z);
+  const sy=Math.min(sx,sz);
   group.scale.set(sx,sy,sz);
   group.position.set(-center.x*sx,-bounds.min.y*sy,-center.z*sz);
+ }else{
+  // Preserve the authored proportions: no independent X/Y/Z stretching.
+  const scale=Math.min(
+   Math.max(.1,o.width-.012)/Math.max(.001,size.x),
+   Math.max(.1,o.height-.008)/Math.max(.001,size.y),
+   Math.max(.1,o.depth-.012)/Math.max(.001,size.z)
+  );
+  group.scale.setScalar(scale);
+  const bottom=key==='fridge'?0:(o.height-size.y*scale)/2;
+  group.position.set(-center.x*scale,bottom-bounds.min.y*scale,o.depth/2-bounds.max.z*scale);
  }
  return group;
 }

@@ -16,7 +16,8 @@ import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=edi
 import {roomOutline} from './room-surfaces.js?v=room40';
 import {loadEnvironmentHDR} from './environment-hdr.js';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
-import {getApplianceTemplate,fitApplianceModel} from './appliance-models.js?v=appliances71';
+import {getApplianceTemplate,fitApplianceModel} from './appliance-models.js?v=render72';
+import {countertopSurfaceY,COUNTERTOP_MIN_FILLET,COUNTERTOP_TOP_OFFSET} from './countertop-surface.js?v=render72';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 // Raycaster may return intersections belonging to invisible ancestor groups.
@@ -29,7 +30,7 @@ export class FloorAR {
   this.candidates=[];this.pending=false;this.points={a:null,b:null};this.lastReport=0;this.lastTime=0;
    this.basePosition=null;this.baseYaw=0;this.alignment={x:0,z:0,yaw:0,scale:1};
    this.items=[];this.selectedId=null;this.drawing=null;this.targetLocal=null;this.lastPose=null;this.gridYaw=0;this.calibrationOffset=null;this.savedCalibration=null;this.calibrationVisible=true;
-   this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:.10,taskLighting:true,taskIntensity:1.8};
+   this.renderSettings={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1,aoStrength:.65,reflection:1,taskLighting:true,taskIntensity:1.8};
    this.materialSettings={...DEFAULT_MATERIALS};this.tileLayout={...DEFAULT_TILE_LAYOUT};this.textureCache=new Map();
    this.wideRenderer=null;this.wideCamera=null;this.wideActive=false;this.wideLevel='wide';
    this.facadesHidden=false;this.frontRoots=[];this.frontControls=new Map();this.frontMotions=new Map();
@@ -1045,14 +1046,18 @@ export class FloorAR {
   return this.textureCache.get(path);
  }
  surfaceMaterial(category,id,width,height,grainDirection='auto'){
-  if(category==='body')return new THREE.MeshPhysicalMaterial({color:0xffffff,roughness:.58,envMap:this.environmentTexture,envMapIntensity:.10});
+  const envStrength=1+Math.max(0,this.renderSettings.reflection||0)*.25;
+  if(category==='body')return new THREE.MeshPhysicalMaterial({color:0xffffff,ior:1.7,metalness:0,
+   roughness:.62,envMap:this.environmentTexture||this.reflectionRT?.texture,envMapIntensity:envStrength});
   const info=materialFor(category,id);
   const isCounter=category==='counter',isTile=category==='backsplash';
+  const tex=this.surfaceTexture(category,id,width,height,grainDirection);
   const surface=new THREE.MeshPhysicalMaterial({
-   color:info?.color??0xffffff,map:this.surfaceTexture(category,id,width,height,grainDirection),
-   roughness:isCounter?.27:isTile?.42:info?.wood?.52:.46,metalness:isCounter?.04:0,
-   clearcoat:isCounter?.19:.06,clearcoatRoughness:.27,
-   envMap:this.environmentTexture||this.reflectionRT?.texture,envMapIntensity:isCounter?.10:this.renderSettings.reflection
+   color:info?.color??0xffffff,map:tex,ior:1.7,
+   roughness:isCounter ? .30 : isTile ? .18 : info?.wood ? .55 : (info?.id?.includes('matte') ? .68 : .43),
+   metalness:0,clearcoat:isTile?.66:isCounter?.38:.13,clearcoatRoughness:isTile?.12:.24,
+   bumpMap:isTile?tex:null,bumpScale:isTile?.018:0,
+   envMap:this.environmentTexture||this.reflectionRT?.texture,envMapIntensity:envStrength
   });
   if(info?.file)surface.userData={textureScale:info.wood?.65:isTile?.50:1.15,
    horizontal:!!info.wood&&grainDirection==='horizontal'};
@@ -1258,7 +1263,7 @@ export class FloorAR {
    if(!this.renderer&&!this.previewRenderer){texture.dispose();return;}
    const previous=this.environmentTexture;
    this.environmentTexture=texture;this.environmentName='hdr';
-   for(const scene of [this.scene,this.previewScene])if(scene){scene.environment=texture;scene.environmentIntensity=.7;}
+   for(const scene of [this.scene,this.previewScene])if(scene){scene.environment=texture;scene.environmentIntensity=1.15;}
    if(previous&&previous!==texture)previous.dispose();
    if(this.objectGroup)this.rebuildObjects();else this.renderPreview();
   }).catch(error=>console.warn('Kitchyar HDR IBL unavailable; using fallback environment',error))
@@ -1470,13 +1475,13 @@ export class FloorAR {
     if(m.map?.userData?.ephemeral)m.map.dispose();m.dispose();
    }});
   }
-  const material=(color,extra={})=>new THREE.MeshStandardMaterial({color,roughness:.55,envMap:this.environmentTexture,envMapIntensity:.12,...extra});
+  const material=(color,extra={})=>new THREE.MeshStandardMaterial({color,roughness:.55,envMap:this.environmentTexture,envMapIntensity:1.2,...extra});
   const plaster=material(0xd7dbd1),selected=material(0x65ac8e),frame=material(0xf0eee6);
   const glass=new THREE.MeshPhysicalMaterial({color:0x9dcede,transparent:true,opacity:.48,roughness:.18,depthWrite:false,side:THREE.DoubleSide});
   const wood=material(0x8a6d50);
   const cabinet=(color)=>new THREE.MeshPhysicalMaterial({
-   color,roughness:.36,metalness:.08,clearcoat:.10,clearcoatRoughness:.22,
-   envMap:this.environmentTexture||this.reflectionRT?.texture,envMapIntensity:this.renderSettings.reflection
+   color,ior:1.7,roughness:.43,metalness:0,clearcoat:.16,clearcoatRoughness:.26,
+   envMap:this.environmentTexture||this.reflectionRT?.texture,envMapIntensity:1+Math.max(0,this.renderSettings.reflection||0)*.25
   });
   const cabinetSelected=cabinet(0x65ac8e);
   const box=(owner,from,to,y0,y1,width,angle,cx,cz,mat)=>{
@@ -1609,9 +1614,14 @@ export class FloorAR {
 
    if(data.subtype==='base'){
     const counter=this.surfaceMaterial('counter',this.materialSettings.counter,span,.6);
-    const cap=new THREE.Mesh(new THREE.ShapeGeometry(shape),counter);cap.geometry.rotateX(Math.PI/2);
-    cap.position.y=data.elevation+data.height+.018;cap.material.side=THREE.DoubleSide;
-    cap.receiveShadow=true;cap.userData.objectId=join.id;this.objectGroup.add(cap);
+    // Same 35 mm slab and top datum as the two adjoining cabinet runs.
+    const capGeometry=new THREE.ExtrudeGeometry(shape,{depth:COUNTERTOP_TOP_OFFSET,steps:1,
+     bevelEnabled:true,bevelSize:COUNTERTOP_MIN_FILLET,bevelThickness:COUNTERTOP_MIN_FILLET,
+     bevelSegments:3,curveSegments:8});
+    capGeometry.rotateX(Math.PI/2);
+    const cap=new THREE.Mesh(capGeometry,counter);
+    cap.position.y=countertopSurfaceY(data);cap.material.side=THREE.DoubleSide;
+    cap.castShadow=true;cap.receiveShadow=true;cap.userData.objectId=join.id;this.objectGroup.add(cap);
    }
   }
   for(const c of this.items.filter(x=>x.kind==='cabinet')){
@@ -1709,17 +1719,17 @@ export class FloorAR {
       hole.moveTo(a,low);hole.lineTo(a,high);hole.lineTo(b,high);hole.lineTo(b,low);hole.closePath();
       shape.holes.push(hole);
      }
-     const thickness=design.edge==='thick'?.075:.035;
-     const rounded=design.edge==='round',bevel=rounded||design.edge==='bevel';
+     const thickness=design.edge==='thick'?.075:COUNTERTOP_TOP_OFFSET;
+     const rounded=design.edge==='round',fillet=rounded?.008:COUNTERTOP_MIN_FILLET;
      const geo=new THREE.ExtrudeGeometry(shape,{depth:thickness,steps:1,
-      bevelEnabled:bevel,bevelSize:rounded?.008:.005,bevelThickness:rounded?.008:.004,
-      bevelSegments:rounded?3:1,curveSegments:8});
+      bevelEnabled:true,bevelSize:fillet,bevelThickness:fillet,
+      bevelSegments:rounded?4:3,curveSegments:8});
      const uv=geo.getAttribute('uv'),textureScale=stone.userData?.textureScale||.4;
      if(uv)for(let index=0;index<uv.count;index++)uv.setXY(index,uv.getX(index)/textureScale,uv.getY(index)/textureScale);
      const slab=new THREE.Mesh(geo,stone.clone()),slabGroup=new THREE.Group();
      slab.rotation.x=Math.PI/2;slab.castShadow=true;slab.receiveShadow=true;
      slab.userData.objectId=c.id;slabGroup.userData.objectId=c.id;
-     slabGroup.position.set(cx,top+.035,cz);slabGroup.rotation.y=-angle;
+     slabGroup.position.set(cx,countertopSurfaceY(c),cz);slabGroup.rotation.y=-angle;
      slabGroup.add(slab);this.objectGroup.add(slabGroup);
      if(design.waterfall!=='none')for(const end of [-1,1]){
       if(design.waterfall!=='both'&&design.waterfall!==(end<0?'start':'end'))continue;
@@ -1841,7 +1851,7 @@ export class FloorAR {
   for(const c of this.items.filter(x=>x.kind==='cabinet'&&x.subtype==='base')){
    const w=this.items.find(o=>o.id===c.hostId&&o.kind==='wall');if(!w)continue;
    const wallLen=Math.hypot(w.x2-w.x1,w.z2-w.z1),angle=Math.atan2(w.z2-w.z1,w.x2-w.x1);
-   const baseTop=c.elevation+c.height+.035,{start:from,end:to}=backsplashSpan(this.items,c);
+   const baseTop=countertopSurfaceY(c),{start:from,end:to}=backsplashSpan(this.items,c);
    const upper=this.items.filter(u=>u.kind==='cabinet'&&u.subtype==='upper'&&
     u.hostId===w.id&&u.side===c.side&&Math.min(u.endT,c.endT)>Math.max(u.startT,c.startT));
    const nearestTop=upper.length?Math.min(...upper.map(u=>u.elevation)):baseTop+.62;
