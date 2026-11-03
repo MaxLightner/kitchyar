@@ -14,6 +14,7 @@ import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-l
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
 import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=editor67';
 import {roomOutline} from './room-surfaces.js?v=room40';
+import {loadEnvironmentHDR} from './environment-hdr.js';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
@@ -85,7 +86,7 @@ export class FloorAR {
     this.sun.shadow.camera.near=.1;this.sun.shadow.camera.far=22;
     this.sun.shadow.bias=-.00015;this.sun.shadow.normalBias=.018;
     this.sun.shadow.radius=3;this.sun.target.position.set(0,0,0);
-    this.floorGroup.add(this.sun,this.sun.target);this.setLighting(this.renderSettings);
+    this.floorGroup.add(this.sun,this.sun.target);this.setLighting(this.renderSettings);this.loadHDRLighting();
     this.objectGroup=new THREE.Group();this.floorGroup.add(this.objectGroup);
     this.previewGroup=new THREE.Group();this.previewGroup.visible=false;
     this.previewGroup.renderOrder=20;this.floorGroup.add(this.previewGroup);
@@ -1124,7 +1125,7 @@ export class FloorAR {
   if(typeof ResizeObserver!=='undefined'){
    this.previewResize=new ResizeObserver(()=>this.renderPreview());this.previewResize.observe(host);
   }
-  this.fitPreview();this.rebuildObjects();this.setLighting(this.renderSettings);this.renderPreview();
+  this.fitPreview();this.rebuildObjects();this.setLighting(this.renderSettings);this.loadHDRLighting();this.renderPreview();
  }
  fitPreview(){
   if(!this.previewOrbit)return;
@@ -1204,7 +1205,21 @@ export class FloorAR {
   this.previewResize?.disconnect();this.previewRenderer?.dispose();this.previewRenderer?.domElement.remove();
   this.previewRenderer=null;this.previewHost=null;this.previewScene=null;this.objectGroup=null;this.floorGroup=null;
  }
+ loadHDRLighting(){
+  if(this.hdrEnvironmentPromise)return this.hdrEnvironmentPromise;
+  this.hdrEnvironmentPromise=loadEnvironmentHDR().then(texture=>{
+   if(!this.renderer&&!this.previewRenderer){texture.dispose();return;}
+   const previous=this.environmentTexture;
+   this.environmentTexture=texture;this.environmentName='hdr';
+   for(const scene of [this.scene,this.previewScene])if(scene){scene.environment=texture;scene.environmentIntensity=.7;}
+   if(previous&&previous!==texture)previous.dispose();
+   if(this.objectGroup)this.rebuildObjects();else this.renderPreview();
+  }).catch(error=>console.warn('Kitchyar HDR IBL unavailable; using fallback environment',error))
+   .finally(()=>{this.hdrEnvironmentPromise=null;});
+  return this.hdrEnvironmentPromise;
+ }
  setEnvironment(name='neutral'){
+  if(this.environmentTexture?.userData?.chidoHDR){this.environmentName=name;return false;}
   if(this.environmentName===name&&this.environmentTexture)return false;
   const palettes={neutral:['#bbc4cc','#f4f1e9'],warm:['#b9a696','#fff0cf'],cool:['#98b3c7','#edf7ff']},colors=palettes[name]||palettes.neutral;
   const faces=Array.from({length:6},(_,i)=>{const c=document.createElement('canvas');c.width=c.height=64;const ctx=c.getContext('2d'),g=ctx.createLinearGradient(0,0,0,64);g.addColorStop(0,colors[1]);g.addColorStop(1,colors[0]);ctx.fillStyle=g;ctx.fillRect(0,0,64,64);ctx.fillStyle=i===2?'#ffffff':'#d9d7d0';ctx.fillRect(18,8,28,28);return c;});
