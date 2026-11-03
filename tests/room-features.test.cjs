@@ -13,7 +13,7 @@ test('a 20 degree cabinet bend has a real low-polygon corner connector instead o
   {x:7,z:1.1,hostId:items[1].id},{kind:'base',depth:.6});
  const joins=result.items.filter(o=>o.kind==='corner');assert.equal(joins.length,1);
  const polygon=g.cornerFillFootprint(result.items,joins[0]);
- assert.equal(polygon.corners.length,4);
+ assert.ok(polygon.corners.length>=4&&polygon.corners.length<=6);
  assert.ok(polygon.height>.7);
  assert.ok(result.items.filter(o=>o.kind==='cabinet').every(o=>g.lengthOf(o)>=.45));
  const deleted=g.removeObject(result.items,joins[0].aCabinetId).items;

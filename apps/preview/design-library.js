@@ -1,4 +1,5 @@
-import * as G from './geometry.js?v=controls66';
+import {tierHeights} from './kitchen-policy.js?v=editor67';
+import * as G from './geometry.js?v=editor67';
 
 export const PARTS=Object.freeze([
  ['board','تخته ساده'],['box','باکس باز'],['shelf','طبقه'],['crown','تاج کلاسیک'],
@@ -16,21 +17,32 @@ export function configureSurround(source,id,enabled=true,unit=null,group=false){
  if(group){const peers=items.filter(p=>p.kind==='cabinet'&&p.hostId===c.hostId&&p.side===c.side&&p.subtype===c.subtype&&Math.abs(p.elevation-c.elevation)<.01&&Math.abs(p.height-c.height)<.01);for(const p of peers)delete p.surroundFrame;c.frameGroup=enabled?peers.map(p=>p.id):null;return {items,selectedId:c.id};}
  c.surroundFrame=enabled?(unit?{startT:unit.startT,endT:unit.endT,bottomT:unit.bottomT,topT:unit.topT}:true):false;return {items,selectedId:c.id};
 }
-export function configureTiers(source,{enabled=true,lowerHeight=.9,lowerDepth=.35,upperDepth=.60,ceilingHeight,cabinetIds=null}={}){
+export function configureTiers(source,{enabled=true,lowerHeight=null,lowerDepth=.35,upperDepth=.60,ceilingHeight,cabinetIds=null,auto=true}={}){
  const items=clone(source),uppers=items.filter(c=>c.kind==='cabinet'&&c.subtype==='upper'&&(!cabinetIds||cabinetIds.includes(c.id)));
  if(!uppers.length)throw Error('ابتدا کابینت هوایی بکش.');
  for(const old of uppers){
   const c=items.find(c=>c.id===old.id);
   const wall=items.find(w=>w.id===c.hostId),ceiling=Number(ceilingHeight??wall?.height??3.6);
   if(enabled){
-   if(![lowerHeight,lowerDepth,upperDepth,ceiling].every(Number.isFinite)||lowerHeight<.9||lowerDepth<.2||lowerDepth>.8||upperDepth<lowerDepth||upperDepth>.8||ceiling-c.elevation-lowerHeight<.2)throw Error('برای دوطبقه، طبقه پایین حداقل ۹۰ و فضای طبقه بالا حداقل ۲۰ سانتی‌متر لازم است.');
-   c.upperTiers={lowerHeight,lowerDepth,upperDepth,ceilingHeight:ceiling};c.height=ceiling-c.elevation;
+   c.elevation=1.5;
+   const heights=tierHeights(ceiling,c.elevation,auto?null:lowerHeight);
+   if(![lowerDepth,upperDepth].every(Number.isFinite)||lowerDepth<.2||lowerDepth>.8||upperDepth<.2||upperDepth>.8)throw Error('عمق طبقات باید بین ۲۰ و ۸۰ سانتی‌متر باشد.');
+   c.upperTiers={lowerHeight:heights.lower,lowerDepth,upperDepth,ceilingHeight:ceiling,auto};c.height=heights.total;
+
   }else {c.height=c.upperTiers?.lowerHeight||.9;delete c.upperTiers;}
   // Protected units retain their own semantic boundaries. Automatic fronts use
   // the shared facade generator, including the two sink lifts and hob void.
   const next=G.placeFrontLayout(items,c.id,c.frontPreset||'smart');items.splice(0,items.length,...next.items);
  }
+ G.refitUpperDependants(items,Number(ceilingHeight??Infinity));
  return {items,selectedId:uppers[0].id};
+}
+export function upgradeLegacyTiers(source,ceilingHeight){
+ const legacy=source.filter(c=>c.kind==='cabinet'&&c.upperTiers&&c.upperTiers.auto===undefined);
+ if(!legacy.length)return source;
+ let items=source;
+ for(const c of legacy)items=configureTiers(items,{cabinetIds:[c.id],ceilingHeight,lowerDepth:c.upperTiers.lowerDepth,upperDepth:c.upperTiers.upperDepth}).items;
+ return items;
 }
 export function addPart(source,id,type,{startT=0,endT=1}={}){
  const items=clone(source),host=cabinetHost(items,id),entry=PARTS.find(p=>p.id===type);

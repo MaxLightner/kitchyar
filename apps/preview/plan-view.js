@@ -1,22 +1,34 @@
-import {footprint} from './scene-objects.js?v=controls66';
-import {partPose} from './design-library.js?v=controls66';
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=controls66';
-import {renderPlanMeasurements} from './edit-handles.js?v=controls66';
+import {wallBounds} from './kitchen-policy.js?v=editor67';
+import {footprint} from './scene-objects.js?v=editor67';
+import {partPose} from './design-library.js?v=editor67';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=editor67';
+import {renderPlanMeasurements} from './edit-handles.js?v=editor67';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
-export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true,hideFronts=false}={}){
+export function fitPlanViewport(items){
+ const points=[];
+ for(const o of items){if(o.kind==='wall')points.push({x:o.x1,z:o.z1},{x:o.x2,z:o.z2});
+  else if(o.kind==='cabinet'){const w=items.find(w=>w.id===o.hostId);if(w)points.push(...cabinetFootprint(o,w).corners);}
+  else if(o.kind==='scene-object'&&o.type!=='ceiling')points.push(...footprint(o));
+  else if(o.kind==='equipment'&&Number.isFinite(o.x)){const r=Math.max(o.width,o.depth)/2;points.push({x:o.x-r,z:o.z-r},{x:o.x+r,z:o.z+r});}}
+ if(!points.length)return [-5,-4,10,8];
+ const xs=points.map(p=>p.x),zs=points.map(p=>p.z),x=Math.min(...xs)-.9,z=Math.min(...zs)-.9;
+ return [x,z,Math.max(3,Math.max(...xs)-x+.9),Math.max(3,Math.max(...zs)-z+.9)];
+}
+export function renderPlan(items,{mini=false,viewport=null,selectedId=null,drawing=null,hover=null,gesture=null,calibration=null,showCalibration=true,hideFronts=false}={}){
  const walls=items.filter(x=>x.kind==='wall'),cabinets=items.filter(x=>x.kind==='cabinet');
  const gridId=mini?'mini-grid-k':'main-grid-k';
  const cal=calibration?.a&&calibration?.b?calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}};
  const rect=typeof document!=='undefined'?document.getElementById('plan-host')?.getBoundingClientRect():null;
- const pixelsPerMetre=rect?Math.max(20,Math.min(rect.width/10,rect.height/8)):100;
+ const [vx,vz,vw,vh]=viewport||(mini?fitPlanViewport(items):[-5,-4,10,8]);
+ const pixelsPerMetre=rect?Math.max(20,Math.min(rect.width/vw,rect.height/vh)):100;
  const touchRadius=Math.max(.24,29/pixelsPerMetre),visibleRadius=Math.max(.0525,6/pixelsPerMetre);
  const angle=Math.atan2(cal.b.z-cal.a.z,cal.b.x-cal.a.x)*180/Math.PI;
  const rotation='translate('+f(cal.a.x)+' '+f(cal.a.z)+') rotate('+f(angle)+') translate('+f(-cal.a.x)+' '+f(-cal.a.z)+')';
  let out='<svg '+(mini?'class="mini-svg"':'id="plan-view" class="plan-svg"')+
-  ' xmlns="http://www.w3.org/2000/svg" viewBox="-5 -4 10 8" preserveAspectRatio="xMidYMid meet" role="img" aria-label="پلان متریک پروژه">'+
+  ' xmlns="http://www.w3.org/2000/svg" viewBox="'+[vx,vz,vw,vh].map(f).join(' ')+'" preserveAspectRatio="xMidYMid meet" role="img" aria-label="پلان متریک پروژه">'+
   '<defs><pattern id="'+gridId+'" width=".1" height=".1" patternUnits="userSpaceOnUse" patternTransform="'+rotation+'"><path d="M.1 0H0V.1" fill="none" stroke="#a4bbaa" stroke-width=".006"/></pattern></defs>'+
-  '<rect x="-5" y="-4" width="10" height="8" fill="#f4f5ef"/><rect x="-5" y="-4" width="10" height="8" fill="url(#'+gridId+')"/>';
+  '<rect x="'+f(vx)+'" y="'+f(vz)+'" width="'+f(vw)+'" height="'+f(vh)+'" fill="#f4f5ef"/><rect x="'+f(vx)+'" y="'+f(vz)+'" width="'+f(vw)+'" height="'+f(vh)+'" fill="url(#'+gridId+')"/>';
  for(const w of walls){
   const isSelected=w.id===selectedId;
   out+='<polygon data-item-id="'+safe(w.id)+'" points="'+wallFootprint(w,walls).map(p=>f(p.x)+','+f(p.z)).join(' ')+
@@ -63,7 +75,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
   }else out+='<line data-item-id="'+safe(c.id)+'" x1="'+f(c.x1)+'" y1="'+f(c.z1)+'" x2="'+f(c.x2)+'" y2="'+f(c.z2)+
    '" stroke="#ab9382" stroke-width="'+f(c.depth)+'" opacity=".65"/>';
  }
- for(const o of items.filter(o=>o.kind==='scene-object')){
+ for(const saved of items.filter(o=>o.kind==='scene-object')){const o=saved.type==='ceiling'?{...saved,...(wallBounds(items)||{})}:saved;
   out+='<polygon data-item-id="'+safe(o.id)+'" points="'+footprint(o).map(p=>f(p.x)+','+f(p.z)).join(' ')+'" fill="'+(o.id===selectedId?'#70bd9e':o.type==='ceiling'?'#c4d6de':'#b8a888')+'" fill-opacity="'+(o.type==='ceiling'?'.12':'.95')+'" '+(o.type==='ceiling'?'pointer-events="stroke"':'')+' stroke="#577466" stroke-width=".025"/>';
   if(o.type==='island-l')out+='<rect data-item-id="'+safe(o.id)+'" transform="translate('+f(o.x)+' '+f(o.z)+') rotate('+f(o.rotation*180/Math.PI)+')" x="'+f(-o.width/2)+'" y="'+f(o.depth/2)+'" width="'+f(o.armDepth)+'" height="'+f(o.armLength)+'" fill="#b8a888" stroke="#577466" stroke-width=".025"/>';
  }
@@ -149,6 +161,7 @@ export function renderPlan(items,{mini=false,selectedId=null,drawing=null,hover=
    out+='</g>';
   }
  const selection=items.find(x=>x.id===selectedId);
+ if(selection?.kind==='scene-object'&&selection.type!=='ceiling'&&!mini){const r=selection.width/2+.25,a=selection.rotation||0;for(const [side,x,z,color] of [['move',selection.x,selection.z,'#d8a15b'],['rotate',selection.x+Math.cos(a)*r,selection.z+Math.sin(a)*r,'#648ddd']])out+='<g class="resize-handle" data-handle="'+side+'" data-item-id="'+safe(selection.id)+'"><circle cx="'+f(x)+'" cy="'+f(z)+'" r="'+f(touchRadius)+'" fill="transparent"/><circle cx="'+f(x)+'" cy="'+f(z)+'" r="'+f(visibleRadius)+'" fill="'+color+'" stroke="#fff" stroke-width=".028" pointer-events="none"/></g>'; }
  if(selection?.kind==='equipment'&&selection.subtype!=='hood'&&!mini){
   out+='<g class="resize-handle" data-handle="move" data-item-id="'+safe(selection.id)+'">'+
    '<circle cx="'+f(selection.x)+'" cy="'+f(selection.z)+'" r="'+f(touchRadius)+'" fill="transparent"/>'+

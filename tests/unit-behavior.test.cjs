@@ -72,7 +72,7 @@ test('interaction hierarchy exposes single, double and triple taps without rebui
  assert.match(ui,/function handleFrontTap\(hitId,event\)/);
  assert.match(ui,/if\(count===3\)/);
  assert.match(ui,/selectedUnit=Geo\.frontUnitFor\(currentItems\(\),front\.id\)/);
- assert.match(ui,/if\(count===2\|\|count===1&&front\.openFraction>\.01\)/);
+ assert.match(ui,/if\(count===2\)/);
  assert.match(ui,/commitFrontOpening\(front\.id,front\.openFraction>\.01\?0:1\)/);
  assert.match(ui,/data-action="convert-unit"/);
  const fast=ui.slice(ui.indexOf('function commitFrontOpening('),ui.indexOf('function undoChange('));

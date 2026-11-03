@@ -54,9 +54,9 @@ test('tracked 3D mode renders independently and reuses AR selection, editing and
  assert.match(floor,/screenRay\(pose,upper=false,x=0,y=null\)\{\s*if\(this\.wideActive/);
  assert.match(floor,/activeViewMatrices\(\)/);
  assert.match(floor,/this\.disableWideView\(\);this\.wideRenderer\?\.dispose\(\)/);
- assert.match(app,/const trackedView=\(\)=>mode==='ar'\|\|\(mode==='3d'&&!!floor\?\.wideActive\)/);
- assert.match(app,/if\(next==='3d'&&floor\?\.session\)floor\.setWideView\(wideLevel\)/);
- assert.match(app,/else if\(floor\?\.wideActive\)floor\.disableWideView\(\)/);
+ assert.match(app,/const trackedView=\(\)=>mode==='ar'/);
+ assert.match(app,/action==='ar-wide'/);
+ assert.match(app,/next!=='ar'&&floor\?\.wideActive/);
  assert.match(app,/trackedView\(\)&&!drawing\?floor\?\.pickObject/);
  assert.match(app,/trackedView\(\)\?floor\?\.pick\(\)/);
  assert.match(app,/if\(trackedView\(\)\)floor\?\.setEditPreview/);

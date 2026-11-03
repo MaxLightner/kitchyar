@@ -1,4 +1,5 @@
-import {lengthOf,frontageLength,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment,moveWholeObject} from './geometry.js?v=controls66';
+import {editObject} from './scene-objects.js?v=editor67';
+import {lengthOf,frontageLength,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment,moveWholeObject} from './geometry.js?v=editor67';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);
@@ -22,6 +23,7 @@ export function neighborGaps(items,opening){
 }
 export function resizeFromHandle(items,id,side,position){
  const object=byId(items,id);if(!object)throw Error('آبجکت انتخاب‌شده پیدا نشد.');
+ if(object.kind==='scene-object'&&object.type!=='ceiling'){if(side==='move')return editObject(items,id,{x:snapCm(position.x),z:snapCm(position.z)});if(side==='rotate')return editObject(items,id,{rotation:Math.atan2(position.z-object.z,position.x-object.x)});}
  if(object.kind==='equipment'&&side==='move')return moveEquipment(items,id,{x:snapCm(position.x),z:snapCm(position.z)});
  if(['wall','cabinet'].includes(object.kind)&&side==='move')return moveWholeObject(items,id,position);
  if(object.kind==='opening'){
@@ -70,6 +72,7 @@ export function resizeFromHandle(items,id,side,position){
 }
 export function handlePosition(items,id,side){
  const o=byId(items,id);if(!o)return null;
+ if(o.kind==='scene-object'){const r=o.width/2+.25,a=o.rotation||0;return side==='rotate'?{x:o.x+Math.cos(a)*r,z:o.z+Math.sin(a)*r,y:.15}:{x:o.x,z:o.z,y:o.height/2};}
  if(o.kind==='equipment'&&side==='move')return {x:o.x,z:o.z,y:o.elevation+o.height/2};
  if(o.kind==='opening'){
   const w=byId(items,o.hostId),e=w?openingEdges(o,w):null;if(!e)return null;

@@ -77,9 +77,9 @@ test('exactly two bottom drawing actions are exposed for every tool',()=>{
  assert.doesNotMatch(controls[0],/data-action="(?:start-drawing|end-drawing|finish-drawing)"/);
  assert.match(source,/\['fridge','stove','sink',/);
 });
-test('cabinet selection offers editable dimensions and an elevation drawing',()=>{
+test('cabinet dimensions remain editable without the removed elevation popup',()=>{
  const source=read('app.js');
- assert.match(source,/renderCabinetElevation\(items,selected\)/);
+ assert.doesNotMatch(source,/<aside class="elevation-panel"/);
  assert.match(source,/data-edit=/);
  assert.match(source,/upperHeight/);
  assert.match(read('edit-handles.js'),/renderCabinetElevation/);
@@ -113,7 +113,7 @@ test('facade editor offers preview, selectable doors and centimetre grips in bot
  assert.match(app,/front-doors/);assert.match(app,/front-drawers3/);
  assert.match(app,/front-drawers4/);assert.match(app,/front-mixed/);
  assert.match(app,/data-edit-front/);
- assert.match(app,/پیش‌نمایش · هنوز ثبت نشده/);
+ assert.match(app,/data-action="toggle-plan"/);
  assert.match(plan,/front-plan/);assert.match(plan,/planFronts/);
  assert.match(floor,/kind\.startsWith\('front-'\)/);
  assert.match(floor,/surface\.userData\.objectId=panel\.id/);
@@ -194,12 +194,8 @@ test('changing only front styling never re-snaps the displayed rounded dimension
  assert.match(app,/width:Math\.abs\(desiredWidth-shownWidth\)>\.001\?desiredWidth:undefined/);
  assert.match(app,/height:Math\.abs\(desiredHeight-shownHeight\)>\.001\?desiredHeight:undefined/);
 });
-test('facade viewport scrolls selected front into view without hidden hit targets',()=>{
- const app=read('app.js'),css=read('styles.css');
- assert.match(app,/selectedPanel\.getBBox\(\)/);
- assert.match(app,/scroller\.scrollLeft/);
- assert.match(app,/const clip=el\.closest\('\.front-elevation-scroll'\)/);
- assert.match(css,/\.front-elevation-scroll\{direction:ltr\}/);
+test('mini plan is an accessible entry to the editable plan without an elevation popup',()=>{
+ const app=read('app.js');assert.match(app,/role="button" tabindex="0" data-action="toggle-plan"/);assert.doesNotMatch(app,/<aside class="elevation-panel"/);assert.match(app,/switchEditorMode/);
 });
 
 test('facade panel taps are not swallowed by nearby resize grips',()=>{
