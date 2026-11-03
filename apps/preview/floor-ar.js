@@ -1128,6 +1128,8 @@ export class FloorAR {
   this.previewRenderer.shadowMap.enabled=true;
   this.previewRenderer.shadowMap.type=THREE.PCFSoftShadowMap;
   this.previewRenderer.outputColorSpace=THREE.SRGBColorSpace;
+  this.previewRenderer.toneMapping=THREE.ACESFilmicToneMapping;
+  this.previewRenderer.toneMappingExposure=1.12;
   this.previewRenderer.domElement.className='preview-3d-canvas';
   host.appendChild(this.previewRenderer.domElement);
   const canvas=this.previewRenderer.domElement;
@@ -1204,7 +1206,8 @@ export class FloorAR {
   this.previewCamera.lookAt(o.x,o.y,o.z||0);
    if(this.previewComposer&&this.previewSSR){
     this.previewSSR.selects=this.reflectiveMeshes();
-    this.previewComposer.setSize(Math.max(1,Math.round(w)),Math.max(1,Math.round(h)));
+    const sw=Math.max(1,Math.round(w)),sh=Math.max(1,Math.round(h));
+    if(this.previewSSRWidth!==sw||this.previewSSRHeight!==sh){this.previewSSRWidth=sw;this.previewSSRHeight=sh;this.previewComposer.setSize(sw,sh);}
     this.previewComposer.render();
    }else this.previewRenderer.render(this.previewScene,this.previewCamera);
  }
