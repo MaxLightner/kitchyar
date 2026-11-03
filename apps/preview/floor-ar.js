@@ -1070,6 +1070,44 @@ export class FloorAR {
  }
  /* Desktop preview shares the exact AR object mesher/materials. It does not
     pretend to be a tracked AR session and remains available without ARCore. */
+ // WebGL SSR is intentionally confined to the normal 3D preview. WebXR renders
+ // directly into the XR compositor framebuffer and cannot use this composer.
+ reflectiveMeshes(){
+  const result=[];
+  this.objectGroup?.traverse(obj=>{
+   if(!obj.isMesh||!obj.visible)return;
+   const materials=Array.isArray(obj.material)?obj.material:[obj.material];
+   if(materials.some(m=>m&&!m.transparent&&(m.metalness>.15||m.roughness<.32)))result.push(obj);
+  });
+  return result;
+ }
+ async initializePreviewSSR(){
+  if(this.previewSSRRequested||!this.previewRenderer?.capabilities?.isWebGL2)return;
+  const renderer=this.previewRenderer;
+  this.previewSSRRequested=true;
+  try{
+   const version='0.'+String(THREE.REVISION)+'.0';
+   const url=name=>'https://esm.sh/three@'+version+'/examples/jsm/postprocessing/'+name+'.js?external=three';
+   const [composerModule,renderModule,ssrModule,outputModule]=await Promise.all([
+    import(url('EffectComposer')),import(url('RenderPass')),import(url('SSRPass')),import(url('OutputPass'))
+   ]);
+   if(this.previewRenderer!==renderer)return;
+   const composer=new composerModule.EffectComposer(renderer);
+   const renderPass=new renderModule.RenderPass(this.previewScene,this.previewCamera);
+   composer.addPass(renderPass);
+   const ssr=new ssrModule.SSRPass({
+    renderer,scene:this.previewScene,camera:this.previewCamera,
+    width:Math.max(1,this.previewHost.clientWidth),height:Math.max(1,this.previewHost.clientHeight),
+    selects:this.reflectiveMeshes()
+   });
+   ssr.opacity=.55;ssr.maxDistance=3;ssr.thickness=.025;
+   ssr.resolutionScale=.5;ssr.blur=true;
+   composer.addPass(ssr);
+   composer.addPass(new outputModule.OutputPass());
+   this.previewComposer=composer;this.previewSSR=ssr;
+   this.renderPreview();
+  }catch(error){console.warn('Kitchyar SSR unavailable; keeping the standard 3D renderer',error);}
+ }
  startPreview(host){
   if(this.previewRenderer)return;
   this.previewHost=host;this.previewScene=new THREE.Scene();this.previewScene.background=new THREE.Color(0xe9ede8);
@@ -1125,7 +1163,7 @@ export class FloorAR {
   if(typeof ResizeObserver!=='undefined'){
    this.previewResize=new ResizeObserver(()=>this.renderPreview());this.previewResize.observe(host);
   }
-  this.fitPreview();this.rebuildObjects();this.setLighting(this.renderSettings);this.loadHDRLighting();this.renderPreview();
+  this.fitPreview();this.rebuildObjects();this.setLighting(this.renderSettings);this.loadHDRLighting();this.renderPreview();this.initializePreviewSSR();
  }
  fitPreview(){
   if(!this.previewOrbit)return;
@@ -1163,7 +1201,12 @@ export class FloorAR {
   const o=this.previewOrbit,r=o.radius;
   this.previewCamera.position.set(o.x+r*Math.cos(o.pitch)*Math.cos(o.yaw),o.y+r*Math.sin(o.pitch),
    (o.z||0)+r*Math.cos(o.pitch)*Math.sin(o.yaw));
-  this.previewCamera.lookAt(o.x,o.y,o.z||0);this.previewRenderer.render(this.previewScene,this.previewCamera);
+  this.previewCamera.lookAt(o.x,o.y,o.z||0);
+   if(this.previewComposer&&this.previewSSR){
+    this.previewSSR.selects=this.reflectiveMeshes();
+    this.previewComposer.setSize(Math.max(1,Math.round(w)),Math.max(1,Math.round(h)));
+    this.previewComposer.render();
+   }else this.previewRenderer.render(this.previewScene,this.previewCamera);
  }
  previewRay(clientX,clientY){
   if(!this.previewRenderer)return null;
@@ -1202,7 +1245,7 @@ export class FloorAR {
   for(const g of geometries)g.dispose();for(const m of materials)m.dispose();
   for(const t of [...textures,...this.textureCache.values(),...(this.furnitureTextures?.values()||[])])t.dispose();
   this.textureCache.clear();this.furnitureTextures?.clear();this.environmentTexture?.dispose();this.environmentTexture=null;this.sun?.shadow.map?.dispose();
-  this.previewResize?.disconnect();this.previewRenderer?.dispose();this.previewRenderer?.domElement.remove();
+  this.previewResize?.disconnect();this.previewSSR?.dispose?.();this.previewComposer?.dispose?.();this.previewSSR=null;this.previewComposer=null;this.previewSSRRequested=false;this.previewRenderer?.dispose();this.previewRenderer?.domElement.remove();
   this.previewRenderer=null;this.previewHost=null;this.previewScene=null;this.objectGroup=null;this.floorGroup=null;
  }
  loadHDRLighting(){
