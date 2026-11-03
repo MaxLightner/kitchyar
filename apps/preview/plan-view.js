@@ -142,6 +142,21 @@ export function renderPlan(items,{mini=false,viewport=null,selectedId=null,drawi
   }
   out+='</g></g>';
  }
+ // Selection targets are intentionally layered *after* the equipment shapes:
+ // a sink or appliance can cover the visible 2D facade edge. Keep the
+ // semantic front selectable there, without stealing taps in its centre.
+ // Render nothing while drawing, on minimaps, or when facades are hidden.
+ if(!mini&&!hideFronts&&!drawing)for(const front of items.filter(x=>x.kind==='front')){
+  const cabinet=cabinets.find(c=>c.id===front.hostId),pose=frontPose(front,cabinet);
+  if(!pose)continue;
+  const ux=Math.cos(pose.angle),uz=Math.sin(pose.angle),half=pose.width/2;
+  const offset=front.subtype==='drawer'?(front.bottomT+front.topT-.99)*.045:0,
+   nx=-uz*pose.side,nz=ux*pose.side;
+  out+='<line class="front-selection-hit" data-item-id="'+safe(front.id)+
+   '" x1="'+f(pose.x-ux*half+nx*offset)+'" y1="'+f(pose.z-uz*half+nz*offset)+
+   '" x2="'+f(pose.x+ux*half+nx*offset)+'" y2="'+f(pose.z+uz*half+nz*offset)+
+   '" stroke="transparent" stroke-width=".14" pointer-events="stroke"/>';
+ }
  if(!mini)for(const o of items.filter(x=>x.kind==='opening')){
   const w=walls.find(x=>x.id===o.hostId);if(!w)continue;
   const len=lengthOf(w),a=(o.hostT*len-o.width/2)/len,b=(o.hostT*len+o.width/2)/len;
