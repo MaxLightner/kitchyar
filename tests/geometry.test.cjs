@@ -137,7 +137,8 @@ test('renderer has real ray-tested AO, directional shadows, reflection probe and
  assert.match(floor,/DirectionalLight/);
  assert.match(floor,/applyRaycastAO\(\)/);
  assert.match(floor,/intersectObjects\(nearby,false\)/);
- assert.match(floor,/envMapIntensity:this\.renderSettings\.reflection/);
+ assert.match(floor,/envMapIntensity:envStrength/);
+ assert.match(floor,/Math\.max\(0,this\.renderSettings\.reflection/);
  assert.match(floor,/opacity:\.50/);
  assert.match(floor,/this\.whiteFloor\.visible=true/);
  assert.match(floor,/this\.shadowFloor\.visible=true/);
