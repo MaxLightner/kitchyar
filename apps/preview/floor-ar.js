@@ -1087,7 +1087,7 @@ export class FloorAR {
   this.previewSSRRequested=true;
   try{
    const version='0.'+String(THREE.REVISION)+'.0';
-   const url=name=>'https://esm.sh/three@'+version+'/examples/jsm/postprocessing/'+name+'.js?external=three';
+   const url=name=>'https://cdn.jsdelivr.net/npm/three@'+version+'/examples/jsm/postprocessing/'+name+'.js';
    const [composerModule,renderModule,ssrModule,outputModule]=await Promise.all([
     import(url('EffectComposer')),import(url('RenderPass')),import(url('SSRPass')),import(url('OutputPass'))
    ]);
