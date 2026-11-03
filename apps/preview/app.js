@@ -1,6 +1,7 @@
 import * as Objects from './scene-objects.js?v=editor67';
+import {OCCLUSION_STATUS} from './near-occlusion.js?v=hands68';
 import * as Library from './design-library.js?v=editor67';
-import {FloorAR} from './floor-ar.js?v=editor67';
+import {FloorAR} from './floor-ar.js?v=hands68';
 import * as Geo from './geometry.js?v=editor67';
 import {renderPlan,renderPreview,planPoint,fitPlanViewport} from './plan-view.js?v=editor67';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=editor67';
@@ -44,7 +45,7 @@ let reportSheetOptions={...DEFAULT_SHEET};
 let miniLastHost=null,miniLastItems=null,miniLastCalibration='',miniLastFacadesHidden=null;
 const trackedView=()=>mode==='ar';
 const settings={thickness:.12,height:3.6,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.90,upperElevation:1.55};
-const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8};
+const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8,nearOcclusion:true};
 const renderSettings=()=>({...defaultRender,...currentProject()?.scene?.render});
 try{
  const raw=localStorage.getItem(STORAGE),parsed=raw?JSON.parse(raw):[];
@@ -118,7 +119,7 @@ function editorPage(id){
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button data-action="environment" aria-label="تغییر نور محیط">محیط</button><button data-action="ar-wide" id="ar-wide-toggle" aria-pressed="false">نمای واید</button><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
- '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label>ارتفاع دیوارها و سقف (متر)<input data-ceiling-height type="number" min="2" max="9" step=".01" value="'+(Number(p.scene?.ceilingHeight)||3.6)+'"></label><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><label class="check-row">نور خطی زیر کابینت هوایی<input data-render="taskLighting" type="checkbox" '+(renderSettings().taskLighting?'checked':'')+'></label><label>شدت نور کابینت<input data-render="taskIntensity" type="range" min="0" max="4" step=".1" value="'+renderSettings().taskIntensity+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
+ '<aside class="editor-menu" id="editor-menu" hidden><strong>KITCHYAR · تنظیمات رندر</strong><label class="check-row">نمایش دست و اجسام واقعی تا یک متر<input data-render="nearOcclusion" type="checkbox" '+(renderSettings().nearOcclusion?'checked':'')+'></label><small id="near-occlusion-status">'+OCCLUSION_STATUS.idle+'</small><label>ارتفاع دیوارها و سقف (متر)<input data-ceiling-height type="number" min="2" max="9" step=".01" value="'+(Number(p.scene?.ceilingHeight)||3.6)+'"></label><label>جهت نور (درجه)<input data-render="sunAzimuth" type="range" min="-180" max="180" value="'+renderSettings().sunAzimuth+'"></label><label>ارتفاع نور (درجه)<input data-render="sunElevation" type="range" min="10" max="85" value="'+renderSettings().sunElevation+'"></label><label>شدت نور جهت‌دار<input data-render="sunIntensity" type="range" min=".3" max="4" step=".1" value="'+renderSettings().sunIntensity+'"></label><label>شدت اکلوژن محیطی<input data-render="aoStrength" type="range" min="0" max="1" step=".05" value="'+renderSettings().aoStrength+'"></label><label class="check-row">نور خطی زیر کابینت هوایی<input data-render="taskLighting" type="checkbox" '+(renderSettings().taskLighting?'checked':'')+'></label><label>شدت نور کابینت<input data-render="taskIntensity" type="range" min="0" max="4" step=".1" value="'+renderSettings().taskIntensity+'"></label><div class="render-note">بازتاب کابینت ۱۰٪ · کف سفید ۵۰٪ · سایه نرم</div><button data-action="save">ذخیره پروژه</button><button data-action="projects">مدیریت پروژه‌ها</button><button data-action="close-menu">ادامه ویرایش</button></aside>'+
  '<section class="scan-card" id="scan-card"><button class="scan-restart" data-action="rescan">شروع / اسکن دوبارهٔ کف ↻</button><div class="scan-head"><strong id="scan-stage">در انتظار اسکن کف</strong><span id="scan-pct">۰٪</span></div><progress id="scan-progress" max="100" value="0"></progress><small>آمادگی بر اساس برخوردهای معتبر و نمونه‌های مستقل است؛ درصد ARCore نیست.</small><div class="scan-info"><span id="scan-hits">برخورد معتبر: ۰</span><span id="anchor-count">Anchor: ۰ / ۵</span></div></section>'+
  '<button id="calibration-toggle" class="calibration-toggle" data-action="toggle-calibration" hidden>تنظیم کف و نقاط A/B ▴</button><div class="scan-confirm"><button class="primary" id="confirm-floor" data-action="confirm-floor" disabled>تثبیت این کف</button><div id="calibration" hidden><p class="calibration-help">A و B را روی صحنه بگیر و بکش؛ جهت شبکه همان لحظه تغییر می‌کند.</p><label>فاصله واقعی A تا B (متر)<input type="number" id="real-distance" value="1" min=".1" max="20" step=".01"></label><button data-action="apply-distance">اعمال مقیاس</button></div></div>'+
  '<div class="side-tools"><div class="side-basic"><button data-action="select" aria-label="انتخاب">⌖</button><button data-action="undo" disabled aria-label="بازگشت تغییر">↶</button><button data-action="redo" disabled aria-label="انجام دوباره">↷</button><button data-action="open-style-gallery" title="گالری آشپزخانه" aria-label="گالری نمونه‌های آشپزخانه">▣</button><button class="front-visibility-toggle" data-action="toggle-facades" aria-pressed="false" aria-label="مخفی‌کردن همه درب‌ها و پیشانی کشوها" title="مخفی‌کردن درب‌ها و کشوها برای دیدن یونیت‌ها"><span>▤</span><small>درب‌ها</small></button><button class="front-visibility-toggle" data-action="toggle-surfaces" aria-pressed="false" title="نمایش / مخفی‌کردن سقف و کف"><span>▱</span><small>سقف/کف</small></button></div></div><div class="aim-marker" id="aim-marker" hidden><span>＋</span><small id="aim-label">محل ترسیم</small></div>'+
@@ -159,7 +160,8 @@ function arUpdate(data){
  const msg=document.getElementById('scan-status');if(!msg)return;
  if(data.calibration){const p=currentProject();if(p){p.scene.calibration=data.calibration;save();}}
  if(!data.locked){document.getElementById('editor-root')?.classList.remove('floor-locked');document.getElementById('scan-card')?.classList.remove('complete');}
- msg.textContent=data.message+(data.depth?' · اکلوژن عمق واقعی فعال':'');
+ msg.textContent=data.message+(data.depth?' · نمایش دست فعال':'');
+ updateNearOcclusionStatus(data.nearOcclusion);
  const stage=document.getElementById('scan-stage');
  stage.textContent=data.locked?'کف تثبیت شده':data.ready?'کف آماده تثبیت':'در حال شناسایی کف';
  document.getElementById('scan-pct').textContent=data.progress.toLocaleString('fa-IR')+'٪';
@@ -174,6 +176,10 @@ function arUpdate(data){
    'جهت شبکه: '+num(data.direction,0)+'° · نقطه A مبدأ و B جهت را تعیین می‌کند.';
  if(data.locked)document.getElementById('scan-card').classList.add('complete');
  updateCalibrationPanel();
+}
+function updateNearOcclusionStatus(state){
+ const status=renderSettings().nearOcclusion===false?'disabled':mode!=='ar'?'paused':state||floor?.nearOcclusion?.status||'idle';
+ const label=document.getElementById('near-occlusion-status');if(label)label.textContent=OCCLUSION_STATUS[status]||OCCLUSION_STATUS.idle;
 }
 function beginAR(){
  if(!document.getElementById('editor-root')||mode!=='ar')return;
@@ -575,6 +581,7 @@ function showScene(){
   !!items.find(o=>o.id===selection&&o.kind==='opening')&&!drawing);
  floor?.setDrawing(drawing?.start||null,drawing?.tool,{height:drawing?.tool==='wall'?settings.height:settings.upperHeight,elevation:settings.upperElevation,depth:drawing?.tool==='upper'?settings.upperDepth:settings.baseDepth,hostId:drawing?.hostId,freestanding:fridgeFreestanding});
  floor?.setLighting(renderSettings());
+ updateNearOcclusionStatus();
  const frontToggle=document.querySelector('[data-action="toggle-facades"]');
  if(frontToggle){
   frontToggle.classList.toggle('active',facadesHidden);
@@ -868,7 +875,7 @@ document.addEventListener('input',e=>{
  }
  const slider=e.target.closest('[data-render]');if(!slider)return;
  const p=currentProject();if(!p)return;p.scene??={items:[]};p.scene.render??={...defaultRender};
- p.scene.render[slider.dataset.render]=slider.type==='checkbox'?slider.checked:Number(slider.value);floor?.setLighting(renderSettings());
+ p.scene.render[slider.dataset.render]=slider.type==='checkbox'?slider.checked:Number(slider.value);floor?.setLighting(renderSettings());updateNearOcclusionStatus();
 });
 document.addEventListener('change',e=>{
  if(e.target.matches('[data-corner-option]')){try{commitChange(Geo.configureCorner(currentItems(),selection,{[e.target.dataset.cornerOption]:e.target.value}));}catch(error){tell(error.message);}return;}
