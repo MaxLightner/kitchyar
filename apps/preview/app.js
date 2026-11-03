@@ -1,7 +1,7 @@
 import * as Objects from './scene-objects.js?v=editor67';
 import {OCCLUSION_STATUS} from './near-occlusion.js?v=hands68';
 import * as Library from './design-library.js?v=editor67';
-import {FloorAR} from './floor-ar.js?v=hands68';
+import {FloorAR} from './floor-ar.js?v=appliances71';
 import * as Geo from './geometry.js?v=editor67';
 import {renderPlan,renderPreview,planPoint,fitPlanViewport} from './plan-view.js?v=editor67';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=editor67';

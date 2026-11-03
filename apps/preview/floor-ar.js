@@ -16,6 +16,7 @@ import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=edi
 import {roomOutline} from './room-surfaces.js?v=room40';
 import {loadEnvironmentHDR} from './environment-hdr.js';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
+import {getApplianceTemplate,fitApplianceModel} from './appliance-models.js?v=appliances71';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 // Raycaster may return intersections belonging to invisible ancestor groups.
@@ -2062,6 +2063,25 @@ export class FloorAR {
     const mesh=new THREE.Mesh(geometry,mat.clone());mesh.position.set(x,y,z);mesh.rotation.x=rotationX;
     mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.objectId=o.id;root.add(mesh);return mesh;
    };
+   const onApplianceReady=this.applianceReadyCallback??=()=>{
+    if(this.objectGroup&&!this.applianceAssetFrame){
+     this.applianceAssetFrame=requestAnimationFrame(()=>{
+      this.applianceAssetFrame=null;
+      if(this.objectGroup)this.rebuildObjects();
+     });
+    }
+   };
+   const addImported=key=>{
+    const template=getApplianceTemplate(key,onApplianceReady);
+    if(!template)return false;
+    root.add(fitApplianceModel(THREE,template,o,key));
+    return true;
+   };
+   const importedKey=o.subtype==='fridge'&&o.model==='side'?'fridge':
+    o.subtype==='stove'&&o.model==='gas5'&&!o.induction?'gas5':
+    o.subtype==='oven'?'oven':o.subtype==='microwave'?'microwave':
+    o.subtype==='sink'&&o.model==='double'&&!o.drainerLeft&&o.drainerRight===false&&(o.faucetModel||'arc')==='arc'?'sink':null;
+   const importedMain=importedKey?addImported(importedKey):false;
    if(o.subtype==='fridge'){
     if(o.frameEnabled!==false||o.builtIn){
      const surround=material(0xffffff,{roughness:.38,metalness:.03});
@@ -2075,6 +2095,7 @@ export class FloorAR {
      }
      surround.dispose();
     }
+    if(!importedMain){
     add(new THREE.BoxGeometry(o.width,o.height,o.depth),steel,0,o.height/2,0);
     const front=o.depth/2+.02;
     const applianceTrim=material(0x293338,{roughness:.55,metalness:.22});
@@ -2104,7 +2125,9 @@ export class FloorAR {
      add(new THREE.BoxGeometry(o.width*.94,o.height*.94,.028),steel,0,o.height/2,front);
      add(new THREE.CylinderGeometry(.009,.009,.35,8),silver,o.width*.38,o.height*.72,front+.04);
     }
-    gasket.dispose();
+    gasket.dispose();applianceTrim.dispose();
+    }
+    const front=o.depth/2+.02;
     if(o.builtIn&&['matched','concealed'].includes(o.facadeMode)){
      const finish=this.surfaceMaterial('front',resolveFinish(this.materialSettings,'base','front'),o.width,o.height);
      add(new THREE.BoxGeometry(o.width*.985,o.height*.982,.025),finish,0,o.height/2,front+.055);
@@ -2116,6 +2139,7 @@ export class FloorAR {
      finish.dispose();
     }
    }else if(['dishwasher','washer','oven','microwave'].includes(o.subtype)){
+    if(!importedMain){
     const body=material(['oven','microwave'].includes(o.subtype)?0x33383a:0xe2e1dc,{metalness:.28,roughness:.31});
     const front=o.depth/2+.012;
     add(new THREE.BoxGeometry(o.width,o.height,o.depth),body,0,o.height/2,0);
@@ -2148,6 +2172,7 @@ export class FloorAR {
     }
     // No appliance cap: the uncut countertop above both machines is the cap.
     body.dispose();
+    }
    }else if(o.subtype==='hood'){
     const wide=o.width,body=material(['concealed','cabinet-framed'].includes(o.model)?0xe6dfd1:0xaebabb,{metalness:.55,roughness:.24});
     if(o.coverStyle&&o.coverStyle!=='concealed'){
@@ -2195,25 +2220,32 @@ export class FloorAR {
     const induction=Boolean(o.induction||o.model==='induction'),count=
      o.model==='gas2'?2:o.model==='gas3'?3:['gas5','range'].includes(o.model)?5:4;
     const slab=.025;
-    add(new THREE.BoxGeometry(o.width,slab,o.depth),dark,0,slab/2,0);
-    add(new THREE.BoxGeometry(o.width*.96,.007,o.depth*.94),dark,0,slab+.003,0);
+    if(!importedMain){
+     add(new THREE.BoxGeometry(o.width,slab,o.depth),dark,0,slab/2,0);
+     add(new THREE.BoxGeometry(o.width*.96,.007,o.depth*.94),dark,0,slab+.003,0);
+    }
     const x=o.width*.255,z=o.depth*.225;
     const positions=count===2?[[-x,0],[x,0]]:count===3?[[-x,-z],[x,-z],[0,z]]:
      count===5?[[-x,-z],[-x,z],[x,-z],[x,z],[0,0]]:[[-x,-z],[-x,z],[x,-z],[x,z]];
     for(const [index,[bx,bz]] of positions.entries()){
-     const burner=add(new THREE.TorusGeometry(bx===0&&bz===0?.073:.058,induction?.0035:.007,8,20),
-      induction?silver:dark,bx,slab+.009,bz,-Math.PI/2);burner.castShadow=false;
+     if(!importedMain){
+      const burner=add(new THREE.TorusGeometry(bx===0&&bz===0?.073:.058,induction?.0035:.007,8,20),
+       induction?silver:dark,bx,slab+.009,bz,-Math.PI/2);burner.castShadow=false;
+     }
      const on=!!o.burnersOn?.[index],flame=material(on?0x168dff:0x151a1d,{emissive:on?0x047cff:0x000000,emissiveIntensity:on?3:0,roughness:.45});
      const disc=add(new THREE.CylinderGeometry(.083,.083,.005,20),new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}),bx,slab+.014,bz);disc.userData.burner={id:o.id,index};
-     const ring=add(new THREE.TorusGeometry(.065,.008,5,24),flame,bx,slab+.022,bz,-Math.PI/2);ring.userData.burner={id:o.id,index};
+     if(!importedMain||on){
+      const ring=add(new THREE.TorusGeometry(.065,.008,5,24),flame,bx,slab+.022,bz,-Math.PI/2);ring.userData.burner={id:o.id,index};
+     }
 
     }
-    if(!induction)for(let i=0;i<Math.min(count,5);i++)
+    if(!importedMain&&!induction)for(let i=0;i<Math.min(count,5);i++)
      add(new THREE.CylinderGeometry(.012,.012,.012,10),dark,
       (i-(Math.min(count,5)-1)/2)*.060,slab+.008,o.depth*.42);
    }else if(o.subtype==='sink'){
+    if(!importedMain){
     const double=o.model==='double',left=!!o.drainerLeft,right=o.drainerRight??true,zone=o.width*.23;
-    const sinkMat=material(o.sinkFinish==='black'?0x151a1b:o.sinkFinish==='ceramic'?0xf4f1e8:0xaebfc2,{metalness:o.sinkFinish==='ceramic'?0:.5,roughness:o.sinkFinish==='ceramic'?.24:.3});
+    const sinkMat=material(o.sinkFinish==='black'?0x151a1b:o.sinkFinish==='ceramic'?0xf4f1e8:0xababab,{metalness:o.sinkFinish==='ceramic'?0:1,roughness:o.sinkFinish==='ceramic'?.24:.12});
     const bowlDepth=o.depth*.59,usable=o.width-.10-zone*(Number(left)+Number(right)),shift=zone*(Number(left)-Number(right))/2;
     const bowlWidth=double?Math.max(.12,(usable-.035)/2):Math.min(.50,usable);
     const xs=double?[shift-(bowlWidth+.035)/2,shift+(bowlWidth+.035)/2]:[shift];
@@ -2238,6 +2270,7 @@ export class FloorAR {
     for(const sign of [-1,1])if(sign<0?left:right)for(let n=1;n<6;n++)add(new THREE.BoxGeometry(.006,.005,o.depth*.61),sinkMat,sign*(o.width/2-zone+zone*n/6),.018,0);
     sinkMat.dispose();
     const faucet=o.faucetModel||'arc',rear=-o.depth*.39;
+    if(!(faucet==='arc'&&addImported('faucet'))){
     if(faucet==='wall'){
      for(const x of [-.09,.09]){
       add(new THREE.CylinderGeometry(.018,.018,.030,8),silver,x,.16,rear-.018,Math.PI/2);
@@ -2260,6 +2293,8 @@ export class FloorAR {
       }
      }
      add(new THREE.BoxGeometry(.047,.009,.016),silver,.042,.04,rear);
+    }
+    }
     }
    }
    for(const m of [steel,dark,silver])m.dispose();
