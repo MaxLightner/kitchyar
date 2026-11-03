@@ -1,10 +1,11 @@
 import {wallBounds} from './kitchen-policy.js?v=editor67';
 import {createChidoChair} from './chido-chair.js?v=editor67';
+import {NearRealOcclusion,nearDepthSessionOptions} from './near-occlusion.js?v=hands68';
 import {partPose} from './design-library.js?v=editor67';
 /* Chido v0.5.7 floor detection adapter, pinned to its exact source commit. */
 import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/vendor/three.module.js';
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
-import {requestARSession} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
+import {xrError} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
 import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,backsplashSpan,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=editor67';
 import {neighborGaps} from './edit-handles.js?v=editor67';
@@ -36,7 +37,7 @@ export class FloorAR {
   this.update({message,locked:this.locked,ready:this.scanner.ready,
    progress:Math.min(100,Math.round(this.scanner.observations.length/3*100)),
    valid:this.scanner.validHits,inliers:this.scanner.inlierHits,raw:this.scanner.rawHits,
-   anchors:this.anchors.length,depth:this.renderer?.xr?.hasDepthSensing?.()||false,
+   anchors:this.anchors.length,depth:this.nearOcclusion?.status==='active',nearOcclusion:this.nearOcclusion?.status||'idle',
    direction:this.points?.a&&this.points?.b?Math.round(this.gridYaw*180/Math.PI):null,...extra});
  }
  _applyAlignment(){
@@ -59,10 +60,11 @@ export class FloorAR {
   if(this.session)return;
   if(!navigator.xr||!isSecureContext)throw Error('این مرورگر از AR پشتیبانی نمی‌کند. برای اسکن کف از Chrome اندروید و ARCore استفاده کن.');
   // Preserve click activation: requestSession is the first asynchronous operation.
-  const requesting=requestARSession(navigator.xr,this.root,false,{depth:true,light:true});
+  const requesting=navigator.xr.requestSession('immersive-ar',nearDepthSessionOptions(this.root)).catch(error=>{throw xrError(error,'request-session');});
   this.session=await requesting;
   try{
    this.scene=new THREE.Scene();this.camera=new THREE.PerspectiveCamera();
+   this.nearOcclusion=new NearRealOcclusion(THREE,this.scene);
    this.renderer=new THREE.WebGLRenderer({antialias:false,alpha:true,powerPreference:'high-performance'});
    this.renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.25));
    this.renderer.shadowMap.enabled=true;
@@ -349,6 +351,7 @@ export class FloorAR {
  frame(time,frame){
   if(!frame||!this.renderer)return;
   const pose=frame.getViewerPose(this.space);
+  this.nearOcclusion?.update(frame,pose,this.renderer,this.session,{enabled:this.renderSettings.nearOcclusion!==false,ar:!this.root.dataset.view||this.root.dataset.view==='ar',wide:this.wideActive});
   if(!pose){if(time-this.lastReport>400){this.report('ردیابی از دست رفت؛ گوشی را آرام حرکت بده.',{tracking:false});this.lastReport=time;}
    this.renderer.render(this.scene,this.camera);return;}
   const viewer=new THREE.Vector3(pose.transform.position.x,pose.transform.position.y,pose.transform.position.z);
@@ -400,7 +403,8 @@ export class FloorAR {
   }
   if(this.reflectionDirty&&this.reflectionCamera&&this.locked){
    this.reflectionDirty=false;
-   const old=this.renderer.xr.enabled;this.renderer.xr.enabled=false;
+   const old=this.renderer.xr.enabled,maskVisible=this.nearOcclusion?.mesh?.visible;this.renderer.xr.enabled=false;
+   if(this.nearOcclusion?.mesh)this.nearOcclusion.mesh.visible=false;
    try{
     this.previewGroup.visible=false;
     const cabinets=this.objectGroup.children.filter(n=>n.userData?.cabinet);
@@ -408,7 +412,7 @@ export class FloorAR {
     this.reflectionCamera.update(this.renderer,this.scene);
     cabinets.forEach(n=>n.visible=true);
    }catch(error){console.debug('Reflection probe unavailable',error);}
-   finally{this.renderer.xr.enabled=old;}
+   finally{this.renderer.xr.enabled=old;if(this.nearOcclusion?.mesh)this.nearOcclusion.mesh.visible=maskVisible;}
   }
   this.renderer.render(this.scene,this.camera);
   if(this.wideActive){
@@ -1216,6 +1220,7 @@ export class FloorAR {
   const lightingChanged=next.sunAzimuth!==before.sunAzimuth||next.sunElevation!==before.sunElevation||
    next.sunIntensity!==before.sunIntensity||next.ambientIntensity!==before.ambientIntensity;
   this.renderSettings=next;
+  if(next.nearOcclusion===false)this.nearOcclusion?.hide('disabled');
   if(this.sun&&lightingChanged){
    const az=THREE.MathUtils.degToRad(next.sunAzimuth),el=THREE.MathUtils.degToRad(next.sunElevation);
    const r=8;this.sun.position.set(r*Math.cos(el)*Math.cos(az),r*Math.sin(el),r*Math.cos(el)*Math.sin(az));
@@ -2258,6 +2263,7 @@ export class FloorAR {
 
  async stop(){if(this.session)try{await this.session.end();}catch{this.cleanup();}}
  cleanup(){
+  this.nearOcclusion?.dispose();this.nearOcclusion=null;
   this.setUnitSelection(null);
   if(this.frontAnimationFrame)cancelAnimationFrame(this.frontAnimationFrame);
   this.frontAnimationFrame=null;this.frontMotions.clear();this.frontControls.clear();
