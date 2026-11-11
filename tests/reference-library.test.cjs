@@ -10,7 +10,7 @@ test('five reference kitchens adapt to L/U equipment and survive serialization',
    assert.deepEqual(r.items.filter(e=>e.kind==='equipment').map(({coverStyle,...e})=>e),devices);
    assert.ok(r.items.some(f=>f.kind==='front'&&f.style===preset.front.style));
    if(preset.reference.tiers)for(const c of r.items.filter(c=>c.subtype==='upper')){
-    assert.ok(Math.abs(c.height+c.elevation-3.6)<1e-8);
+    assert.ok(Math.abs(c.height+c.elevation-3)<1e-8);
     const fs=r.items.filter(f=>f.hostId===c.id&&f.kind==='front');assert.ok(fs.some(f=>f.tier==='upper'));assert.ok(fs.some(f=>f.tier==='lower'));
     for(const f of fs)assert.ok([G.frontPose(f,c).x,G.frontPose(f,c).y,G.frontPose(f,c).z].every(Number.isFinite));
    }

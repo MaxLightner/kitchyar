@@ -20,9 +20,9 @@ test('a 20 degree cabinet bend has a real low-polygon corner connector instead o
  assert.ok(!deleted.some(o=>o.id===joins[0].id),'join cannot outlive either neighboring cabinet');
 });
 
-test('wall defaults to 3.6m and a numeric length edit reflows hosted openings and cabinets',async()=>{
+test('wall defaults to 3m and a numeric length edit reflows hosted openings and cabinets',async()=>{
  const g=await geometry();let items=g.placeWall([],{x:0,z:0},{x:5,z:0}).items;
- const w=items[0];assert.equal(w.height,3.6);
+ const w=items[0];assert.equal(w.height,3);
  items=g.placeOpening(items,w.id,2,0,{style:'fixed',width:1.2}).items;
  items=g.placeCabinet(items,{x:3,z:0,hostId:w.id,side:1},{x:4,z:0},{kind:'base'}).items;
  const edited=g.editWall(items,w.id,{length:6.31}).items;
@@ -78,7 +78,7 @@ test('ceiling and floor are hidden by default and do not trigger full remeshing 
  assert.match(ui,/roomSurfacesVisible=false/);
  assert.match(ui,/data-action="toggle-surfaces"/);
  assert.match(ui,/data-ceiling-height/);
- assert.match(three,/setRoomSurfaces\(visible=false,height=3\.6\)/);
+ assert.match(three,/setRoomSurfaces\(visible=false,height=DEFAULT_CEILING_HEIGHT\)/);
  assert.match(three,/new THREE\.ShapeGeometry\(outline\)/);
  assert.match(three,/CanvasTexture\(canvas\)/);
  assert.match(three,/this\.roomSurfaceGroup\.visible=this\.roomSurfacesVisible/);

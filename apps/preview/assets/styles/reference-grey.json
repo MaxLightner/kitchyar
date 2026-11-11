@@ -47,7 +47,8 @@
     "panel": "flat",
     "hood": "concealed",
     "tiers": {
-      "lowerHeight": 0.9,
+      "auto": true,
+      "lowerHeight": 0.6,
       "lowerDepth": 0.35,
       "upperDepth": 0.6
     },

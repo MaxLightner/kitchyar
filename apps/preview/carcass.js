@@ -1,5 +1,5 @@
 // Parametric cabinet carcasses: flat panels only, no booleans, CSG or solid filler.
-import {wardrobePanels} from './wardrobe-model.js?v=wardrobe1';
+import {wardrobePanels} from './wardrobe-model.js?v=gallery2';
 // Dimensions are metres. Local X follows the cabinet run, local Z its depth.
 export const CARCASS_THICKNESS=.018;
 export const CARCASS_BACK_THICKNESS=.008;

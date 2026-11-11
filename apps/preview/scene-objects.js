@@ -1,7 +1,8 @@
-import {wallBounds} from './kitchen-policy.js?v=wardrobe1';
+import {wallBounds,DEFAULT_CEILING_HEIGHT,checkCeilingHeight} from './kitchen-policy.js?v=gallery2';
 export const OBJECTS=[['dining4','ناهارخوری ۴ نفره'],['dining6','ناهارخوری ۶ نفره'],['dining8','ناهارخوری ۸ نفره'],['island','جزیره ساده'],['peninsula','اپن صبحانه'],['island-l','جزیره L'],['chair','صندلی'],['stool','صندلی صبحانه'],['ceiling','سقف']];
 const clone=v=>structuredClone(v),uid=()=>crypto.randomUUID();
-export function placeObject(source,point,type,{ceilingHeight=3.6}={}){
+export function placeObject(source,point,type,{ceilingHeight=DEFAULT_CEILING_HEIGHT}={}){
+ if(type==='ceiling')checkCeilingHeight(ceilingHeight);
  if(!OBJECTS.some(([t])=>t===type)||![point.x,point.z].every(Number.isFinite))throw Error('محل آبجکت معتبر نیست.');
  const items=clone(source),count=Number(type.replace('dining',''))||0;
  const o={id:uid(),kind:'scene-object',type,name:OBJECTS.find(([t])=>t===type)[1],x:point.x,z:point.z,rotation:0,...(count?{model:'desks2'}:{}),width:count?(count===4?1.2:count===6?1.8:2.4):type==='ceiling'?4:type==='chair'||type==='stool'?.45:2,depth:count?.85:type==='ceiling'?4:type==='chair'||type==='stool'?.45:.9,height:type==='ceiling'?ceilingHeight:type==='chair'?.85:type==='stool'?1.05:count?.76:.90,armLength:1.8,armDepth:.7};
@@ -16,7 +17,7 @@ export function placeObject(source,point,type,{ceilingHeight=3.6}={}){
 export function editObject(source,id,values){
  const items=clone(source),o=items.find(o=>o.id===id&&o.kind==='scene-object');if(!o)throw Error('آبجکت پیدا نشد.');
  const old={...o};
- if(o.type==='ceiling'){Object.assign(o,wallBounds(items)||{});values={height:values.height??o.height};}
+ if(o.type==='ceiling'){Object.assign(o,wallBounds(items)||{});values={height:checkCeilingHeight(Number(values.height??o.height))};}
  if(values.model!==undefined){if(!['simple','desks1','desks2'].includes(values.model))throw Error('مدل میز معتبر نیست.');o.model=values.model;}
  for(const key of ['x','z','width','depth','height','armLength','armDepth','rotation'])if(values[key]!==undefined){const n=Number(values[key]);if(!Number.isFinite(n)||Math.abs(n)>100||(['width','depth','height','armLength','armDepth'].includes(key)&&n<.1))throw Error('ابعاد معتبر نیست.');o[key]=n;}
  // A table carries its chairs when moving/rotating, while each chair remains

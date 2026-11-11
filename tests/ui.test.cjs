@@ -61,7 +61,7 @@ test('style gallery separates model application from front-only color applicatio
  assert.match(app,/action==='select-style'/);
  assert.match(app,/fetch\(assetUrl\(style\.config\)\)/);
  assert.match(app,/commitChange\(result,\{styleId:style\.id,stylePreset:preset\}\)/);
- assert.match(app,/await new Promise\(resolve=>setTimeout\(resolve,450\)\)/);
+ assert.match(app,/validateStylePreset\(style,await response\.json\(\)\)/);
  assert.match(app,/galleryMode==='color'/);
  assert.match(app,/baseFront:preset\.materials\.baseFront/);
  assert.doesNotMatch(app,/project\.scene\.materials=\{\.\.\.DEFAULT_MATERIALS,\.\.\.preset\.materials\}/);

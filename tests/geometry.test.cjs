@@ -991,11 +991,11 @@ test('one wall height becomes the project-wide height and rejects incompatible o
  let items=G.placeWall([],{x:0,z:0},{x:4,z:0}).items;
  items=G.placeWall(items,{x:4,z:0},{x:4,z:3}).items;
  const wallId=items.find(x=>x.kind==='wall').id;
- items=G.editWall(items,wallId,{height:4}).items;
- assert.ok(items.filter(x=>x.kind==='wall').every(w=>w.height===4));
- items=G.placeOpening(items,wallId,2,0,{width:1,height:1,sill:2.6}).items;
- assert.throws(()=>G.editWall(items,wallId,{height:3}),/بازشو|ناسازگار|خارج/);
- assert.ok(items.filter(x=>x.kind==='wall').every(w=>w.height===4),'failed edit does not mutate source');
+ items=G.editWall(items,wallId,{height:3.1}).items;
+ assert.ok(items.filter(x=>x.kind==='wall').every(w=>w.height===3.1));
+ items=G.placeOpening(items,wallId,2,0,{width:1,height:1,sill:2}).items;
+ assert.throws(()=>G.editWall(items,wallId,{height:2.7}),/بازشو|ناسازگار|خارج/);
+ assert.ok(items.filter(x=>x.kind==='wall').every(w=>w.height===3.1),'failed edit does not mutate source');
  const app=source('app.js');
  assert.match(app,/settings\.height=Number\(p\.scene\?\.ceilingHeight/);
  assert.match(app,/Geo\.setAllWallHeights\(result\.items,settings\.height\)/);
