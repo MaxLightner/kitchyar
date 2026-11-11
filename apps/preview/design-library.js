@@ -1,5 +1,5 @@
-import {tierHeights} from './kitchen-policy.js?v=editor67';
-import * as G from './geometry.js?v=editor67';
+import {tierHeights} from './kitchen-policy.js?v=wardrobe1';
+import * as G from './geometry.js?v=wardrobe1';
 
 export const PARTS=Object.freeze([
  ['board','تخته ساده'],['box','باکس باز'],['shelf','طبقه'],['crown','تاج کلاسیک'],

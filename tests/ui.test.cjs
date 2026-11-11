@@ -159,7 +159,7 @@ test('carcass is always hollow; drawer trays animate and the lower sheet has no 
  assert.match(renderer,/this\.frontControls\.set\(panel\.id,control\)/);
  assert.match(renderer,/cabinetCarcassPanels\(c,/);
  assert.match(renderer,/buildCarcassPanelGeometry\(panels\)/);
- assert.match(renderer,/const trayPanels=\[/);
+ assert.match(renderer,/const trayPanels=drawerTrayPanels\(pose,host\)/);
  assert.doesNotMatch(renderer,/else box\(c,0,len,y0,y0\+c\.height,c\.depth/);
  assert.match(renderer,/panel\.subtype==='drawer'/);
  assert.match(renderer,/pivot\.rotation\.y=/);

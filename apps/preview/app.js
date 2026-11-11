@@ -1,17 +1,18 @@
-import * as Objects from './scene-objects.js?v=editor67';
+import * as Objects from './scene-objects.js?v=wardrobe1';
 import {OCCLUSION_STATUS} from './near-occlusion.js?v=hands68';
-import * as Library from './design-library.js?v=editor67';
-import {FloorAR} from './floor-ar.js?v=render72';
-import * as Geo from './geometry.js?v=editor67';
-import {renderPlan,renderPreview,planPoint,fitPlanViewport} from './plan-view.js?v=editor67';
-import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=editor67';
+import * as Library from './design-library.js?v=wardrobe1';
+import {FloorAR} from './floor-ar.js?v=wardrobe1';
+import * as Geo from './geometry.js?v=wardrobe1';
+import {renderPlan,renderPreview,planPoint,fitPlanViewport} from './plan-view.js?v=wardrobe1';
+import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=wardrobe1';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=library65';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
-import {buildCutReport} from './report-data.js?v=editor67';
+import {buildCutReport} from './report-data.js?v=wardrobe1';
 import {renderCutReport} from './report-view.js?v=sheetpager39';
 import {downloadCutReportXlsx} from './report-xlsx.js?v=nest35';
 import {DEFAULT_SHEET,validateSheetOptions} from './sheet-nesting.js?v=nest35';
-import {createSmartProposal,acceptSmartProposal,renderSmartProposal,solverExampleItems} from './smart-layout-proposal.js?v=solver1';
+import {createSmartProposal,acceptSmartProposal,renderSmartProposal,solverExampleItems} from './smart-layout-proposal.js?v=wardrobe1';
+import {mountWardrobe,newWardrobeScene} from './wardrobe-workspace.js?v=wardrobe1';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -39,6 +40,7 @@ let inspectorOpen=false,inspectorSelectionKey=null;
 let paintScope='single',paintPart='panel';
 let movingEquipmentId=null,pendingSmartLayout=null;
 let smartReturnFocus=null;
+let wardrobeWorkspace=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
 let wideLevel='wide',planReturnMode='ar',planViewport=null,paintTool=null,paintMaterial='ivory-matte';
 let facadesHidden=false,roomSurfacesVisible=false,fridgeFreestanding=false;
@@ -88,6 +90,20 @@ function createSolverExample(){
  projects.unshift(p);save();go('#/editor/'+p.id);switchEditorMode('2d');
  tell('نمونه در یک پروژهٔ جدا ساخته شد. «پیشنهاد چیدمان» را بزن.');
 }
+function createWardrobeProject(){
+ const now=new Date().toISOString(),p={id:uid(),kind:'wardrobe',name:'کمد جدید',createdAt:now,updatedAt:now,scene:newWardrobeScene(),revision:0};
+ projects.unshift(p);save();go('#/wardrobe/'+p.id);
+}
+function saveWardrobeProject(project){
+ // Keep other tabs' unrelated projects when committing this wardrobe alone.
+ const latest=JSON.parse(localStorage.getItem(STORAGE)||'[]');
+ if(!Array.isArray(latest))throw Error('خواندن فهرست پروژه‌ها ناموفق بود.');
+ const index=latest.findIndex(p=>p.id===project.id);
+ if(index<0)throw Error('پروژه حذف شده است؛ صفحه را تازه کن.');
+ latest[index]=project;
+ const before=projects;projects=latest;
+ try{save();}catch(error){projects=before;throw error;}
+}
 function closeSmartProposal(){
  pendingSmartLayout=null;dialogs.replaceChildren();
  if(smartReturnFocus?.isConnected)smartReturnFocus.focus();smartReturnFocus=null;
@@ -101,12 +117,12 @@ function previewSmartLayout(){
  dialogs.querySelector('.solver-dialog').focus();
 }
 function welcome(){
- app.innerHTML='<main class="welcome"><img class="welcome-photo" src="https://maxlightner.github.io/tolica-ar/assets/welcome.png" alt=""><div class="welcome-title"><h1>KITCHYAR</h1><p>آشپزخانه را پیش از ساخت ببین.</p></div><div class="welcome-actions"><button class="primary" data-action="projects">پروژه‌های من <span>←</span></button><button data-action="new">＋ ایجاد پروژه جدید</button><button data-action="solver-example">آزمایش سالور با نمونهٔ ۴ متری</button><span class="wordmark">KITCHYAR</span></div></main>';
+ app.innerHTML='<main class="welcome"><img class="welcome-photo" src="https://maxlightner.github.io/tolica-ar/assets/welcome.png" alt=""><div class="welcome-title"><h1>KITCHYAR</h1><p>آشپزخانه را پیش از ساخت ببین.</p></div><div class="welcome-actions"><button class="primary" data-action="projects">پروژه‌های من <span>←</span></button><button data-action="new">＋ ایجاد پروژه جدید</button><button data-action="new-wardrobe">طراحی کمد</button><button data-action="solver-example">آزمایش سالور با نمونهٔ ۴ متری</button><span class="wordmark">KITCHYAR</span></div></main>';
 }
 function projectPage(){
  const sorted=[...projects].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
- app.innerHTML='<div class="page"><header class="page-header"><button class="back" data-action="home">← خانه</button><strong>KITCHYAR</strong><span>۲ / پروژه‌ها</span></header><main class="projects"><div class="page-heading"><span>YOUR WORKSPACE</span><h1>پروژه‌های من</h1><p>هر پروژه، یک فضای مستقل با ذخیره‌سازی محلی.</p></div><div class="project-grid"><button class="new-card" data-action="new"><span>＋</span><strong>پروژه جدید</strong><small>شروع با شناسایی کف در AR</small></button>'+
- sorted.map(p=>'<article class="project-card"><div class="project-art"><div class="room-icon"><i></i><i></i></div></div><div class="project-detail"><h2>'+esc(p.name)+'</h2><p>ویرایش: '+date(p.updatedAt)+'</p><div class="project-actions"><button class="primary" data-action="open" data-id="'+esc(p.id)+'">ورود به ویرایشگر AR</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش ساخت</button><button data-action="more" data-id="'+esc(p.id)+'" aria-label="گزینه‌های پروژه">⋯</button></div></div></article>').join('')+
+ app.innerHTML='<div class="page"><header class="page-header"><button class="back" data-action="home">← خانه</button><strong>KITCHYAR</strong><span>۲ / پروژه‌ها</span></header><main class="projects"><div class="page-heading"><span>YOUR WORKSPACE</span><h1>پروژه‌های من</h1><p>هر پروژه، یک فضای مستقل با ذخیره‌سازی محلی.</p></div><div class="project-grid"><button class="new-card" data-action="new"><span>＋</span><strong>پروژه آشپزخانه</strong><small>شروع با شناسایی کف در AR</small></button><button class="new-card" data-action="new-wardrobe"><span>＋</span><strong>کمد جدید</strong><small>آویز، طبقه، کشو، آینه و میز</small></button>'+
+ sorted.map(p=>'<article class="project-card"><div class="project-art"><div class="room-icon"><i></i><i></i></div></div><div class="project-detail"><h2>'+esc(p.name)+'</h2><p>ویرایش: '+date(p.updatedAt)+'</p><div class="project-actions"><button class="primary" data-action="open" data-id="'+esc(p.id)+'">ورود به ویرایشگر</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش ساخت</button><button data-action="more" data-id="'+esc(p.id)+'" aria-label="گزینه‌های پروژه">⋯</button></div></div></article>').join('')+
  '</div></main></div>';
 }
 function reportPage(id){
@@ -152,8 +168,10 @@ function editorPage(id){
  showScene();
 }
 function render(){
+ if(wardrobeWorkspace){wardrobeWorkspace.dispose();wardrobeWorkspace=null;}
  if(pendingSmartLayout)closeSmartProposal();
  const hash=location.hash||'#/welcome',target=hash.startsWith('#/editor/')?hash.slice(9):null;
+ if(hash.startsWith('#/wardrobe/')&&(floor||desktopPreview))closeFloor();
  const reportId=hash.startsWith('#/report/')?hash.slice(9):null;
  if(!target){
   if(dialogs.parentElement?.id==='editor-root')document.body.appendChild(dialogs);
@@ -172,6 +190,12 @@ function render(){
   const root=document.getElementById('editor-root');
   if(root){parkedEditor=root;parkedMode=mode;document.body.appendChild(root);root.classList.add('session-parked');}
  }else if(floor||desktopPreview)closeFloor();
+ if(hash.startsWith('#/wardrobe/')){
+  const p=projects.find(p=>p.id===hash.slice(11)&&p.kind==='wardrobe');
+  if(!p){go('#/projects');return;}
+  activeId=p.id;drawing=null;activeTool=null;selection=null;
+  wardrobeWorkspace=mountWardrobe(app,p,{save:saveWardrobeProject,tell});return;
+ }
  if(target)editorPage(target);
  else if(reportId)reportPage(reportId);
  else if(hash==='#/projects')projectPage();
@@ -1214,10 +1238,11 @@ document.addEventListener('click',async e=>{
   if(action==='home')return go('#/welcome');
   if(action==='projects')return go('#/projects');
   if(action==='new')return createProject();
+  if(action==='new-wardrobe')return createWardrobeProject();
   if(action==='solver-example')return createSolverExample();
   if(action==='preview-smart-layout')return previewSmartLayout();
-  if(action==='open')return go('#/editor/'+id,true);
-  if(action==='open-report')return go('#/report/'+(id||activeId));
+  if(action==='open'){const p=projects.find(p=>p.id===id);return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/editor/')+id,p?.kind!=='wardrobe');}
+  if(action==='open-report'){const p=projects.find(p=>p.id===(id||activeId));return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/report/')+(id||activeId));}
   if(action==='return-editor')return go('#/editor/'+id,true);
   if(action==='report-print'){window.print();return;}
   if(action==='report-sheet-prev')return moveReportSheet(-1);

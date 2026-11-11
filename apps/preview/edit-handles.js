@@ -1,5 +1,5 @@
-import {editObject} from './scene-objects.js?v=editor67';
-import {lengthOf,frontageLength,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment,moveWholeObject} from './geometry.js?v=editor67';
+import {editObject} from './scene-objects.js?v=wardrobe1';
+import {lengthOf,frontageLength,projectOnWall,editOpening,editCabinet,moveCabinetEndpoint,moveEndpoint,editFront,moveEquipment,moveWholeObject} from './geometry.js?v=wardrobe1';
 
 export const snapCm=value=>Math.round(Number(value)*100)/100;
 const n=value=>Number(value).toFixed(2);

@@ -1,8 +1,8 @@
-import {wallBounds} from './kitchen-policy.js?v=editor67';
-import {footprint} from './scene-objects.js?v=editor67';
-import {partPose} from './design-library.js?v=editor67';
-import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=editor67';
-import {renderPlanMeasurements} from './edit-handles.js?v=editor67';
+import {wallBounds} from './kitchen-policy.js?v=wardrobe1';
+import {footprint} from './scene-objects.js?v=wardrobe1';
+import {partPose} from './design-library.js?v=wardrobe1';
+import {lengthOf,wallFootprint,nearestWall,projectOnWall,cabinetFootprint,cornerFillFootprint,limitCabinetEnd,EQUIPMENT_SPECS,equipmentPosition,snapCabinetPoint,placeCabinetRoute,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts} from './geometry.js?v=wardrobe1';
+import {renderPlanMeasurements} from './edit-handles.js?v=wardrobe1';
 const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f=n=>Number(n).toFixed(4);
 export function fitPlanViewport(items){

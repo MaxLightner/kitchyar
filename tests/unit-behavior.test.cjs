@@ -34,7 +34,7 @@ test('opening animates transform-only and never performs a full scene remesh',()
  assert.doesNotMatch(select,/rebuildObjects|applyRaycastAO|setLighting/);
  assert.match(source,/const eased=1-\(1-t\)\*\*3/);
  assert.match(source,/this\.frontControls\.set\(panel\.id,control\)/);
- assert.match(source,/const trayPanels=\[/);
+ assert.match(source,/const trayPanels=drawerTrayPanels\(pose,host\)/);
  assert.match(source,/caster\.setFromCamera\(new THREE\.Vector2\(x,y\),this\.wideCamera\)/);
 });
 test('a 90-degree routed kitchen avoids intersecting 60cm cabinets in both drawing directions',async()=>{
