@@ -517,3 +517,24 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .mini-map[role="button"]{z-index:5;cursor:pointer;touch-action:manipulation}.mini-map[role="button"]:focus-visible{outline:3px solid #26735c}
 .paint-tools{display:flex;gap:8px;flex-wrap:wrap}.paint-tools button{min-height:44px}.paint-tools [aria-pressed="true"]{background:#285c49;color:white}
 .elevation-panel{display:none!important}
+
+.solver-trigger{min-height:44px;background:var(--green,#285c49);color:#fff;border-radius:9px;padding:8px 12px;white-space:nowrap}
+.solver-dialog{width:min(960px,100%);max-height:calc(100dvh - 36px);overflow-y:auto;gap:16px;overscroll-behavior:contain}
+.solver-dialog:focus{outline:2px solid #285c49;outline-offset:3px}
+.solver-dialog h2{margin:5px 0}.solver-dialog h3{font-size:16px;margin:0 0 8px}.solver-dialog p{margin:0;line-height:1.8}
+.solver-step{font-size:13px;color:#50645b}
+.solver-plans{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.solver-plans figure{margin:0;min-width:0;border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
+.solver-plans figcaption{padding:10px 14px;font-weight:700;border-bottom:1px solid var(--line)}
+.solver-plans svg{width:100%;height:230px;display:block;pointer-events:none}
+.solver-summary{display:grid;grid-template-columns:1fr 1fr 2fr;gap:10px;margin:0}
+.solver-summary div{padding:12px;background:#e6ede7;border-radius:10px}.solver-summary dt{font-size:13px;color:#394c42}.solver-summary dd{font-size:17px;font-weight:700;margin:6px 0 0}
+.solver-moves,.solver-issues ul{margin:0;padding-inline-start:24px;line-height:1.9}
+.solver-issues{padding:14px;background:#fff1e8;border:1px solid #b97952;border-radius:10px;color:#6c3717}
+.solver-ready{padding:12px;background:#e6ede7;border-radius:10px;color:#214a35}
+.solver-dialog footer{position:sticky;bottom:-22px;background:var(--paper);padding:12px 0;margin-top:2px;border-top:1px solid var(--line)}
+.solver-dialog button{min-height:44px}.solver-dialog button:focus-visible{outline:3px solid #285c49;outline-offset:3px}
+.solver-front-row{padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px}
+.solver-front-scroll{overflow-x:auto;direction:ltr}.solver-front-scroll svg{display:block;pointer-events:none;margin:auto;height:175px}
+.solver-front-scroll text{font-family:inherit;fill:#394c42;font-size:13px}
+@media(max-width:650px){.solver-plans{grid-template-columns:1fr}.solver-plans svg{height:180px}.solver-dialog{padding:16px;max-height:calc(100dvh - 24px)}.solver-dialog footer{bottom:-16px}.solver-summary{grid-template-columns:1fr 1fr}.solver-summary div:last-child{grid-column:1/-1}.editor-header{flex-wrap:wrap}.solver-trigger{order:4}}
