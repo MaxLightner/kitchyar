@@ -1,4 +1,4 @@
-import {wallBounds} from './kitchen-policy.js?v=editor67';
+import {wallBounds} from './kitchen-policy.js?v=wardrobe1';
 export const OBJECTS=[['dining4','ناهارخوری ۴ نفره'],['dining6','ناهارخوری ۶ نفره'],['dining8','ناهارخوری ۸ نفره'],['island','جزیره ساده'],['peninsula','اپن صبحانه'],['island-l','جزیره L'],['chair','صندلی'],['stool','صندلی صبحانه'],['ceiling','سقف']];
 const clone=v=>structuredClone(v),uid=()=>crypto.randomUUID();
 export function placeObject(source,point,type,{ceilingHeight=3.6}={}){

@@ -1,4 +1,5 @@
 // Parametric cabinet carcasses: flat panels only, no booleans, CSG or solid filler.
+import {wardrobePanels} from './wardrobe-model.js?v=wardrobe1';
 // Dimensions are metres. Local X follows the cabinet run, local Z its depth.
 export const CARCASS_THICKNESS=.018;
 export const CARCASS_BACK_THICKNESS=.008;
@@ -7,6 +8,7 @@ const near=(a,b,epsilon=.012)=>Math.abs(a-b)<epsilon;
 const panel=(part,x,y,z,width,height,depth)=>({part,x,y,z,width,height,depth});
 
 export function cabinetCarcassPanels(c,fronts=[],equipment=[],voids=[]){
+ if(c.wardrobe)return wardrobePanels(c);
  if(c.upperTiers){
   const {lowerHeight,lowerDepth,upperDepth}=c.upperTiers,split=lowerHeight/c.height;
   return [[0,lowerHeight,lowerDepth,'lower'],[lowerHeight,c.height-lowerHeight,upperDepth,'upper']].flatMap(([offset,height,depth,tier])=>{

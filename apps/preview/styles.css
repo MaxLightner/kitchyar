@@ -537,4 +537,31 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .solver-front-row{padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px}
 .solver-front-scroll{overflow-x:auto;direction:ltr}.solver-front-scroll svg{display:block;pointer-events:none;margin:auto;height:175px}
 .solver-front-scroll text{font-family:inherit;fill:#394c42;font-size:13px}
+
+/* Wardrobe workspace shares materials and metric geometry with the kitchen. */
+.wardrobe-app{min-height:100dvh;background:var(--paper);color:#293c33}
+.wardrobe-header{display:flex;align-items:center;gap:14px;padding:16px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:#f8f5ef}
+.wardrobe-header a{color:#294c3d;text-decoration:none;padding:12px}.wardrobe-header h1{font-size:21px;margin:3px 0}.wardrobe-header small{font-size:13px;color:#65756b}
+.wardrobe-save{margin-inline-start:auto;color:#426a50;font-size:13px}
+.wardrobe-app button{min-height:44px;padding:9px 13px;border:1px solid #bdc9bf;background:#fff;border-radius:9px;color:#2b4839;font:inherit;cursor:pointer}
+.wardrobe-app button.primary,.wardrobe-app button[aria-pressed="true"]{background:#285c49;color:white;border-color:#285c49}.wardrobe-app button:disabled{opacity:.4;cursor:default}
+.wardrobe-app :is(button,input,select,a):focus-visible{outline:3px solid #b18542;outline-offset:2px}
+.wardrobe-layout{display:grid;grid-template-columns:minmax(310px,360px) minmax(0,1fr);direction:rtl;max-width:1900px;margin:auto}
+.wardrobe-settings{grid-column:1;grid-row:1;padding:18px;max-height:calc(100dvh - 100px);overflow-y:auto;border-inline-end:1px solid var(--line)}
+.wardrobe-preview{grid-column:2;grid-row:1;min-width:0;padding:18px}
+.wardrobe-viewbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.wardrobe-viewport{height:clamp(360px,65dvh,750px);position:relative;background:#e9ede8;border:1px solid #c7d0c7;border-radius:16px;overflow:hidden}
+#wardrobe-3d,#wardrobe-elevation{position:absolute;inset:0}#wardrobe-elevation{padding:24px}#wardrobe-elevation svg{width:100%;height:100%;display:block}
+.wardrobe-preview .preview-3d-canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.wardrobe-view-help{font-size:13px;color:#5b6c61;line-height:1.9}.wardrobe-selection{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.wardrobe-setting-block{margin-bottom:20px}.wardrobe-setting-block h2{font-size:19px;margin:4px 0 14px}.wardrobe-eyebrow{font-size:13px;color:#697b6c}
+.wardrobe-settings label{display:flex;flex-direction:column;gap:6px;margin:10px 0;font-size:14px}
+.wardrobe-settings input[type="number"],.wardrobe-settings select{width:100%;min-width:0;min-height:44px;padding:8px 10px;border:1px solid #bac6bc;border-radius:8px;background:#fff;font:inherit;color:#293c33}
+.wardrobe-dimensions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.wardrobe-bay{padding:14px;margin:14px 0;background:#fff;border:1px solid #c3cec4;border-radius:12px}.wardrobe-bay h3{font-size:16px;margin:0 0 12px}.wardrobe-bay h3 small{display:block;font-size:13px;color:#65756b;margin-top:5px}
+.wardrobe-bay-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.wardrobe-bay-actions button{font-size:13px}
+.wardrobe-door-row{border-top:1px solid #e0e6df;padding-top:10px;margin-top:10px}.wardrobe-door-row label.wardrobe-check{display:flex;flex-direction:row;gap:9px;align-items:center;min-height:36px}.wardrobe-check input{width:18px;height:18px}
+.wardrobe-drawer-toggle{display:block;width:100%;margin-top:6px}.wardrobe-bay-note{background:#e9eee4;border-radius:8px;padding:10px}
+.wardrobe-small,.wardrobe-setting-block p,.wardrobe-bay-note{font-size:13px;line-height:1.9;color:#516357}.wardrobe-parts-button{width:100%}
+#wardrobe-parts{margin-top:20px;background:#fff;padding:16px;border:1px solid var(--line);border-radius:12px}#wardrobe-parts h2{font-size:19px}.wardrobe-parts-scroll{overflow:auto;margin-top:14px;max-height:450px}.wardrobe-parts-scroll table{border-collapse:collapse;width:100%;white-space:nowrap;font-size:13px}.wardrobe-parts-scroll th,.wardrobe-parts-scroll td{padding:10px;border:1px solid #d4ddd2;text-align:right}.wardrobe-parts-scroll th{background:#e8eee4}
+@media(max-width:850px){.wardrobe-header{padding:12px;gap:8px}.wardrobe-layout{display:flex;flex-direction:column}.wardrobe-preview{padding:12px}.wardrobe-settings{max-height:none;overflow:visible;padding:16px;border:0}.wardrobe-viewport{height:52dvh;min-height:340px}.wardrobe-save{display:none}.wardrobe-header h1{font-size:18px}.wardrobe-viewbar{gap:6px}.wardrobe-viewbar button{flex:1 1 auto;font-size:13px}}
 @media(max-width:650px){.solver-plans{grid-template-columns:1fr}.solver-plans svg{height:180px}.solver-dialog{padding:16px;max-height:calc(100dvh - 24px)}.solver-dialog footer{bottom:-16px}.solver-summary{grid-template-columns:1fr 1fr}.solver-summary div:last-child{grid-column:1/-1}.editor-header{flex-wrap:wrap}.solver-trigger{order:4}}

@@ -1,18 +1,19 @@
-import {wallBounds} from './kitchen-policy.js?v=editor67';
-import {createChidoChair} from './chido-chair.js?v=editor67';
+import {wallBounds} from './kitchen-policy.js?v=wardrobe1';
+import {createChidoChair} from './chido-chair.js?v=wardrobe1';
 import {NearRealOcclusion,nearDepthSessionOptions} from './near-occlusion.js?v=hands68';
-import {partPose} from './design-library.js?v=editor67';
+import {partPose} from './design-library.js?v=wardrobe1';
 /* Chido v0.5.7 floor detection adapter, pinned to its exact source commit. */
 import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/vendor/three.module.js';
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {xrError} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,backsplashSpan,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=editor67';
-import {neighborGaps} from './edit-handles.js?v=editor67';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,backsplashSpan,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=wardrobe1';
+import {neighborGaps} from './edit-handles.js?v=wardrobe1';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=library65';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
-import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=editor67';
+import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=wardrobe1';
+import {wardrobeRods,drawerTrayPanels,WARDROBE_RULES} from './wardrobe-model.js?v=wardrobe1';
 import {roomOutline} from './room-surfaces.js?v=room40';
 import {loadEnvironmentHDR} from './environment-hdr.js';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
@@ -518,6 +519,9 @@ export class FloorAR {
   if(!this.editGroup)return;
   this._clearEdit(this.editGroup);
   const obj=items?.find(x=>x.id===this.selectedId);if(!obj)return;
+  // Wardrobe dimensions are edited by its numeric panel; do not expose
+  // kitchen drag handles that its dedicated workspace cannot operate.
+  if(obj.wardrobe||items.some(c=>c.wardrobe&&c.id===obj.hostId))return;
   const mark=(side,x,y,z,color)=>{
    const mesh=new THREE.Mesh(new THREE.SphereGeometry(.0525,12,10),
     new THREE.MeshBasicMaterial({color,depthTest:false,transparent:true,opacity:.95}));
@@ -965,7 +969,7 @@ export class FloorAR {
    const shift=pose.width*.85*fraction*(panel.part%2?-1:1);root.position.set(pose.x+Math.cos(pose.angle)*shift,pose.y,pose.z+Math.sin(pose.angle)*shift);if(pivot){pivot.rotation.x=0;pivot.rotation.y=0;}
   }else if(pivot){
    if(panel.hinge==='top')pivot.rotation.x=-pose.side*fraction*Math.PI*.48;
-   else pivot.rotation.y=(panel.hinge==='right'?1:-1)*pose.side*fraction*Math.PI*.49;
+    else pivot.rotation.y=(panel.hinge==='right'?1:-1)*pose.side*fraction*(host.wardrobe?WARDROBE_RULES.hingeAngle:Math.PI*.49);
    if(panel.mechanism==='bifold'&&panel.hinge==='top'){
     const upper=this.items.find(f=>f.kind==='front'&&f.hostId===panel.hostId&&(panel.unitKey?f.unitKey===panel.unitKey:f.bay===panel.bay)&&f.bottomT>panel.bottomT+.001);
     if(upper){
@@ -985,9 +989,9 @@ export class FloorAR {
    jack.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());jack.mesh.visible=fraction>.03&&!this.facadesHidden;
   }
  }
- animateFront(id,to){
+ animateFront(id,to,delay=0){
   const control=this.frontControls.get(id);if(!control)return;
-  this.frontMotions.set(id,{from:control.fraction,to,start:performance.now(),duration:to?420:520});
+  this.frontMotions.set(id,{from:control.fraction,to,start:performance.now()+delay,duration:to?420:520});
   if(this.frontAnimationFrame)return;
   const tick=now=>{
    this.frontAnimationFrame=null;
@@ -1010,7 +1014,11 @@ export class FloorAR {
   this.itemsSource=items;this.itemsSignature=JSON.stringify(items);this.items=structuredClone(items);
   for(const f of this.items.filter(f=>f.kind==='front')){
    const previous=before.get(f.id)||0,next=f.openFraction||0;
-   if(Math.abs(previous-next)>.001)this.animateFront(f.id,next);
+   if(Math.abs(previous-next)>.001){
+    const wardrobe=this.items.some(c=>c.id===f.hostId&&c.wardrobe);
+    const waitForDrawer=wardrobe&&f.subtype==='door'&&next===0&&this.items.some(d=>d.wardrobeInternal&&d.wardrobeBay===f.wardrobeBay&&(before.get(d.id)||0)>.01);
+    if(waitForDrawer)this.animateFront(f.id,next,520);else this.animateFront(f.id,next);
+   }
   }
  }
  setMaterials(materials={}){
@@ -1658,6 +1666,12 @@ export class FloorAR {
    const panels=cabinetCarcassPanels(c,
     this.items.filter(f=>f.kind==='front'&&f.hostId===c.id),
     this.items.filter(e=>e.kind==='equipment'&&e.hostId===c.id),cabinetVoidRanges(this.items,c));
+   if(c.wardrobe)for(const rod of wardrobeRods(c)){
+    const rail=new THREE.Mesh(new THREE.CylinderGeometry(rod.radius,rod.radius,rod.length,12),material(0xa8aeb0,{metalness:.85,roughness:.24}));
+    rail.rotation.z=Math.PI/2;rail.position.set(rod.x,rod.y,rod.z);
+    const mount=new THREE.Group();mount.position.set(cx,0,cz);mount.rotation.y=-angle;mount.add(rail);
+    rail.userData.objectId=c.id;rail.castShadow=true;this.objectGroup.add(mount);
+   }
    const batch=buildCarcassPanelGeometry(panels);
    if(batch.indices.length){
     const geo=new THREE.BufferGeometry();
@@ -1748,12 +1762,12 @@ export class FloorAR {
      }
      stone.dispose();
     }
-    const toe=new THREE.Mesh(new THREE.BoxGeometry(len,.085,.09),
+    if(!c.wardrobe){const toe=new THREE.Mesh(new THREE.BoxGeometry(len,.085,.09),
      decor.toeKick==='body'?bodyMat.clone():material(0x776d62,{metalness:.03,roughness:.68}));
     const recess=decor.toeKick==='flush'?c.depth/2-.017:c.depth/2-.064;
     toe.position.set(cx+nx*(c.side||1)*recess,Math.max(.042,y0-.035),cz+nz*(c.side||1)*recess);
     toe.rotation.y=-angle;toe.castShadow=true;toe.receiveShadow=true;
-    toe.userData.objectId=c.id;toe.userData.cabinet=true;this.objectGroup.add(toe);
+    toe.userData.objectId=c.id;toe.userData.cabinet=true;this.objectGroup.add(toe);}
    }
    if(['upper','over-fridge','tall'].includes(c.subtype)&&decor.crown!=='none'){
     const top=y0+c.height,depth=c.depth+.045;
@@ -1905,19 +1919,12 @@ export class FloorAR {
      pivot.position.x=(left?-1:1)*pose.width/2;
      face.position.x=(left?1:-1)*pose.width/2;
     }
+    if(host.wardrobe){pivot.position.z=pose.side*WARDROBE_RULES.hingeOffset;face.position.z=-pose.side*WARDROBE_RULES.hingeOffset;}
     root.add(pivot);pivot.add(face);leaf=face;
    }
    let tray=null;
    if(panel.subtype==='drawer'){
-    const depth=Math.min(host.depth*.75,.48),width=Math.max(.10,pose.width-.036),
-     wall=.012,low=-pose.height/2+.025,rail=Math.max(.045,Math.min(.14,pose.height*.52));
-    const z=-pose.side*(depth/2+.017),back=-pose.side*(depth+.011);
-    const trayPanels=[
-     {x:0,y:low,z,width,height:.014,depth},
-     {x:-width/2+wall/2,y:low+rail/2,z,width:wall,height:rail,depth},
-     {x:width/2-wall/2,y:low+rail/2,z,width:wall,height:rail,depth},
-     {x:0,y:low+rail/2,z:back,width,height:rail,depth:wall}
-    ];
+    const trayPanels=drawerTrayPanels(pose,host);
     const batch=buildCarcassPanelGeometry(trayPanels),geo=new THREE.BufferGeometry();
     geo.setAttribute('position',new THREE.Float32BufferAttribute(batch.positions,3));
     geo.setAttribute('normal',new THREE.Float32BufferAttribute(batch.normals,3));
@@ -1956,6 +1963,10 @@ export class FloorAR {
     if(glassPanel){faceBox(.018,pose.height-2*rail,.024);for(const y of [-1,1])faceBox(pose.width-2*rail,.018,.024,0,y*(pose.height-2*rail)/6);}
     if(panel.style==='cross')for(const sign of [-1,1]){const w=pose.width-2*rail,h=pose.height-2*rail,m=faceBox(Math.hypot(w,h),.024,.018,0,0,pose.side*.015);m.rotation.z=sign*Math.atan2(h,w);}
    }else faceBox(pose.width,pose.height,pose.thickness);
+   if(panel.mirror){
+    const mirrorMaterial=new THREE.MeshStandardMaterial({color:0xe9f0f2,metalness:1,roughness:.025,envMap:this.environmentTexture,envMapIntensity:1.4});
+    faceBox(Math.max(.1,pose.width-.032),Math.max(.1,pose.height-.032),.004,0,0,pose.side*(pose.thickness/2+.003),mirrorMaterial);
+   }
    if(panel.style==='fluted')for(let x=-pose.width/2+.025;x<pose.width/2;x+=.035)faceBox(.012,pose.height,.009,x,0,pose.side*.014);
 
    if(panel.style==='cnc'){

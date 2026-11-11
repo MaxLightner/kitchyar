@@ -1,4 +1,5 @@
-import {tierHeights} from './kitchen-policy.js?v=editor67';
+import {tierHeights} from './kitchen-policy.js?v=wardrobe1';
+import {WARDROBE_RULES} from './wardrobe-model.js?v=wardrobe1';
 /*
  * Browser port of Archyar domain/WallTopology.java and DrawingSnap.java.
  * Source: MaxLightner/archyar main (private), 89283efb, 2026-10-31.
@@ -556,7 +557,7 @@ export function frontPose(front,c){
  }
  const side=c.side||1,nx=-uz*side,nz=ux*side;
  const tier=c.upperTiers,depth=tier?(front.tier==='upper'?tier.upperDepth:tier.lowerDepth):c.depth;
- const mid=(front.startT+front.endT)/2,face=depth-c.depth/2+.014+(front.opening==='sliding'?(front.part%2)*.026:0),gap=front.gap??.003;
+ const mid=(front.startT+front.endT)/2,face=depth-c.depth/2+.014+(front.opening==='sliding'?(front.part%2)*.026:0)-(front.wardrobeInternal?WARDROBE_RULES.drawerSetback:0),gap=front.gap??.003;
  return {x:c.x1+ux*len*mid+nx*face,z:c.z1+uz*len*mid+nz*face,
   y:(c.elevation??.08)+c.height*(front.bottomT+front.topT)/2,
   angle:Math.atan2(uz,ux),side,width:Math.max(.10,(front.endT-front.startT)*len-gap),
