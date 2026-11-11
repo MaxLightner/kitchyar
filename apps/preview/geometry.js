@@ -1,12 +1,12 @@
-import {tierHeights} from './kitchen-policy.js?v=wardrobe1';
-import {WARDROBE_RULES} from './wardrobe-model.js?v=wardrobe1';
+import {tierHeights,DEFAULT_CEILING_HEIGHT,MAX_CEILING_HEIGHT} from './kitchen-policy.js?v=gallery2';
+import {WARDROBE_RULES} from './wardrobe-model.js?v=gallery2';
 /*
  * Browser port of Archyar domain/WallTopology.java and DrawingSnap.java.
  * Source: MaxLightner/archyar main (private), 89283efb, 2026-10-31.
  * Metres, stable shared endpoint node IDs, transactional topology.
  */
 import {solveRow,splitRegularGap} from './row-solver.js?v=kitchen64';
-import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=library65';
+import {KITCHEN_STYLES,MATERIALS} from './materials.js?v=gallery2';
 import {OPTIMIZATION_RULES,facadeWidthPenalty,chooseFacadeBayCount} from './optimization-rules.js?v=kitchen64';
 export const SNAP_RADIUS=.50;
 const cm=value=>Math.round(value*100)/100;
@@ -38,7 +38,7 @@ function normalize(items){
 function checkWall(a,b,thickness,height){
  if(!finite(a.x,a.z,b.x,b.z,thickness,height))throw Error('ابعاد دیوار نامعتبر است.');
  if(dist(a.x,a.z,b.x,b.z)<.10)throw Error('طول دیوار باید حداقل ۱۰ سانتی‌متر باشد.');
- if(thickness<.07||thickness>.8||height<.4||height>9)
+ if(thickness<.07||thickness>.8||height<.4||height>MAX_CEILING_HEIGHT)
   throw Error('ارتفاع یا ضخامت دیوار خارج از بازه است.');
 }
 export function snap(items,x,z,tolerance=SNAP_RADIUS){
@@ -308,7 +308,7 @@ function connectCrossings(items,id){
   }
  }
 }
-export function placeWall(source,start,end,{thickness=.12,height=3.6,tolerance=SNAP_RADIUS}={}){
+export function placeWall(source,start,end,{thickness=.12,height=DEFAULT_CEILING_HEIGHT,tolerance=SNAP_RADIUS}={}){
  thickness=cm(thickness);height=cm(height);
  checkWall(start,end,thickness,height);
  const items=copy(source);normalize(items);
@@ -2221,7 +2221,7 @@ export function editWall(source,id,{length,thickness,height}){
   if(other.startNodeId===node){other.x1=x;other.z1=z;}
   if(other.endNodeId===node){other.x2=x;other.z2=z;}
  }
- if(high<2||high>9)throw Error('ارتفاع همهٔ دیوارها باید بین ۲ تا ۹ متر باشد.');
+ if(high<2||high>MAX_CEILING_HEIGHT)throw Error('ارتفاع همهٔ دیوارها باید بین ۲ تا ۳٫۱ متر باشد.');
  w.thickness=thick;
  for(const other of items)if(wall(other))other.height=high;
  for(const other of items)if(wall(other)){if(lengthOf(other)<.10)throw Error('دیوار کوتاه می‌شود.');validateHostOpenings(items,other);validateCabinets(items,other);}
@@ -2229,7 +2229,7 @@ export function editWall(source,id,{length,thickness,height}){
 }
 export function setAllWallHeights(source,height){
  const target=cm(Number(height));
- if(!Number.isFinite(target)||target<2||target>9)throw Error('ارتفاع سقف باید بین ۲ تا ۹ متر باشد.');
+ if(!Number.isFinite(target)||target<2||target>MAX_CEILING_HEIGHT)throw Error('ارتفاع سقف باید بین ۲ تا ۳٫۱ متر باشد.');
  const items=copy(source);
  for(const w of items.filter(wall))w.height=target;
  for(const ceiling of items.filter(o=>o.kind==='scene-object'&&o.type==='ceiling'))ceiling.height=target;

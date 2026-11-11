@@ -1,7 +1,7 @@
 /* Read-only manufacturing overview from the semantic kitchen project.
    This is deliberately a schematic schedule, never a CNC nesting/cut program. */
-import {lengthOf,countertopCutouts,frontPose} from './geometry.js?v=wardrobe1';
-import {MATERIALS,DEFAULT_MATERIALS,resolveFinish} from './materials.js?v=library65';
+import {lengthOf,countertopCutouts,frontPose} from './geometry.js?v=gallery2';
+import {MATERIALS,DEFAULT_MATERIALS,resolveFinish} from './materials.js?v=gallery2';
 import {nestFronts} from './sheet-nesting.js?v=nest35';
 
 const mm=metres=>Math.round(metres*1000);

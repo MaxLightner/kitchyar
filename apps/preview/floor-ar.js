@@ -1,24 +1,25 @@
-import {wallBounds} from './kitchen-policy.js?v=wardrobe1';
-import {createChidoChair} from './chido-chair.js?v=wardrobe1';
+import {wallBounds,DEFAULT_CEILING_HEIGHT,MAX_CEILING_HEIGHT} from './kitchen-policy.js?v=gallery2';
+import {createChidoChair} from './chido-chair.js?v=gallery2';
 import {NearRealOcclusion,nearDepthSessionOptions} from './near-occlusion.js?v=hands68';
-import {partPose} from './design-library.js?v=wardrobe1';
+import {partPose} from './design-library.js?v=gallery2';
 /* Chido v0.5.7 floor detection adapter, pinned to its exact source commit. */
 import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/vendor/three.module.js';
 import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
 import {xrError} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
 import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
-import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,backsplashSpan,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=wardrobe1';
-import {neighborGaps} from './edit-handles.js?v=wardrobe1';
-import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=library65';
+import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,backsplashSpan,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=gallery2';
+import {neighborGaps} from './edit-handles.js?v=gallery2';
+import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=gallery2';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
-import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=wardrobe1';
-import {wardrobeRods,drawerTrayPanels,WARDROBE_RULES} from './wardrobe-model.js?v=wardrobe1';
+import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=gallery2';
+import {wardrobeRods,drawerTrayPanels,WARDROBE_RULES} from './wardrobe-model.js?v=gallery2';
 import {roomOutline} from './room-surfaces.js?v=room40';
 import {loadEnvironmentHDR} from './environment-hdr.js';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
 import {getApplianceTemplate,fitApplianceModel} from './appliance-models.js?v=render72';
 import {countertopSurfaceY,COUNTERTOP_MIN_FILLET,COUNTERTOP_TOP_OFFSET} from './countertop-surface.js?v=render72';
+import {softenFrontNormals} from './front-normals.js?v=gallery2';
 
 const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]];
 // Raycaster may return intersections belonging to invisible ancestor groups.
@@ -35,7 +36,7 @@ export class FloorAR {
    this.materialSettings={...DEFAULT_MATERIALS};this.tileLayout={...DEFAULT_TILE_LAYOUT};this.textureCache=new Map();
    this.wideRenderer=null;this.wideCamera=null;this.wideActive=false;this.wideLevel='wide';
    this.facadesHidden=false;this.frontRoots=[];this.frontControls=new Map();this.frontMotions=new Map();
-   this.roomSurfacesVisible=false;this.ceilingHeight=3.6;this.resizingWindowId=null;
+   this.roomSurfacesVisible=false;this.ceilingHeight=DEFAULT_CEILING_HEIGHT;this.resizingWindowId=null;
  }
  report(message,extra={}){
   this.update({message,locked:this.locked,ready:this.scanner.ready,
@@ -915,8 +916,8 @@ export class FloorAR {
   // Visibility is view state: no remeshing, AO, project mutation or undo step.
   this.renderPreview();
  }
- setRoomSurfaces(visible=false,height=3.6){
-  const nextHeight=Math.max(2,Math.min(9,Number(height)||3.6));
+ setRoomSurfaces(visible=false,height=DEFAULT_CEILING_HEIGHT){
+  const nextHeight=Math.max(2,Math.min(MAX_CEILING_HEIGHT,Number(height)||DEFAULT_CEILING_HEIGHT));
   const changed=Math.abs(nextHeight-this.ceilingHeight)>.001;
   if(!changed&&this.roomSurfaceGroup?.visible===!!visible)return;
   this.roomSurfacesVisible=!!visible;this.ceilingHeight=nextHeight;
@@ -1411,7 +1412,7 @@ export class FloorAR {
    ghost.position.set(at.x,level+spec.height/2,at.z);ghost.rotation.y=-rotation;
    ghost.renderOrder=20;group.add(ghost);group.visible=true;return;
   }
-  if(kind==='wall'){if(!a)to={x:p.x+1.1,z:p.z};width=.12;height=this.drawing.height||3.6;colour=0x67cba7;}
+  if(kind==='wall'){if(!a)to={x:p.x+1.1,z:p.z};width=.12;height=this.drawing.height||DEFAULT_CEILING_HEIGHT;colour=0x67cba7;}
   else{
    const host=a?.hostId?this.items.find(w=>w.id===a.hostId):
     nearestWallLocal(this.items,p.x,p.z);
@@ -1947,6 +1948,7 @@ export class FloorAR {
     let geometry;
     const bevel=Math.min(.003,d/3,w/5,h/5);
     if(w>.03&&h>.03&&d>.009){const shape=new THREE.Shape();shape.moveTo(-w/2+bevel,-h/2+bevel);shape.lineTo(w/2-bevel,-h/2+bevel);shape.lineTo(w/2-bevel,h/2-bevel);shape.lineTo(-w/2+bevel,h/2-bevel);shape.closePath();geometry=new THREE.ExtrudeGeometry(shape,{depth:d-2*bevel,bevelEnabled:true,bevelSegments:1,steps:1,bevelSize:bevel,bevelThickness:bevel,curveSegments:1});geometry.translate(0,0,-d/2+bevel);}else geometry=new THREE.BoxGeometry(w,h,d);
+    if(!panel.mirror&&w>.10&&h>.10)softenFrontNormals(geometry,w,h);
     const surface=new THREE.Mesh(this.applySurfaceUV(geometry,mat,w,h,d),mat.clone());
     surface.position.set(x,y,z);surface.castShadow=true;surface.receiveShadow=true;surface.userData.objectId=panel.id;leaf.add(surface);return surface;
    };

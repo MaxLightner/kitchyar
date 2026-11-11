@@ -19,7 +19,7 @@ test('equipment-style tall unit follows upper-cabinet top and offers independent
  assert.equal(c.tallDoorRows,1);
  assert.equal(c.tallDoorLeaves,2);
  assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,2);
- p=Geo.setAllWallHeights(p.items,4.2);
+ p=Geo.setAllWallHeights(p.items,3.1);
  c=tall(p.items);
  assert.ok(Math.abs(c.height-2.45)<.001);
  assert.equal(p.items.filter(f=>f.kind==='front'&&f.hostId===c.id).length,2);

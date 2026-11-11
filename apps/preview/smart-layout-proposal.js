@@ -1,6 +1,6 @@
-import * as Geo from './geometry.js?v=wardrobe1';
-import {renderPlan,fitPlanViewport} from './plan-view.js?v=wardrobe1';
-import {renderFrontElevation} from './edit-handles.js?v=wardrobe1';
+import * as Geo from './geometry.js?v=gallery2';
+import {renderPlan,fitPlanViewport} from './plan-view.js?v=gallery2';
+import {renderFrontElevation} from './edit-handles.js?v=gallery2';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cm=n=>new Intl.NumberFormat('fa-IR',{maximumFractionDigits:1}).format(n*100);

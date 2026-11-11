@@ -1,7 +1,14 @@
+export const MAX_AUTO_LOWER_TIER=.60;
+export const DEFAULT_CEILING_HEIGHT=3;
+export const MAX_CEILING_HEIGHT=3.1;
+export function checkCeilingHeight(height){
+ if(!Number.isFinite(height)||height<2||height>MAX_CEILING_HEIGHT)throw Error('ارتفاع سقف باید بین ۲ تا ۳٫۱ متر باشد.');
+ return height;
+}
 export function tierHeights(ceiling,elevation=1.5,lower=null){
  const total=Math.round((ceiling-elevation)*100)/100;
  if(!Number.isFinite(total)||total<.4)throw Error('برای هوایی دوطبقه حداقل ۴۰ سانتی‌متر فضای مفید لازم است.');
- const bottom=lower==null?Math.round((total-Math.min(.9,total*2/3))*100)/100:Number(lower);
+ const bottom=lower==null?Math.min(MAX_AUTO_LOWER_TIER,Math.round((total-Math.min(.9,total*2/3))*100)/100):Number(lower);
  if(!Number.isFinite(bottom)||bottom<.2||total-bottom<.2)throw Error('هر طبقه حداقل ۲۰ سانتی‌متر ارتفاع لازم دارد.');
  return {total,lower:bottom,upper:Math.round((total-bottom)*100)/100};
 }

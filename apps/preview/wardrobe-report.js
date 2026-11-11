@@ -1,5 +1,5 @@
-import {wardrobePanels,wardrobeRods,drawerTrayPanels} from './wardrobe-model.js?v=wardrobe1';
-import {frontPose} from './geometry.js?v=wardrobe1';
+import {wardrobePanels,wardrobeRods,drawerTrayPanels} from './wardrobe-model.js?v=gallery2';
+import {frontPose} from './geometry.js?v=gallery2';
 const labels={'left-side':'پهلو چپ','right-side':'پهلو راست',top:'سقف',back:'پشت',bottom:'کف بخش',divider:'جداکنندهٔ عمودی',
  shelf:'طبقه','top-shelf':'طبقهٔ بالای آویز','drawer-cap':'طبقهٔ بالای کشو','desk-top':'صفحهٔ میز','desk-upper-shelf':'طبقهٔ بالای میز',
  'drawer-bottom':'کف کشو','drawer-side':'بغل کشو','drawer-back':'پشت کشو'};

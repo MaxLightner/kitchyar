@@ -1,8 +1,8 @@
-import {FloorAR} from './floor-ar.js?v=wardrobe1';
-import {frontPose} from './geometry.js?v=wardrobe1';
-import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=library65';
-import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=wardrobe1';
-import {wardrobeParts} from './wardrobe-report.js?v=wardrobe1';
+import {FloorAR} from './floor-ar.js?v=gallery2';
+import {frontPose} from './geometry.js?v=gallery2';
+import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=gallery2';
+import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=gallery2';
+import {wardrobeParts} from './wardrobe-report.js?v=gallery2';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cm=n=>Math.round(n*1000)/10,num=n=>new Intl.NumberFormat('fa-IR',{maximumFractionDigits:1}).format(n);

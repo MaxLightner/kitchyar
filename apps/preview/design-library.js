@@ -1,5 +1,5 @@
-import {tierHeights} from './kitchen-policy.js?v=wardrobe1';
-import * as G from './geometry.js?v=wardrobe1';
+import {tierHeights,DEFAULT_CEILING_HEIGHT,MAX_CEILING_HEIGHT,checkCeilingHeight} from './kitchen-policy.js?v=gallery2';
+import * as G from './geometry.js?v=gallery2';
 
 export const PARTS=Object.freeze([
  ['board','تخته ساده'],['box','باکس باز'],['shelf','طبقه'],['crown','تاج کلاسیک'],
@@ -22,7 +22,7 @@ export function configureTiers(source,{enabled=true,lowerHeight=null,lowerDepth=
  if(!uppers.length)throw Error('ابتدا کابینت هوایی بکش.');
  for(const old of uppers){
   const c=items.find(c=>c.id===old.id);
-  const wall=items.find(w=>w.id===c.hostId),ceiling=Number(ceilingHeight??wall?.height??3.6);
+  const wall=items.find(w=>w.id===c.hostId),ceiling=checkCeilingHeight(Number(ceilingHeight??wall?.height??DEFAULT_CEILING_HEIGHT));
   if(enabled){
    c.elevation=1.5;
    const heights=tierHeights(ceiling,c.elevation,auto?null:lowerHeight);
@@ -38,7 +38,9 @@ export function configureTiers(source,{enabled=true,lowerHeight=null,lowerDepth=
  return {items,selectedId:uppers[0].id};
 }
 export function upgradeLegacyTiers(source,ceilingHeight){
- const legacy=source.filter(c=>c.kind==='cabinet'&&c.upperTiers&&c.upperTiers.auto===undefined);
+ if(Number(ceilingHeight)>MAX_CEILING_HEIGHT)return source;
+ const legacy=source.filter(c=>c.kind==='cabinet'&&c.upperTiers&&c.upperTiers.auto!==false&&
+  (c.upperTiers.auto===undefined||Math.abs(c.upperTiers.lowerHeight-tierHeights(Number(ceilingHeight??c.upperTiers.ceilingHeight??DEFAULT_CEILING_HEIGHT)).lower)>.001));
  if(!legacy.length)return source;
  let items=source;
  for(const c of legacy)items=configureTiers(items,{cabinetIds:[c.id],ceilingHeight,lowerDepth:c.upperTiers.lowerDepth,upperDepth:c.upperTiers.upperDepth}).items;
