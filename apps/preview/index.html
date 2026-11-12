@@ -6,12 +6,13 @@
 <meta name="theme-color" content="#eee7df">
 <title>کیچیار | KITCHYAR</title>
 <link rel="stylesheet" href="./styles.css?v=gallery2">
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/vendor/three.module.js"}}</script>
+<script type="importmap">{"imports":{"three":"./vendor/chido/vendor/three.module.js"}}</script>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"><main class="welcome" id="startup-status" role="status"><div class="welcome-title"><h1>KITCHYAR</h1><p>در حال بارگیری کیچیار…</p><button id="startup-retry" type="button" hidden>تلاش دوباره</button></div></main></div>
+<noscript>برای اجرای کیچیار، جاوااسکریپت مرورگر باید فعال باشد.</noscript>
 <div id="dialog-root"></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<script type="module" src="./app.js?v=gallery2"></script>
+<script src="./bootstrap.js?v=local1" defer></script>
 </body>
 </html>

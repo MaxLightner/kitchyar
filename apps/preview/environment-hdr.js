@@ -1,7 +1,7 @@
 // Radiance RGBE HDR loader for the vendored Three.js module.
 // Keeps IBL independent from addon/CDN versions and never changes the camera background.
-import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/vendor/three.module.js';
-const SOURCES=['./assets/lighting/1.hdr','https://showroom.silktouchjoinery.com.au/models/1.hdr'];
+import * as THREE from './vendor/chido/vendor/three.module.js';
+const SOURCES=['./assets/lighting/1.hdr'];
 let bytesPromise;
 function readHDR(buffer){
  const bytes=new Uint8Array(buffer);let offset=0;

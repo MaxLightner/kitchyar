@@ -1,4 +1,4 @@
-import {FloorAR} from './floor-ar.js?v=gallery2';
+import {FloorAR} from './floor-ar.js?v=local1';
 import {frontPose} from './geometry.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=gallery2';
 import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=gallery2';

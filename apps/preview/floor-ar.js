@@ -3,10 +3,10 @@ import {createChidoChair} from './chido-chair.js?v=gallery2';
 import {NearRealOcclusion,nearDepthSessionOptions} from './near-occlusion.js?v=hands68';
 import {partPose} from './design-library.js?v=gallery2';
 /* Chido v0.5.7 floor detection adapter, pinned to its exact source commit. */
-import * as THREE from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/vendor/three.module.js';
-import {FloorScanner,floorCandidates} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/surfaces.js';
-import {xrError} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/xr.js';
-import {AnchorStabilizer,transformPoint} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/anchor-rig.js';
+import * as THREE from './vendor/chido/vendor/three.module.js';
+import {FloorScanner,floorCandidates} from './vendor/chido/surfaces.js';
+import {xrError} from './vendor/chido/xr.js';
+import {AnchorStabilizer,transformPoint} from './vendor/chido/anchor-rig.js';
 import {limitCabinetEnd,wallJointCaps,EQUIPMENT_SPECS,snapCabinetPoint,cabinetPath,cabinetFootprint,cornerFillFootprint,cabinetCornerTrims,snapFridgePoint,placeEquipment,placeTallCabinet,nearestCabinet,planFronts,frontPose,planSmartKitchen,countertopCutouts,backsplashSpan,cabinetVoidRanges,resolvedCabinetDecor,resolvedCountertopDesign} from './geometry.js?v=gallery2';
 import {neighborGaps} from './edit-handles.js?v=gallery2';
 import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.js?v=gallery2';
@@ -15,9 +15,9 @@ import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js
 import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=gallery2';
 import {wardrobeRods,drawerTrayPanels,WARDROBE_RULES} from './wardrobe-model.js?v=gallery2';
 import {roomOutline} from './room-surfaces.js?v=room40';
-import {loadEnvironmentHDR} from './environment-hdr.js';
+import {loadEnvironmentHDR} from './environment-hdr.js?v=local1';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
-import {getApplianceTemplate,fitApplianceModel} from './appliance-models.js?v=render72';
+import {getApplianceTemplate,fitApplianceModel} from './appliance-models.js?v=local1';
 import {countertopSurfaceY,COUNTERTOP_MIN_FILLET,COUNTERTOP_TOP_OFFSET} from './countertop-surface.js?v=render72';
 import {softenFrontNormals} from './front-normals.js?v=gallery2';
 
@@ -1101,8 +1101,7 @@ export class FloorAR {
   const renderer=this.previewRenderer;
   this.previewSSRRequested=true;
   try{
-   const version='0.'+String(THREE.REVISION)+'.0';
-   const url=name=>'https://cdn.jsdelivr.net/npm/three@'+version+'/examples/jsm/postprocessing/'+name+'.js';
+   const url=name=>'./vendor/three-addons/postprocessing/'+name+'.js';
    const [composerModule,renderModule,ssrModule,outputModule]=await Promise.all([
     import(url('EffectComposer')),import(url('RenderPass')),import(url('SSRPass')),import(url('OutputPass'))
    ]);

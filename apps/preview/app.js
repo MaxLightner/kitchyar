@@ -2,7 +2,7 @@ import {DEFAULT_CEILING_HEIGHT,MAX_CEILING_HEIGHT} from './kitchen-policy.js?v=g
 import * as Objects from './scene-objects.js?v=gallery2';
 import {OCCLUSION_STATUS} from './near-occlusion.js?v=hands68';
 import * as Library from './design-library.js?v=gallery2';
-import {FloorAR} from './floor-ar.js?v=gallery2';
+import {FloorAR} from './floor-ar.js?v=local1';
 import * as Geo from './geometry.js?v=gallery2';
 import {renderPlan,renderPreview,planPoint,fitPlanViewport} from './plan-view.js?v=gallery2';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=gallery2';
@@ -13,7 +13,7 @@ import {renderCutReport} from './report-view.js?v=sheetpager39';
 import {downloadCutReportXlsx} from './report-xlsx.js?v=nest35';
 import {DEFAULT_SHEET,validateSheetOptions} from './sheet-nesting.js?v=nest35';
 import {createSmartProposal,acceptSmartProposal,renderSmartProposal,solverExampleItems} from './smart-layout-proposal.js?v=gallery2';
-import {mountWardrobe,newWardrobeScene} from './wardrobe-workspace.js?v=gallery2';
+import {mountWardrobe,newWardrobeScene} from './wardrobe-workspace.js?v=local1';
 import {validateStylePreset} from './style-catalog.js?v=gallery2';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
@@ -119,7 +119,7 @@ function previewSmartLayout(){
  dialogs.querySelector('.solver-dialog').focus();
 }
 function welcome(){
- app.innerHTML='<main class="welcome"><img class="welcome-photo" src="https://maxlightner.github.io/tolica-ar/assets/welcome.png" alt=""><div class="welcome-title"><h1>KITCHYAR</h1><p>آشپزخانه را پیش از ساخت ببین.</p></div><div class="welcome-actions"><button class="primary" data-action="projects">پروژه‌های من <span>←</span></button><button data-action="new">＋ ایجاد پروژه جدید</button><button data-action="new-wardrobe">طراحی کمد</button><button data-action="solver-example">آزمایش سالور با نمونهٔ ۴ متری</button><span class="wordmark">KITCHYAR</span></div></main>';
+ app.innerHTML='<main class="welcome"><img class="welcome-photo" src="./assets/styles/reference-cream.webp" alt=""><div class="welcome-title"><h1>KITCHYAR</h1><p>آشپزخانه را پیش از ساخت ببین.</p></div><div class="welcome-actions"><button class="primary" data-action="projects">پروژه‌های من <span>←</span></button><button data-action="new">＋ ایجاد پروژه جدید</button><button data-action="new-wardrobe">طراحی کمد</button><button data-action="solver-example">آزمایش سالور با نمونهٔ ۴ متری</button><span class="wordmark">KITCHYAR</span></div></main>';
 }
 function projectPage(){
  const sorted=[...projects].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
