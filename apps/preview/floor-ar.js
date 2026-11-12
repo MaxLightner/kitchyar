@@ -1907,7 +1907,21 @@ export class FloorAR {
   }
   // Each facade is a semantic, selectable object independent of its future internal unit.
   for(const panel of this.items.filter(o=>o.kind==='front')){
-   if(panel.style==='open')continue;
+   if(panel.style==='open'){
+    // Open niches remain open; their optional shelves are real selectable 3D boards.
+    const host=this.items.find(c=>c.id===panel.hostId&&c.kind==='cabinet');
+    if(host&&panel.shelfCount>0){
+     const pose=frontPose(panel,host),root=new THREE.Group();
+     root.position.set(pose.x,pose.y,pose.z);root.rotation.y=-pose.angle;root.userData.objectId=panel.id;
+     for(let j=1;j<=panel.shelfCount;j++){
+      const shelf=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.05,pose.width-.026),.018,Math.max(.08,host.depth-.09)),material(0xebeee8,{roughness:.74}));
+      shelf.position.set(0,-pose.height/2+pose.height*j/(panel.shelfCount+1),-pose.side*(host.depth/2-.055));
+      shelf.castShadow=true;shelf.receiveShadow=true;shelf.userData.objectId=panel.id;root.add(shelf);
+     }
+     this.objectGroup.add(root);
+    }
+    continue;
+   }
    const host=this.items.find(c=>c.id===panel.hostId&&c.kind==='cabinet');
    if(!host)continue;
    const pose=frontPose(panel,host),materialId=panel.materialId||resolveFinish(this.materialSettings,host.subtype,'front');
