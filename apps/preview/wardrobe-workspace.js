@@ -58,7 +58,7 @@ export function mountWardrobe(container,project,{save,tell}){
   if(opening)renderer.syncFrontOpeningState(items);else renderer.setSceneState(items,selected,materials());
   draw();
  }
- function rebuild(next){update(wardrobeItems(next,current()));}
+ function rebuild(next,scenePatch={}){update(wardrobeItems(next,current()),{scenePatch});}
  function history(redo=false){
   checkCurrent();const source=redo?future:past,target=redo?past:future;if(!source.length)return;
   const before=structuredClone(project.scene),revision=project.revision,updatedAt=project.updatedAt,next=source.at(-1);project.scene=structuredClone(next);
@@ -66,15 +66,55 @@ export function mountWardrobe(container,project,{save,tell}){
   try{persist();}catch(e){project.scene=before;project.revision=revision;project.updatedAt=updatedAt;throw e;}
   source.pop();target.push(before);selected=null;stage=project.scene.wardrobeBoxStage||'ready';view=stage==='floor'?'top':stage==='height'?'3d':view;extrudeHeight=config().height;renderer.setSceneState(current(),null,materials());draw();
  }
+ function renderBoxGhost(){
+  if(!renderer?.previewScene)return;
+  if(renderer.objectGroup)renderer.objectGroup.visible=stage!=='height';
+  if(stage!=='height'){
+   if(ghost){renderer.previewScene.remove(ghost);ghost.traverse(obj=>{obj.geometry?.dispose();obj.material?.dispose()});ghost=null;}
+   renderer.renderPreview();return;
+  }
+  if(!ghost){
+   const geometry=new THREE.BoxGeometry(1,1,1);
+   const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:0x469a72,transparent:true,opacity:.24,depthWrite:false,side:THREE.DoubleSide}));
+   const border=new THREE.LineSegments(new THREE.EdgesGeometry(geometry),new THREE.LineBasicMaterial({color:0x186344}));
+   ghost=new THREE.Group();ghost.add(mesh,border);renderer.previewScene.add(ghost);
+  }
+  const cfg=config(),cx=cfg.centerX??0,cz=cfg.centerZ??(.064+cfg.depth/2);
+  ghost.position.set(cx,extrudeHeight/2,cz);
+  ghost.scale.set(cfg.width,extrudeHeight,cfg.depth);
+  const field=container.querySelector('[data-w-height]');if(field&&document.activeElement!==field)field.value=String(Math.round(extrudeHeight*100));
+  if(renderer.previewOrbit){renderer.previewOrbit.x=cx;renderer.previewOrbit.z=cz;renderer.previewOrbit.y=extrudeHeight/2;}
+  renderer.renderPreview();
+ }
+ function setExtrusionHeight(cmValue){
+  const cm=Number(cmValue);if(!Number.isFinite(cm))return;
+  extrudeHeight=Math.min(3.2,Math.max(1.8,Math.round(cm)/100));
+  renderBoxGhost();
+ }
+ function finishBoxHeight(){
+  if(stage!=='height')return;
+  try{
+   const next=structuredClone(config());next.height=extrudeHeight;
+   stage='ready';view='3d';
+   rebuild(next,{wardrobeBoxStage:'ready'});
+   renderer.objectGroup.visible=true;renderer.fitPreview();renderer.renderPreview();
+  }catch(error){stage='height';view='3d';draw();tell(error.message);}
+ }
  function draw(){
   if(disposed)return;
   const cfg=config(),items=current();
+  if(stage==='floor')view='top';if(stage==='height')view='3d';
+  const isTop=view==='top',isElevation=view==='inside'||view==='front';
+  topHost.hidden=!isTop;heightStep.hidden=stage!=='height';
+  container.querySelector('#wardrobe-plan-help').hidden=stage!=='floor';
+  if(isTop)topHost.innerHTML=renderWardrobeTop(cfg,{drawing:stage==='floor'});
+  renderBoxGhost();
   container.querySelector('[data-w-action="undo"]').disabled=!past.length;container.querySelector('[data-w-action="redo"]').disabled=!future.length;
   for(const b of container.querySelectorAll('[data-w-action="view"]'))b.setAttribute('aria-pressed',String(b.dataset.view===view));
-  viewport.hidden=view!=='3d';elevation.hidden=view==='3d';
+  viewport.hidden=view!=='3d';elevation.hidden=!isElevation;
   const drawbar=container.querySelector('#wardrobe-draw-toolbar');drawbar.hidden=view!=='inside';
   for(const b of drawbar.querySelectorAll('[data-w-action="draw-tool"]'))b.setAttribute('aria-pressed',String(b.dataset.tool===drawTool));
-  if(view!=='3d')elevation.innerHTML=wardrobeElevation(items,view==='inside',selectedBayKey);
+  if(isElevation)elevation.innerHTML=wardrobeElevation(items,view==='inside',selectedBayKey);
   settings.innerHTML='<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">ابعاد کلی · سانتی‌متر</span><h2>باکس کمد</h2><div class="wardrobe-dimensions">'+
    input('عرض','width',cm(cfg.width),60,600)+input('ارتفاع','height',cm(cfg.height),180,320)+input('عمق','depth',cm(cfg.depth),45,80)+'</div><button class="primary" data-w-action="dimensions">اعمال ابعاد</button><button data-w-action="redraw-box">✎ ترسیم دوباره باکس کف</button><label>جنس و رنگ درها<select data-w-finish>'+MATERIALS.front.map(m=>'<option value="'+m.id+'" '+(m.id===cfg.finish?'selected':'')+'>'+m.label+'</option>').join('')+'</select></label></section>'+
    '<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">تقسیم عرض و کاربری</span><h2>بخش‌های داخلی</h2><p>شماره‌گذاری از چپ است. تغییر عرض هر بخش از بخش کناری گرفته می‌شود.</p>'+wardrobeSections(body()).map(b=>{
