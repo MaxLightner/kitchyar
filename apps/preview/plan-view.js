@@ -318,8 +318,8 @@ export function renderPreview(items,drawing,hover){
     corners=rect({x:host.x1+ux*Math.max(.1,centre-half),z:host.z1+uz*Math.max(.1,centre-half)},
      {x:host.x1+ux*Math.min(len-.1,centre+half),z:host.z1+uz*Math.min(len-.1,centre+half)},width);
    }else{
-    const a=start?projectOnWall(host,start.x,start.z).t:Math.max(0,projectOnWall(host,hover.x,hover.z).t-1/len);
-    let b=start?projectOnWall(host,hover.x,hover.z).t:Math.min(1,a+1/len);
+    const a=start?projectOnWall(host,start.x,start.z).t:Math.max(0,projectOnWall(host,hover.x,hover.z).t-.45/len);
+    let b=start?projectOnWall(host,hover.x,hover.z).t:Math.min(1,projectOnWall(host,hover.x,hover.z).t);
     if(tool==='upper')try{b=limitCabinetEnd(items,host,a,b,{kind:'upper',height:drawing?.height??.90,elevation:drawing?.elevation??1.55});}catch{b=a;}
     if(Math.abs(b-a)*len>.02){
      const cabinet={startT:Math.min(a,b),endT:Math.max(a,b),depth:width,side:start?.side||1};
