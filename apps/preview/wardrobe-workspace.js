@@ -1,11 +1,11 @@
-import {FloorAR} from './floor-ar.js?v=local1';
+import {FloorAR} from './floor-ar.js?v=boxkeys1';
 import * as THREE from './vendor/chido/vendor/three.module.js';
 import {renderWardrobeTop,topViewPoint,previewFloorRect} from './wardrobe-box-tool.js?v=box1';
 import {desktopCommand} from './desktop-shortcuts.js?v=keyboard1';
 import {frontPose} from './geometry.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=gallery2';
-import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,addWardrobeShelf,eraseWardrobeShelf,wardrobeFromFloorRectangle,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=gallery2';
-import {wardrobeParts} from './wardrobe-report.js?v=gallery2';
+import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,addWardrobeShelf,eraseWardrobeShelf,wardrobeFromFloorRectangle,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=boxkeys1';
+import {wardrobeParts} from './wardrobe-report.js?v=boxkeys1';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cm=n=>Math.round(n*1000)/10,num=n=>new Intl.NumberFormat('fa-IR',{maximumFractionDigits:1}).format(n);
