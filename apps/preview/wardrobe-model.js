@@ -18,13 +18,17 @@ export function defaultWardrobe(width=2.4){
  return {version:1,width,height:2.4,depth:.6,finish:'ivory-matte',bays};
 }
 /* The ground rectangle defines the real cabinet footprint, before its height is extruded. */
-export function wardrobeFromFloorRectangle(source,{x1,z1,x2,z2}){
+export function wardrobeFromFloorRectangle(source,{x1,z1,x2,z2},{preserveBays=false}={}){
  const values=[x1,z1,x2,z2].map(Number);
  if(values.some(n=>!Number.isFinite(n)||Math.abs(n)>15))throw Error('مختصات باکس کف معتبر نیست.');
  const [ax,az,bx,bz]=values,width=Math.round(Math.abs(bx-ax)*100)/100,depth=Math.round(Math.abs(bz-az)*100)/100;
  if(width<WARDROBE_RULES.minWidth||width>WARDROBE_RULES.maxWidth||depth<WARDROBE_RULES.minDepth||depth>WARDROBE_RULES.maxDepth)
   throw Error('عرض باکس بین ۶۰ تا ۶۰۰ و عمق آن بین ۴۵ تا ۸۰ سانتی‌متر باشد.');
- const next=defaultWardrobe(width);
+ let next;
+ if(preserveBays){
+  try{next=resizeWardrobe(source,{width,depth});}
+  catch(error){throw Error('ابعاد تازه با یونیت‌های فعلی سازگار نیست: '+error.message);}
+ }else next=defaultWardrobe(width);
  next.height=source.height;next.depth=depth;next.finish=source.finish;
  next.centerX=Math.round((ax+bx)*50)/100;next.centerZ=Math.round((az+bz)*50)/100;
  return validateWardrobe(next);
