@@ -1235,6 +1235,37 @@ export function eraseManualFrontSeam(source,id,{direction='vertical'}={}){
  validateFronts(items,c);
  return {items,selectedId:f.id};
 }
+/* Equalize only the continuous row/column containing the chosen facade.
+   Edges of that group remain fixed, so other sections and appliances do not move. */
+export function equalizeManualFrontCells(source,id,axis='width'){
+ if(!['width','height'].includes(axis))throw Error('جهت توزیع نامعتبر است.');
+ const items=copy(source),f=byId(items,id),c=byId(items,f?.hostId);
+ if(f?.kind!=='front'||c?.kind!=='cabinet')throw Error('ابتدا قسمت مورد نظر را انتخاب کن.');
+ const eps=.001;
+ const same=(a,b)=>Math.abs(a-b)<eps;
+ const peers=items.filter(g=>g.kind==='front'&&g.hostId===c.id&&
+  (axis==='width'?same(g.bottomT,f.bottomT)&&same(g.topT,f.topT):
+   same(g.startT,f.startT)&&same(g.endT,f.endT)))
+  .sort((a,b)=>(axis==='width'?a.startT-b.startT:a.bottomT-b.bottomT));
+ const at=peers.findIndex(g=>g.id===f.id);
+ let start=at,end=at;
+ const low=g=>axis==='width'?g.startT:g.bottomT,high=g=>axis==='width'?g.endT:g.topT;
+ while(start>0&&same(high(peers[start-1]),low(peers[start])))start--;
+ while(end<peers.length-1&&same(high(peers[end]),low(peers[end+1])))end++;
+ const group=peers.slice(start,end+1);
+ if(group.length<2)throw Error('برای توزیع مساوی حداقل دو قسمت متصل لازم است.');
+ const min=low(group[0]),max=high(group.at(-1)),step=(max-min)/group.length;
+ const measured=(axis==='width'?frontageLength(c):c.height)*step;
+ if(measured<(axis==='width'?.15:.1)-1e-6)throw Error('اندازه قسمت‌های مساوی از حد مجاز کمتر است.');
+ for(let i=0;i<group.length;i++){
+  const g=group[i];
+  if(axis==='width'){g.startT=min+i*step;g.endT=i===group.length-1?max:min+(i+1)*step;}
+  else{g.bottomT=min+i*step;g.topT=i===group.length-1?max:min+(i+1)*step;}
+  g.manualOverrides={...g.manualOverrides,geometry:true};
+ }
+ c.frontPreset='custom';validateFronts(items,c);
+ return {items,selectedId:id};
+}
 export function setManualFrontType(source,id,type){
  if(!['door','lift','drawer','glass','mirror','open','shelf','frame'].includes(type))
   throw Error('نوع جزئیات نما معتبر نیست.');
