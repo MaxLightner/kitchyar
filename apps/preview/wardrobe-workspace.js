@@ -138,6 +138,52 @@ export function mountWardrobe(container,project,{save,tell}){
   if(renderer.previewWasDragged||performance.now()<(renderer.suppressTapUntil||0))return;
   selected=renderer.pickPreviewObject(e.clientX,e.clientY);renderer.setSelection(selected);draw();
  },{signal});
+ // Draw floor by dragging; extrude vertically in the 3D view.
+ topHost.addEventListener('pointerdown',e=>{
+  if(stage!=='floor'||e.button!==0)return;
+  const svg=e.target.closest('#wardrobe-top-svg');if(!svg)return;
+  const start=topViewPoint(svg,e);if(!start)return;
+  floorDrag={id:e.pointerId,start,end:start,svg};
+  try{topHost.setPointerCapture(e.pointerId);}catch{}
+  e.preventDefault();
+ },{signal});
+ topHost.addEventListener('pointermove',e=>{
+  if(!floorDrag||floorDrag.id!==e.pointerId)return;
+  const end=topViewPoint(floorDrag.svg,e);if(!end)return;
+  floorDrag.end=end;previewFloorRect(topHost.querySelector('#wardrobe-footprint-preview'),floorDrag.start,end);
+  e.preventDefault();
+ },{signal});
+ topHost.addEventListener('pointerup',e=>{
+  if(!floorDrag||floorDrag.id!==e.pointerId)return;
+  const drag=floorDrag;floorDrag=null;
+  const end=topViewPoint(drag.svg,e)||drag.end;
+  try{
+   const next=wardrobeFromFloorRectangle(config(),{x1:drag.start.x,z1:drag.start.z,x2:end.x,z2:end.z});
+   extrudeHeight=next.height;stage='height';view='3d';
+   renderer.previewOrbit={...renderer.previewOrbit,x:next.centerX,z:next.centerZ,y:next.height/2,radius:Math.max(3.5,next.width*1.5+1),yaw:Math.PI/3,pitch:.38};
+   rebuild(next,{wardrobeBoxStage:'height'});
+  }catch(error){tell(error.message);draw();}
+  e.preventDefault();
+ },{signal});
+ topHost.addEventListener('pointercancel',e=>{if(floorDrag?.id===e.pointerId){floorDrag=null;draw();}},{signal});
+ const heightHandle=container.querySelector('#wardrobe-extrude-handle');
+ heightHandle.addEventListener('pointerdown',e=>{
+  if(stage!=='height'||e.button!==0)return;
+  heightDrag={id:e.pointerId,at:e.clientY,original:extrudeHeight};
+  try{heightHandle.setPointerCapture(e.pointerId);}catch{}
+  e.preventDefault();
+ },{signal});
+ heightHandle.addEventListener('pointermove',e=>{
+  if(!heightDrag||heightDrag.id!==e.pointerId)return;
+  setExtrusionHeight((heightDrag.original+(heightDrag.at-e.clientY)*.008)*100);
+  e.preventDefault();
+ },{signal});
+ const stopHeight=e=>{if(heightDrag?.id===e.pointerId)heightDrag=null;};
+ heightHandle.addEventListener('pointerup',stopHeight,{signal});
+ heightHandle.addEventListener('pointercancel',stopHeight,{signal});
+ container.addEventListener('input',e=>{
+  if(e.target.matches('[data-w-height]')&&stage==='height')setExtrusionHeight(e.target.value);
+ },{signal});
  container.addEventListener('click',e=>{
   const bayTarget=view==='inside'?e.target.closest('[data-w-bay-rect],[data-w-erase-seam]'):null;
   if(bayTarget){
@@ -169,7 +215,13 @@ export function mountWardrobe(container,project,{save,tell}){
   const button=e.target.closest('[data-w-action]');if(!button||button.disabled)return;
   const action=button.dataset.wAction,card=button.closest('[data-w-bay]'),key=card?.dataset.wBay;
   try{
-   if(action==='view'){view=button.dataset.view;draw();if(view==='3d')renderer.renderPreview();return;}
+   if(action==='view'){
+    if(stage==='floor'&&button.dataset.view!=='top'){tell('اول با موس یک مستطیل روی پلان کف بکش.');return;}
+    if(stage==='height'&&button.dataset.view!=='3d'){tell('ارتفاع باکس را مشخص و تأیید کن.');return;}
+    view=button.dataset.view;draw();if(view==='3d')renderer.renderPreview();return;
+   }
+   if(action==='finish-box')return finishBoxHeight();
+   if(action==='redraw-box'){stage='floor';view='top';update(current(),{scenePatch:{wardrobeBoxStage:'floor'}});return;}
    if(action==='draw-tool'){drawTool=button.dataset.tool;draw();return;}
    if(action==='undo'||action==='redo')return history(action==='redo');
    if(action==='dimensions')return rebuild(resizeWardrobe(config(),Object.fromEntries(['width','height','depth'].map(k=>[k,Number(settings.querySelector('[data-w-field="'+k+'"]').value)/100]))));
