@@ -25,6 +25,24 @@ const RAYS=[[-.24,0],[.24,0],[0,-.24],[0,.24],[-.18,-.18],[.18,-.18],[-.18,.18],
 // Raycaster may return intersections belonging to invisible ancestor groups.
 // Concealed facades must also disappear from selection, not just rendering.
 const pickable=node=>{for(let n=node;n;n=n.parent)if(!n.visible)return false;return true;};
+// Prefer the visible facade at a seam without selecting an unrelated mesh
+// behind it; this applies identically to AR and desktop raycasting.
+function selectedSemanticHit(hits,items){
+ const ids=new Map(items.map(o=>[o.id,o.kind]));
+ const nearest=[];
+ for(const hit of hits){
+  if(!pickable(hit.object))continue;
+  if(!hit.object.isMesh||hit.object.material?.opacity===0)continue;
+  let node=hit.object;
+  while(node&&!node.userData?.objectId)node=node.parent;
+  const id=node?.userData?.objectId;
+  if(id&&ids.has(id))nearest.push({id,kind:ids.get(id),distance:hit.distance});
+ }
+ if(!nearest.length)return null;
+ const first=nearest[0];
+ return nearest.find(v=>v.kind==='front'&&v.distance<=first.distance+.055)?.id||first.id;
+}
+
 export class FloorAR {
  constructor(root,update,exit){
   Object.assign(this,{root,update,exit,session:null,renderer:null,locked:false,current:null,origin:null});
@@ -805,11 +823,7 @@ export class FloorAR {
   }
   this.objectGroup.updateWorldMatrix(true,true);
   const hits=caster.intersectObjects(this.objectGroup.children,true);
-  for(const hit of hits){
-   if(!pickable(hit.object))continue;
-   for(let node=hit.object;node;node=node.parent)if(node.userData?.objectId)return node.userData.objectId;
-  }
-  return null;
+  return selectedSemanticHit(hits,this.items);
  }
  pick(){
   if(!this.locked||!this.floorGroup)return null;
@@ -1241,12 +1255,7 @@ export class FloorAR {
   if(this.previewWasDragged){this.previewWasDragged=false;return null;}
   this.previewCamera.updateMatrixWorld(true);this.objectGroup.updateWorldMatrix(true,true);
   const hits=this.previewRay(clientX,clientY)?.intersectObjects(this.objectGroup?.children||[],true)||[];
-  let fallback=null;
-  for(const hit of hits){if(!pickable(hit.object)||!hit.object.isMesh||hit.object.material?.opacity===0)continue;
-   let mesh=hit.object;while(mesh&&!mesh.userData?.objectId)mesh=mesh.parent;const id=mesh?.userData?.objectId;if(!id)continue;
-   const o=this.items.find(o=>o.id===id);if(o?.kind==='wall'||o?.type==='ceiling'){fallback??=id;continue;}return id;
-  }
-  return fallback;
+  return selectedSemanticHit(hits,this.items);
  }
  pickPreviewPoint(clientX,clientY){
   const ray=this.previewRay(clientX,clientY),point=new THREE.Vector3();
@@ -1432,14 +1441,14 @@ export class FloorAR {
      z:host.z1+(host.z2-host.z1)*Math.min(1,mid+half)});
     width=Math.max(.10,host.thickness+.03);level=kind==='door'?0:.9;height=kind==='door'?2.1:1.2;colour=kind==='door'?0xdba76f:0x73c9df;
    }else{
-    from=a?project(a):project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
+    from=a?project(a):project({x:p.x-(host.x2-host.x1)/len*.45,z:p.z-(host.z2-host.z1)/len*.45});
     to=project(p);
     if(kind==='upper')try{
      const t=limitCabinetEnd(this.items,host,from.t,to.t,{kind:'upper',height:this.drawing.height??.90,elevation:this.drawing.elevation??1.55});
      to=project({x:host.x1+t*(host.x2-host.x1),z:host.z1+t*(host.z2-host.z1)});
     }catch{group.visible=false;return;}
     if(!a&&Math.hypot(to.x-from.x,to.z-from.z)<.3){
-     from=project({x:p.x-(host.x2-host.x1)/len,z:p.z-(host.z2-host.z1)/len});
+     from=project({x:p.x-(host.x2-host.x1)/len*.45,z:p.z-(host.z2-host.z1)/len*.45});
     }
     width=kind==='upper'?.35:.60;level=kind==='upper'?(this.drawing.elevation??1.55):.08;height=kind==='upper'?(this.drawing.height??.90):.78;colour=kind==='upper'?0xe5c79a:0xbca289;
     const nx=-(host.z2-host.z1)/len*(a?.side||1),nz=(host.x2-host.x1)/len*(a?.side||1);
@@ -1899,7 +1908,21 @@ export class FloorAR {
   }
   // Each facade is a semantic, selectable object independent of its future internal unit.
   for(const panel of this.items.filter(o=>o.kind==='front')){
-   if(panel.style==='open')continue;
+   if(panel.style==='open'){
+    // Open niches remain open; their optional shelves are real selectable 3D boards.
+    const host=this.items.find(c=>c.id===panel.hostId&&c.kind==='cabinet');
+    if(host&&panel.shelfCount>0){
+     const pose=frontPose(panel,host),root=new THREE.Group();
+     root.position.set(pose.x,pose.y,pose.z);root.rotation.y=-pose.angle;root.userData.objectId=panel.id;
+     for(let j=1;j<=panel.shelfCount;j++){
+      const shelf=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.05,pose.width-.026),.018,Math.max(.08,host.depth-.09)),material(0xebeee8,{roughness:.74}));
+      shelf.position.set(0,-pose.height/2+pose.height*j/(panel.shelfCount+1),-pose.side*(host.depth/2-.055));
+      shelf.castShadow=true;shelf.receiveShadow=true;shelf.userData.objectId=panel.id;root.add(shelf);
+     }
+     this.objectGroup.add(root);
+    }
+    continue;
+   }
    const host=this.items.find(c=>c.id===panel.hostId&&c.kind==='cabinet');
    if(!host)continue;
    const pose=frontPose(panel,host),materialId=panel.materialId||resolveFinish(this.materialSettings,host.subtype,'front');

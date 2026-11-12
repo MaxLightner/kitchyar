@@ -5,15 +5,16 @@ test('five reference kitchens adapt to L/U equipment and survive serialization',
  for(const shape of ['L','U']){
   const fixture=await (await import('../scripts/acceptance-fixture.mjs')).build(shape),items=G.planSmartKitchen(fixture.items).items;
   const devices=items.filter(e=>e.kind==='equipment').map(({coverStyle,...e})=>e);
+  const beforeFronts=items.filter(f=>f.kind==='front').map(f=>({id:f.id,hostId:f.hostId,startT:f.startT,endT:f.endT,bottomT:f.bottomT,topT:f.topT}));
+  const beforeUpper=items.filter(c=>c.subtype==='upper').map(c=>({id:c.id,height:c.height,elevation:c.elevation}));
   for(const style of M.KITCHEN_STYLES.filter(s=>s.id.startsWith('reference-'))){
    const preset=JSON.parse(fs.readFileSync('apps/preview/'+style.config)),r=L.applyReference(items,style,preset);
    assert.deepEqual(r.items.filter(e=>e.kind==='equipment').map(({coverStyle,...e})=>e),devices);
    assert.ok(r.items.some(f=>f.kind==='front'&&f.style===preset.front.style));
-   if(preset.reference.tiers)for(const c of r.items.filter(c=>c.subtype==='upper')){
-    assert.ok(Math.abs(c.height+c.elevation-3)<1e-8);
-    const fs=r.items.filter(f=>f.hostId===c.id&&f.kind==='front');assert.ok(fs.some(f=>f.tier==='upper'));assert.ok(fs.some(f=>f.tier==='lower'));
-    for(const f of fs)assert.ok([G.frontPose(f,c).x,G.frontPose(f,c).y,G.frontPose(f,c).z].every(Number.isFinite));
-   }
+   // A reference changes appearance, not the customer's existing semantic
+   // front grid, even if its source photo happens to show two upper tiers.
+   assert.deepEqual(r.items.filter(f=>f.kind==='front').map(f=>({id:f.id,hostId:f.hostId,startT:f.startT,endT:f.endT,bottomT:f.bottomT,topT:f.topT})),beforeFronts);
+   assert.deepEqual(r.items.filter(c=>c.subtype==='upper').map(c=>({id:c.id,height:c.height,elevation:c.elevation})),beforeUpper);
    const restored=JSON.parse(JSON.stringify(r.items));assert.equal(JSON.stringify(restored),JSON.stringify(r.items));for(const f of restored.filter(o=>o.kind==='front'))assert.ok(G.frontPose(f,restored.find(c=>c.id===f.hostId)));
   }
  }

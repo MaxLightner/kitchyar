@@ -566,3 +566,29 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 #wardrobe-parts{margin-top:20px;background:#fff;padding:16px;border:1px solid var(--line);border-radius:12px}#wardrobe-parts h2{font-size:19px}.wardrobe-parts-scroll{overflow:auto;margin-top:14px;max-height:450px}.wardrobe-parts-scroll table{border-collapse:collapse;width:100%;white-space:nowrap;font-size:13px}.wardrobe-parts-scroll th,.wardrobe-parts-scroll td{padding:10px;border:1px solid #d4ddd2;text-align:right}.wardrobe-parts-scroll th{background:#e8eee4}
 @media(max-width:850px){.wardrobe-header{padding:12px;gap:8px}.wardrobe-layout{display:flex;flex-direction:column}.wardrobe-preview{padding:12px}.wardrobe-settings{max-height:none;overflow:visible;padding:16px;border:0}.wardrobe-viewport{height:52dvh;min-height:340px}.wardrobe-save{display:none}.wardrobe-header h1{font-size:18px}.wardrobe-viewbar{gap:6px}.wardrobe-viewbar button{flex:1 1 auto;font-size:13px}}
 @media(max-width:650px){.solver-plans{grid-template-columns:1fr}.solver-plans svg{height:180px}.solver-dialog{padding:16px;max-height:calc(100dvh - 24px)}.solver-dialog footer{bottom:-16px}.solver-summary{grid-template-columns:1fr 1fr}.solver-summary div:last-child{grid-column:1/-1}.editor-header{flex-wrap:wrap}.solver-trigger{order:4}}
+
+
+/* Semantic 2D elevation editor: shares the kitchen project with plan, AR and 3D. */
+.elevation-mode-switch{position:absolute;top:77px;left:50%;transform:translateX(-50%);z-index:9;display:flex;gap:5px;align-items:center;direction:rtl;padding:5px;background:#faf8f1f2;border:1px solid #ccd8d0;border-radius:12px;box-shadow:0 7px 25px #20302322}
+.elevation-mode-switch button{padding:7px 14px;font-size:13px;border:0;border-radius:8px;background:transparent;white-space:nowrap}
+.elevation-mode-switch button.selected,.side-elevation-tools button.selected{background:#2f6d58;color:#fff}
+.side-elevation-ui{position:absolute;inset:0;padding:138px 14px 120px;overflow:auto;direction:rtl;color:#283f35;display:flex;flex-direction:column;gap:9px;z-index:1}
+.side-elevation-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.side-elevation-top label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:650}
+.side-elevation-top select{font:inherit;max-width:220px;padding:8px;border-radius:8px;border:1px solid #aac2b5;background:#fff}
+.side-elevation-top button,.side-elevation-tools button,.side-elevation-palette button{padding:7px 11px;font-size:13px;border-radius:8px;background:#fdfdf9}
+.side-elevation-tools,.side-elevation-palette{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+.side-elevation-scroll{overflow:auto;min-height:160px;flex:1;border:1px solid #c8d2cc;background:#f7f9f8;border-radius:9px;direction:ltr}
+.side-elevation-scroll svg{display:block;max-width:none}
+.side-elevation-ui small{color:#60786a;line-height:1.8}
+.side-elevation-panel [data-elevation-front]{touch-action:manipulation}
+.elevation-empty{position:absolute;top:45%;width:100%;text-align:center;color:#526e60;padding:18px}
+@media(max-width:740px){.elevation-mode-switch{top:72px}.side-elevation-ui{padding:122px 9px 165px}.side-elevation-tools button,.side-elevation-palette button{padding:6px 8px;font-size:13px}}
+
+
+/* Wardrobe internal pencil/eraser shares saved cabinet geometry and part lists. */
+.wardrobe-draw-toolbar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:#f2f7f1;border-bottom:1px solid #cbd9cf}
+.wardrobe-draw-toolbar button{padding:7px 10px;font-size:13px;border-radius:8px;background:#fff}
+.wardrobe-draw-toolbar button[aria-pressed="true"]{background:#2f6d58;color:#fff;border-color:#2f6d58}
+#wardrobe-elevation [data-w-bay-rect],#wardrobe-elevation [data-w-erase-seam]{cursor:crosshair;touch-action:manipulation}
+.plan-host:has(.side-elevation-ui){touch-action:pan-x pan-y}

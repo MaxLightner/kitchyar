@@ -26,7 +26,8 @@ export function validateWardrobe(config){
  if(new Set(bays.map(b=>b.key)).size!==bays.length)throw Error('شناسهٔ بخش‌های کمد تکراری است.');
  for(const b of bays){
   if(!finite(b.width,R.minBay,R.maxBay)||!Object.hasOwn(WARDROBE_ROLES,b.role))throw Error('عرض یا کاربری بخش معتبر نیست؛ عرض بخش بین ۳۵ تا ۱۲۰ سانتی‌متر باشد.');
-  if(!Number.isInteger(b.shelves)||b.shelves<0||b.shelves>8||!Number.isInteger(b.drawers)||b.drawers<1||b.drawers>5)
+  if(b.extraShelves!==undefined&&(!Array.isArray(b.extraShelves)||b.extraShelves.some(v=>!finite(v,.08,.92))))throw Error('محل طبقات دستی نامعتبر است.');
+ if(!Number.isInteger(b.shelves)||b.shelves<0||b.shelves>8||!Number.isInteger(b.drawers)||b.drawers<1||b.drawers>5)
    throw Error('تعداد طبقه بین صفر تا ۸ و تعداد کشو بین ۱ تا ۵ باشد.');
   if(['long-hang','double-hang','drawers-hang'].includes(b.role)&&depth<.55)throw Error('برای آویز لباس، عمق کمد حداقل ۵۵ سانتی‌متر باشد.');
   if(b.role==='desk'&&(b.width-2*R.board<R.minDeskClearWidth||depth<R.minDeskDepth))
@@ -54,16 +55,41 @@ export function editWardrobeBay(config,key,patch){
  }
  Object.assign(bay,patch);return validateWardrobe(next);
 }
-export function splitWardrobeBay(config,key){
+export function splitWardrobeBay(config,key,ratio=.5){
  const next=copy(config),index=next.bays.findIndex(b=>b.key===key),b=next.bays[index];
  if(!b||b.width<2*R.minBay)throw Error('برای دو بخش، عرض این بخش حداقل ۷۰ سانتی‌متر باشد.');
- next.bays.splice(index,1,{...b,width:b.width/2,mirrors:[]},{...copy(b),key:uid(),width:b.width/2,mirrors:[]});
+ const left=Math.round(b.width*Number(ratio)*100)/100,right=b.width-left;
+ if(!finite(left,R.minBay,R.maxBay)||!finite(right,R.minBay,R.maxBay))
+  throw Error('مرز جدید باید حداقل ۳۵ سانتی‌متر از دو طرف فاصله داشته باشد.');
+ next.bays.splice(index,1,{...b,width:left,mirrors:[]},{...copy(b),key:uid(),width:right,mirrors:[]});
  return validateWardrobe(next);
+}
+/* Pencil/eraser shelves belong to the semantic wardrobe model, not SVG decoration. */
+export function addWardrobeShelf(config,key,heightRatio){
+ const next=copy(config),b=next.bays.find(b=>b.key===key),at=Math.round(Number(heightRatio)*100)/100;
+ if(!b||!finite(at,.08,.92))throw Error('محل طبقه باید داخل محدوده باکس باشد.');
+ if(b.role==='desk'&&at*next.height<.84)throw Error('طبقه نمی‌تواند فضای زانوی میز را مسدود کند.');
+ if(b.role==='drawers-hang'&&at*next.height<.04+b.drawers*.19+.09)
+  throw Error('طبقه نباید با کشوهای داخلی تداخل داشته باشد.');
+ const prior=b.extraShelves||[];
+ if(prior.some(v=>Math.abs(v-at)<.075)||(b.role==='shelves'&&Array.from({length:b.shelves},(_,i)=>(i+1)/(b.shelves+1)).some(v=>Math.abs(v-at)<.055)))
+  throw Error('فاصله طبقات کافی نیست.');
+ b.extraShelves=[...prior,at].sort((a,b)=>a-b);return validateWardrobe(next);
+}
+export function eraseWardrobeShelf(config,key,heightRatio){
+ const next=copy(config),b=next.bays.find(b=>b.key===key),at=Number(heightRatio);
+ if(!b||!b.extraShelves?.length)throw Error('در این بخش طبقه دستی قابل پاک‌کردن وجود ندارد.');
+ const distances=b.extraShelves.map((v,i)=>({v,i,d:Math.abs(v-at)})).sort((a,b)=>a.d-b.d);
+ if(distances[0].d>.12)throw Error('نزدیک‌تر به خط طبقه کلیک کن.');
+ b.extraShelves.splice(distances[0].i,1);return validateWardrobe(next);
 }
 export function joinWardrobeBay(config,key){
  const next=copy(config),index=next.bays.findIndex(b=>b.key===key);
  if(index<0||!next.bays[index+1])throw Error('بخش بعدی برای ادغام وجود ندارد.');
- next.bays[index].width+=next.bays[index+1].width;next.bays.splice(index+1,1);
+ const left=next.bays[index],right=next.bays[index+1];
+ const merged=[...(left.extraShelves||[]),...(right.extraShelves||[])].sort((a,b)=>a-b).filter((v,i,arr)=>i===0||v-arr[i-1]>.075);
+ if(merged.length)left.extraShelves=merged;
+ left.width+=right.width;next.bays.splice(index+1,1);
  return validateWardrobe(next);
 }
 export function wardrobeSections(c){
@@ -114,6 +140,7 @@ export function wardrobePanels(c){
   if(b.role!=='desk')shelf('bottom',b,t/2);
   if(['long-hang','double-hang','drawers-hang'].includes(b.role))shelf('top-shelf',b,h-.30);
   if(b.role==='shelves')for(let j=1;j<=b.shelves;j++)shelf('shelf',b,t+(h-2*t)*j/(b.shelves+1));
+  for(const position of b.extraShelves||[])shelf('custom-shelf',b,t+(h-2*t)*position);
   if(b.role==='drawers-hang')shelf('drawer-cap',b,.04+b.drawers*.19+.035);
   if(b.role==='desk'){
    shelf('desk-top',b,R.deskHeight-y-t/2);

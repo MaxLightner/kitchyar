@@ -2,14 +2,15 @@ const test=require('node:test');const assert=require('node:assert/strict');
 const fs=require('node:fs');const path=require('node:path');
 const root=path.join(__dirname,'../apps/preview');
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
-test('welcome, project list, editor and independent fabrication report are routed',()=>{
+test('welcome, project list, independent 2D/3D/AR starts and fabrication report are routed',()=>{
  const source=read('app.js');
  assert.match(source,/function welcome\(/);
  assert.match(source,/function projectPage\(/);
  assert.match(source,/function editorPage\(/);
  assert.match(source,/function reportPage\(/);
- assert.match(source,/mode='ar'/);
- assert.match(source,/go\('#\/editor\/'\+id,true\)/);
+ assert.match(source,/entryMode='3d'/);
+ for(const mode of ['3d','2d','ar'])assert.match(source,new RegExp('data-start="'+mode+'"'));
+ assert.match(source,/data-action="2d-front"/);
 });
 test('floor uses the pinned Chido source, not an approximate scanner',()=>{
  const floor=read('floor-ar.js');
@@ -19,7 +20,7 @@ test('floor uses the pinned Chido source, not an approximate scanner',()=>{
  assert.match(floor,/const RAYS=\[\[-\.24,0\]/);
  assert.match(floor,/this\.scanner\.update\(center,extra,this\.space,viewer,time,forward\)/);
 });
-test('editor starts with AR and provides a calibration after floor confirmation',()=>{
+test('editor offers opt-in AR and provides calibration after floor confirmation',()=>{
  const source=read('app.js');
  assert.match(source,/class="mode-switch"/);
  assert.match(source,/data-mode="ar"/);
