@@ -5,6 +5,7 @@ import * as Library from './design-library.js?v=gallery2';
 import {FloorAR} from './floor-ar.js?v=local1';
 import * as Geo from './geometry.js?v=gallery2';
 import {renderPlan,renderPreview,planPoint,fitPlanViewport} from './plan-view.js?v=gallery2';
+import {renderSideElevation,sideElevationOptions} from './side-elevation.js?v=multiview1';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=gallery2';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
@@ -44,7 +45,7 @@ let movingEquipmentId=null,pendingSmartLayout=null;
 let smartReturnFocus=null;
 let wardrobeWorkspace=null;
 let sessionProjectId=null,parkedEditor=null,parkedMode='ar',calibrationCollapsed=false;
-let wideLevel='wide',planReturnMode='ar',planViewport=null,paintTool=null,paintMaterial='ivory-matte';
+let wideLevel='wide',planReturnMode='ar',planViewport=null,planSubview='top',elevationWallId=null,elevationSide=1,frontDrawTool='select',paintTool=null,paintMaterial='ivory-matte';
 let facadesHidden=false,roomSurfacesVisible=false,fridgeFreestanding=false;
 let styleApplyToken=0,selectedGalleryStyleId=null,galleryMode='model';
 let reportSheetOptions={...DEFAULT_SHEET};
@@ -153,8 +154,8 @@ function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
  settings.height=Number(p.scene?.ceilingHeight??p.scene?.items?.find(o=>o.kind==='wall')?.height??DEFAULT_CEILING_HEIGHT);
  if(p.scene?.items){try{const upgraded=Library.upgradeLegacyTiers(p.scene.items,settings.height);if(upgraded!==p.scene.items){p.scene.items=upgraded;save();}}catch(error){tell('تنظیم هوایی ذخیره‌شده نیاز به بررسی دارد: '+error.message);}}
- activeId=id;mode=entryMode;facadesHidden=false;roomSurfacesVisible=false;fridgeFreestanding=false;selectedUnit=null;lastFrontTap=null;activeTool=null;paintTool=null;planReturnMode='ar';selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
- app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
+ activeId=id;mode=entryMode;planSubview='top';elevationWallId=null;elevationSide=1;frontDrawTool='select';facadesHidden=false;roomSurfacesVisible=false;fridgeFreestanding=false;selectedUnit=null;lastFrontTap=null;activeTool=null;paintTool=null;planReturnMode='ar';selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
+ app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="elevation-mode-switch" id="elevation-mode-switch" hidden><button data-action="2d-top">▦ پلان از بالا</button><button data-action="2d-front">▤ نمای روبه‌رو</button></div><div class="drawing-hint" id="drawing-hint" hidden></div><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button data-action="environment" aria-label="تغییر نور محیط">محیط</button><button data-action="ar-wide" id="ar-wide-toggle" aria-pressed="false">نمای واید</button><button class="solver-trigger" data-action="preview-smart-layout">پیشنهاد چیدمان</button><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
@@ -572,8 +573,15 @@ function switchEditorMode(next){
 function showScene(){
  const root=document.getElementById('editor-root');if(!root)return;
  const items=currentItems(),host=document.getElementById('plan-host');
- const isPlan=mode==='2d';host.hidden=!isPlan;root.dataset.view=mode;const planLabel=document.getElementById('plan-toggle-label');if(planLabel)planLabel.textContent=isPlan?'بستن پلان · بازگشت به صحنه':'پلان · لمس برای ویرایش';const wideToggle=document.getElementById('ar-wide-toggle');wideToggle.hidden=mode!=='ar';wideToggle.setAttribute('aria-pressed',String(!!floor?.wideActive));wideToggle.textContent=floor?.wideActive?'نمای عادی':'نمای واید';
+ const isPlan=mode==='2d';host.hidden=!isPlan;root.dataset.view=mode;
+ const elevationSwitch=document.getElementById('elevation-mode-switch');if(elevationSwitch){elevationSwitch.hidden=!isPlan;elevationSwitch.querySelectorAll('[data-action]').forEach(b=>b.classList.toggle('selected',b.dataset.action===(planSubview==='front'?'2d-front':'2d-top')));}
+ document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));const planLabel=document.getElementById('plan-toggle-label');if(planLabel)planLabel.textContent=isPlan?'بستن پلان · بازگشت به صحنه':'پلان · لمس برای ویرایش';const wideToggle=document.getElementById('ar-wide-toggle');wideToggle.hidden=mode!=='ar';wideToggle.setAttribute('aria-pressed',String(!!floor?.wideActive));wideToggle.textContent=floor?.wideActive?'نمای عادی':'نمای واید';
  if(isPlan){
+  if(planSubview==='front'){
+   const current=items.find(o=>o.id===selection),c=current?.kind==='cabinet'?current:current?.kind==='front'?items.find(o=>o.id===current.hostId):null;
+   if(c&&(!elevationWallId||!sideElevationOptions(items,elevationWallId,elevationSide).some(o=>o.selected))){elevationWallId=c.hostId;elevationSide=c.side||1;}
+   host.innerHTML=renderSideElevation(items,{wallId:elevationWallId,side:elevationSide,selectedId:selection,tool:frontDrawTool});
+  }else{
   host.innerHTML=renderPlan(items,{viewport:planViewport,selectedId:selection,drawing:drawing?{...drawing,height:settings.upperHeight,elevation:settings.upperElevation,depth:drawing.tool==='upper'?settings.upperDepth:settings.baseDepth,frontRules:currentFrontRules(),freestanding:fridgeFreestanding}:null,hover,calibration:currentProject()?.scene?.calibration,showCalibration:!calibrationCollapsed,hideFronts:facadesHidden});
   document.getElementById('scene-message').classList.add('hide-for-plan');
   if(selectedUnit){
@@ -583,6 +591,7 @@ function showScene(){
      (c.x1+ux*len*t-uz*c.depth*side/2)+','+(c.z1+uz*len*t+ux*c.depth*side/2)).join(' ');
     host.querySelector('svg')?.insertAdjacentHTML('beforeend','<polygon class="selected-unit-outline" points="'+points+'" fill="none" stroke="#19aa79" stroke-width=".035" pointer-events="none"/>');
    }
+  }
   }
  }else {
   host.innerHTML='';
@@ -907,6 +916,7 @@ document.addEventListener('input',e=>{
  p.scene.render[slider.dataset.render]=slider.type==='checkbox'?slider.checked:Number(slider.value);floor?.setLighting(renderSettings());updateNearOcclusionStatus();
 });
 document.addEventListener('change',e=>{
+ if(e.target.matches('[data-elevation-wall]')){const text=e.target.value;const sep=text.lastIndexOf('|');if(sep>=0){elevationWallId=text.slice(0,sep);elevationSide=Number(text.slice(sep+1))||1;selection=null;showScene();}return;}
  if(e.target.matches('[data-corner-option]')){try{commitChange(Geo.configureCorner(currentItems(),selection,{[e.target.dataset.cornerOption]:e.target.value}));}catch(error){tell(error.message);}return;}
  if(e.target.matches('[data-part-option]')){try{commitChange(Library.editPart(currentItems(),selection,{[e.target.dataset.partOption]:e.target.value}),{skipAlignment:true});}catch(error){tell(error.message);}return;}
  if(e.target.matches('[data-fridge-frame]')){try{commitChange(Geo.configureEquipmentAppearance(currentItems(),selection,{frameEnabled:e.target.checked}),{skipAlignment:true});}catch(error){tell(error.message);}return;}
@@ -1198,6 +1208,23 @@ document.addEventListener('pointerup',e=>{
  }
  const scene=e.target.closest('.editor-scene');if(!scene)return;
  if(e.target.closest('[data-action]'))return;
+ const elevationTarget=mode==='2d'&&planSubview==='front'?e.target.closest('[data-elevation-front]'):null;
+ if(elevationTarget&&frontDrawTool!=='select'){
+  try{
+   const id=elevationTarget.dataset.itemId,rect=elevationTarget.getBoundingClientRect();
+   if(!rect.width||!rect.height)return;
+   const front=currentItems().find(f=>f.id===id&&f.kind==='front');
+   if(!front)return;
+   const v=frontDrawTool==='pencilV',p=frontDrawTool==='pencilH';
+   if(v||p){
+    const ratio=v?Math.max(.02,Math.min(.98,(e.clientX-rect.left)/rect.width)):Math.max(.02,Math.min(.98,(e.clientY-rect.top)/rect.height));
+    const adjusted=v&&Number(elevationTarget.dataset.side)===-1?1-ratio:ratio;
+    commitChange(Geo.splitManualFront(currentItems(),id,{direction:v?'vertical':'horizontal',ratio:adjusted}),{skipAlignment:true,exactResult:true});
+   }else if(frontDrawTool==='eraseV'||frontDrawTool==='eraseH'){
+    commitChange(Geo.eraseManualFrontSeam(currentItems(),id,{direction:frontDrawTool==='eraseV'?'vertical':'horizontal'}),{skipAlignment:true,exactResult:true});
+   }
+  }catch(error){tell(error.message);}return;
+ }
  try{
   if(mode==='3d'&&performance.now()<(desktopPreview?.suppressTapUntil||0))return;
   if(mode==='3d'&&desktopPreview?.previewWasDragged){desktopPreview.previewWasDragged=false;return;}
@@ -1208,7 +1235,8 @@ document.addEventListener('pointerup',e=>{
   if(burner){commitChange(Geo.toggleBurner(currentItems(),burner.id,burner.index),{skipAlignment:true});return;}
   const arId=trackedView()&&!drawing?floor?.pickObject(e.clientX,e.clientY):
    mode==='3d'&&!drawing?desktopPreview?.pickPreviewObject(e.clientX,e.clientY):null;
-  if(!point&&!arId){if(trackedView()&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
+  const directId=e.target.closest('[data-item-id]')?.dataset.itemId;
+  if(!point&&!arId&&!directId){if(trackedView()&&drawing)tell('نشانگر را روی سطح معتبر بگیر.');return;}
   if(paintTool&&!drawing){const id=arId||e.target.closest?.('[data-item-id]')?.dataset.itemId,front=currentItems().find(o=>o.id===id&&o.kind==='front');if(front){commitChange(Geo.paintFronts(currentItems(),front.id,{scope:paintTool==='bucket'?'row':'single',materialId:paintMaterial}),{skipAlignment:true});return;}}
   if(movingEquipmentId){
    if(!point){tell('برای جابه‌جایی، محل جدید را روی کف نشانه بگیر.');return;}
@@ -1222,7 +1250,7 @@ document.addEventListener('pointerup',e=>{
     hover=point;
     if(['wall','base','upper'].includes(drawing.tool)){showScene();return;}
     placeAt(point);
-  }else if(!handleFrontTap(arId||e.target.closest?.('[data-item-id]')?.dataset.itemId,e))
+  }else if(!handleFrontTap(arId||directId,e))
    selectAt(trackedView()?null:point,e.target,arId);
  }catch(error){tell(error.message);}
 });
@@ -1247,6 +1275,24 @@ document.addEventListener('click',async e=>{
   if(action==='new-wardrobe')return createWardrobeProject();
   if(action==='solver-example')return createSolverExample();
   if(action==='preview-smart-layout')return previewSmartLayout();
+  if(action==='2d-top'||action==='2d-front'){planSubview=action==='2d-front'?'front':'top';drawing=null;hover=null;frontDrawTool='select';showScene();return;}
+  if(action==='front-tool'){frontDrawTool=button.dataset.tool;drawing=null;hover=null;showScene();return;}
+  if(action==='front-set-type'){
+   if(!currentItems().some(o=>o.id===selection&&o.kind==='front'))throw Error('ابتدا یک در، کشو یا خانه را انتخاب کن.');
+   commitChange(Geo.setManualFrontType(currentItems(),selection,button.dataset.type),{skipAlignment:true,exactResult:true});return;
+  }
+  if(action==='front-autofill'){
+   const options=sideElevationOptions(currentItems(),elevationWallId,elevationSide),chosen=options.find(o=>o.selected)||options[0];
+   if(!chosen)throw Error('ابتدا کابینت بساز.');
+   let result={items:currentItems()},first=null;
+   for(const c of result.items.filter(o=>o.kind==='cabinet'&&o.hostId===chosen.id&&(o.side||1)===chosen.side&&o.subtype!=='bridge')){
+    if(result.items.some(f=>f.kind==='front'&&f.hostId===c.id))continue;
+    result=Geo.placeFrontLayout(result.items,c.id,'smart');first??=result.selectedId;
+   }
+   if(first)commitChange({items:result.items,selectedId:first},{skipAlignment:true,exactResult:true});
+   else tell('تقسیم‌بندی اولیه این سمت موجود است. برای ویرایش از مداد و پاک‌کن استفاده کن.');
+   return;
+  }
   if(action==='toggle-front-open'){const f=currentItems().find(o=>o.id===selection&&o.kind==='front');if(f)commitFrontOpening(f.id,f.openFraction>.01?0:1);return;}
   if(action==='open'){const p=projects.find(p=>p.id===id);entryMode='3d';return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/editor/')+id);}
   if(action==='open-report'){const p=projects.find(p=>p.id===(id||activeId));return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/report/')+(id||activeId));}
