@@ -19,7 +19,7 @@ const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=value=>new Date(value).toLocaleDateString('fa-IR',{year:'numeric',month:'short',day:'numeric'});
-let projects=[],floor=null,desktopPreview=null,mode='ar',activeTool=null,activeId=null,toastTimer=null,loadError=null;
+let projects=[],floor=null,desktopPreview=null,mode='3d',entryMode='3d',activeTool=null,activeId=null,toastTimer=null,loadError=null;
 let selection=null,drawing=null,hover=null,pendingUpperEdit=null,undoStack=[],redoStack=[],dragHandle=null,abDrag=null,planCalibrationDrag=null;
 let selectedUnit=null,lastFrontTap=null;
 let unitPress=null;
@@ -81,10 +81,11 @@ function updateCalibrationPanel(){
  const card=document.getElementById('scan-card');if(card&&floor?.locked)card.hidden=calibrationCollapsed||mode!=='ar';
  floor?.setCalibrationVisible(!calibrationCollapsed);
 }
-function createProject(){
+function createProject(startMode='3d'){
+ entryMode=['ar','2d','3d'].includes(startMode)?startMode:'3d';
  const now=new Date().toISOString();
  const p={id:uid(),name:'آشپزخانه جدید',createdAt:now,updatedAt:now,scene:{items:[],render:{...defaultRender},frontRules:{...Geo.DEFAULT_FRONT_RULES},materials:{...DEFAULT_MATERIALS},tileLayout:{...DEFAULT_TILE_LAYOUT},calibration:{a:{x:-.5,z:.65},b:{x:.5,z:.65}},ceilingHeight:DEFAULT_CEILING_HEIGHT},revision:0};
- projects.unshift(p);save();go('#/editor/'+p.id,true);
+ projects.unshift(p);save();go('#/editor/'+p.id,entryMode==='ar');
 }
 function createSolverExample(){
  const now=new Date().toISOString(),p={id:uid(),name:'آزمایش سالور — ردیف ۴ متری',createdAt:now,updatedAt:now,
@@ -119,11 +120,11 @@ function previewSmartLayout(){
  dialogs.querySelector('.solver-dialog').focus();
 }
 function welcome(){
- app.innerHTML='<main class="welcome"><img class="welcome-photo" src="./assets/styles/reference-cream.webp" alt=""><div class="welcome-title"><h1>KITCHYAR</h1><p>آشپزخانه را پیش از ساخت ببین.</p></div><div class="welcome-actions"><button class="primary" data-action="projects">پروژه‌های من <span>←</span></button><button data-action="new">＋ ایجاد پروژه جدید</button><button data-action="new-wardrobe">طراحی کمد</button><button data-action="solver-example">آزمایش سالور با نمونهٔ ۴ متری</button><span class="wordmark">KITCHYAR</span></div></main>';
+ app.innerHTML='<main class="welcome"><img class="welcome-photo" src="./assets/styles/reference-cream.webp" alt=""><div class="welcome-title"><h1>KITCHYAR</h1><p>آشپزخانه را پیش از ساخت ببین.</p></div><div class="welcome-actions"><button class="primary" data-action="projects">پروژه‌های من <span>←</span></button><button data-action="new" data-start="3d">＋ شروع سه‌بعدی</button><button data-action="new" data-start="2d">▦ شروع دوبعدی</button><button data-action="new" data-start="ar">▣ شروع AR</button><button data-action="new-wardrobe">طراحی کمد</button><button data-action="solver-example">آزمایش سالور با نمونهٔ ۴ متری</button><span class="wordmark">KITCHYAR</span></div></main>';
 }
 function projectPage(){
  const sorted=[...projects].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
- app.innerHTML='<div class="page"><header class="page-header"><button class="back" data-action="home">← خانه</button><strong>KITCHYAR</strong><span>۲ / پروژه‌ها</span></header><main class="projects"><div class="page-heading"><span>YOUR WORKSPACE</span><h1>پروژه‌های من</h1><p>هر پروژه، یک فضای مستقل با ذخیره‌سازی محلی.</p></div><div class="project-grid"><button class="new-card" data-action="new"><span>＋</span><strong>پروژه آشپزخانه</strong><small>شروع با شناسایی کف در AR</small></button><button class="new-card" data-action="new-wardrobe"><span>＋</span><strong>کمد جدید</strong><small>آویز، طبقه، کشو، آینه و میز</small></button>'+
+ app.innerHTML='<div class="page"><header class="page-header"><button class="back" data-action="home">← خانه</button><strong>KITCHYAR</strong><span>۲ / پروژه‌ها</span></header><main class="projects"><div class="page-heading"><span>YOUR WORKSPACE</span><h1>پروژه‌های من</h1><p>هر پروژه، یک فضای مستقل با ذخیره‌سازی محلی.</p></div><div class="project-grid"><button class="new-card" data-action="new" data-start="3d"><span>▣</span><strong>طراحی سه‌بعدی</strong><small>بدون نیاز به دوربین AR</small></button><button class="new-card" data-action="new" data-start="2d"><span>▦</span><strong>طراحی دوبعدی</strong><small>پلان و نمای روبه‌رو</small></button><button class="new-card" data-action="new" data-start="ar"><span>＋</span><strong>شروع با AR</strong><small>اسکن فضای واقعی</small></button><button class="new-card" data-action="new-wardrobe"><span>＋</span><strong>کمد جدید</strong><small>آویز، طبقه، کشو، آینه و میز</small></button>'+
  sorted.map(p=>'<article class="project-card"><div class="project-art"><div class="room-icon"><i></i><i></i></div></div><div class="project-detail"><h2>'+esc(p.name)+'</h2><p>ویرایش: '+date(p.updatedAt)+'</p><div class="project-actions"><button class="primary" data-action="open" data-id="'+esc(p.id)+'">ورود به ویرایشگر</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش ساخت</button><button data-action="more" data-id="'+esc(p.id)+'" aria-label="گزینه‌های پروژه">⋯</button></div></div></article>').join('')+
  '</div></main></div>';
 }
@@ -152,7 +153,7 @@ function editorPage(id){
  const p=projects.find(x=>x.id===id);if(!p){go('#/projects');return;}
  settings.height=Number(p.scene?.ceilingHeight??p.scene?.items?.find(o=>o.kind==='wall')?.height??DEFAULT_CEILING_HEIGHT);
  if(p.scene?.items){try{const upgraded=Library.upgradeLegacyTiers(p.scene.items,settings.height);if(upgraded!==p.scene.items){p.scene.items=upgraded;save();}}catch(error){tell('تنظیم هوایی ذخیره‌شده نیاز به بررسی دارد: '+error.message);}}
- activeId=id;mode='ar';facadesHidden=false;roomSurfacesVisible=false;fridgeFreestanding=false;selectedUnit=null;lastFrontTap=null;activeTool=null;paintTool=null;planReturnMode='ar';selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
+ activeId=id;mode=entryMode;facadesHidden=false;roomSurfacesVisible=false;fridgeFreestanding=false;selectedUnit=null;lastFrontTap=null;activeTool=null;paintTool=null;planReturnMode='ar';selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
  app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="drawing-hint" id="drawing-hint" hidden></div><div class="scene-message" id="scene-message"><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button data-action="environment" aria-label="تغییر نور محیط">محیط</button><button data-action="ar-wide" id="ar-wide-toggle" aria-pressed="false">نمای واید</button><button class="solver-trigger" data-action="preview-smart-layout">پیشنهاد چیدمان</button><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
@@ -1240,13 +1241,13 @@ document.addEventListener('click',async e=>{
  try{
   if(action==='home')return go('#/welcome');
   if(action==='projects')return go('#/projects');
-  if(action==='new')return createProject();
+  if(action==='new')return createProject(button.dataset.start||'3d');
   if(action==='new-wardrobe')return createWardrobeProject();
   if(action==='solver-example')return createSolverExample();
   if(action==='preview-smart-layout')return previewSmartLayout();
-  if(action==='open'){const p=projects.find(p=>p.id===id);return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/editor/')+id,p?.kind!=='wardrobe');}
+  if(action==='open'){const p=projects.find(p=>p.id===id);entryMode='3d';return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/editor/')+id);}
   if(action==='open-report'){const p=projects.find(p=>p.id===(id||activeId));return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/report/')+(id||activeId));}
-  if(action==='return-editor')return go('#/editor/'+id,true);
+  if(action==='return-editor'){entryMode='3d';return go('#/editor/'+id);}
   if(action==='report-print'){window.print();return;}
   if(action==='report-sheet-prev')return moveReportSheet(-1);
   if(action==='report-sheet-next')return moveReportSheet(1);
