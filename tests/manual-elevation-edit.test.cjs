@@ -58,3 +58,22 @@ test('reference gallery appearance keeps prior facade IDs and divisions',async()
  const after=r.items.filter(o=>o.kind==='front'&&o.hostId===c.id).map(o=>[o.id,o.startT,o.endT,o.topT,o.bottomT]);
  assert.deepEqual(after,before);
 });
+
+
+test('Photoshop-like equal distribution keeps the selected continuous row boundaries fixed',async()=>{
+ const G=await import('../apps/preview/geometry.js');
+ let r=G.placeWall([],{x:0,z:0},{x:3,z:0});
+ r=G.placeCabinet(r.items,{x:.2,z:0},{x:2.8,z:0});
+ const c=r.items.find(o=>o.kind==='cabinet');
+ r=G.placeFrontLayout(r.items,c.id,'doors');
+ const f=r.items.find(o=>o.kind==='front');
+ r=G.splitManualFront(r.items,f.id,{direction:'vertical',ratio:.4});
+ const original=r.items.filter(o=>o.kind==='front'&&o.hostId===c.id).sort((a,b)=>a.startT-b.startT);
+ const left=Math.min(...original.map(o=>o.startT)),right=Math.max(...original.map(o=>o.endT));
+ r=G.equalizeManualFrontCells(r.items,f.id,'width');
+ const faces=r.items.filter(o=>o.kind==='front'&&o.hostId===c.id).sort((a,b)=>a.startT-b.startT);
+ assert.equal(faces.length,original.length);
+ assert.ok(Math.abs(faces[0].startT-left)<1e-8);
+ assert.ok(Math.abs(faces.at(-1).endT-right)<1e-8);
+ assert.ok(faces.every(o=>Math.abs((o.endT-o.startT)-(faces[0].endT-faces[0].startT))<1e-6));
+});
