@@ -686,10 +686,10 @@ function commitChange(result,{materials,styleId,stylePreset,frontRules,tileLayou
  const oldEquipment=new Map(currentItems().filter(e=>e.kind==='equipment').map(e=>[e.id,e]));
  const changedEquipment=result.items.some(e=>e.kind==='equipment'&&JSON.stringify(oldEquipment.get(e.id))!==JSON.stringify(e))||[...oldEquipment.keys()].some(id=>!result.items.some(e=>e.id===id));
  if(changedEquipment&&!skipAlignment){
-  const ids=Geo.affectedCabinetIds(currentItems(),result.items).filter(id=>result.items.some(c=>c.id===id&&c.frontPreset));
+  const ids=Geo.affectedCabinetIds(currentItems(),result.items).filter(id=>result.items.some(c=>c.id===id&&c.frontPreset&&c.frontPreset!=='custom'));
   if(ids.length)result={...result,items:Geo.planSmartKitchen(result.items,{cabinetIds:ids,optimizePositions:false}).items};
  }
- if(!skipAlignment)result={...result,items:Geo.alignFrontSeams(result.items,{cabinetIds:Geo.affectedCabinetIds(currentItems(),result.items)}).items};
+ if(!skipAlignment){const editable=Geo.affectedCabinetIds(currentItems(),result.items).filter(id=>!result.items.some(c=>c.id===id&&c.frontPreset==='custom'));if(editable.length)result={...result,items:Geo.alignFrontSeams(result.items,{cabinetIds:editable}).items};}
  p.scene??={items:[]};p.scene.items=result.items;p.updatedAt=new Date().toISOString();p.revision=(p.revision||0)+1;
  if(materials)p.scene.materials={...DEFAULT_MATERIALS,...materials};
  if(styleId!==undefined)p.scene.styleId=styleId;
