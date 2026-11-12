@@ -10,7 +10,7 @@ import {wardrobeParts} from './wardrobe-report.js?v=gallery2';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cm=n=>Math.round(n*1000)/10,num=n=>new Intl.NumberFormat('fa-IR',{maximumFractionDigits:1}).format(n);
 const input=(label,key,value,min,max)=>'<label>'+label+'<input data-w-field="'+key+'" type="number" step="1" min="'+min+'" max="'+max+'" value="'+value+'"></label>';
-export function newWardrobeScene(){return {items:wardrobeItems(defaultWardrobe()),materials:{...DEFAULT_MATERIALS},ceilingHeight:2.6,wardrobeBoxStage:'floor'};}
+export function newWardrobeScene(){return {items:wardrobeItems(defaultWardrobe()),materials:{...DEFAULT_MATERIALS},ceilingHeight:2.6,wardrobeBoxStage:'floor',wardrobeBoxCreated:false};}
 
 export function wardrobeElevation(items,inside=true,selectedBayKey=null,selectedFrontId=null){
  const c=items.find(c=>c.wardrobe),{width:w,height:h}=c.wardrobe,pad=.15;
@@ -98,7 +98,7 @@ export function mountWardrobe(container,project,{save,tell}){
   try{
    const next=structuredClone(config());next.height=extrudeHeight;
    stage='ready';view='3d';
-   rebuild(next,{wardrobeBoxStage:'ready'});
+   rebuild(next,{wardrobeBoxStage:'ready',wardrobeBoxCreated:true,ceilingHeight:Math.max(2.6,extrudeHeight+.1)});
    renderer.objectGroup.visible=true;renderer.fitPreview();renderer.renderPreview();
   }catch(error){stage='height';view='3d';draw();tell(error.message);}
  }
@@ -117,6 +117,12 @@ export function mountWardrobe(container,project,{save,tell}){
   const drawbar=container.querySelector('#wardrobe-draw-toolbar');drawbar.hidden=view!=='inside';
   for(const b of drawbar.querySelectorAll('[data-w-action="draw-tool"]'))b.setAttribute('aria-pressed',String(b.dataset.tool===drawTool));
   if(isElevation)elevation.innerHTML=wardrobeElevation(items,view==='inside',selectedBayKey,selected);
+  if(stage!=='ready'){
+   settings.innerHTML='<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">ساخت باکس کمد</span><h2>'+(stage==='floor'?'مرحله ۱ · کشیدن کف':'مرحله ۲ · تعیین ارتفاع')+'</h2><p>'+(stage==='floor'?'با موس روی پلان کف کلیک کن، مستطیل را بکش و رها کن. ابعاد واقعی از همین مستطیل ساخته می‌شود.':'در نمای سه‌بعدی دستگیرهٔ عمودی را بالا بکش و ارتفاع را تأیید کن.')+'</p><p>بعد می‌توانی یونیت‌ها و قفسه‌ها را در نماهای دوبعدی و سه‌بعدی ویرایش کنی.</p></section>';
+   container.querySelector('#wardrobe-selection').textContent='مدل در مرحلهٔ ساخت باکس است.';
+   container.querySelector('#wardrobe-parts').hidden=true;
+   return;
+  }
   settings.innerHTML='<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">ابعاد کلی · سانتی‌متر</span><h2>باکس کمد</h2><div class="wardrobe-dimensions">'+
    input('عرض','width',cm(cfg.width),60,600)+input('ارتفاع','height',cm(cfg.height),180,320)+input('عمق','depth',cm(cfg.depth),45,80)+'</div><button class="primary" data-w-action="dimensions">اعمال ابعاد</button><button data-w-action="redraw-box">✎ ترسیم دوباره باکس کف</button><label>جنس و رنگ درها<select data-w-finish>'+MATERIALS.front.map(m=>'<option value="'+m.id+'" '+(m.id===cfg.finish?'selected':'')+'>'+m.label+'</option>').join('')+'</select></label></section>'+
    '<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">تقسیم عرض و کاربری</span><h2>بخش‌های داخلی</h2><p>شماره‌گذاری از چپ است. تغییر عرض هر بخش از بخش کناری گرفته می‌شود.</p>'+wardrobeSections(body()).map(b=>{
@@ -160,7 +166,7 @@ export function mountWardrobe(container,project,{save,tell}){
   if(topPan&&topPan.id===e.pointerId){
    const p=topPan,v=p.viewport;
    topViewport=[v[0]-(e.clientX-p.x)*v[2]/p.width,v[1]-(e.clientY-p.y)*v[3]/p.height,v[2],v[3]];
-   topHost.querySelector('#wardrobe-top-svg')?.setAttribute('viewBox',topViewport.join(' '));
+   topHost.innerHTML=renderWardrobeTop(config(),{drawing:stage==='floor',viewport:topViewport});
    e.preventDefault();return;
   }
   if(!floorDrag||floorDrag.id!==e.pointerId)return;
@@ -174,7 +180,7 @@ export function mountWardrobe(container,project,{save,tell}){
   const drag=floorDrag;floorDrag=null;
   const end=topViewPoint(drag.svg,e)||drag.end;
   try{
-   const next=wardrobeFromFloorRectangle(config(),{x1:drag.start.x,z1:drag.start.z,x2:end.x,z2:end.z});
+   const next=wardrobeFromFloorRectangle(config(),{x1:drag.start.x,z1:drag.start.z,x2:end.x,z2:end.z},{preserveBays:project.scene.wardrobeBoxCreated!==false});
    extrudeHeight=next.height;stage='height';view='3d';
    renderer.previewOrbit={...renderer.previewOrbit,x:next.centerX,z:next.centerZ,y:next.height/2,radius:Math.max(3.5,next.width*1.5+1),yaw:Math.PI/3,pitch:.38};
    rebuild(next,{wardrobeBoxStage:'height'});
@@ -309,7 +315,7 @@ export function mountWardrobe(container,project,{save,tell}){
     return stop();
    }
    if(command==='undo'||command==='redo'){history(command==='redo');return stop();}
-   if(command==='save'){persist();tell('پروژه ذخیره شد.');return stop();}
+   if(command==='save'){checkCurrent();persist();tell('پروژه ذخیره شد.');return stop();}
    if(command==='confirm'){if(stage==='height')finishBoxHeight();return stop();}
    if(command==='cancel'){
     if(floorDrag){floorDrag=null;draw();}
@@ -362,5 +368,5 @@ export function mountWardrobe(container,project,{save,tell}){
  },{signal});
  document.addEventListener('keyup',e=>{if(e.code==='Space'||e.key===' ')stopKeyboardPan();},{signal});
  window.addEventListener('blur',stopKeyboardPan,{signal});
- return {dispose(){disposed=true;abort.abort();renderer.stopPreview();},renderer};
+ return {dispose(){disposed=true;abort.abort();if(ghost){renderer.previewScene?.remove(ghost);ghost.traverse(o=>{o.geometry?.dispose();o.material?.dispose()});ghost=null;}renderer.stopPreview();},renderer};
 }
