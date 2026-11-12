@@ -584,3 +584,11 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .side-elevation-panel [data-elevation-front]{touch-action:manipulation}
 .elevation-empty{position:absolute;top:45%;width:100%;text-align:center;color:#526e60;padding:18px}
 @media(max-width:740px){.elevation-mode-switch{top:72px}.side-elevation-ui{padding:122px 9px 165px}.side-elevation-tools button,.side-elevation-palette button{padding:6px 8px;font-size:13px}}
+
+
+/* Wardrobe internal pencil/eraser shares saved cabinet geometry and part lists. */
+.wardrobe-draw-toolbar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;background:#f2f7f1;border-bottom:1px solid #cbd9cf}
+.wardrobe-draw-toolbar button{padding:7px 10px;font-size:13px;border-radius:8px;background:#fff}
+.wardrobe-draw-toolbar button[aria-pressed="true"]{background:#2f6d58;color:#fff;border-color:#2f6d58}
+#wardrobe-elevation [data-w-bay-rect],#wardrobe-elevation [data-w-erase-seam]{cursor:crosshair;touch-action:manipulation}
+.plan-host:has(.side-elevation-ui){touch-action:pan-x pan-y}
