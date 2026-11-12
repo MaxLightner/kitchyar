@@ -25,6 +25,7 @@ export function renderSideElevation(items,{wallId=null,side=1,selectedId=null,to
   options.map(o=>'<option value="'+escape(o.id)+'|'+o.side+'" '+(o.id===selected.id&&o.side===selected.side?'selected':'')+'>'+escape(o.title)+'</option>').join('')+
   '</select></label><button data-action="front-autofill">یونیت‌گذاری اولیه</button></div>'+
   '<div class="side-elevation-tools">'+tools.map(([id,label])=>'<button data-action="front-tool" data-tool="'+id+'" class="'+(tool===id?'selected':'')+'">'+label+'</button>').join('')+'</div>'+
+  '<div class="side-elevation-tools"><button data-action="front-equalize" data-axis="width">توزیع مساوی عرض ↔</button><button data-action="front-equalize" data-axis="height">توزیع مساوی ارتفاع ↕</button></div>'+ 
   '<div class="side-elevation-scroll"><svg id="side-elevation-view" viewBox="0 0 '+width+' '+height+'" style="width:'+width+'px;height:'+height+'px" role="img" aria-label="نمای متریک و قابل انتخاب کابینت‌ها">'+
   '<rect x="'+left+'" y="'+y(wall.height)+'" width="'+(length*scale)+'" height="'+(wall.height*scale)+'" fill="#edf0ef" stroke="#d2d8db"/>';
  for(const c of cabinets){
