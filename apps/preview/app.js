@@ -574,6 +574,9 @@ function showScene(){
  const root=document.getElementById('editor-root');if(!root)return;
  const items=currentItems(),host=document.getElementById('plan-host');
  const isPlan=mode==='2d';host.hidden=!isPlan;root.dataset.view=mode;
+ document.getElementById('scene-message')?.classList.toggle('hide-for-plan',isPlan);
+ const scan=document.getElementById('scan-card');if(scan)scan.hidden=mode!=='ar';
+ const rescan=document.querySelector('[data-action="rescan"]');if(rescan)rescan.hidden=mode!=='ar';
  const elevationSwitch=document.getElementById('elevation-mode-switch');if(elevationSwitch){elevationSwitch.hidden=!isPlan;elevationSwitch.querySelectorAll('[data-action]').forEach(b=>b.classList.toggle('selected',b.dataset.action===(planSubview==='front'?'2d-front':'2d-top')));}
  document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));const planLabel=document.getElementById('plan-toggle-label');if(planLabel)planLabel.textContent=isPlan?'بستن پلان · بازگشت به صحنه':'پلان · لمس برای ویرایش';const wideToggle=document.getElementById('ar-wide-toggle');wideToggle.hidden=mode!=='ar';wideToggle.setAttribute('aria-pressed',String(!!floor?.wideActive));wideToggle.textContent=floor?.wideActive?'نمای عادی':'نمای واید';
  if(isPlan){
