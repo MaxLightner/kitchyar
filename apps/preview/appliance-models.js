@@ -1,4 +1,4 @@
-import {GLTFLoader} from 'https://cdn.jsdelivr.net/gh/MaxLightner/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be/vendor/GLTFLoader.js';
+import {GLTFLoader} from './vendor/chido/vendor/GLTFLoader.js';
 
 // Visual-only library: appliance dimensions, placement, cutouts and solver data
 // remain in geometry.js. Assets are loaded lazily and shared between instances.

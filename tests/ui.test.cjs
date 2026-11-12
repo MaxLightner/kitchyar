@@ -13,7 +13,7 @@ test('welcome, project list, editor and independent fabrication report are route
 });
 test('floor uses the pinned Chido source, not an approximate scanner',()=>{
  const floor=read('floor-ar.js');
- assert.match(floor,/tolica-ar@0abbab05c15eed4f3922d1e1dc74b5c17b82e8be\/surfaces\.js/);
+ assert.match(floor,/from '\.\/vendor\/chido\/surfaces\.js'/);
  assert.match(floor,/FloorScanner/);
  assert.match(floor,/AnchorStabilizer/);
  assert.match(floor,/const RAYS=\[\[-\.24,0\]/);
