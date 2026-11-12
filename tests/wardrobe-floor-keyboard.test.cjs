@@ -65,3 +65,37 @@ test('keyboard mappings preserve typing and normalize undo/delete/confirm/pan/3D
  assert.equal(K.desktopCommand({code:'KeyZ',key:'z',target:editable,ctrlKey:true}),null);
  assert.equal(K.desktopCommand({code:'KeyS',key:'s',target:editable,ctrlKey:true}),'save');
 });
+
+
+test('floor box respects full allowable widths and keeps handcrafted bays when possible',async()=>{
+ const W=await import('../apps/preview/wardrobe-model.js');
+ for(const width of [.6,1.2,2.4,6]){
+  const cfg=W.wardrobeFromFloorRectangle(W.defaultWardrobe(),{x1:0,z1:0,x2:width,z2:.6});
+  assert.equal(cfg.width,width);assert.equal(cfg.depth,.6);
+  assert.ok(W.wardrobeItems(cfg).some(o=>o.wardrobe));
+ }
+ const original=W.defaultWardrobe();
+ const special=W.editWardrobeBay(original,original.bays[0].key,{role:'open-shelves',shelves:5});
+ const rebuilt=W.wardrobeFromFloorRectangle(special,{x1:0,z1:0,x2:2.3,z2:.65},{preserveBays:true});
+ assert.equal(rebuilt.bays[0].role,'open-shelves');
+ assert.equal(rebuilt.bays[0].shelves,5);
+ assert.equal(rebuilt.bays.length,special.bays.length);
+ assert.throws(()=>W.wardrobeFromFloorRectangle(special,{x1:0,z1:0,x2:4,z2:.65},{preserveBays:true}),/تقسیمات|یونیت/);
+});
+
+test('both web editing workspaces wire mouse and keyboard commands',()=>{
+ const kitchen=fs.readFileSync('apps/preview/app.js','utf8'),wardrobe=fs.readFileSync('apps/preview/wardrobe-workspace.js','utf8');
+ assert.match(kitchen,/function handleKitchenKeyboard/);
+ assert.match(kitchen,/document\.addEventListener\('wheel'/);
+ assert.match(kitchen,/planViewport=\[point\.x/);
+ assert.match(kitchen,/if\(command==='delete'\)/);
+ assert.match(kitchen,/if\(command==='pan'\)/);
+ assert.match(kitchen,/document\.addEventListener\('keyup'/);
+ assert.match(wardrobe,/topHost\.addEventListener\('pointerdown'/);
+ assert.match(wardrobe,/topHost\.addEventListener\('pointermove'/);
+ assert.match(wardrobe,/topHost\.addEventListener\('pointerup'/);
+ assert.match(wardrobe,/heightHandle\.addEventListener\('pointermove'/);
+ assert.match(wardrobe,/if\(command==='delete'\)/);
+ assert.match(wardrobe,/if\(command==='pan'\)/);
+ assert.match(wardrobe,/wardrobeBoxCreated:true/);
+});
