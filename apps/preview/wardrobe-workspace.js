@@ -103,7 +103,8 @@ export function mountWardrobe(container,project,{save,tell}){
    if(index<0)return;
    selectedBayKey=key;
    try{
-    const rect=bayTarget.getBoundingClientRect();
+    const rect=(bayTarget.matches('[data-w-bay-rect]')?bayTarget:elevation.querySelector('[data-w-bay-rect="'+key+'"]'))?.getBoundingClientRect();
+    if(!rect)throw Error('محدوده بخش مشخص نشد.');
     if(drawTool==='pencilV'){
      const ratio=Math.max(.02,Math.min(.98,(e.clientX-rect.left)/rect.width));
      return rebuild(splitWardrobeBay(config(),key,ratio));
