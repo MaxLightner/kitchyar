@@ -1281,6 +1281,10 @@ document.addEventListener('click',async e=>{
   if(action==='preview-smart-layout')return previewSmartLayout();
   if(action==='2d-top'||action==='2d-front'){planSubview=action==='2d-front'?'front':'top';drawing=null;hover=null;frontDrawTool='select';showScene();return;}
   if(action==='front-tool'){frontDrawTool=button.dataset.tool;drawing=null;hover=null;showScene();return;}
+  if(action==='front-equalize'){
+   if(!currentItems().some(o=>o.id===selection&&o.kind==='front'))throw Error('ابتدا یک قسمت را انتخاب کن.');
+   commitChange(Geo.equalizeManualFrontCells(currentItems(),selection,button.dataset.axis),{skipAlignment:true,exactResult:true});return;
+  }
   if(action==='front-set-type'){
    if(!currentItems().some(o=>o.id===selection&&o.kind==='front'))throw Error('ابتدا یک در، کشو یا خانه را انتخاب کن.');
    commitChange(Geo.setManualFrontType(currentItems(),selection,button.dataset.type),{skipAlignment:true,exactResult:true});return;
