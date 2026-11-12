@@ -237,3 +237,11 @@ test('A/B drag rotates the project around A without changing its metre scale',as
   for(const key of ['x','z'])assert.ok(Math.abs(point[key]-expected[key])<1e-9,key);
  assert.equal(fitCalibrationDragB(a,b,anchor,anchor,1),null,'coincident markers are rejected');
 });
+
+
+test('selection of an installed sink or cabinet opens its own wall elevation directly',()=>{
+ const app=read('app.js');
+ assert.match(app,/data-action="open-side-elevation"/);
+ assert.match(app,/\['front','equipment'\]\.includes\(selected\?\.kind\)/);
+ assert.match(app,/elevationWallId=host\.hostId;elevationSide=host\.side\|\|1/);
+});
