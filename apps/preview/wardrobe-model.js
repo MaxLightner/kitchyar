@@ -26,7 +26,8 @@ export function validateWardrobe(config){
  if(new Set(bays.map(b=>b.key)).size!==bays.length)throw Error('شناسهٔ بخش‌های کمد تکراری است.');
  for(const b of bays){
   if(!finite(b.width,R.minBay,R.maxBay)||!Object.hasOwn(WARDROBE_ROLES,b.role))throw Error('عرض یا کاربری بخش معتبر نیست؛ عرض بخش بین ۳۵ تا ۱۲۰ سانتی‌متر باشد.');
-  if(!Number.isInteger(b.shelves)||b.shelves<0||b.shelves>8||!Number.isInteger(b.drawers)||b.drawers<1||b.drawers>5)
+  if(b.extraShelves!==undefined&&(!Array.isArray(b.extraShelves)||b.extraShelves.some(v=>!finite(v,.08,.92))))throw Error('محل طبقات دستی نامعتبر است.');
+ if(!Number.isInteger(b.shelves)||b.shelves<0||b.shelves>8||!Number.isInteger(b.drawers)||b.drawers<1||b.drawers>5)
    throw Error('تعداد طبقه بین صفر تا ۸ و تعداد کشو بین ۱ تا ۵ باشد.');
   if(['long-hang','double-hang','drawers-hang'].includes(b.role)&&depth<.55)throw Error('برای آویز لباس، عمق کمد حداقل ۵۵ سانتی‌متر باشد.');
   if(b.role==='desk'&&(b.width-2*R.board<R.minDeskClearWidth||depth<R.minDeskDepth))
@@ -85,7 +86,10 @@ export function eraseWardrobeShelf(config,key,heightRatio){
 export function joinWardrobeBay(config,key){
  const next=copy(config),index=next.bays.findIndex(b=>b.key===key);
  if(index<0||!next.bays[index+1])throw Error('بخش بعدی برای ادغام وجود ندارد.');
- next.bays[index].width+=next.bays[index+1].width;next.bays.splice(index+1,1);
+ const left=next.bays[index],right=next.bays[index+1];
+ const merged=[...(left.extraShelves||[]),...(right.extraShelves||[])].sort((a,b)=>a-b).filter((v,i,arr)=>i===0||v-arr[i-1]>.075);
+ if(merged.length)left.extraShelves=merged;
+ left.width+=right.width;next.bays.splice(index+1,1);
  return validateWardrobe(next);
 }
 export function wardrobeSections(c){
