@@ -552,6 +552,7 @@ function drawSelection(){
  panel.innerHTML='<div class="object-head"><strong>'+esc(title)+'</strong><button data-action="close-object" aria-label="بستن">×</button></div>'+
   libraryControls(obj.id)+modelOptions+windowControls+sinkControls+faucetControls+fridgeFrameControls+fridgeControls+'<div class="object-fields">'+fields+'</div>'+tallControls+openControls+(['front','cabinet'].includes(obj.kind)?'<button class="front-rule-open" data-action="open-front-rules">⚙ قوانین نما و هم‌ترازسازی گروهی</button>':'')+paintControls+decorControls+counterControls+specialtyControls+equipmentFacadeControls+extras+(obj.kind==='cabinet'&&obj.subtype==='base'?'<button class="cut-sheet-button" data-action="cut-sheet">نمای دقیق برش صفحه</button>':'')+'<div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
   (obj.kind==='scene-object'&&obj.type!=='ceiling'||obj.kind==='equipment'&&obj.subtype!=='hood'||obj.kind==='cabinet'&&obj.subtype==='tall'?'<button data-action="move-equipment">جابجایی روی پلان / AR</button>':'')+
+  (obj.kind==='front'?'<button data-action="toggle-front-open">'+(obj.openFraction>.01?'بستن همین در / کشو':'باز کردن همین در / کشو')+'</button>':'')+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
   (obj.kind==='front'?'<small>دستگیره‌های نما را در تصویر بکش؛ عرض و ارتفاع با اسنپ ۱ سانتی‌متر ثبت می‌شوند.</small>':
    ['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌ها را بکش؛ اندازه‌گذاری هنگام حرکت نمایش داده می‌شود و پس از رها کردن، با دقت ۱ سانتی‌متر ثبت می‌شود.</small>':'');
@@ -810,7 +811,8 @@ function placeAt(point){
    if(!snap){tell('برای کابینت، نشانگر باید به دیوار یا کنج آن برسد.');return;}
    const w=items.find(x=>x.id===snap.hostId),
     cross=(point.x-w.x1)*(w.z2-w.z1)-(point.z-w.z1)*(w.x2-w.x1);
-   drawing.start={x:snap.x,z:snap.z,hostId:w.id,
+   const previewStartT=Math.max(0,snap.t-.45/Geo.lengthOf(w));
+   drawing.start={x:w.x1+(w.x2-w.x1)*previewStartT,z:w.z1+(w.z2-w.z1)*previewStartT,hostId:w.id,
     side:trackedView()&&floor?.locked?floor.cameraSideForWall(w):Math.abs(cross)<.01?1:cross>0?-1:1};
   }else{
    const p=Geo.resolvePoint(items,null,point.x,point.z,settings);
@@ -1245,6 +1247,7 @@ document.addEventListener('click',async e=>{
   if(action==='new-wardrobe')return createWardrobeProject();
   if(action==='solver-example')return createSolverExample();
   if(action==='preview-smart-layout')return previewSmartLayout();
+  if(action==='toggle-front-open'){const f=currentItems().find(o=>o.id===selection&&o.kind==='front');if(f)commitFrontOpening(f.id,f.openFraction>.01?0:1);return;}
   if(action==='open'){const p=projects.find(p=>p.id===id);entryMode='3d';return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/editor/')+id);}
   if(action==='open-report'){const p=projects.find(p=>p.id===(id||activeId));return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/report/')+(id||activeId));}
   if(action==='return-editor'){entryMode='3d';return go('#/editor/'+id);}
