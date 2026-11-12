@@ -576,11 +576,11 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .side-elevation-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .side-elevation-top label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:650}
 .side-elevation-top select{font:inherit;max-width:220px;padding:8px;border-radius:8px;border:1px solid #aac2b5;background:#fff}
-.side-elevation-top button,.side-elevation-tools button,.side-elevation-palette button{padding:7px 11px;font-size:12px;border-radius:8px;background:#fdfdf9}
+.side-elevation-top button,.side-elevation-tools button,.side-elevation-palette button{padding:7px 11px;font-size:13px;border-radius:8px;background:#fdfdf9}
 .side-elevation-tools,.side-elevation-palette{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
 .side-elevation-scroll{overflow:auto;min-height:160px;flex:1;border:1px solid #c8d2cc;background:#f7f9f8;border-radius:9px;direction:ltr}
 .side-elevation-scroll svg{display:block;max-width:none}
 .side-elevation-ui small{color:#60786a;line-height:1.8}
 .side-elevation-panel [data-elevation-front]{touch-action:manipulation}
 .elevation-empty{position:absolute;top:45%;width:100%;text-align:center;color:#526e60;padding:18px}
-@media(max-width:740px){.elevation-mode-switch{top:72px}.side-elevation-ui{padding:122px 9px 165px}.side-elevation-tools button,.side-elevation-palette button{padding:6px 8px;font-size:11px}}
+@media(max-width:740px){.elevation-mode-switch{top:72px}.side-elevation-ui{padding:122px 9px 165px}.side-elevation-tools button,.side-elevation-palette button{padding:6px 8px;font-size:13px}}
