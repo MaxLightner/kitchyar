@@ -614,3 +614,6 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 #wardrobe-extrude-handle{min-width:51px!important;min-height:74px!important;font-size:30px!important;cursor:ns-resize;touch-action:none;color:#1d6a49!important;border:2px solid #61a47e!important;background:#e2f6e9!important}
 #wardrobe-elevation [data-w-front-id]{cursor:pointer;touch-action:manipulation}
 @media(max-width:760px){#wardrobe-height-step{bottom:8px;left:8px;padding:9px;max-width:calc(100% - 16px)}}
+
+.wardrobe-key-help{font-size:13px;line-height:1.9;color:#476454;padding:8px 12px;margin:7px 0;background:#e5eee6;border-radius:8px}
+@media(pointer:coarse){.wardrobe-key-help{display:none}}
