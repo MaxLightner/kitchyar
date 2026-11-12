@@ -287,5 +287,80 @@ export function mountWardrobe(container,project,{save,tell}){
    }
   }catch(error){tell(error.message);draw();}
  },{signal});
+ // Desktop keyboard controls share the same semantic wardrobe edits as the buttons.
+ const stopKeyboardPan=()=>{spaceHeld=false;topPan=null;if(renderer)renderer.keyboardPan=false;container.classList.remove('space-pan');};
+ document.addEventListener('keydown',e=>{
+  if(!container.isConnected||disposed)return;
+  if((e.key==='Enter'||e.code==='NumpadEnter')&&e.target.closest?.('[data-w-height]')){
+   setExtrusionHeight(e.target.value);finishBoxHeight();e.preventDefault();return;
+  }
+  if((e.key==='Enter'||e.code==='NumpadEnter')&&e.target.closest?.('[data-w-field]')){
+   const bay=e.target.closest('[data-w-bay]'),apply=bay?.querySelector('[data-w-action="bay-apply"]')||container.querySelector('[data-w-action="dimensions"]');
+   apply?.click();e.preventDefault();return;
+  }
+  const command=desktopCommand(e);
+  if(!command)return;
+  if(e.repeat&&['delete','confirm','open'].includes(command))return;
+  const stop=()=>e.preventDefault();
+  try{
+   if(command==='pan'){
+    spaceHeld=true;container.classList.add('space-pan');
+    if(view==='3d')renderer.keyboardPan=true;
+    return stop();
+   }
+   if(command==='undo'||command==='redo'){history(command==='redo');return stop();}
+   if(command==='save'){persist();tell('پروژه ذخیره شد.');return stop();}
+   if(command==='confirm'){if(stage==='height')finishBoxHeight();return stop();}
+   if(command==='cancel'){
+    if(floorDrag){floorDrag=null;draw();}
+    else if(stage==='height'){history(false);}
+    else{selected=null;selectedBayKey=null;drawTool='select';renderer.setSelection(null);draw();}
+    return stop();
+   }
+   if(command==='delete'){
+    if(stage==='height'){history(false);return stop();}
+    if(stage==='floor'){floorDrag=null;draw();return stop();}
+    const f=current().find(o=>o.id===selected&&o.kind==='front');
+    if(f&&!f.wardrobeInternal){
+     selected=null;selectedBayKey=f.wardrobeBay;
+     rebuild(editWardrobeBay(config(),f.wardrobeBay,{role:'open-shelves'}));return stop();
+    }
+    if(selectedBayKey){
+     const bays=config().bays,index=bays.findIndex(b=>b.key===selectedBayKey);
+     const key=index===bays.length-1?bays[index-1]?.key:selectedBayKey;
+     if(key){selected=null;selectedBayKey=null;rebuild(joinWardrobeBay(config(),key));}
+    }
+    return stop();
+   }
+   if(command==='box'){
+    stage='floor';view='top';update(current(),{scenePatch:{wardrobeBoxStage:'floor'}});return stop();
+   }
+   if(['top','front','three','front-doors','wall','upper'].includes(command)){
+    const next=command==='top'?'top':command==='front'||command==='wall'?'inside':command==='front-doors'||command==='upper'?'front':'3d';
+    if(stage==='floor'&&next!=='top'){tell('اول باکس کف را بکش.');return stop();}
+    if(stage==='height'&&next!=='3d'){tell('ارتفاع باکس را تأیید کن.');return stop();}
+    view=next;draw();if(view==='3d')renderer.renderPreview();return stop();
+   }
+   if(command==='select'){drawTool='select';selected=null;selectedBayKey=null;renderer.setSelection(null);draw();return stop();}
+   if(command==='elevation'){view='front';draw();return stop();}
+   if(command==='open'){
+    const front=current().find(o=>o.id===selected&&o.kind==='front');
+    if(front)update(setWardrobeOpening(current(),front.id,!(front.openFraction>.5)),{opening:true});
+    return stop();
+   }
+   if(command==='fit'){if(view==='3d'){renderer.fitPreview();renderer.renderPreview();}else if(view==='top'){topViewport=[-3.5,-2.5,7,5];draw();}return stop();}
+   if(command==='zoom-in'||command==='zoom-out'){
+    const factor=command==='zoom-in'?.84:1.19;
+    if(view==='3d'&&renderer.previewOrbit){
+     renderer.previewOrbit.radius=Math.max(1.5,Math.min(25,renderer.previewOrbit.radius*factor));renderer.renderPreview();
+    }else if(view==='top'){
+     const v=topViewport,w=Math.max(1.4,Math.min(18,v[2]*factor)),scale=w/v[2];
+     topViewport=[v[0]+v[2]*(1-scale)/2,v[1]+v[3]*(1-scale)/2,w,v[3]*scale];draw();
+    }return stop();
+   }
+  }catch(error){tell(error.message);return stop();}
+ },{signal});
+ document.addEventListener('keyup',e=>{if(e.code==='Space'||e.key===' ')stopKeyboardPan();},{signal});
+ window.addEventListener('blur',stopKeyboardPan,{signal});
  return {dispose(){disposed=true;abort.abort();renderer.stopPreview();},renderer};
 }
