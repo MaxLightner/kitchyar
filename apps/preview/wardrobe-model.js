@@ -6,7 +6,7 @@ export const WARDROBE_RULES=Object.freeze({board:.018,back:.008,gap:.003,base:0,
  minBay:.35,maxBay:1.2,minLeaf:.35,maxLeaf:.65,drawerClearance:.045,drawerSetback:.08,
  deskHeight:.75,minKnee:.70,minDeskClearWidth:.70,minDeskDepth:.55,hingeAngle:Math.PI/2,hingeOffset:.022});
 export const WARDROBE_ROLES=Object.freeze({'long-hang':'آویز بلند','double-hang':'آویز دوطبقه',shelves:'طبقات',
- 'drawers-hang':'کشوی داخلی و آویز',desk:'میز و طبقهٔ بالا'});
+ 'drawers-hang':'کشوی داخلی و آویز',desk:'میز و طبقهٔ بالا','open-shelves':'قفسه باز'});
 const copy=x=>structuredClone(x),uid=()=>crypto.randomUUID();
 const R=WARDROBE_RULES;
 const leafCount=width=>Math.min(2,Math.max(1,Math.ceil(width/R.maxLeaf)));
@@ -17,8 +17,21 @@ export function defaultWardrobe(width=2.4){
   role:['long-hang','drawers-hang','shelves'][bays.length%3],shelves:4,drawers:3,mirrors:[]});
  return {version:1,width,height:2.4,depth:.6,finish:'ivory-matte',bays};
 }
+/* The ground rectangle defines the real cabinet footprint, before its height is extruded. */
+export function wardrobeFromFloorRectangle(source,{x1,z1,x2,z2}){
+ const values=[x1,z1,x2,z2].map(Number);
+ if(values.some(n=>!Number.isFinite(n)||Math.abs(n)>15))throw Error('مختصات باکس کف معتبر نیست.');
+ const [ax,az,bx,bz]=values,width=Math.round(Math.abs(bx-ax)*100)/100,depth=Math.round(Math.abs(bz-az)*100)/100;
+ if(width<WARDROBE_RULES.minWidth||width>WARDROBE_RULES.maxWidth||depth<WARDROBE_RULES.minDepth||depth>WARDROBE_RULES.maxDepth)
+  throw Error('عرض باکس بین ۶۰ تا ۶۰۰ و عمق آن بین ۴۵ تا ۸۰ سانتی‌متر باشد.');
+ const next=defaultWardrobe(width);
+ next.height=source.height;next.depth=depth;next.finish=source.finish;
+ next.centerX=Math.round((ax+bx)*50)/100;next.centerZ=Math.round((az+bz)*50)/100;
+ return validateWardrobe(next);
+}
 export function validateWardrobe(config){
  const {width,height,depth,bays}=config;
+ if(['centerX','centerZ'].some(key=>config[key]!==undefined&&(!Number.isFinite(config[key])||Math.abs(config[key])>15)))throw Error('مختصات قرارگیری کمد معتبر نیست.');
  if(!finite(width,R.minWidth,R.maxWidth)||!finite(height,R.minHeight,R.maxHeight)||!finite(depth,R.minDepth,R.maxDepth))
   throw Error('عرض ۶۰ تا ۶۰۰، ارتفاع ۱۸۰ تا ۳۲۰ و عمق ۴۵ تا ۸۰ سانتی‌متر مجاز است.');
  if(!Array.isArray(bays)||!bays.length||bays.length>16||Math.abs(bays.reduce((s,b)=>s+b.width,0)-width)>1e-6)
@@ -103,8 +116,9 @@ export function wardrobeSections(c){
 export function wardrobeItems(config,previous=[]){
  validateWardrobe(config);const old=previous.find(c=>c.kind==='cabinet'&&c.wardrobe),id=old?.id||uid(),wallId=old?.hostId||uid();
  const {width:w,height:h,depth:d}=config;
- const wall={id:wallId,kind:'wall',name:'دیوار کمد',x1:-w/2-.15,z1:0,x2:w/2+.15,z2:0,thickness:.12,height:h+R.base+.1};
- const c={id,hostId:wallId,kind:'cabinet',subtype:'tall',name:'کمد',x1:-w/2,x2:w/2,z1:.064+d/2,z2:.064+d/2,
+ const cx=config.centerX??0,cz=config.centerZ??(.064+d/2),wallZ=cz-d/2-.064;
+ const wall={id:wallId,kind:'wall',name:'دیوار کمد',x1:cx-w/2-.15,z1:wallZ,x2:cx+w/2+.15,z2:wallZ,thickness:.12,height:h+R.base+.1};
+ const c={id,hostId:wallId,kind:'cabinet',subtype:'tall',name:'کمد',x1:cx-w/2,x2:cx+w/2,z1:cz,z2:cz,
   startT:.15/(w+.3),endT:(w+.15)/(w+.3),side:1,elevation:R.base,height:h,depth:d,
   tallFrontsEnabled:false,tallShelves:0,frontPreset:'wardrobe',wardrobe:copy(config),decor:{endPanel:'none'}};
  const oldById=new Map(previous.map(o=>[o.id,o])),fronts=[];
@@ -116,7 +130,7 @@ export function wardrobeItems(config,previous=[]){
    openFraction:prior?.openFraction||0,...extra};
  };
  for(const b of wardrobeSections(c)){
-  if(b.role!=='desk'){
+  if(!['desk','open-shelves'].includes(b.role)){
    const n=leafCount(b.width);
    for(let j=0;j<n;j++)fronts.push(front(b,'door',j,b.start+b.width*j/n,j===n-1?b.end:b.start+b.width*(j+1)/n,0,h,{mirror:!!b.mirrors?.[j]}));
   }
@@ -139,7 +153,7 @@ export function wardrobePanels(c){
   if(b.index)panels.push(board('divider',b.start-w/2,y+h/2,bt/2,t,h-2*t,d-bt,b.key));
   if(b.role!=='desk')shelf('bottom',b,t/2);
   if(['long-hang','double-hang','drawers-hang'].includes(b.role))shelf('top-shelf',b,h-.30);
-  if(b.role==='shelves')for(let j=1;j<=b.shelves;j++)shelf('shelf',b,t+(h-2*t)*j/(b.shelves+1));
+  if(['shelves','open-shelves'].includes(b.role))for(let j=1;j<=b.shelves;j++)shelf('shelf',b,t+(h-2*t)*j/(b.shelves+1));
   for(const position of b.extraShelves||[])shelf('custom-shelf',b,t+(h-2*t)*position);
   if(b.role==='drawers-hang')shelf('drawer-cap',b,.04+b.drawers*.19+.035);
   if(b.role==='desk'){
