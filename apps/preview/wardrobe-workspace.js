@@ -1,6 +1,7 @@
 import {FloorAR} from './floor-ar.js?v=local1';
 import * as THREE from './vendor/chido/vendor/three.module.js';
 import {renderWardrobeTop,topViewPoint,previewFloorRect} from './wardrobe-box-tool.js?v=box1';
+import {desktopCommand} from './desktop-shortcuts.js?v=keyboard1';
 import {frontPose} from './geometry.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=gallery2';
 import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,addWardrobeShelf,eraseWardrobeShelf,wardrobeFromFloorRectangle,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=gallery2';
@@ -36,6 +37,7 @@ export function mountWardrobe(container,project,{save,tell}){
  const abort=new AbortController(),signal=abort.signal;
  let past=[],future=[],stage=project.scene.wardrobeBoxStage||'ready',view=stage==='floor'?'top':'3d',selected=null,selectedBayKey=null,drawTool='select',partsOpen=false,disposed=false,lastSaved=JSON.stringify(project);
  let floorDrag=null,heightDrag=null,extrudeHeight=project.scene.items.find(x=>x.wardrobe)?.wardrobe.height||2.4,ghost=null;
+ let spaceHeld=false,topPan=null,topViewport=[-3.5,-2.5,7,5];
  let renderer;
  const current=()=>project.scene.items,body=()=>current().find(c=>c.wardrobe),config=()=>body().wardrobe;
  container.innerHTML='<main class="wardrobe-app"><header class="wardrobe-header"><a href="#/projects">← پروژه‌ها</a><div><small>KITCHYAR / کمدساز</small><h1>'+esc(project.name)+'</h1></div><span class="wardrobe-save" role="status">ذخیره‌شده روی دستگاه</span><button data-w-action="undo" aria-label="بازگشت تغییر کمد">بازگشت</button><button data-w-action="redo">انجام دوباره</button></header>'+
@@ -107,7 +109,7 @@ export function mountWardrobe(container,project,{save,tell}){
   const isTop=view==='top',isElevation=view==='inside'||view==='front';
   topHost.hidden=!isTop;heightStep.hidden=stage!=='height';
   container.querySelector('#wardrobe-plan-help').hidden=stage!=='floor';
-  if(isTop)topHost.innerHTML=renderWardrobeTop(cfg,{drawing:stage==='floor'});
+  if(isTop)topHost.innerHTML=renderWardrobeTop(cfg,{drawing:stage==='floor',viewport:topViewport});
   renderBoxGhost();
   container.querySelector('[data-w-action="undo"]').disabled=!past.length;container.querySelector('[data-w-action="redo"]').disabled=!future.length;
   for(const b of container.querySelectorAll('[data-w-action="view"]'))b.setAttribute('aria-pressed',String(b.dataset.view===view));
@@ -140,6 +142,13 @@ export function mountWardrobe(container,project,{save,tell}){
  },{signal});
  // Draw floor by dragging; extrude vertically in the 3D view.
  topHost.addEventListener('pointerdown',e=>{
+  if(view!=='top')return;
+  if(spaceHeld||e.button===1){
+   const svg=e.target.closest('#wardrobe-top-svg');if(!svg)return;
+   const box=svg.getBoundingClientRect();topPan={id:e.pointerId,x:e.clientX,y:e.clientY,viewport:[...topViewport],width:box.width,height:box.height};
+   try{topHost.setPointerCapture(e.pointerId);}catch{}
+   e.preventDefault();return;
+  }
   if(stage!=='floor'||e.button!==0)return;
   const svg=e.target.closest('#wardrobe-top-svg');if(!svg)return;
   const start=topViewPoint(svg,e);if(!start)return;
@@ -148,12 +157,19 @@ export function mountWardrobe(container,project,{save,tell}){
   e.preventDefault();
  },{signal});
  topHost.addEventListener('pointermove',e=>{
+  if(topPan&&topPan.id===e.pointerId){
+   const p=topPan,v=p.viewport;
+   topViewport=[v[0]-(e.clientX-p.x)*v[2]/p.width,v[1]-(e.clientY-p.y)*v[3]/p.height,v[2],v[3]];
+   topHost.querySelector('#wardrobe-top-svg')?.setAttribute('viewBox',topViewport.join(' '));
+   e.preventDefault();return;
+  }
   if(!floorDrag||floorDrag.id!==e.pointerId)return;
   const end=topViewPoint(floorDrag.svg,e);if(!end)return;
   floorDrag.end=end;previewFloorRect(topHost.querySelector('#wardrobe-footprint-preview'),floorDrag.start,end);
   e.preventDefault();
  },{signal});
  topHost.addEventListener('pointerup',e=>{
+  if(topPan&&topPan.id===e.pointerId){topPan=null;e.preventDefault();return;}
   if(!floorDrag||floorDrag.id!==e.pointerId)return;
   const drag=floorDrag;floorDrag=null;
   const end=topViewPoint(drag.svg,e)||drag.end;
@@ -165,7 +181,14 @@ export function mountWardrobe(container,project,{save,tell}){
   }catch(error){tell(error.message);draw();}
   e.preventDefault();
  },{signal});
- topHost.addEventListener('pointercancel',e=>{if(floorDrag?.id===e.pointerId){floorDrag=null;draw();}},{signal});
+ topHost.addEventListener('pointercancel',e=>{if(topPan?.id===e.pointerId)topPan=null;if(floorDrag?.id===e.pointerId){floorDrag=null;draw();}},{signal});
+ topHost.addEventListener('wheel',e=>{
+  if(view!=='top')return;
+  const svg=topHost.querySelector('#wardrobe-top-svg'),point=topViewPoint(svg,e);if(!point)return;
+  const v=topViewport,factor=e.deltaY>0?1.12:.88,w=Math.max(1.4,Math.min(18,v[2]*factor)),scale=w/v[2];
+  topViewport=[point.x-(point.x-v[0])*scale,point.z-(point.z-v[1])*scale,w,v[3]*scale];
+  draw();e.preventDefault();
+ },{signal,passive:false});
  const heightHandle=container.querySelector('#wardrobe-extrude-handle');
  heightHandle.addEventListener('pointerdown',e=>{
   if(stage!=='height'||e.button!==0)return;
