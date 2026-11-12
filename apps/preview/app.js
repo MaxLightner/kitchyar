@@ -6,6 +6,7 @@ import {FloorAR} from './floor-ar.js?v=local1';
 import * as Geo from './geometry.js?v=gallery2';
 import {renderPlan,renderPreview,planPoint,fitPlanViewport} from './plan-view.js?v=gallery2';
 import {renderSideElevation,sideElevationOptions} from './side-elevation.js?v=multiview1';
+import {desktopCommand} from './desktop-shortcuts.js?v=keyboard1';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=gallery2';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
@@ -51,6 +52,7 @@ let facadesHidden=false,roomSurfacesVisible=false,fridgeFreestanding=false;
 let styleApplyToken=0,selectedGalleryStyleId=null,galleryMode='model';
 let reportSheetOptions={...DEFAULT_SHEET};
 let miniLastHost=null,miniLastItems=null,miniLastCalibration='',miniLastFacadesHidden=null;
+let spacePan=false,planPan=null;
 const trackedView=()=>mode==='ar';
 const settings={thickness:.12,height:DEFAULT_CEILING_HEIGHT,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.90,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8,nearOcclusion:true};
@@ -1082,6 +1084,12 @@ function pickPlanHandle(e){
  return hit;
 }
 document.addEventListener('pointerdown',e=>{
+ if(mode==='2d'&&planSubview==='top'&&(spacePan||e.button===1)&&e.target.closest('#plan-view')){
+  const svg=e.target.closest('#plan-view'),bounds=svg.getBoundingClientRect();
+  planPan={id:e.pointerId,x:e.clientX,y:e.clientY,viewport:[...(planViewport||fitPlanViewport(currentItems()))],width:bounds.width,height:bounds.height};
+  try{document.querySelector('.editor-scene')?.setPointerCapture(e.pointerId);}catch{}
+  e.preventDefault();return;
+ }
  if(paintTool&&e.target.closest('.editor-scene')&&!e.target.closest('button,input,select,aside'))return;
  beginUnitPress(e);
  const whichPlan=(e.target.closest('[data-handle],[data-open-handle]')||pickPlanHandle(e))?null:pickPlanCalibration(e);
@@ -1139,6 +1147,11 @@ document.addEventListener('pointerdown',e=>{
  e.preventDefault();e.stopPropagation();
 });
 document.addEventListener('pointermove',e=>{
+ if(planPan&&e.pointerId===planPan.id){
+  const p=planPan,v=p.viewport;
+  planViewport=[v[0]-(e.clientX-p.x)*v[2]/p.width,v[1]-(e.clientY-p.y)*v[3]/p.height,v[2],v[3]];
+  showScene();e.preventDefault();return;
+ }
  if(unitPress&&e.pointerId===unitPress.pointerId&&Math.hypot(e.clientX-unitPress.x,e.clientY-unitPress.y)>8)cancelUnitPress();
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){
   const drag=planCalibrationDrag;
@@ -1192,6 +1205,7 @@ document.addEventListener('pointermove',e=>{
  }
 });
 document.addEventListener('pointerup',e=>{
+ if(planPan&&planPan.id===e.pointerId){planPan=null;e.preventDefault();return;}
  if(unitPress&&unitPress.pointerId===e.pointerId){const fired=unitPress.fired;cancelUnitPress();if(fired){e.preventDefault();return;}}
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();return;}
  if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();
@@ -1264,7 +1278,16 @@ document.addEventListener('pointerup',e=>{
    selectAt(trackedView()?null:point,e.target,arId);
  }catch(error){tell(error.message);}
 });
+document.addEventListener('wheel',e=>{
+ if(mode!=='2d'||planSubview!=='top'||!e.target.closest('#plan-view')||!document.getElementById('editor-root'))return;
+ const svg=e.target.closest('#plan-view'),point=planPoint(svg,e),v=planViewport||fitPlanViewport(currentItems());
+ if(!point)return;
+ const factor=e.deltaY>0?1.14:.88,newWidth=Math.max(1.2,Math.min(45,v[2]*factor)),scale=newWidth/v[2];
+ planViewport=[point.x-(point.x-v[0])*scale,point.z-(point.z-v[1])*scale,newWidth,v[3]*scale];
+ showScene();e.preventDefault();
+},{passive:false});
 document.addEventListener('pointercancel',e=>{
+ if(planPan?.id===e.pointerId)planPan=null;
  cancelUnitPress();
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();}
  if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();}
