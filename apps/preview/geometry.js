@@ -947,10 +947,11 @@ export function applyKitchenLayout(source,styleId,{cabinetIds=null,preset=null}=
   (!cabinetIds||cabinetIds.includes(c.id)));
  for(const c of cabinets){
   // A manually split facade is an explicit exception to the chosen kitchen sample.
-  if(c.subtype==='tall'&&c.tallFrontsEnabled===false||c.frontPreset==='custom'||items.some(f=>f.kind==='front'&&f.hostId===c.id&&
-   f.manualOverrides&&Object.values(f.manualOverrides).some(Boolean)))continue;
+  if(c.subtype==='tall'&&c.tallFrontsEnabled===false)continue;
   if(preset)c.photoPreset=structuredClone(preset);
-  reflowFronts(items,c,preset?'photo':c.subtype==='base'?spec.base:spec.upper);
+  // Reference pictures never silently replace the user's existing facade cells.
+  if(!items.some(f=>f.kind==='front'&&f.hostId===c.id))
+   reflowFronts(items,c,preset?'photo':c.subtype==='base'?spec.base:spec.upper);
   const zone=photoZone(c),appearance=preset?.front;
   for(const front of items.filter(f=>f.kind==='front'&&f.hostId===c.id)){
    if(!front.manualOverrides?.style)front.style=appearance?.style||spec.panel;
