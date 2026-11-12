@@ -28,6 +28,7 @@ function cancelUnitPress(){if(unitPress)clearTimeout(unitPress.timer);unitPress=
 window.addEventListener('blur',cancelUnitPress);
 document.addEventListener('contextmenu',e=>{if(unitPress)e.preventDefault();});
 function beginUnitPress(e){
+ if(mode==='2d'&&planSubview==='front'&&frontDrawTool!=='select')return;
  if(drawing||movingEquipmentId||!e.target.closest('.editor-scene')||e.target.closest('button,input,[data-handle],[data-open-handle]'))return;
  const id=trackedView()?floor?.pickObject(e.clientX,e.clientY):mode==='3d'?desktopPreview?.pickPreviewObject(e.clientX,e.clientY):e.target.closest('[data-item-id]')?.dataset.itemId;
  const unit=Geo.frontUnitFor(currentItems(),id);if(!unit)return;
