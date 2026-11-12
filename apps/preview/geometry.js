@@ -1540,7 +1540,8 @@ function validateCabinets(items,w){
    throw Error('کابینت به دیوار مجاور برخورد می‌کند؛ فاصله از گوشه را بیشتر کن.');
   for(const other of items)if(other.kind==='cabinet'&&other.id!==c.id&&other.hostId!==c.hostId){
    const owner=byId(items,other.hostId);
-   if(wall(owner)&&!(c.cornerGroup&&c.cornerGroup===other.cornerGroup)&&
+   // A common cornerGroup means connected, NOT permission for two solid cabinets to overlap.
+   if(wall(owner)&&
     Math.min(c.elevation+c.height,other.elevation+other.height)-
       Math.max(c.elevation,other.elevation)>.02&&polygonOverlap(fp.corners,cabinetFootprint(other,owner).corners))
     throw Error('کابینت با کابینت دیوار مجاور تداخل دارد.');
