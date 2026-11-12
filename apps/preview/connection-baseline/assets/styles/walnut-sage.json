@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "units": "metre",
+  "description": "Reference-image authored facade and material rules. Cabinet lengths are adapted to each kitchen while preserving patterns and proportions.",
+  "id": "walnut-sage",
+  "image": "walnut-sage.webp",
+  "zones": {
+    "base": {
+      "unitWidth": 0.83,
+      "pattern": [
+        "drawers3"
+      ],
+      "drawerWeights": [
+        0.33,
+        0.33,
+        0.34
+      ],
+      "sinkLayout": "sinkDoors",
+      "stoveLayout": "drawers3",
+      "handleStyle": "bar"
+    },
+    "upper": {
+      "unitWidth": 0.71,
+      "pattern": [
+        "doors"
+      ],
+      "handleStyle": "bar"
+    },
+    "tall": {
+      "unitWidth": 0.62,
+      "pattern": [
+        "doors"
+      ],
+      "handleStyle": "bar"
+    }
+  },
+  "front": {
+    "style": "flat",
+    "handleStyle": "bar",
+    "handleFinish": "brass",
+    "grainDirection": "auto",
+    "handleLength": 0.44
+  },
+  "materials": {
+    "body": "walnut",
+    "front": "walnut",
+    "baseFront": "walnut",
+    "upperFront": "walnut",
+    "baseBody": "walnut",
+    "upperBody": "walnut",
+    "counter": "quartz-white",
+    "backsplash": "tile-sage"
+  }
+}

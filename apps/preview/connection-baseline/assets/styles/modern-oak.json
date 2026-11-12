@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "units": "metre",
+  "description": "Reference-image authored facade and material rules. Cabinet lengths are adapted to each kitchen while preserving patterns and proportions.",
+  "id": "modern-oak",
+  "image": "modern-oak.webp",
+  "zones": {
+    "base": {
+      "unitWidth": 0.82,
+      "pattern": [
+        "drawers3"
+      ],
+      "drawerWeights": [
+        0.25,
+        0.36,
+        0.39
+      ],
+      "sinkLayout": "sinkDoors",
+      "stoveLayout": "drawers3",
+      "handleStyle": "hidden"
+    },
+    "upper": {
+      "unitWidth": 0.77,
+      "pattern": [
+        "doors"
+      ],
+      "handleStyle": "hidden"
+    },
+    "tall": {
+      "unitWidth": 0.64,
+      "pattern": [
+        "doors"
+      ],
+      "handleStyle": "hidden"
+    }
+  },
+  "front": {
+    "style": "flat",
+    "handleStyle": "hidden",
+    "handleFinish": "black",
+    "grainDirection": "auto",
+    "handleLength": 0.22
+  },
+  "materials": {
+    "body": "ivory-matte",
+    "front": "oak",
+    "baseFront": "oak",
+    "upperFront": "oak",
+    "baseBody": "ivory-matte",
+    "upperBody": "ivory-matte",
+    "counter": "quartz-white",
+    "backsplash": "tile-zellige"
+  }
+}

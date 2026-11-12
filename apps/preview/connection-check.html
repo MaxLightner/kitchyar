@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>بررسی اتصال کیچیار</title>
+<style>
+body{margin:0;background:#f3f2ec;color:#213d34;font:16px/1.9 Tahoma,Arial,sans-serif}main{max-width:720px;margin:40px auto;padding:24px}h1{font-size:25px}li{padding:8px 0}nav{display:flex;flex-wrap:wrap;gap:12px;margin:24px 0}a,button{font:inherit;border:1px solid #46665b;border-radius:8px;padding:9px 15px;background:white;color:inherit;text-decoration:none;cursor:pointer}pre{direction:ltr;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;background:#fff;padding:16px;border-radius:10px;font:13px/1.6 monospace}small{display:block}
+</style>
+<main>
+<h1>بررسی اتصال کیچیار</h1>
+<p id="document-status">۱. همین صفحه از سرور کیچیار دریافت شد.</p>
+<p>این صفحه بدون عکس، فونت، موتور سه‌بعدی یا فایل خارجی نمایش داده می‌شود. آن را با VPN خاموش امتحان کن.</p>
+<ol start="2" id="checks"><li id="javascript-status">بررسی اجرای جاوااسکریپت…</li></ol>
+<noscript><p>جاوااسکریپت در مرورگر غیرفعال است؛ صفحهٔ ساده دریافت شده است.</p></noscript>
+<nav>
+<a href="./connection-baseline/#/welcome">امتحان نسخهٔ قبل از ادامهٔ کار</a>
+<a href="./#/welcome">امتحان نسخهٔ فعلی</a>
+<button id="retry" hidden>بررسی دوباره</button>
+<button id="copy" hidden>کپی نتیجه</button>
+</nav>
+<small>نسخهٔ مرجع از کامیت 8e020996 است: قبل از اضافه‌شدن پیش‌نمایش سالور و کمدساز. شناسایی آن به‌عنوان آخرین نسخهٔ سالمِ قبل از کوئین تأیید نشده است. ذخیرهٔ پروژه‌های این نسخه از پروژه‌های فعلی جداست.</small>
+<pre id="report" hidden></pre>
+</main>
+<script>
+(() => {
+ const list=document.getElementById('checks'),report=document.getElementById('report');
+ const retry=document.getElementById('retry'),copy=document.getElementById('copy');
+ const results=['KITCHYAR connection check / baseline 8e020996','Document: received'];
+ document.getElementById('javascript-status').textContent='جاوااسکریپت اجرا شد.';
+ results.push('JavaScript: running');
+ retry.hidden=false;copy.hidden=false;report.hidden=false;
+ retry.onclick=()=>location.reload();
+ copy.onclick=async()=>{try{await navigator.clipboard.writeText(report.textContent);copy.textContent='نتیجه کپی شد';}catch{copy.textContent='متن نتیجه را انتخاب و کپی کن';}};
+ const update=()=>{report.textContent=results.join('\n');};update();
+ async function check(label,path){
+  const row=document.createElement('li');row.textContent=label+' — در حال بررسی…';list.appendChild(row);
+  const controller=new AbortController(),start=performance.now(),timer=setTimeout(()=>controller.abort(),12000);
+  try{
+   const response=await fetch(path,{cache:'no-store',signal:controller.signal,redirect:'error'});
+   if(!response.ok)throw Error('HTTP '+response.status);
+   const body=await response.arrayBuffer(),type=response.headers.get('content-type')||'';
+   if(path.endsWith('.js')&&!/javascript|ecmascript/i.test(type))throw Error('Unexpected content type: '+type);
+   const ms=Math.round(performance.now()-start);
+   row.textContent=label+' — دریافت شد ('+ms+' ms)';
+   results.push('OK '+path+' / '+body.byteLength+' bytes / '+ms+' ms / '+type);
+  }catch(error){
+   row.textContent=label+' — '+(error.name==='AbortError'?'در ۱۲ ثانیه دریافت نشد':error.message);
+   results.push('FAIL '+path+' / '+error.name+': '+error.message);
+  }finally{clearTimeout(timer);update();}
+ }
+ Promise.all([
+  check('فایل شروع برنامه','./bootstrap.js'),
+  check('کد اصلی برنامه','./app.js'),
+  check('موتور رندر — بخش اصلی','./vendor/chido/vendor/three.core.js'),
+  check('موتور رندر — بخش نمایش','./vendor/chido/vendor/three.module.js')
+ ]).then(()=>{results.push('Check complete. No projects were read or changed.');update();});
+})();
+</script>
+</html>

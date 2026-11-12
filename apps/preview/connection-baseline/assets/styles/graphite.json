@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "units": "metre",
+  "description": "Reference-image authored facade and material rules. Cabinet lengths are adapted to each kitchen while preserving patterns and proportions.",
+  "id": "graphite",
+  "image": "graphite.webp",
+  "zones": {
+    "base": {
+      "unitWidth": 0.91,
+      "pattern": [
+        "drawers2"
+      ],
+      "drawerWeights": [
+        0.49,
+        0.51
+      ],
+      "sinkLayout": "sinkDoors",
+      "stoveLayout": "drawers2",
+      "handleStyle": "bar"
+    },
+    "upper": {
+      "unitWidth": 0.78,
+      "pattern": [
+        "doors"
+      ],
+      "handleStyle": "hidden"
+    },
+    "tall": {
+      "unitWidth": 0.62,
+      "pattern": [
+        "doors"
+      ],
+      "handleStyle": "hidden"
+    }
+  },
+  "front": {
+    "style": "flat",
+    "handleStyle": "bar",
+    "handleFinish": "black",
+    "grainDirection": "auto",
+    "handleLength": 0.46
+  },
+  "materials": {
+    "body": "graphite-matte",
+    "front": "graphite-matte",
+    "baseFront": "graphite-matte",
+    "upperFront": "graphite-matte",
+    "baseBody": "graphite-matte",
+    "upperBody": "graphite-matte",
+    "counter": "marble-grey",
+    "backsplash": "tile-stone"
+  }
+}
