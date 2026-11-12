@@ -1,13 +1,15 @@
 import {FloorAR} from './floor-ar.js?v=local1';
+import * as THREE from './vendor/chido/vendor/three.module.js';
+import {renderWardrobeTop,topViewPoint,previewFloorRect} from './wardrobe-box-tool.js?v=box1';
 import {frontPose} from './geometry.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=gallery2';
-import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,addWardrobeShelf,eraseWardrobeShelf,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=gallery2';
+import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,addWardrobeShelf,eraseWardrobeShelf,wardrobeFromFloorRectangle,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=gallery2';
 import {wardrobeParts} from './wardrobe-report.js?v=gallery2';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cm=n=>Math.round(n*1000)/10,num=n=>new Intl.NumberFormat('fa-IR',{maximumFractionDigits:1}).format(n);
 const input=(label,key,value,min,max)=>'<label>'+label+'<input data-w-field="'+key+'" type="number" step="1" min="'+min+'" max="'+max+'" value="'+value+'"></label>';
-export function newWardrobeScene(){return {items:wardrobeItems(defaultWardrobe()),materials:{...DEFAULT_MATERIALS},ceilingHeight:2.6};}
+export function newWardrobeScene(){return {items:wardrobeItems(defaultWardrobe()),materials:{...DEFAULT_MATERIALS},ceilingHeight:2.6,wardrobeBoxStage:'floor'};}
 
 export function wardrobeElevation(items,inside=true,selectedBayKey=null){
  const c=items.find(c=>c.wardrobe),{width:w,height:h}=c.wardrobe,pad=.15;
@@ -32,12 +34,13 @@ export function wardrobeElevation(items,inside=true,selectedBayKey=null){
 
 export function mountWardrobe(container,project,{save,tell}){
  const abort=new AbortController(),signal=abort.signal;
- let past=[],future=[],view='3d',selected=null,selectedBayKey=null,drawTool='select',partsOpen=false,disposed=false,lastSaved=JSON.stringify(project);
+ let past=[],future=[],stage=project.scene.wardrobeBoxStage||'ready',view=stage==='floor'?'top':'3d',selected=null,selectedBayKey=null,drawTool='select',partsOpen=false,disposed=false,lastSaved=JSON.stringify(project);
+ let floorDrag=null,heightDrag=null,extrudeHeight=project.scene.items.find(x=>x.wardrobe)?.wardrobe.height||2.4,ghost=null;
  let renderer;
  const current=()=>project.scene.items,body=()=>current().find(c=>c.wardrobe),config=()=>body().wardrobe;
  container.innerHTML='<main class="wardrobe-app"><header class="wardrobe-header"><a href="#/projects">← پروژه‌ها</a><div><small>KITCHYAR / کمدساز</small><h1>'+esc(project.name)+'</h1></div><span class="wardrobe-save" role="status">ذخیره‌شده روی دستگاه</span><button data-w-action="undo" aria-label="بازگشت تغییر کمد">بازگشت</button><button data-w-action="redo">انجام دوباره</button></header>'+
-  '<div class="wardrobe-layout"><section class="wardrobe-preview"><nav class="wardrobe-viewbar" aria-label="نمای کمد"><button data-w-action="view" data-view="3d">سه‌بعدی</button><button data-w-action="view" data-view="inside">تقسیمات داخل</button><button data-w-action="view" data-view="front">نمای درها</button><button data-w-action="all-open">بازکردن درها</button><button data-w-action="all-close">بستن همه</button></nav><nav id="wardrobe-draw-toolbar" class="wardrobe-draw-toolbar" hidden><button data-w-action="draw-tool" data-tool="select">انتخاب</button><button data-w-action="draw-tool" data-tool="pencilV">✎ مرز عمودی</button><button data-w-action="draw-tool" data-tool="pencilH">✎ طبقه افقی</button><button data-w-action="draw-tool" data-tool="eraseV">⌫ حذف مرز</button><button data-w-action="draw-tool" data-tool="eraseH">⌫ پاک‌کردن طبقه</button></nav><div class="wardrobe-viewport" id="wardrobe-viewport"><div id="wardrobe-3d"></div><div id="wardrobe-elevation" hidden></div></div><p class="wardrobe-view-help">چرخش: کشیدن · بزرگ‌نمایی: چرخ ماوس یا دو انگشت · برای انتخاب در یا کشو روی آن بزن.</p><div class="wardrobe-selection" id="wardrobe-selection"></div><section id="wardrobe-parts" hidden></section></section><aside class="wardrobe-settings" id="wardrobe-settings" aria-label="تنظیمات کمد"></aside></div></main>';
- const viewport=container.querySelector('#wardrobe-3d'),elevation=container.querySelector('#wardrobe-elevation'),settings=container.querySelector('#wardrobe-settings');
+  '<div class="wardrobe-layout"><section class="wardrobe-preview"><nav class="wardrobe-viewbar" aria-label="نمای کمد"><button data-w-action="view" data-view="top">پلان کف</button><button data-w-action="view" data-view="3d">سه‌بعدی</button><button data-w-action="view" data-view="inside">تقسیمات داخل</button><button data-w-action="view" data-view="front">نمای درها</button><button data-w-action="all-open">بازکردن درها</button><button data-w-action="all-close">بستن همه</button></nav><nav id="wardrobe-draw-toolbar" class="wardrobe-draw-toolbar" hidden><button data-w-action="draw-tool" data-tool="select">انتخاب</button><button data-w-action="draw-tool" data-tool="pencilV">✎ مرز عمودی</button><button data-w-action="draw-tool" data-tool="pencilH">✎ طبقه افقی</button><button data-w-action="draw-tool" data-tool="eraseV">⌫ حذف مرز</button><button data-w-action="draw-tool" data-tool="eraseH">⌫ پاک‌کردن طبقه</button></nav><div class="wardrobe-viewport" id="wardrobe-viewport"><div id="wardrobe-top" hidden></div><div id="wardrobe-3d"></div><div id="wardrobe-elevation" hidden></div><div id="wardrobe-height-step" hidden><strong>۲. ارتفاع باکس را بالا بکش</strong><span>دستگیره ↕ را با موس بالا و پایین ببر، یا عدد وارد کن</span><div class="wardrobe-height-tools"><button id="wardrobe-extrude-handle" type="button" title="برای بالا آوردن ارتفاع، نگه دار و بکش">↕</button><label>ارتفاع (سانتی‌متر)<input data-w-height type="number" min="180" max="320" step="1" value="240"></label><button class="primary" data-w-action="finish-box">تأیید ارتفاع / Enter</button></div></div></div><p class="wardrobe-plan-help" id="wardrobe-plan-help" hidden>۱. روی پلان کلیک کن و بکش تا عرض و عمق کف کمد مشخص شود (عرض ۶۰–۶۰۰ و عمق ۴۵–۸۰ سانتی‌متر).</p><p class="wardrobe-view-help">چرخش: کشیدن · بزرگ‌نمایی: چرخ ماوس یا دو انگشت · برای انتخاب در یا کشو روی آن بزن.</p><div class="wardrobe-selection" id="wardrobe-selection"></div><section id="wardrobe-parts" hidden></section></section><aside class="wardrobe-settings" id="wardrobe-settings" aria-label="تنظیمات کمد"></aside></div></main>';
+ const viewport=container.querySelector('#wardrobe-3d'),elevation=container.querySelector('#wardrobe-elevation'),topHost=container.querySelector('#wardrobe-top'),heightStep=container.querySelector('#wardrobe-height-step'),settings=container.querySelector('#wardrobe-settings');
  const materials=()=>({...DEFAULT_MATERIALS,...project.scene.materials,front:config().finish,baseFront:config().finish});
  function persist(){
   try{save(project);lastSaved=JSON.stringify(project);container.querySelector('.wardrobe-save').textContent='ذخیره شد';}
@@ -47,9 +50,9 @@ export function mountWardrobe(container,project,{save,tell}){
   const saved=JSON.parse(localStorage.getItem('kitchyar.ui.v2')||'[]').find(p=>p.id===project.id);
   if(!saved||JSON.stringify(saved)!==lastSaved)throw Error('این پروژه در تب دیگری تغییر کرده است؛ صفحه را تازه کن تا نسخهٔ جدید باز شود.');
  }
- function update(items,{opening=false}={}){
+ function update(items,{opening=false,scenePatch={}}={}){
   checkCurrent();const before=structuredClone(project.scene),revision=project.revision,updatedAt=project.updatedAt;
-  project.scene={...project.scene,items};project.revision=(project.revision||0)+1;project.updatedAt=new Date().toISOString();
+  project.scene={...project.scene,...scenePatch,items};project.revision=(project.revision||0)+1;project.updatedAt=new Date().toISOString();
   try{persist();}catch(e){project.scene=before;project.revision=revision;project.updatedAt=updatedAt;throw e;}
   past.push(before);if(past.length>60)past.shift();future=[];
   if(opening)renderer.syncFrontOpeningState(items);else renderer.setSceneState(items,selected,materials());
@@ -61,7 +64,7 @@ export function mountWardrobe(container,project,{save,tell}){
   const before=structuredClone(project.scene),revision=project.revision,updatedAt=project.updatedAt,next=source.at(-1);project.scene=structuredClone(next);
   project.revision=(project.revision||0)+1;project.updatedAt=new Date().toISOString();
   try{persist();}catch(e){project.scene=before;project.revision=revision;project.updatedAt=updatedAt;throw e;}
-  source.pop();target.push(before);selected=null;renderer.setSceneState(current(),null,materials());draw();
+  source.pop();target.push(before);selected=null;stage=project.scene.wardrobeBoxStage||'ready';view=stage==='floor'?'top':stage==='height'?'3d':view;extrudeHeight=config().height;renderer.setSceneState(current(),null,materials());draw();
  }
  function draw(){
   if(disposed)return;
@@ -73,7 +76,7 @@ export function mountWardrobe(container,project,{save,tell}){
   for(const b of drawbar.querySelectorAll('[data-w-action="draw-tool"]'))b.setAttribute('aria-pressed',String(b.dataset.tool===drawTool));
   if(view!=='3d')elevation.innerHTML=wardrobeElevation(items,view==='inside',selectedBayKey);
   settings.innerHTML='<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">ابعاد کلی · سانتی‌متر</span><h2>باکس کمد</h2><div class="wardrobe-dimensions">'+
-   input('عرض','width',cm(cfg.width),60,600)+input('ارتفاع','height',cm(cfg.height),180,320)+input('عمق','depth',cm(cfg.depth),45,80)+'</div><button class="primary" data-w-action="dimensions">اعمال ابعاد</button><label>جنس و رنگ درها<select data-w-finish>'+MATERIALS.front.map(m=>'<option value="'+m.id+'" '+(m.id===cfg.finish?'selected':'')+'>'+m.label+'</option>').join('')+'</select></label></section>'+
+   input('عرض','width',cm(cfg.width),60,600)+input('ارتفاع','height',cm(cfg.height),180,320)+input('عمق','depth',cm(cfg.depth),45,80)+'</div><button class="primary" data-w-action="dimensions">اعمال ابعاد</button><button data-w-action="redraw-box">✎ ترسیم دوباره باکس کف</button><label>جنس و رنگ درها<select data-w-finish>'+MATERIALS.front.map(m=>'<option value="'+m.id+'" '+(m.id===cfg.finish?'selected':'')+'>'+m.label+'</option>').join('')+'</select></label></section>'+
    '<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">تقسیم عرض و کاربری</span><h2>بخش‌های داخلی</h2><p>شماره‌گذاری از چپ است. تغییر عرض هر بخش از بخش کناری گرفته می‌شود.</p>'+wardrobeSections(body()).map(b=>{
     const doors=items.filter(f=>f.kind==='front'&&f.subtype==='door'&&f.wardrobeBay===b.key),drawers=items.filter(f=>f.wardrobeInternal&&f.wardrobeBay===b.key);
     return '<article class="wardrobe-bay" data-w-bay="'+esc(b.key)+'"><h3>بخش '+num(b.index+1)+' <small>عرض خالص '+num(cm(b.clear))+' سانتی‌متر</small></h3><label>کاربری<select data-w-role>'+Object.entries(WARDROBE_ROLES).map(([id,label])=>'<option value="'+id+'" '+(b.role===id?'selected':'')+'>'+label+'</option>').join('')+'</select></label>'+input('عرض بخش','bayWidth',cm(b.width),35,120)+
