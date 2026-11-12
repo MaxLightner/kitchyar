@@ -13,7 +13,7 @@ import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
 import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=gallery2';
-import {wardrobeRods,drawerTrayPanels,WARDROBE_RULES} from './wardrobe-model.js?v=gallery2';
+import {wardrobeRods,drawerTrayPanels,WARDROBE_RULES} from './wardrobe-model.js?v=boxkeys1';
 import {roomOutline} from './room-surfaces.js?v=room40';
 import {loadEnvironmentHDR} from './environment-hdr.js?v=local1';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
