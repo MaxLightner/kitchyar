@@ -13,7 +13,7 @@ import {DEFAULT_MATERIALS,resolveFinish,materialFor,assetUrl} from './materials.
 import {DEFAULT_TILE_LAYOUT,validateTileLayout,buildTileGeometry} from './tile-layout.js?v=fix43';
 import {WIDE_FOV,verticalFovFromHorizontal,copyTrackedView} from './wide-view.js?v=wide34';
 import {cabinetCarcassPanels,buildCarcassPanelGeometry} from './carcass.js?v=gallery2';
-import {wardrobeRods,drawerTrayPanels,WARDROBE_RULES} from './wardrobe-model.js?v=gallery2';
+import {wardrobeRods,drawerTrayPanels,WARDROBE_RULES} from './wardrobe-model.js?v=boxkeys1';
 import {roomOutline} from './room-surfaces.js?v=room40';
 import {loadEnvironmentHDR} from './environment-hdr.js?v=local1';
 import {fitCalibrationDragB} from './calibration-transform.js?v=ab44';
@@ -1166,7 +1166,7 @@ export class FloorAR {
    this.previewWasDragged=false;
    if(e.pointerType==='touch'){this.previewTouches.set(e.pointerId,{x:e.clientX,y:e.clientY});if(this.previewTouches.size===2){const [a,b]=[...this.previewTouches.values()];this.previewPinch={distance:Math.hypot(a.x-b.x,a.y-b.y),x:(a.x+b.x)/2,y:(a.y+b.y)/2};this.previewDrag=null;return;}}
    if(this.pickHandle(e.clientX,e.clientY))return;
-   this.previewDrag={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pan:e.button===2||e.shiftKey};
+   this.previewDrag={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pan:e.button===2||e.button===1||e.shiftKey||this.keyboardPan};
    try{canvas.setPointerCapture(e.pointerId);}catch{}
   });
   canvas.addEventListener('pointermove',e=>{

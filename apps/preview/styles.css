@@ -592,3 +592,28 @@ button,input,small,label,.drawing-hint,.scan-card small{font-size:15px}
 .wardrobe-draw-toolbar button[aria-pressed="true"]{background:#2f6d58;color:#fff;border-color:#2f6d58}
 #wardrobe-elevation [data-w-bay-rect],#wardrobe-elevation [data-w-erase-seam]{cursor:crosshair;touch-action:manipulation}
 .plan-host:has(.side-elevation-ui){touch-action:pan-x pan-y}
+
+
+/* Desktop editor shortcuts and viewport gesture feedback. */
+.desktop-key-guide{position:absolute;top:79px;left:12px;z-index:6;max-width:min(610px,calc(100% - 24px));padding:8px 12px;border-radius:8px;background:#f6f8f2e8;color:#3e5a47;font-size:13px;line-height:1.6;pointer-events:none;box-shadow:0 4px 15px #224c2e18}
+.editor-root.space-pan .plan-svg,.editor-root.space-pan .side-elevation-scroll,.wardrobe-app.space-pan #wardrobe-top-svg{cursor:grab!important}
+@media(pointer:coarse){.desktop-key-guide{display:none}}
+@media(max-width:760px){.desktop-key-guide{top:65px;max-width:50%;font-size:13px}}
+
+/* Draw the wardrobe footprint from Top view and extrude its height in 3D. */
+#wardrobe-top{position:absolute;inset:0;display:flex;align-items:stretch;justify-content:center;background:#f0f5f0;touch-action:none}
+#wardrobe-top svg{display:block;width:100%;height:100%;touch-action:none;user-select:none}
+#wardrobe-top[hidden],#wardrobe-3d[hidden],#wardrobe-elevation[hidden],#wardrobe-height-step[hidden],#wardrobe-draw-toolbar[hidden],#wardrobe-plan-help[hidden]{display:none!important}
+.wardrobe-plan-help{font-size:13px;line-height:1.9;background:#e5f0e8;padding:11px 13px;border-radius:8px;color:#285b42}
+#wardrobe-height-step{position:absolute;bottom:16px;left:16px;z-index:10;display:flex;flex-direction:column;align-items:flex-start;gap:8px;background:#f8fdf8f0;backdrop-filter:blur(8px);border:1px solid #92b9a0;border-radius:13px;padding:13px;box-shadow:0 12px 32px #183f2c20;max-width:min(350px,calc(100% - 30px));color:#244731;font-size:13px}
+#wardrobe-height-step>strong{font-size:15px}
+#wardrobe-height-step>span{line-height:1.8}
+.wardrobe-height-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.wardrobe-height-tools label{display:flex;flex-direction:column;gap:5px;font-size:13px}
+.wardrobe-height-tools input{max-width:100px;padding:7px;min-height:40px;border:1px solid #a7bda9;border-radius:8px;font:inherit}
+#wardrobe-extrude-handle{min-width:51px!important;min-height:74px!important;font-size:30px!important;cursor:ns-resize;touch-action:none;color:#1d6a49!important;border:2px solid #61a47e!important;background:#e2f6e9!important}
+#wardrobe-elevation [data-w-front-id]{cursor:pointer;touch-action:manipulation}
+@media(max-width:760px){#wardrobe-height-step{bottom:8px;left:8px;padding:9px;max-width:calc(100% - 16px)}}
+
+.wardrobe-key-help{font-size:13px;line-height:1.9;color:#476454;padding:8px 12px;margin:7px 0;background:#e5eee6;border-radius:8px}
+@media(pointer:coarse){.wardrobe-key-help{display:none}}

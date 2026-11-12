@@ -2,10 +2,11 @@ import {DEFAULT_CEILING_HEIGHT,MAX_CEILING_HEIGHT} from './kitchen-policy.js?v=g
 import * as Objects from './scene-objects.js?v=gallery2';
 import {OCCLUSION_STATUS} from './near-occlusion.js?v=hands68';
 import * as Library from './design-library.js?v=gallery2';
-import {FloorAR} from './floor-ar.js?v=local1';
+import {FloorAR} from './floor-ar.js?v=boxkeys1';
 import * as Geo from './geometry.js?v=gallery2';
 import {renderPlan,renderPreview,planPoint,fitPlanViewport} from './plan-view.js?v=gallery2';
 import {renderSideElevation,sideElevationOptions} from './side-elevation.js?v=multiview1';
+import {desktopCommand} from './desktop-shortcuts.js?v=keyboard1';
 import {resizeFromHandle,handlePosition,renderElevation,renderCabinetElevation,renderFrontElevation} from './edit-handles.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS,KITCHEN_STYLES,resolveFinish,assetUrl} from './materials.js?v=gallery2';
 import {DEFAULT_TILE_LAYOUT,validateTileLayout} from './tile-layout.js?v=fix43';
@@ -14,7 +15,7 @@ import {renderCutReport} from './report-view.js?v=sheetpager39';
 import {downloadCutReportXlsx} from './report-xlsx.js?v=nest35';
 import {DEFAULT_SHEET,validateSheetOptions} from './sheet-nesting.js?v=nest35';
 import {createSmartProposal,acceptSmartProposal,renderSmartProposal,solverExampleItems} from './smart-layout-proposal.js?v=gallery2';
-import {mountWardrobe,newWardrobeScene} from './wardrobe-workspace.js?v=local1';
+import {mountWardrobe,newWardrobeScene} from './wardrobe-workspace.js?v=boxkeys1';
 import {validateStylePreset} from './style-catalog.js?v=gallery2';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
@@ -51,6 +52,7 @@ let facadesHidden=false,roomSurfacesVisible=false,fridgeFreestanding=false;
 let styleApplyToken=0,selectedGalleryStyleId=null,galleryMode='model';
 let reportSheetOptions={...DEFAULT_SHEET};
 let miniLastHost=null,miniLastItems=null,miniLastCalibration='',miniLastFacadesHidden=null;
+let spacePan=false,planPan=null,elevationPan=null;
 const trackedView=()=>mode==='ar';
 const settings={thickness:.12,height:DEFAULT_CEILING_HEIGHT,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.90,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8,nearOcclusion:true};
@@ -156,7 +158,7 @@ function editorPage(id){
  settings.height=Number(p.scene?.ceilingHeight??p.scene?.items?.find(o=>o.kind==='wall')?.height??DEFAULT_CEILING_HEIGHT);
  if(p.scene?.items){try{const upgraded=Library.upgradeLegacyTiers(p.scene.items,settings.height);if(upgraded!==p.scene.items){p.scene.items=upgraded;save();}}catch(error){tell('تنظیم هوایی ذخیره‌شده نیاز به بررسی دارد: '+error.message);}}
  activeId=id;mode=entryMode;planSubview='top';elevationWallId=null;elevationSide=1;frontDrawTool='select';facadesHidden=false;roomSurfacesVisible=false;fridgeFreestanding=false;selectedUnit=null;lastFrontTap=null;activeTool=null;paintTool=null;planReturnMode='ar';selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
- app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="elevation-mode-switch" id="elevation-mode-switch" hidden><button data-action="2d-top">▦ پلان از بالا</button><button data-action="2d-front">▤ نمای روبه‌رو</button></div><div class="drawing-hint" id="drawing-hint" hidden></div><div class="scene-message" id="scene-message" hidden><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
+ app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="desktop-key-guide">Enter تأیید · Esc لغو · Del حذف · Ctrl+Z/Y بازگشت/تکرار · Space+Drag جابه‌جایی · چرخ موس زوم · ۱/۲/۳ نماها</div><div class="plan-host" id="plan-host" hidden></div><div class="elevation-mode-switch" id="elevation-mode-switch" hidden><button data-action="2d-top">▦ پلان از بالا</button><button data-action="2d-front">▤ نمای روبه‌رو</button></div><div class="drawing-hint" id="drawing-hint" hidden></div><div class="scene-message" id="scene-message" hidden><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button data-action="environment" aria-label="تغییر نور محیط">محیط</button><button data-action="ar-wide" id="ar-wide-toggle" aria-pressed="false">نمای واید</button><button class="solver-trigger" data-action="preview-smart-layout">پیشنهاد چیدمان</button><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
@@ -1082,6 +1084,17 @@ function pickPlanHandle(e){
  return hit;
 }
 document.addEventListener('pointerdown',e=>{
+ if(mode==='2d'&&planSubview==='front'&&(spacePan||e.button===1)&&e.target.closest('.side-elevation-scroll')){
+  const scroll=e.target.closest('.side-elevation-scroll');elevationPan={id:e.pointerId,x:e.clientX,y:e.clientY,left:scroll.scrollLeft,top:scroll.scrollTop,scroll};
+  try{document.querySelector('.editor-scene')?.setPointerCapture(e.pointerId);}catch{}
+  e.preventDefault();return;
+ }
+ if(mode==='2d'&&planSubview==='top'&&(spacePan||e.button===1)&&e.target.closest('#plan-view')){
+  const svg=e.target.closest('#plan-view'),bounds=svg.getBoundingClientRect();
+  planPan={id:e.pointerId,x:e.clientX,y:e.clientY,viewport:[...(planViewport||fitPlanViewport(currentItems()))],width:bounds.width,height:bounds.height};
+  try{document.querySelector('.editor-scene')?.setPointerCapture(e.pointerId);}catch{}
+  e.preventDefault();return;
+ }
  if(paintTool&&e.target.closest('.editor-scene')&&!e.target.closest('button,input,select,aside'))return;
  beginUnitPress(e);
  const whichPlan=(e.target.closest('[data-handle],[data-open-handle]')||pickPlanHandle(e))?null:pickPlanCalibration(e);
@@ -1139,6 +1152,12 @@ document.addEventListener('pointerdown',e=>{
  e.preventDefault();e.stopPropagation();
 });
 document.addEventListener('pointermove',e=>{
+ if(elevationPan&&e.pointerId===elevationPan.id){const p=elevationPan;p.scroll.scrollLeft=p.left-(e.clientX-p.x);p.scroll.scrollTop=p.top-(e.clientY-p.y);e.preventDefault();return;}
+ if(planPan&&e.pointerId===planPan.id){
+  const p=planPan,v=p.viewport;
+  planViewport=[v[0]-(e.clientX-p.x)*v[2]/p.width,v[1]-(e.clientY-p.y)*v[3]/p.height,v[2],v[3]];
+  showScene();e.preventDefault();return;
+ }
  if(unitPress&&e.pointerId===unitPress.pointerId&&Math.hypot(e.clientX-unitPress.x,e.clientY-unitPress.y)>8)cancelUnitPress();
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){
   const drag=planCalibrationDrag;
@@ -1192,6 +1211,8 @@ document.addEventListener('pointermove',e=>{
  }
 });
 document.addEventListener('pointerup',e=>{
+ if(elevationPan&&elevationPan.id===e.pointerId){elevationPan=null;e.preventDefault();return;}
+ if(planPan&&planPan.id===e.pointerId){planPan=null;e.preventDefault();return;}
  if(unitPress&&unitPress.pointerId===e.pointerId){const fired=unitPress.fired;cancelUnitPress();if(fired){e.preventDefault();return;}}
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();return;}
  if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();
@@ -1264,7 +1285,17 @@ document.addEventListener('pointerup',e=>{
    selectAt(trackedView()?null:point,e.target,arId);
  }catch(error){tell(error.message);}
 });
+document.addEventListener('wheel',e=>{
+ if(mode!=='2d'||planSubview!=='top'||!e.target.closest('#plan-view')||!document.getElementById('editor-root'))return;
+ const svg=e.target.closest('#plan-view'),point=planPoint(svg,e),v=planViewport||fitPlanViewport(currentItems());
+ if(!point)return;
+ const factor=e.deltaY>0?1.14:.88,newWidth=Math.max(1.2,Math.min(45,v[2]*factor)),scale=newWidth/v[2];
+ planViewport=[point.x-(point.x-v[0])*scale,point.z-(point.z-v[1])*scale,newWidth,v[3]*scale];
+ showScene();e.preventDefault();
+},{passive:false});
 document.addEventListener('pointercancel',e=>{
+ if(elevationPan?.id===e.pointerId)elevationPan=null;
+ if(planPan?.id===e.pointerId)planPan=null;
  cancelUnitPress();
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();}
  if(abDrag&&e.pointerId===abDrag.pointerId){abDrag=null;floor?.endCalibrationDrag();}
@@ -1666,7 +1697,94 @@ document.addEventListener('click',async e=>{
   if(action==='hide-tools'){activeTool=null;drawing=null;showScene();document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));return;}
  }catch(error){tell(error.message);}
 });
+function handleKitchenKeyboard(e){
+ const root=document.getElementById('editor-root');
+ if(!root||root.classList.contains('session-parked')||!location.hash.startsWith('#/editor/'))return false;
+ if((e.key==='Enter'||e.code==='NumpadEnter')&&document.getElementById('object-editor')?.contains(e.target)&&e.target.closest?.('input,select')){
+  document.querySelector('[data-action="apply-edit"]')?.click();e.preventDefault();return true;
+ }
+ const command=desktopCommand(e);
+ if(!command||dialogs.childElementCount)return false;
+ if(command==='cancel')return false; // Preserve existing Escape handling and modal priority.
+ if(e.repeat&&['confirm','delete','open'].includes(command))return false;
+ const stop=()=>{e.preventDefault();return true;};
+ try{
+  if(command==='pan'){
+   spacePan=true;root.classList.add('space-pan');
+   if(desktopPreview)desktopPreview.keyboardPan=true;
+   return stop();
+  }
+  if(command==='undo'||command==='redo'){undoChange(command==='redo');return stop();}
+  if(command==='save'){
+   touch(activeId);const label=document.getElementById('save-indicator');if(label)label.textContent='ذخیره‌شده';
+   tell('پروژه ذخیره شد.');return stop();
+  }
+  if(command==='confirm'){
+   if(drawing){document.querySelector('[data-action="confirm-drawing"]')?.click();return stop();}
+   return false;
+  }
+  if(command==='delete'){
+   if(selection){
+    const id=selection;movingEquipmentId=null;
+    commitChange(Geo.removeObject(currentItems(),id));selection=null;showScene();
+   }else if(drawing){drawing=null;hover=null;showScene();}
+   return stop();
+  }
+  if(command==='top'||command==='front'){
+   planSubview=command==='top'?'top':'front';drawing=null;hover=null;frontDrawTool='select';
+   if(mode!=='2d')switchEditorMode('2d');else showScene();return stop();
+  }
+  if(command==='three'){switchEditorMode('3d');return stop();}
+  if(command==='select'){paintTool=null;drawing=null;activeTool=null;movingEquipmentId=null;selection=null;showScene();return stop();}
+  if(['wall','base','upper'].includes(command)){
+   activeTool=null;movingEquipmentId=null;selection=null;
+   drawing={tool:command,start:null};hover=initialPreviewForTool(command);showScene();return stop();
+  }
+  if(command==='elevation'){
+   const obj=currentItems().find(o=>o.id===selection),
+    cabinet=obj?.kind==='cabinet'?obj:['front','equipment'].includes(obj?.kind)?currentItems().find(c=>c.id===obj.hostId&&c.kind==='cabinet'):null;
+   if(cabinet){
+    elevationWallId=cabinet.hostId;elevationSide=cabinet.side||1;planSubview='front';frontDrawTool='select';drawing=null;hover=null;
+    if(mode!=='2d')switchEditorMode('2d');else showScene();
+   }return stop();
+  }
+  if(command==='open'){
+   const front=currentItems().find(o=>o.id===selection&&o.kind==='front');
+   if(front)commitFrontOpening(front.id,front.openFraction>.01?0:1);
+   return stop();
+  }
+  if(command==='move'){
+   const obj=currentItems().find(o=>o.id===selection&&['equipment','scene-object'].includes(o.kind));
+   if(obj){movingEquipmentId=obj.id;drawing=null;showScene();}
+   return stop();
+  }
+  if(command==='fit'){
+   if(mode==='2d'){planViewport=fitPlanViewport(currentItems());showScene();}
+   else if(mode==='3d'){desktopPreview?.fitPreview();desktopPreview?.renderPreview();}
+   return stop();
+  }
+  if(command==='zoom-in'||command==='zoom-out'){
+   const multiplier=command==='zoom-in'?.84:1.19;
+   if(mode==='2d'&&planSubview==='top'){
+    const v=planViewport||fitPlanViewport(currentItems()),w=Math.max(1.2,Math.min(45,v[2]*multiplier)),factor=w/v[2];
+    planViewport=[v[0]+v[2]*(1-factor)/2,v[1]+v[3]*(1-factor)/2,w,v[3]*factor];showScene();
+   }else if(mode==='3d'&&desktopPreview?.previewOrbit){
+    desktopPreview.previewOrbit.radius=Math.max(1.5,Math.min(25,desktopPreview.previewOrbit.radius*multiplier));desktopPreview.renderPreview();
+   }return stop();
+  }
+ }catch(error){tell(error.message);return stop();}
+ return false;
+}
+document.addEventListener('keyup',e=>{
+ if(e.code==='Space'||e.key===' '){
+  spacePan=false;
+  document.getElementById('editor-root')?.classList.remove('space-pan');
+  if(desktopPreview)desktopPreview.keyboardPan=false;
+ }
+});
+window.addEventListener('blur',()=>{spacePan=false;planPan=null;elevationPan=null;if(desktopPreview)desktopPreview.keyboardPan=false;});
 document.addEventListener('keydown',e=>{
+ if(handleKitchenKeyboard(e))return;
  if(pendingSmartLayout&&e.key==='Tab'){
   const dialog=dialogs.querySelector('.solver-dialog'),buttons=[...dialog.querySelectorAll('button:not(:disabled),[tabindex="0"]')];
   const first=buttons[0],last=buttons.at(-1);

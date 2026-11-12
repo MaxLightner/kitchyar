@@ -1,4 +1,4 @@
-import {wardrobePanels,wardrobeRods,drawerTrayPanels} from './wardrobe-model.js?v=gallery2';
+import {wardrobePanels,wardrobeRods,drawerTrayPanels} from './wardrobe-model.js?v=boxkeys1';
 import {frontPose} from './geometry.js?v=gallery2';
 const labels={'left-side':'پهلو چپ','right-side':'پهلو راست',top:'سقف',back:'پشت',bottom:'کف بخش',divider:'جداکنندهٔ عمودی',
  shelf:'طبقه','top-shelf':'طبقهٔ بالای آویز','drawer-cap':'طبقهٔ بالای کشو','desk-top':'صفحهٔ میز','desk-upper-shelf':'طبقهٔ بالای میز',
