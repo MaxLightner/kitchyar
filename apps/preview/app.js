@@ -1697,7 +1697,94 @@ document.addEventListener('click',async e=>{
   if(action==='hide-tools'){activeTool=null;drawing=null;showScene();document.querySelectorAll('[data-category]').forEach(b=>b.classList.remove('active'));return;}
  }catch(error){tell(error.message);}
 });
+function handleKitchenKeyboard(e){
+ const root=document.getElementById('editor-root');
+ if(!root||root.classList.contains('session-parked')||!location.hash.startsWith('#/editor/'))return false;
+ if((e.key==='Enter'||e.code==='NumpadEnter')&&document.getElementById('object-editor')?.contains(e.target)&&e.target.closest?.('input,select')){
+  document.querySelector('[data-action="apply-edit"]')?.click();e.preventDefault();return true;
+ }
+ const command=desktopCommand(e);
+ if(!command||dialogs.childElementCount)return false;
+ if(command==='cancel')return false; // Preserve existing Escape handling and modal priority.
+ if(e.repeat&&['confirm','delete','open'].includes(command))return false;
+ const stop=()=>{e.preventDefault();return true;};
+ try{
+  if(command==='pan'){
+   spacePan=true;root.classList.add('space-pan');
+   if(desktopPreview)desktopPreview.keyboardPan=true;
+   return stop();
+  }
+  if(command==='undo'||command==='redo'){undoChange(command==='redo');return stop();}
+  if(command==='save'){
+   touch(activeId);const label=document.getElementById('save-indicator');if(label)label.textContent='ذخیره‌شده';
+   tell('پروژه ذخیره شد.');return stop();
+  }
+  if(command==='confirm'){
+   if(drawing){document.querySelector('[data-action="confirm-drawing"]')?.click();return stop();}
+   return false;
+  }
+  if(command==='delete'){
+   if(selection){
+    const id=selection;movingEquipmentId=null;
+    commitChange(Geo.removeObject(currentItems(),id));selection=null;showScene();
+   }else if(drawing){drawing=null;hover=null;showScene();}
+   return stop();
+  }
+  if(command==='top'||command==='front'){
+   planSubview=command==='top'?'top':'front';drawing=null;hover=null;frontDrawTool='select';
+   if(mode!=='2d')switchEditorMode('2d');else showScene();return stop();
+  }
+  if(command==='three'){switchEditorMode('3d');return stop();}
+  if(command==='select'){paintTool=null;drawing=null;activeTool=null;movingEquipmentId=null;selection=null;showScene();return stop();}
+  if(['wall','base','upper'].includes(command)){
+   activeTool=null;movingEquipmentId=null;selection=null;
+   drawing={tool:command,start:null};hover=initialPreviewForTool(command);showScene();return stop();
+  }
+  if(command==='elevation'){
+   const obj=currentItems().find(o=>o.id===selection),
+    cabinet=obj?.kind==='cabinet'?obj:['front','equipment'].includes(obj?.kind)?currentItems().find(c=>c.id===obj.hostId&&c.kind==='cabinet'):null;
+   if(cabinet){
+    elevationWallId=cabinet.hostId;elevationSide=cabinet.side||1;planSubview='front';frontDrawTool='select';drawing=null;hover=null;
+    if(mode!=='2d')switchEditorMode('2d');else showScene();
+   }return stop();
+  }
+  if(command==='open'){
+   const front=currentItems().find(o=>o.id===selection&&o.kind==='front');
+   if(front)commitFrontOpening(front.id,front.openFraction>.01?0:1);
+   return stop();
+  }
+  if(command==='move'){
+   const obj=currentItems().find(o=>o.id===selection&&['equipment','scene-object'].includes(o.kind));
+   if(obj){movingEquipmentId=obj.id;drawing=null;showScene();}
+   return stop();
+  }
+  if(command==='fit'){
+   if(mode==='2d'){planViewport=fitPlanViewport(currentItems());showScene();}
+   else if(mode==='3d'){desktopPreview?.fitPreview();desktopPreview?.renderPreview();}
+   return stop();
+  }
+  if(command==='zoom-in'||command==='zoom-out'){
+   const multiplier=command==='zoom-in'?.84:1.19;
+   if(mode==='2d'&&planSubview==='top'){
+    const v=planViewport||fitPlanViewport(currentItems()),w=Math.max(1.2,Math.min(45,v[2]*multiplier)),factor=w/v[2];
+    planViewport=[v[0]+v[2]*(1-factor)/2,v[1]+v[3]*(1-factor)/2,w,v[3]*factor];showScene();
+   }else if(mode==='3d'&&desktopPreview?.previewOrbit){
+    desktopPreview.previewOrbit.radius=Math.max(1.5,Math.min(25,desktopPreview.previewOrbit.radius*multiplier));desktopPreview.renderPreview();
+   }return stop();
+  }
+ }catch(error){tell(error.message);return stop();}
+ return false;
+}
+document.addEventListener('keyup',e=>{
+ if(e.code==='Space'||e.key===' '){
+  spacePan=false;
+  document.getElementById('editor-root')?.classList.remove('space-pan');
+  if(desktopPreview)desktopPreview.keyboardPan=false;
+ }
+});
+window.addEventListener('blur',()=>{spacePan=false;planPan=null;elevationPan=null;if(desktopPreview)desktopPreview.keyboardPan=false;});
 document.addEventListener('keydown',e=>{
+ if(handleKitchenKeyboard(e))return;
  if(pendingSmartLayout&&e.key==='Tab'){
   const dialog=dialogs.querySelector('.solver-dialog'),buttons=[...dialog.querySelectorAll('button:not(:disabled),[tabindex="0"]')];
   const first=buttons[0],last=buttons.at(-1);
