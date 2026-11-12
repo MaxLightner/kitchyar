@@ -555,6 +555,7 @@ function drawSelection(){
   libraryControls(obj.id)+modelOptions+windowControls+sinkControls+faucetControls+fridgeFrameControls+fridgeControls+'<div class="object-fields">'+fields+'</div>'+tallControls+openControls+(['front','cabinet'].includes(obj.kind)?'<button class="front-rule-open" data-action="open-front-rules">⚙ قوانین نما و هم‌ترازسازی گروهی</button>':'')+paintControls+decorControls+counterControls+specialtyControls+equipmentFacadeControls+extras+(obj.kind==='cabinet'&&obj.subtype==='base'?'<button class="cut-sheet-button" data-action="cut-sheet">نمای دقیق برش صفحه</button>':'')+'<div class="object-actions"><button class="primary" data-action="apply-edit">اعمال ابعاد</button>'+
   (obj.kind==='scene-object'&&obj.type!=='ceiling'||obj.kind==='equipment'&&obj.subtype!=='hood'||obj.kind==='cabinet'&&obj.subtype==='tall'?'<button data-action="move-equipment">جابجایی روی پلان / AR</button>':'')+
   (obj.kind==='front'?'<button data-action="toggle-front-open">'+(obj.openFraction>.01?'بستن همین در / کشو':'باز کردن همین در / کشو')+'</button>':'')+
+  (['cabinet','front'].includes(obj.kind)||obj.kind==='equipment'&&obj.hostId?'<button data-action="open-side-elevation">▤ ویرایش یونیت‌های این ضلع</button>':'')+
   '<button class="danger" data-action="delete-object">حذف</button></div>'+
   (obj.kind==='front'?'<small>دستگیره‌های نما را در تصویر بکش؛ عرض و ارتفاع با اسنپ ۱ سانتی‌متر ثبت می‌شوند.</small>':
    ['wall','cabinet','opening'].includes(obj.kind)?'<small>دستگیره‌ها را بکش؛ اندازه‌گذاری هنگام حرکت نمایش داده می‌شود و پس از رها کردن، با دقت ۱ سانتی‌متر ثبت می‌شود.</small>':'');
@@ -582,7 +583,7 @@ function showScene(){
  document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));const planLabel=document.getElementById('plan-toggle-label');if(planLabel)planLabel.textContent=isPlan?'بستن پلان · بازگشت به صحنه':'پلان · لمس برای ویرایش';const wideToggle=document.getElementById('ar-wide-toggle');wideToggle.hidden=mode!=='ar';wideToggle.setAttribute('aria-pressed',String(!!floor?.wideActive));wideToggle.textContent=floor?.wideActive?'نمای عادی':'نمای واید';
  if(isPlan){
   if(planSubview==='front'){
-   const current=items.find(o=>o.id===selection),c=current?.kind==='cabinet'?current:current?.kind==='front'?items.find(o=>o.id===current.hostId):null;
+   const current=items.find(o=>o.id===selection),c=current?.kind==='cabinet'?current:['front','equipment'].includes(current?.kind)?items.find(o=>o.id===current.hostId&&o.kind==='cabinet'):null;
    if(c&&(!elevationWallId||!sideElevationOptions(items,elevationWallId,elevationSide).some(o=>o.selected))){elevationWallId=c.hostId;elevationSide=c.side||1;}
    host.innerHTML=renderSideElevation(items,{wallId:elevationWallId,side:elevationSide,selectedId:selection,tool:frontDrawTool});
   }else{
@@ -1300,6 +1301,13 @@ document.addEventListener('click',async e=>{
    if(first)commitChange({items:result.items,selectedId:first},{skipAlignment:true,exactResult:true});
    else tell('تقسیم‌بندی اولیه این سمت موجود است. برای ویرایش از مداد و پاک‌کن استفاده کن.');
    return;
+  }
+  if(action==='open-side-elevation'){
+   const selected=currentItems().find(o=>o.id===selection);
+   const host=selected?.kind==='cabinet'?selected:['front','equipment'].includes(selected?.kind)?currentItems().find(c=>c.id===selected.hostId&&c.kind==='cabinet'):null;
+   if(!host)throw Error('ابتدا کابینت یا تجهیز نصب‌شده روی آن را انتخاب کن.');
+   elevationWallId=host.hostId;elevationSide=host.side||1;planSubview='front';frontDrawTool='select';drawing=null;hover=null;
+   if(mode!=='2d')switchEditorMode('2d');else showScene();return;
   }
   if(action==='toggle-front-open'){const f=currentItems().find(o=>o.id===selection&&o.kind==='front');if(f)commitFrontOpening(f.id,f.openFraction>.01?0:1);return;}
   if(action==='open'){const p=projects.find(p=>p.id===id);entryMode='3d';return go((p?.kind==='wardrobe'?'#/wardrobe/':'#/editor/')+id);}
