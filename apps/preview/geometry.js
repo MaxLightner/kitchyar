@@ -1278,7 +1278,11 @@ export function setManualFrontType(source,id,type){
  f.mirror=type==='mirror';f.shelfCount=type==='shelf'?2:0;
  f.handleStyle=['mirror','open','shelf','frame'].includes(type)?'hidden':f.handleStyle||'bar';
  f.openFraction=0;
- f.manualOverrides={...f.manualOverrides,geometry:true,style:true,hinge:true,handleStyle:true};
+ f.manualOverrides={...f.manualOverrides,geometry:true,hinge:true};
+ if(['glass','mirror','open','shelf','frame'].includes(type))f.manualOverrides.style=true;
+ else delete f.manualOverrides.style; // A later photo may still style an ordinary door/drawer.
+ if(['mirror','open','shelf','frame'].includes(type))f.manualOverrides.handleStyle=true;
+ else delete f.manualOverrides.handleStyle;
  c.frontPreset='custom';validateFronts(items,c);
  return {items,selectedId:id};
 }
