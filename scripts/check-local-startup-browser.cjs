@@ -50,6 +50,7 @@ const root=path.resolve(__dirname,'../apps/preview');
   await page.reload({waitUntil:'networkidle'});
   await page.locator('#startup-retry').waitFor({state:'visible'});
   assert.ok((await page.locator('#startup-status p').textContent()).length>30);
+  assert.match(await page.locator('#startup-status pre').textContent(),/three.core|module/i);
   assert.equal(await page.evaluate(()=>localStorage.getItem('kitchyar.ui.v2')),saved);
   await page.unroute('**/vendor/chido/vendor/three.core.js');
   await page.locator('#startup-retry').click();
@@ -60,6 +61,25 @@ const root=path.resolve(__dirname,'../apps/preview');
   await page.goto(origin,{waitUntil:'networkidle'});
   await page.locator('[data-action="solver-example"]').waitFor();
   assert.deepEqual(external,[]);
-  console.log('PASS: welcome, kitchen example, 3D and all SSR modules with every external host blocked; readable module-failure state, retry, saved projects preserved, mobile startup.');
+  // A real graphics initialization failure used to remove the loading screen
+  // before throwing, leaving both the viewport and settings empty on reload.
+  await page.addInitScript(()=>{
+   const original=HTMLCanvasElement.prototype.getContext;
+   HTMLCanvasElement.prototype.getContext=function(type,...args){
+    if(type.startsWith('webgl'))return null;
+    return original.call(this,type,...args);
+   };
+  });
+  await page.locator('[data-action="new-wardrobe"]').click();
+  const wardrobeSaved=await page.evaluate(()=>localStorage.getItem('kitchyar.ui.v2'));
+  await page.reload({waitUntil:'networkidle'});
+  await page.locator('#startup-retry').waitFor({state:'visible'});
+  assert.match(await page.locator('#startup-status pre').textContent(),/WebGL/);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('kitchyar.ui.v2')),wardrobeSaved);
+  await page.locator('#startup-status a').click();
+  await page.locator('[data-action="new-wardrobe"]').waitFor();
+  assert.deepEqual(errors,[]);
+  assert.deepEqual(external,[]);
+  console.log('PASS: same-origin welcome/kitchen/3D/SSR; exact module error and retry; visible WebGL startup error after DOM replacement; return to projects and saved data preserved.');
  }finally{await browser?.close();if(server)await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});
