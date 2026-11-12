@@ -1,7 +1,7 @@
 import {FloorAR} from './floor-ar.js?v=local1';
 import {frontPose} from './geometry.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=gallery2';
-import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=gallery2';
+import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,addWardrobeShelf,eraseWardrobeShelf,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=gallery2';
 import {wardrobeParts} from './wardrobe-report.js?v=gallery2';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -9,7 +9,7 @@ const cm=n=>Math.round(n*1000)/10,num=n=>new Intl.NumberFormat('fa-IR',{maximumF
 const input=(label,key,value,min,max)=>'<label>'+label+'<input data-w-field="'+key+'" type="number" step="1" min="'+min+'" max="'+max+'" value="'+value+'"></label>';
 export function newWardrobeScene(){return {items:wardrobeItems(defaultWardrobe()),materials:{...DEFAULT_MATERIALS},ceilingHeight:2.6};}
 
-export function wardrobeElevation(items,inside=true){
+export function wardrobeElevation(items,inside=true,selectedBayKey=null){
  const c=items.find(c=>c.wardrobe),{width:w,height:h}=c.wardrobe,pad=.15;
  const rect=(x,y,width,height,fill,extra='')=>'<rect x="'+x+'" y="'+(h-y-height)+'" width="'+width+'" height="'+height+'" fill="'+fill+'" stroke="#6d766b" stroke-width=".008" '+extra+'/>';
  let out=rect(-w/2,0,w,h,'#ece6da');
@@ -19,17 +19,24 @@ export function wardrobeElevation(items,inside=true){
   const p=frontPose(f,c);out+=rect((f.startT-.5)*w+.0015,f.bottomT*h+.0015,p.width,p.height,f.mirror?'#b8d1d5':'#dccbb0');
   if(!inside)out+='<line x1="'+((f.startT+f.endT-1)*w/2)+'" x2="'+((f.startT+f.endT-1)*w/2)+'" y1="'+(h*.4)+'" y2="'+(h*.55)+'" stroke="#6b7069" stroke-width=".013"/>';
  }
+ if(inside){
+  const bays=wardrobeSections(c);
+  for(const b of bays){
+   out+='<rect data-w-bay-rect="'+esc(b.key)+'" x="'+(b.start-w/2)+'" y="0" width="'+b.width+'" height="'+h+'" fill="transparent" stroke="'+(b.key===selectedBayKey?'#2563eb':'transparent')+'" stroke-width=".04" style="cursor:crosshair"/>';
+  }
+  for(const b of bays.slice(0,-1))out+='<line data-w-erase-seam="'+esc(b.key)+'" x1="'+(b.end-w/2)+'" x2="'+(b.end-w/2)+'" y1="0" y2="'+h+'" stroke="transparent" stroke-width=".075" pointer-events="stroke" style="cursor:crosshair"/>';
+ }
  for(const b of wardrobeSections(c))out+='<text x="'+((b.start+b.end-w)/2)+'" y="'+(h+.085)+'" text-anchor="middle" font-size=".065" fill="#3c5148">'+num(b.index+1)+' · '+num(cm(b.width))+' cm</text>';
  return '<svg viewBox="'+[-w/2-pad,-pad,w+pad*2,h+pad*2].join(' ')+'" role="img" aria-label="نمای روبه‌روی کمد با تقسیمات واقعی">'+out+'</svg>';
 }
 
 export function mountWardrobe(container,project,{save,tell}){
  const abort=new AbortController(),signal=abort.signal;
- let past=[],future=[],view='3d',selected=null,partsOpen=false,disposed=false,lastSaved=JSON.stringify(project);
+ let past=[],future=[],view='3d',selected=null,selectedBayKey=null,drawTool='select',partsOpen=false,disposed=false,lastSaved=JSON.stringify(project);
  let renderer;
  const current=()=>project.scene.items,body=()=>current().find(c=>c.wardrobe),config=()=>body().wardrobe;
  container.innerHTML='<main class="wardrobe-app"><header class="wardrobe-header"><a href="#/projects">← پروژه‌ها</a><div><small>KITCHYAR / کمدساز</small><h1>'+esc(project.name)+'</h1></div><span class="wardrobe-save" role="status">ذخیره‌شده روی دستگاه</span><button data-w-action="undo" aria-label="بازگشت تغییر کمد">بازگشت</button><button data-w-action="redo">انجام دوباره</button></header>'+
-  '<div class="wardrobe-layout"><section class="wardrobe-preview"><nav class="wardrobe-viewbar" aria-label="نمای کمد"><button data-w-action="view" data-view="3d">سه‌بعدی</button><button data-w-action="view" data-view="inside">تقسیمات داخل</button><button data-w-action="view" data-view="front">نمای درها</button><button data-w-action="all-open">بازکردن درها</button><button data-w-action="all-close">بستن همه</button></nav><div class="wardrobe-viewport" id="wardrobe-viewport"><div id="wardrobe-3d"></div><div id="wardrobe-elevation" hidden></div></div><p class="wardrobe-view-help">چرخش: کشیدن · بزرگ‌نمایی: چرخ ماوس یا دو انگشت · برای انتخاب در یا کشو روی آن بزن.</p><div class="wardrobe-selection" id="wardrobe-selection"></div><section id="wardrobe-parts" hidden></section></section><aside class="wardrobe-settings" id="wardrobe-settings" aria-label="تنظیمات کمد"></aside></div></main>';
+  '<div class="wardrobe-layout"><section class="wardrobe-preview"><nav class="wardrobe-viewbar" aria-label="نمای کمد"><button data-w-action="view" data-view="3d">سه‌بعدی</button><button data-w-action="view" data-view="inside">تقسیمات داخل</button><button data-w-action="view" data-view="front">نمای درها</button><button data-w-action="all-open">بازکردن درها</button><button data-w-action="all-close">بستن همه</button></nav><nav id="wardrobe-draw-toolbar" class="wardrobe-draw-toolbar" hidden><button data-w-action="draw-tool" data-tool="select">انتخاب</button><button data-w-action="draw-tool" data-tool="pencilV">✎ مرز عمودی</button><button data-w-action="draw-tool" data-tool="pencilH">✎ طبقه افقی</button><button data-w-action="draw-tool" data-tool="eraseV">⌫ حذف مرز</button><button data-w-action="draw-tool" data-tool="eraseH">⌫ پاک‌کردن طبقه</button></nav><div class="wardrobe-viewport" id="wardrobe-viewport"><div id="wardrobe-3d"></div><div id="wardrobe-elevation" hidden></div></div><p class="wardrobe-view-help">چرخش: کشیدن · بزرگ‌نمایی: چرخ ماوس یا دو انگشت · برای انتخاب در یا کشو روی آن بزن.</p><div class="wardrobe-selection" id="wardrobe-selection"></div><section id="wardrobe-parts" hidden></section></section><aside class="wardrobe-settings" id="wardrobe-settings" aria-label="تنظیمات کمد"></aside></div></main>';
  const viewport=container.querySelector('#wardrobe-3d'),elevation=container.querySelector('#wardrobe-elevation'),settings=container.querySelector('#wardrobe-settings');
  const materials=()=>({...DEFAULT_MATERIALS,...project.scene.materials,front:config().finish,baseFront:config().finish});
  function persist(){
@@ -62,7 +69,9 @@ export function mountWardrobe(container,project,{save,tell}){
   container.querySelector('[data-w-action="undo"]').disabled=!past.length;container.querySelector('[data-w-action="redo"]').disabled=!future.length;
   for(const b of container.querySelectorAll('[data-w-action="view"]'))b.setAttribute('aria-pressed',String(b.dataset.view===view));
   viewport.hidden=view!=='3d';elevation.hidden=view==='3d';
-  if(view!=='3d')elevation.innerHTML=wardrobeElevation(items,view==='inside');
+  const drawbar=container.querySelector('#wardrobe-draw-toolbar');drawbar.hidden=view!=='inside';
+  for(const b of drawbar.querySelectorAll('[data-w-action="draw-tool"]'))b.setAttribute('aria-pressed',String(b.dataset.tool===drawTool));
+  if(view!=='3d')elevation.innerHTML=wardrobeElevation(items,view==='inside',selectedBayKey);
   settings.innerHTML='<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">ابعاد کلی · سانتی‌متر</span><h2>باکس کمد</h2><div class="wardrobe-dimensions">'+
    input('عرض','width',cm(cfg.width),60,600)+input('ارتفاع','height',cm(cfg.height),180,320)+input('عمق','depth',cm(cfg.depth),45,80)+'</div><button class="primary" data-w-action="dimensions">اعمال ابعاد</button><label>جنس و رنگ درها<select data-w-finish>'+MATERIALS.front.map(m=>'<option value="'+m.id+'" '+(m.id===cfg.finish?'selected':'')+'>'+m.label+'</option>').join('')+'</select></label></section>'+
    '<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">تقسیم عرض و کاربری</span><h2>بخش‌های داخلی</h2><p>شماره‌گذاری از چپ است. تغییر عرض هر بخش از بخش کناری گرفته می‌شود.</p>'+wardrobeSections(body()).map(b=>{
@@ -87,10 +96,37 @@ export function mountWardrobe(container,project,{save,tell}){
   selected=renderer.pickPreviewObject(e.clientX,e.clientY);renderer.setSelection(selected);draw();
  },{signal});
  container.addEventListener('click',e=>{
+  const bayTarget=view==='inside'?e.target.closest('[data-w-bay-rect],[data-w-erase-seam]'):null;
+  if(bayTarget){
+   const key=bayTarget.dataset.wBayRect||bayTarget.dataset.wEraseSeam;
+   const sections=wardrobeSections(body()),index=sections.findIndex(b=>b.key===key);
+   if(index<0)return;
+   selectedBayKey=key;
+   try{
+    const rect=bayTarget.getBoundingClientRect();
+    if(drawTool==='pencilV'){
+     const ratio=Math.max(.02,Math.min(.98,(e.clientX-rect.left)/rect.width));
+     return rebuild(splitWardrobeBay(config(),key,ratio));
+    }
+    if(drawTool==='eraseV'){
+     const target=index===sections.length-1?sections[index-1]?.key:key;
+     if(!target)throw Error('برای حذف مرز باید دو بخش مجاور وجود داشته باشد.');
+     return rebuild(joinWardrobeBay(config(),target));
+    }
+    if(drawTool==='pencilH'||drawTool==='eraseH'){
+     const position=e.clientY,box=elevation.querySelector('[data-w-bay-rect="'+key+'"]')?.getBoundingClientRect();
+     if(!box?.height)throw Error('موقعیت بخش مشخص نشد.');
+     const heightRatio=Math.max(0,Math.min(1,1-(position-box.top)/box.height));
+     return rebuild(drawTool==='pencilH'?addWardrobeShelf(config(),key,heightRatio):eraseWardrobeShelf(config(),key,heightRatio));
+    }
+    draw();container.querySelector('[data-w-bay="'+key+'"]').scrollIntoView({block:'nearest',behavior:'smooth'});
+   }catch(error){tell(error.message);draw();}return;
+  }
   const button=e.target.closest('[data-w-action]');if(!button||button.disabled)return;
   const action=button.dataset.wAction,card=button.closest('[data-w-bay]'),key=card?.dataset.wBay;
   try{
    if(action==='view'){view=button.dataset.view;draw();if(view==='3d')renderer.renderPreview();return;}
+   if(action==='draw-tool'){drawTool=button.dataset.tool;draw();return;}
    if(action==='undo'||action==='redo')return history(action==='redo');
    if(action==='dimensions')return rebuild(resizeWardrobe(config(),Object.fromEntries(['width','height','depth'].map(k=>[k,Number(settings.querySelector('[data-w-field="'+k+'"]').value)/100]))));
    if(action==='bay-apply'){
