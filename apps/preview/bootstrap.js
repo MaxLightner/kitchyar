@@ -15,7 +15,7 @@
   message.textContent='بارگیری بیشتر از معمول طول کشیده است. اتصال اینترنت را بررسی کن یا دوباره تلاش کن.';
   retry.hidden=false;
  },15000);
- import('./app.js?v=local1').then(()=>clearTimeout(timer)).catch(error=>{
+ import('./app.js?v=mouse2d-3d1').then(()=>clearTimeout(timer)).catch(error=>{
   clearTimeout(timer);
   console.error('Kitchyar startup failed',error);
   // App initialization can replace the loading screen before rendering throws.
