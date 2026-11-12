@@ -52,7 +52,7 @@ let facadesHidden=false,roomSurfacesVisible=false,fridgeFreestanding=false;
 let styleApplyToken=0,selectedGalleryStyleId=null,galleryMode='model';
 let reportSheetOptions={...DEFAULT_SHEET};
 let miniLastHost=null,miniLastItems=null,miniLastCalibration='',miniLastFacadesHidden=null;
-let spacePan=false,planPan=null;
+let spacePan=false,planPan=null,elevationPan=null;
 const trackedView=()=>mode==='ar';
 const settings={thickness:.12,height:DEFAULT_CEILING_HEIGHT,pointSnap:true,angleSnap:true,gridSnap:true,baseDepth:.6,upperDepth:.35,upperHeight:.90,upperElevation:1.55};
 const defaultRender={sunAzimuth:-40,sunElevation:55,sunIntensity:2.1,ambientIntensity:1.0,aoStrength:.65,reflection:.10,taskLighting:false,taskIntensity:1.8,nearOcclusion:true};
@@ -158,7 +158,7 @@ function editorPage(id){
  settings.height=Number(p.scene?.ceilingHeight??p.scene?.items?.find(o=>o.kind==='wall')?.height??DEFAULT_CEILING_HEIGHT);
  if(p.scene?.items){try{const upgraded=Library.upgradeLegacyTiers(p.scene.items,settings.height);if(upgraded!==p.scene.items){p.scene.items=upgraded;save();}}catch(error){tell('تنظیم هوایی ذخیره‌شده نیاز به بررسی دارد: '+error.message);}}
  activeId=id;mode=entryMode;planSubview='top';elevationWallId=null;elevationSide=1;frontDrawTool='select';facadesHidden=false;roomSurfacesVisible=false;fridgeFreestanding=false;selectedUnit=null;lastFrontTap=null;activeTool=null;paintTool=null;planReturnMode='ar';selection=null;drawing=null;hover=null;abDrag=null;movingEquipmentId=null;undoStack=[];redoStack=[];calibrationCollapsed=false;paintScope='single';paintPart='panel';
- app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="plan-host" id="plan-host" hidden></div><div class="elevation-mode-switch" id="elevation-mode-switch" hidden><button data-action="2d-top">▦ پلان از بالا</button><button data-action="2d-front">▤ نمای روبه‌رو</button></div><div class="drawing-hint" id="drawing-hint" hidden></div><div class="scene-message" id="scene-message" hidden><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
+ app.innerHTML='<main class="editor-root" id="editor-root"><div class="editor-scene"><div class="scene-grid"></div><div class="desktop-key-guide">Enter تأیید · Esc لغو · Del حذف · Ctrl+Z/Y بازگشت/تکرار · Space+Drag جابه‌جایی · چرخ موس زوم · ۱/۲/۳ نماها</div><div class="plan-host" id="plan-host" hidden></div><div class="elevation-mode-switch" id="elevation-mode-switch" hidden><button data-action="2d-top">▦ پلان از بالا</button><button data-action="2d-front">▤ نمای روبه‌رو</button></div><div class="drawing-hint" id="drawing-hint" hidden></div><div class="scene-message" id="scene-message" hidden><span class="scan-orbit"></span><h2>آماده شناسایی کف</h2><p>پس از ورود، دوربین روی کف قرار می‌گیرد. برای اسکن به گوشی سازگار با ARCore نیاز است.</p><button data-action="start-ar">فعال‌سازی دوربین AR</button></div></div>'+
  '<header class="editor-header"><button class="editor-back" data-action="projects">← پروژه‌ها</button><div class="editor-name"><strong>'+esc(p.name)+'</strong><span id="save-indicator">ذخیره‌شده روی دستگاه</span></div><div class="mode-switch"><button class="selected" data-action="mode" data-mode="ar">AR</button><button data-action="mode" data-mode="3d">3D</button><button data-action="mode" data-mode="2d">2D</button><button data-action="open-report" data-id="'+esc(p.id)+'">گزارش</button></div><button data-action="environment" aria-label="تغییر نور محیط">محیط</button><button data-action="ar-wide" id="ar-wide-toggle" aria-pressed="false">نمای واید</button><button class="solver-trigger" data-action="preview-smart-layout">پیشنهاد چیدمان</button><button class="save-button" data-action="save">ذخیره</button></header>'+
  '<div class="wide-view-settings" id="wide-view-settings" hidden><strong>دید سه‌بعدی زنده</strong><div class="wide-view-options"><button data-action="wide-fov" data-wide-mode="normal">Normal · 60°</button><button class="selected" data-action="wide-fov" data-wide-mode="wide">Wide · 84°</button><button data-action="wide-fov" data-wide-mode="ultra">Ultra · 100°</button></div><small>ارتفاع و موقعیت از دوربین AR · مقیاس ۱:۱</small></div>'+
  '<div class="ar-toolbar"><button data-action="menu">منوی کیچیار</button><button data-action="rescan">شروع / اسکن مجدد کف ↻</button><span id="scan-status" role="status">در حال آماده‌سازی دوربین AR…</span></div>'+
@@ -1084,6 +1084,11 @@ function pickPlanHandle(e){
  return hit;
 }
 document.addEventListener('pointerdown',e=>{
+ if(mode==='2d'&&planSubview==='front'&&(spacePan||e.button===1)&&e.target.closest('.side-elevation-scroll')){
+  const scroll=e.target.closest('.side-elevation-scroll');elevationPan={id:e.pointerId,x:e.clientX,y:e.clientY,left:scroll.scrollLeft,top:scroll.scrollTop,scroll};
+  try{document.querySelector('.editor-scene')?.setPointerCapture(e.pointerId);}catch{}
+  e.preventDefault();return;
+ }
  if(mode==='2d'&&planSubview==='top'&&(spacePan||e.button===1)&&e.target.closest('#plan-view')){
   const svg=e.target.closest('#plan-view'),bounds=svg.getBoundingClientRect();
   planPan={id:e.pointerId,x:e.clientX,y:e.clientY,viewport:[...(planViewport||fitPlanViewport(currentItems()))],width:bounds.width,height:bounds.height};
@@ -1147,6 +1152,7 @@ document.addEventListener('pointerdown',e=>{
  e.preventDefault();e.stopPropagation();
 });
 document.addEventListener('pointermove',e=>{
+ if(elevationPan&&e.pointerId===elevationPan.id){const p=elevationPan;p.scroll.scrollLeft=p.left-(e.clientX-p.x);p.scroll.scrollTop=p.top-(e.clientY-p.y);e.preventDefault();return;}
  if(planPan&&e.pointerId===planPan.id){
   const p=planPan,v=p.viewport;
   planViewport=[v[0]-(e.clientX-p.x)*v[2]/p.width,v[1]-(e.clientY-p.y)*v[3]/p.height,v[2],v[3]];
@@ -1205,6 +1211,7 @@ document.addEventListener('pointermove',e=>{
  }
 });
 document.addEventListener('pointerup',e=>{
+ if(elevationPan&&elevationPan.id===e.pointerId){elevationPan=null;e.preventDefault();return;}
  if(planPan&&planPan.id===e.pointerId){planPan=null;e.preventDefault();return;}
  if(unitPress&&unitPress.pointerId===e.pointerId){const fired=unitPress.fired;cancelUnitPress();if(fired){e.preventDefault();return;}}
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();return;}
@@ -1287,6 +1294,7 @@ document.addEventListener('wheel',e=>{
  showScene();e.preventDefault();
 },{passive:false});
 document.addEventListener('pointercancel',e=>{
+ if(elevationPan?.id===e.pointerId)elevationPan=null;
  if(planPan?.id===e.pointerId)planPan=null;
  cancelUnitPress();
  if(planCalibrationDrag&&e.pointerId===planCalibrationDrag.pointerId){planCalibrationDrag=null;save();}
