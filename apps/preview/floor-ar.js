@@ -31,7 +31,8 @@ function selectedSemanticHit(hits,items){
  const ids=new Map(items.map(o=>[o.id,o.kind]));
  const nearest=[];
  for(const hit of hits){
-  if(!pickable(hit.object)||!hit.object.isMesh||hit.object.material?.opacity===0)continue;
+  if(!pickable(hit.object))continue;
+  if(!hit.object.isMesh||hit.object.material?.opacity===0)continue;
   let node=hit.object;
   while(node&&!node.userData?.objectId)node=node.parent;
   const id=node?.userData?.objectId;
