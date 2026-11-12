@@ -1194,6 +1194,62 @@ export function editFront(source,id,{width,height,hinge,finish,style,handleStyle
  validateFronts(items,c);
  return {items,selectedId:id};
 }
+/* A manually drawn Word-style seam edits the semantic facade, not a
+   duplicate 2D overlay. Both views and AR consume these very same fronts. */
+export function splitManualFront(source,id,{direction='vertical',ratio=.5}={}){
+ if(!['vertical','horizontal'].includes(direction))throw Error('جهت تقسیم نامعتبر است.');
+ const items=copy(source),f=byId(items,id),c=byId(items,f?.hostId);
+ if(f?.kind!=='front'||c?.kind!=='cabinet')throw Error('ابتدا یک خانه از نمای کابینت انتخاب کن.');
+ const length=frontageLength(c),width=(f.endT-f.startT)*length,height=(f.topT-f.bottomT)*c.height;
+ const span=direction==='vertical'?width:height,min=direction==='vertical'?.15:.10;
+ if(span<min*2-1e-5)throw Error('فضای این قسمت برای تقسیم جدید کافی نیست.');
+ const safe=Math.max(min/span,Math.min(1-min/span,Number(ratio)));
+ if(!Number.isFinite(safe))throw Error('محل رسم خط معتبر نیست.');
+ const split=direction==='vertical'?f.startT+(f.endT-f.startT)*safe:f.topT-(f.topT-f.bottomT)*safe;
+ const other={...f,id:uid(),name:f.name,openFraction:0,manualOverrides:{...f.manualOverrides,geometry:true}};
+ if(direction==='vertical'){other.startT=split;f.endT=split;}
+ else {other.bottomT=f.bottomT;other.topT=split;f.bottomT=split;}
+ f.manualOverrides={...f.manualOverrides,geometry:true};
+ // Manual layouts are authoritative until the user explicitly requests auto layout.
+ c.frontPreset='custom';
+ items.push(other);
+ validateFronts(items,c);
+ return {items,selectedId:other.id};
+}
+export function eraseManualFrontSeam(source,id,{direction='vertical'}={}){
+ if(!['vertical','horizontal'].includes(direction))throw Error('جهت پاک‌کن نامعتبر است.');
+ const items=copy(source),f=byId(items,id),c=byId(items,f?.hostId);
+ if(f?.kind!=='front'||c?.kind!=='cabinet')throw Error('ابتدا یک نما را انتخاب کن.');
+ const near=(a,b)=>Math.abs(a-b)<.0015;
+ const candidates=items.filter(other=>other.kind==='front'&&other.hostId===c.id&&other.id!==f.id&&
+  (direction==='vertical'?
+   near(other.bottomT,f.bottomT)&&near(other.topT,f.topT)&&(near(other.startT,f.endT)||near(other.endT,f.startT)):
+   near(other.startT,f.startT)&&near(other.endT,f.endT)&&(near(other.bottomT,f.topT)||near(other.topT,f.bottomT))));
+ if(!candidates.length)throw Error('در این جهت مرز مشترک قابل حذف وجود ندارد.');
+ const other=candidates[0];
+ f.startT=Math.min(f.startT,other.startT);f.endT=Math.max(f.endT,other.endT);
+ f.bottomT=Math.min(f.bottomT,other.bottomT);f.topT=Math.max(f.topT,other.topT);
+ f.manualOverrides={...f.manualOverrides,geometry:true};c.frontPreset='custom';
+ items.splice(items.indexOf(other),1);
+ validateFronts(items,c);
+ return {items,selectedId:f.id};
+}
+export function setManualFrontType(source,id,type){
+ if(!['door','lift','drawer','glass','mirror','open','shelf','frame'].includes(type))
+  throw Error('نوع جزئیات نما معتبر نیست.');
+ const items=copy(source),f=byId(items,id),c=byId(items,f?.hostId);
+ if(f?.kind!=='front'||c?.kind!=='cabinet')throw Error('ابتدا یک قسمت را انتخاب کن.');
+ f.subtype=type==='drawer'?'drawer':'door';
+ f.name=type==='drawer'?'کشوی کابینت':'درب / بخش کابینت';
+ f.style=['open','shelf'].includes(type)?'open':type==='glass'?'glass':type==='frame'?'frame':'flat';
+ f.hinge=type==='lift'?'top':f.subtype==='drawer'?'none':f.hinge==='right'?'right':'left';
+ f.mirror=type==='mirror';f.shelfCount=type==='shelf'?2:0;
+ f.handleStyle=['mirror','open','shelf','frame'].includes(type)?'hidden':f.handleStyle||'bar';
+ f.openFraction=0;
+ f.manualOverrides={...f.manualOverrides,geometry:true,style:true,hinge:true,handleStyle:true};
+ c.frontPreset='custom';validateFronts(items,c);
+ return {items,selectedId:id};
+}
 /* Interior geometry is derived only for opened fronts, never stored as a
    manufacturing unit or generated for every closed door and drawer. */
 export function frontOpeningCavity(front,c){
