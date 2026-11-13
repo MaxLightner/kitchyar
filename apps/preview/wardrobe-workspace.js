@@ -4,7 +4,7 @@ import {renderWardrobeTop,topViewPoint,previewFloorRect} from './wardrobe-box-to
 import {desktopCommand} from './desktop-shortcuts.js?v=keyboard1';
 import {frontPose} from './geometry.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=gallery2';
-import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,addWardrobeShelf,eraseWardrobeShelf,wardrobeFromFloorRectangle,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=boxkeys1';
+import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,moveWardrobeDivider,addWardrobeShelf,eraseWardrobeShelf,wardrobeFromFloorRectangle,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=boxkeys1';
 import {wardrobeParts} from './wardrobe-report.js?v=boxkeys1';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -12,7 +12,7 @@ const cm=n=>Math.round(n*1000)/10,num=n=>new Intl.NumberFormat('fa-IR',{maximumF
 const input=(label,key,value,min,max)=>'<label>'+label+'<input data-w-field="'+key+'" type="number" step="1" min="'+min+'" max="'+max+'" value="'+value+'"></label>';
 export function newWardrobeScene(){return {items:wardrobeItems(defaultWardrobe()),materials:{...DEFAULT_MATERIALS},ceilingHeight:2.6,wardrobeBoxStage:'floor',wardrobeBoxCreated:false};}
 
-export function wardrobeElevation(items,inside=true,selectedBayKey=null,selectedFrontId=null){
+export function wardrobeElevation(items,inside=true,selectedBayKey=null,selectedFrontId=null,drawTool='select'){
  const c=items.find(c=>c.wardrobe),{width:w,height:h}=c.wardrobe,pad=.15;
  const rect=(x,y,width,height,fill,extra='')=>'<rect x="'+x+'" y="'+(h-y-height)+'" width="'+width+'" height="'+height+'" fill="'+fill+'" '+(extra||'stroke="#6d766b" stroke-width=".008"')+'/>';
  let out=rect(-w/2,0,w,h,'#ece6da');
@@ -28,6 +28,13 @@ export function wardrobeElevation(items,inside=true,selectedBayKey=null,selected
    out+='<rect data-w-bay-rect="'+esc(b.key)+'" x="'+(b.start-w/2)+'" y="0" width="'+b.width+'" height="'+h+'" fill="transparent" stroke="'+(b.key===selectedBayKey?'#2563eb':'transparent')+'" stroke-width=".04" style="cursor:crosshair"/>';
   }
   for(const b of bays.slice(0,-1))out+='<line data-w-erase-seam="'+esc(b.key)+'" x1="'+(b.end-w/2)+'" x2="'+(b.end-w/2)+'" y1="0" y2="'+h+'" stroke="transparent" stroke-width=".075" pointer-events="stroke" style="cursor:crosshair"/>';
+  if(drawTool==='select')for(const b of bays.slice(0,-1)){
+   const xx=b.end-w/2;
+   out+='<line x1="'+xx+'" x2="'+xx+'" y1="0" y2="'+h+'" stroke="#328265" stroke-width=".013" pointer-events="none"/>'+
+    '<line data-w-divider="'+esc(b.key)+'" x1="'+xx+'" x2="'+xx+'" y1="0" y2="'+h+'" stroke="transparent" stroke-width=".10" pointer-events="stroke" style="cursor:ew-resize"/>'+
+    '<rect x="'+(xx-.056)+'" y="'+(h/2-.11)+'" width=".112" height=".22" rx=".035" fill="#257653" pointer-events="none"/>'+
+    '<text x="'+xx+'" y="'+(h/2+.044)+'" font-size=".14" text-anchor="middle" fill="#fff" pointer-events="none">↔</text>';
+  }
  }
  for(const b of wardrobeSections(c))out+='<text x="'+((b.start+b.end-w)/2)+'" y="'+(h+.085)+'" text-anchor="middle" font-size=".065" fill="#3c5148">'+num(b.index+1)+' · '+num(cm(b.width))+' cm</text>';
  return '<svg viewBox="'+[-w/2-pad,-pad,w+pad*2,h+pad*2].join(' ')+'" role="img" aria-label="نمای روبه‌روی کمد با تقسیمات واقعی">'+out+'</svg>';
@@ -36,7 +43,7 @@ export function wardrobeElevation(items,inside=true,selectedBayKey=null,selected
 export function mountWardrobe(container,project,{save,tell}){
  const abort=new AbortController(),signal=abort.signal;
  let past=[],future=[],stage=project.scene.wardrobeBoxStage||'ready',view=stage==='floor'?'top':'3d',selected=null,selectedBayKey=null,drawTool='select',partsOpen=false,disposed=false,lastSaved=JSON.stringify(project);
- let floorDrag=null,heightDrag=null,extrudeHeight=project.scene.items.find(x=>x.wardrobe)?.wardrobe.height||2.4,ghost=null;
+ let dividerDrag=null,floorDrag=null,heightDrag=null,extrudeHeight=project.scene.items.find(x=>x.wardrobe)?.wardrobe.height||2.4,ghost=null;
  let spaceHeld=false,topPan=null,topViewport=[-3.5,-2.5,7,5];
  let renderer;
  const current=()=>project.scene.items,body=()=>current().find(c=>c.wardrobe),config=()=>body().wardrobe;
@@ -116,7 +123,7 @@ export function mountWardrobe(container,project,{save,tell}){
   viewport.hidden=view!=='3d';elevation.hidden=!isElevation;
   const drawbar=container.querySelector('#wardrobe-draw-toolbar');drawbar.hidden=view!=='inside';
   for(const b of drawbar.querySelectorAll('[data-w-action="draw-tool"]'))b.setAttribute('aria-pressed',String(b.dataset.tool===drawTool));
-  if(isElevation)elevation.innerHTML=wardrobeElevation(items,view==='inside',selectedBayKey,selected);
+  if(isElevation)elevation.innerHTML=wardrobeElevation(items,view==='inside',selectedBayKey,selected,drawTool);
   if(stage!=='ready'){
    settings.innerHTML='<section class="wardrobe-setting-block"><span class="wardrobe-eyebrow">ساخت باکس کمد</span><h2>'+(stage==='floor'?'مرحله ۱ · کشیدن کف':'مرحله ۲ · تعیین ارتفاع')+'</h2><p>'+(stage==='floor'?'با موس روی پلان کف کلیک کن، مستطیل را بکش و رها کن. ابعاد واقعی از همین مستطیل ساخته می‌شود.':'در نمای سه‌بعدی دستگیرهٔ عمودی را بالا بکش و ارتفاع را تأیید کن.')+'</p><p>بعد می‌توانی یونیت‌ها و قفسه‌ها را در نماهای دوبعدی و سه‌بعدی ویرایش کنی.</p></section>';
    container.querySelector('#wardrobe-selection').textContent='مدل در مرحلهٔ ساخت باکس است.';
@@ -213,6 +220,42 @@ export function mountWardrobe(container,project,{save,tell}){
  container.addEventListener('input',e=>{
   if(e.target.matches('[data-w-height]')&&stage==='height')setExtrusionHeight(e.target.value);
  },{signal});
+ // Drag the physical divider; commit geometry only when the mouse releases.
+ elevation.addEventListener('pointerdown',e=>{
+  const line=e.target.closest('[data-w-divider]');
+  if(!line||view!=='inside'||drawTool!=='select'||stage!=='ready'||e.button!==0)return;
+  const svg=elevation.querySelector('svg');if(!svg)return;
+  dividerDrag={id:e.pointerId,key:line.dataset.wDivider,svg,line,config:structuredClone(config()),lastPosition:null};
+  selectedBayKey=dividerDrag.key;
+  try{elevation.setPointerCapture(e.pointerId);}catch{}
+  e.preventDefault();e.stopPropagation();
+ },{signal});
+ elevation.addEventListener('pointermove',e=>{
+  const drag=dividerDrag;if(!drag||drag.id!==e.pointerId)return;
+  const matrix=drag.svg.getScreenCTM();if(!matrix)return;
+  const point=drag.svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;
+  const local=point.matrixTransform(matrix.inverse());
+  const cfg=drag.config,ix=cfg.bays.findIndex(b=>b.key===drag.key);
+  if(ix<0||ix===cfg.bays.length-1)return;
+  const prior=cfg.bays.slice(0,ix).reduce((v,b)=>v+b.width,0),pair=cfg.bays[ix].width+cfg.bays[ix+1].width;
+  const min=Math.max(.35,pair-1.2),max=Math.min(1.2,pair-.35);
+  if(min>max)return;
+  const value=Math.round(Math.max(prior+min,Math.min(prior+max,local.x+cfg.width/2))*100)/100;
+  drag.lastPosition=value;
+  const xx=value-cfg.width/2;
+  drag.line.setAttribute('x1',String(xx));drag.line.setAttribute('x2',String(xx));
+  e.preventDefault();
+ },{signal});
+ const finishDivider=e=>{
+  if(!dividerDrag||dividerDrag.id!==e.pointerId)return;
+  const drag=dividerDrag;dividerDrag=null;
+  if(e.type==='pointercancel'||drag.lastPosition===null){draw();return;}
+  try{rebuild(moveWardrobeDivider(config(),drag.key,drag.lastPosition));}
+  catch(error){tell(error.message);draw();}
+  e.preventDefault();
+ };
+ elevation.addEventListener('pointerup',finishDivider,{signal});
+ elevation.addEventListener('pointercancel',finishDivider,{signal});
  container.addEventListener('click',e=>{
   const frontTarget=view==='front'?e.target.closest('[data-w-front-id]'):null;
   if(frontTarget){selected=frontTarget.dataset.wFrontId;selectedBayKey=current().find(f=>f.id===selected)?.wardrobeBay||null;renderer.setSelection(selected);draw();return;}
