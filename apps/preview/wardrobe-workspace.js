@@ -4,7 +4,7 @@ import {renderWardrobeTop,topViewPoint,previewFloorRect} from './wardrobe-box-to
 import {desktopCommand} from './desktop-shortcuts.js?v=keyboard1';
 import {frontPose} from './geometry.js?v=gallery2';
 import {MATERIALS,DEFAULT_MATERIALS} from './materials.js?v=gallery2';
-import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,moveWardrobeDivider,addWardrobeShelf,eraseWardrobeShelf,wardrobeFromFloorRectangle,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=boxkeys1';
+import {defaultWardrobe,wardrobeItems,wardrobeSections,wardrobePanels,wardrobeRods,resizeWardrobe,editWardrobeBay,splitWardrobeBay,joinWardrobeBay,moveWardrobeDivider,addWardrobeShelf,eraseWardrobeShelf,wardrobeFromFloorRectangle,setWardrobeOpening,openWardrobeDoors,WARDROBE_ROLES} from './wardrobe-model.js?v=wardrobe-div1';
 import {wardrobeParts} from './wardrobe-report.js?v=boxkeys1';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
