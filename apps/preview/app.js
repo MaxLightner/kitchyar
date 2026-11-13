@@ -15,7 +15,7 @@ import {renderCutReport} from './report-view.js?v=sheetpager39';
 import {downloadCutReportXlsx} from './report-xlsx.js?v=nest35';
 import {DEFAULT_SHEET,validateSheetOptions} from './sheet-nesting.js?v=nest35';
 import {createSmartProposal,acceptSmartProposal,renderSmartProposal,solverExampleItems} from './smart-layout-proposal.js?v=gallery2';
-import {mountWardrobe,newWardrobeScene} from './wardrobe-workspace.js?v=boxkeys1';
+import {mountWardrobe,newWardrobeScene} from './wardrobe-workspace.js?v=wardrobe-div1';
 import {validateStylePreset} from './style-catalog.js?v=gallery2';
 const STORAGE='kitchyar.ui.v2';
 const app=document.getElementById('app'),dialogs=document.getElementById('dialog-root'),toastNode=document.getElementById('toast');
