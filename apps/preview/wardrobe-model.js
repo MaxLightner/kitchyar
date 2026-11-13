@@ -72,6 +72,22 @@ export function editWardrobeBay(config,key,patch){
  }
  Object.assign(bay,patch);return validateWardrobe(next);
 }
+/* Move a physical divider, keeping the outside box and all other bays fixed.
+   The input is the divider's distance from the left edge in metres. */
+export function moveWardrobeDivider(config,key,position){
+ const next=copy(config),index=next.bays.findIndex(b=>b.key===key);
+ if(index<0||index>=next.bays.length-1)throw Error('مرز انتخابی معتبر نیست.');
+ const left=next.bays[index],right=next.bays[index+1];
+ const previous=next.bays.slice(0,index).reduce((sum,b)=>sum+b.width,0);
+ const pairWidth=left.width+right.width;
+ const requested=Math.round((Number(position)-previous)*100)/100;
+ if(!Number.isFinite(requested)||requested<R.minBay-1e-6||pairWidth-requested<R.minBay-1e-6)
+  throw Error('هر دو بخش کنار مرز باید حداقل ۳۵ سانتی‌متر عرض داشته باشند.');
+ if(requested>R.maxBay+1e-6||pairWidth-requested>R.maxBay+1e-6)
+  throw Error('عرض هر بخش نباید بیشتر از ۱۲۰ سانتی‌متر باشد.');
+ left.width=requested;right.width=Math.round((pairWidth-requested)*1000)/1000;
+ return validateWardrobe(next);
+}
 export function splitWardrobeBay(config,key,ratio=.5){
  const next=copy(config),index=next.bays.findIndex(b=>b.key===key),b=next.bays[index];
  if(!b||b.width<2*R.minBay)throw Error('برای دو بخش، عرض این بخش حداقل ۷۰ سانتی‌متر باشد.');
