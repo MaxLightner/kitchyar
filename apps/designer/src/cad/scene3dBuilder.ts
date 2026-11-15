@@ -679,10 +679,10 @@ function buildUpperCornerInfills3D(
       const doorMat = matPack.getDoorMaterial(finish, 'flat', doorOpenProgress < 0.08, false);
 
       if (geom.kind === 'inside-90' || geom.kind === 'inside-angled') {
-        const setbackA = Math.min(depthB + 12, Math.max(nearA.dist, 0));
-        const setbackB = Math.min(depthA + 12, Math.max(nearB.dist, 0));
-        const coverA = Math.max(depthB, setbackA);
-        const coverB = Math.max(depthA, setbackB);
+        // Reach the actual upper-cabinet start on each wall. The old depth+12 cap
+        // stopped the corner infill short and left a visible hollow wedge.
+        const coverA = Math.max(depthB, Math.max(nearA.dist, 0) + 1);
+        const coverB = Math.max(depthA, Math.max(nearB.dist, 0) + 1);
         if (coverA <= 1 || coverB <= 1) continue;
 
         // Build solid prism covering the inside corner intersection between both upper cabinet runs
