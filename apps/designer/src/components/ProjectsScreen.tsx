@@ -64,7 +64,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
             type="button"
             onClick={onBackToWelcome}
             aria-label="بازگشت به صفحه خوش‌آمدگویی"
-            className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 inline-flex items-center gap-1.5"
+            className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-[13px] font-bold text-slate-700 inline-flex items-center gap-1.5"
           >
             <ArrowRight className="w-4 h-4" />
             <span>صفحه اصلی</span>
@@ -93,7 +93,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
           <button
             type="button"
             onClick={() => importRef.current?.click()}
-            className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 inline-flex items-center gap-1.5"
+            className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-[13px] font-bold text-slate-700 inline-flex items-center gap-1.5"
           >
             <Upload className="w-4 h-4 text-emerald-600" />
             <span>بارگذاری JSON</span>
@@ -102,7 +102,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
           <button
             type="button"
             onClick={() => onCreateProject('ar')}
-            className="h-9 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5"
+            className="h-9 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-bold inline-flex items-center gap-1.5"
           >
             <Camera className="w-4 h-4" />
             <span>پروژه جدید AR</span>
@@ -111,7 +111,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
           <button
             type="button"
             onClick={() => onCreateProject('2d', 'L')}
-            className="h-9 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5"
+            className="h-9 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold inline-flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" />
             <span>پروژه جدید</span>
@@ -148,7 +148,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') commitRename(rec.id);
                           }}
-                          className="flex-1 h-8 px-2 text-xs font-bold border border-indigo-400 rounded-md"
+                          className="flex-1 h-8 px-2 text-[13px] font-bold border border-indigo-400 rounded-md"
                           autoFocus
                         />
                         <button
@@ -206,7 +206,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                  <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-500">
                     <span>{rec.wallCount} دیوار</span>
                     <span>•</span>
                     <span>{rec.boxCount} باکس</span>
@@ -219,7 +219,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenProject(rec.id, '2d')}
-                    className="h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center justify-center gap-1"
+                    className="h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold inline-flex items-center justify-center gap-1"
                   >
                     <Layers className="w-3.5 h-3.5" />
                     <span>2D</span>
@@ -227,7 +227,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenProject(rec.id, '3d')}
-                    className="h-8 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-[11px] font-bold inline-flex items-center justify-center gap-1"
+                    className="h-8 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-[13px] font-bold inline-flex items-center justify-center gap-1"
                   >
                     <Box className="w-3.5 h-3.5" />
                     <span>3D</span>
@@ -235,7 +235,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenProject(rec.id, 'ar')}
-                    className="h-8 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold inline-flex items-center justify-center gap-1"
+                    className="h-8 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[13px] font-bold inline-flex items-center justify-center gap-1"
                   >
                     <Camera className="w-3.5 h-3.5" />
                     <span>AR</span>
