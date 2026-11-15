@@ -1581,6 +1581,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               cabinetFinishBrush="warm-white" backsplashBrush="calacatta-marble"
               countertopBrush="dark-quartz" frameWidthCm={5} shelfCount={1}
               testId="cursor-preview-ar"
+              interactionHint="لمس برای ثبت یا ویرایش"
             />
           )}
         </>
