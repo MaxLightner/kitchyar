@@ -45,6 +45,7 @@ import {
   placeFridgeOnWall,
 } from '../cad/doorRules';
 import { createWallOpening } from '../cad/openingRules';
+import { CursorToolPreview } from './CursorToolPreview';
 import {
   applyAnimatedDoorProgress,
   buildKitchen3DScene,
@@ -61,6 +62,7 @@ import {
   ProjectState,
   SinkModel,
   Wall,
+  ToolId,
 } from '../cad/types';
 
 export type ArToolId =
@@ -189,8 +191,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [doorsOpen, setDoorsOpen] = useState(false);
 
   const [arTool, setArTool] = useState<ArToolId>('wall');
+  const [cursorPreview, setCursorPreview] = useState<{ x: number; y: number; valid: boolean } | null>(null);
   const lastSelectTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
-  const toggleXrDoorAtCenterRef = useRef<() => boolean>(() => false);
+  const toggleXrDoorAtPointRef = useRef<(x: number, y: number) => boolean>(() => false);
+  const pickAtClientRef = useRef<(x: number, y: number) => Scene3DHitData | null>(() => null);
+  const floorPointAtClientRef = useRef<(x: number, y: number) => THREE.Vector3 | null>(() => null);
+  const updateArGhostRef = useRef<(local: THREE.Vector3) => void>(() => {});
   const [pendingWallStart, setPendingWallStart] = useState<XZPoint | null>(null);
 
   const [pointA, setPointA] = useState<XZPoint>(() => project.arCalibration?.a || { x: -1.2, z: -0.9 });
@@ -241,6 +247,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const floorGroupRef = useRef<THREE.Group | null>(null);
   const kitchenMountRef = useRef<THREE.Group | null>(null);
   const reticleRef = useRef<THREE.Mesh | null>(null);
+  const wallGhostRef = useRef<THREE.Mesh | null>(null);
   const wallStartMarkerRef = useRef<THREE.Mesh | null>(null);
   const pinARef = useRef<THREE.Group | null>(null);
   const pinBRef = useRef<THREE.Group | null>(null);
@@ -357,6 +364,15 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     floorGroup.add(reticle);
     reticleRef.current = reticle;
 
+    const wallGhost = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.28, depthWrite: false })
+    );
+    wallGhost.visible = false;
+    wallGhost.renderOrder = 9;
+    floorGroup.add(wallGhost);
+    wallGhostRef.current = wallGhost;
+
     const wallStartMarker = new THREE.Mesh(
       new THREE.CylinderGeometry(0.045, 0.045, 0.14, 16),
       new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 })
@@ -437,6 +453,72 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const raycaster = new THREE.Raycaster();
     const ndcVec = new THREE.Vector2();
+    const pointerNdc = (clientX: number, clientY: number) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      return new THREE.Vector2(
+        ((clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+        -((clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
+      );
+    };
+    // Use the current XR eye camera for touch picking; the desktop camera does not
+    // match the live device pose and the center-reticle ray does not match a finger.
+    const pickingCamera = (): THREE.Camera => {
+      if (!xrSessionRef.current) return camera;
+      const xrCamera = renderer.xr.getCamera();
+      return xrCamera.cameras[0] || xrCamera;
+    };
+    const getPointerRay = (clientX: number, clientY: number) => {
+      raycaster.setFromCamera(pointerNdc(clientX, clientY), pickingCamera());
+      return raycaster.ray;
+    };
+    pickAtClientRef.current = (clientX, clientY) => {
+      if (!builtSceneRef.current) return null;
+      builtSceneRef.current.root.updateWorldMatrix(true, true);
+      getPointerRay(clientX, clientY);
+      const hits = raycaster.intersectObjects(builtSceneRef.current.interactables, false);
+      for (const hit of hits) {
+        let obj: THREE.Object3D | null = hit.object;
+        while (obj) {
+          const hitData = obj.userData as Scene3DHitData | undefined;
+          if (hitData?.kind && hitData.wallId) return hitData;
+          obj = obj.parent;
+        }
+      }
+      return null;
+    };
+    floorPointAtClientRef.current = (clientX, clientY) => {
+      const group = floorGroupRef.current;
+      if (!group) return null;
+      group.updateWorldMatrix(true, false);
+      const worldOrigin = group.getWorldPosition(new THREE.Vector3());
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), worldOrigin);
+      const worldHit = new THREE.Vector3();
+      if (!getPointerRay(clientX, clientY).intersectPlane(plane, worldHit)) return null;
+      return group.worldToLocal(worldHit);
+    };
+    updateArGhostRef.current = (localPt: THREE.Vector3) => {
+      const ghost = wallGhostRef.current;
+      if (!ghost) return;
+      const start = pendingWallStartRef.current;
+      if (arToolRef.current !== 'wall' || !start) {
+        ghost.visible = false;
+        return;
+      }
+      const al = alignmentRef.current;
+      const c = Math.cos(al.yaw);
+      const sn = Math.sin(al.yaw);
+      const startX = al.x + al.scale * (start.x * c + start.z * sn);
+      const startZ = al.z + al.scale * (-start.x * sn + start.z * c);
+      const dx = localPt.x - startX;
+      const dz = localPt.z - startZ;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.03) { ghost.visible = false; return; }
+      const h = (projectRef.current.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm) / 100;
+      ghost.position.set(startX + dx / 2, h / 2, startZ + dz / 2);
+      ghost.rotation.y = -Math.atan2(dz, dx);
+      ghost.scale.set(len, h, 0.1);
+      ghost.visible = true;
+    };
     const toggleDoorByRay = (ndc: THREE.Vector2, viewCamera: THREE.Camera): boolean => {
       if (!activeRef.current || !builtSceneRef.current) return false;
       builtSceneRef.current.root.updateWorldMatrix(true, true);
@@ -452,10 +534,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       requestPreviewRender();
       return true;
     };
-    toggleXrDoorAtCenterRef.current = () => {
-      if (!xrSessionRef.current) return false;
-      return toggleDoorByRay(new THREE.Vector2(0, 0), renderer.xr.getCamera());
-    };
+    toggleXrDoorAtPointRef.current = (clientX, clientY) =>
+      toggleDoorByRay(pointerNdc(clientX, clientY), pickingCamera());
     const onDblClick = (e: MouseEvent) => {
       if (!activeRef.current || xrSessionRef.current || !builtSceneRef.current) return;
       const rect = renderer.domElement.getBoundingClientRect();
@@ -482,7 +562,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
       renderer.domElement.removeEventListener('dblclick', onDblClick);
-      toggleXrDoorAtCenterRef.current = () => false;
+      toggleXrDoorAtPointRef.current = () => false;
+      pickAtClientRef.current = () => null;
+      floorPointAtClientRef.current = () => null;
+      updateArGhostRef.current = () => {};
       ro.disconnect();
       controls.dispose();
       occlusion.dispose();
@@ -572,6 +655,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = !xrActive || !floorLocked;
     }
+    if (wallGhostRef.current && !pendingWallStart) wallGhostRef.current.visible = false;
 
     renderOnceRef.current();
   }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, active]);
@@ -658,7 +742,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           selectedDoorId: null,
         };
       }, 'دیوار جدید روی کف AR ثبت شد');
-      setPendingWallStart(null);
+      // Continue drawing a connected wall chain, exactly like the 2D and 3D editors.
+      setPendingWallStart(modelPt);
       return;
     }
 
