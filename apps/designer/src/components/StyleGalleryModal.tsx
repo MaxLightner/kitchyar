@@ -55,7 +55,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
             <Sparkles className="w-4 h-4 text-amber-500" />
             <div>
               <h2 className="text-sm font-black text-slate-900">استخراج استایل و رنگ از عکس نمونه</h2>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[13px] text-slate-500">
                 ابتدا یک عکس را انتخاب کنید، سپس دکمه «اعمال» پایین پنجره را بزنید تا متریال، سبک درب، دستگیره و هود اعمال شود
               </p>
             </div>
@@ -95,7 +95,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
                       loading="lazy"
                       className="w-full h-full object-cover"
                     />
-                    <span className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-slate-900/80 text-white text-[10px] font-bold">
+                    <span className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-slate-900/80 text-white text-[13px] font-bold">
                       {preset.designStyle === 'neoclassic' ? 'نئوکلاسیک' : 'مدرن'}
                     </span>
                     {isSelected && (
@@ -106,9 +106,9 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
                   </div>
 
                   <div className="p-3 space-y-1.5">
-                    <div className="text-xs font-black text-slate-900">{preset.title}</div>
-                    <p className="text-[11px] text-slate-500 leading-5">{preset.subtitle}</p>
-                    <div className="flex flex-wrap gap-1 pt-0.5 text-[10px] font-bold text-slate-600">
+                    <div className="text-[13px] font-black text-slate-900">{preset.title}</div>
+                    <p className="text-[13px] text-slate-500 leading-5">{preset.subtitle}</p>
+                    <div className="flex flex-wrap gap-1 pt-0.5 text-[13px] font-bold text-slate-600">
                       <span className="px-1.5 py-0.5 rounded bg-slate-100">
                         درب: {DOOR_STYLE_META[preset.doorStyle].shortLabel}
                       </span>
@@ -132,7 +132,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
         </div>
 
         <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3 shrink-0">
-          <div className="text-[11px] font-bold text-slate-600 truncate">
+          <div className="text-[13px] font-bold text-slate-600 truncate">
             {selectedPreset
               ? `انتخاب‌شده: ${selectedPreset.title}`
               : 'یک تصویر از گالری بالا انتخاب کنید'}
@@ -141,7 +141,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="h-9 px-3.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition"
+              className="h-9 px-3.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-[13px] font-bold transition"
             >
               انصراف
             </button>
@@ -150,7 +150,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
               data-testid="apply-selected-style-btn"
               disabled={!selectedPreset || applying}
               onClick={handleConfirmApply}
-              className="h-9 px-5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:text-slate-500 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 transition active:scale-95"
+              className="h-9 px-5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:text-slate-500 text-white text-[13px] font-extrabold inline-flex items-center justify-center gap-1.5 transition active:scale-95"
             >
               <Check className="w-3.5 h-3.5" />
               <span>{applying ? 'در حال اعمال...' : 'اعمال استایل'}</span>
