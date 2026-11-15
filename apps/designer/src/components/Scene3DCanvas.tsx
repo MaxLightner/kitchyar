@@ -1926,7 +1926,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           <button
             type="button"
             onClick={() => handleSetCamPreset('iso')}
-            className={`h-7 px-2.5 rounded-lg text-[11px] font-bold transition ${
+            className={`h-7 px-2.5 rounded-lg text-[13px] font-bold transition ${
               camPreset === 'iso'
                 ? 'bg-indigo-600 text-white'
                 : 'text-slate-700 hover:bg-slate-100'
@@ -1937,7 +1937,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           <button
             type="button"
             onClick={() => handleSetCamPreset('front')}
-            className={`h-7 px-2.5 rounded-lg text-[11px] font-bold transition ${
+            className={`h-7 px-2.5 rounded-lg text-[13px] font-bold transition ${
               camPreset === 'front'
                 ? 'bg-indigo-600 text-white'
                 : 'text-slate-700 hover:bg-slate-100'
@@ -1948,7 +1948,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           <button
             type="button"
             onClick={() => handleSetCamPreset('top')}
-            className={`h-7 px-2.5 rounded-lg text-[11px] font-bold transition ${
+            className={`h-7 px-2.5 rounded-lg text-[13px] font-bold transition ${
               camPreset === 'top'
                 ? 'bg-indigo-600 text-white'
                 : 'text-slate-700 hover:bg-slate-100'
@@ -1965,7 +1965,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             onClick={handleToggleAllDoors}
             aria-pressed={doorsOpen}
             title="باز و بسته کردن درب‌ها در نمای سه‌بعدی"
-            className={`h-7 px-2.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition ${
+            className={`h-7 px-2.5 rounded-lg text-[13px] font-bold inline-flex items-center gap-1 transition ${
               doorsOpen
                 ? 'bg-amber-500 text-white'
                 : 'text-slate-700 hover:bg-slate-100'
@@ -1996,7 +1996,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
                     applyCameraPreset(camPreset, undefined, w.id);
                   }
                 }}
-                className={`h-7 px-2 rounded-lg text-[11px] font-bold whitespace-nowrap transition ${
+                className={`h-7 px-2 rounded-lg text-[13px] font-bold whitespace-nowrap transition ${
                   isSel
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-700 hover:bg-slate-100'
@@ -2007,7 +2007,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             );
           })}
           {project.doorsHidden && (
-            <span className="h-7 px-2 rounded-lg bg-purple-100 text-purple-800 text-[10px] font-extrabold inline-flex items-center gap-1">
+            <span className="h-7 px-2 rounded-lg bg-purple-100 text-purple-800 text-[13px] font-extrabold inline-flex items-center gap-1">
               <Eye className="w-3 h-3" />
               <span>یونیت‌ها</span>
             </span>
@@ -2016,7 +2016,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       </div>
 
       {/* راهنمای مختصر پایین سه‌بعدی */}
-      <div className="pointer-events-none absolute bottom-2.5 left-3 bg-white/95 border border-slate-200 rounded-lg px-2.5 py-1 text-[10px] font-bold text-slate-600 shadow-xs">
+      <div className="pointer-events-none absolute bottom-2.5 left-3 bg-white/95 border border-slate-200 rounded-lg px-2.5 py-1 text-[13px] font-bold text-slate-600 shadow-xs">
         {tool === 'wall'
           ? 'نشانگر روی زمین را حرکت دهید و با کلیک نقطه‌ها دیوار بکشید (راست‌کلیک = انتخاب)'
           : tool === 'select'
