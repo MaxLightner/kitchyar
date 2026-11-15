@@ -2774,7 +2774,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           <g pointerEvents="none" opacity={0.75}>
             <line x1={rx + 4} y1={ry + 6} x2={rx + 4} y2={ry + rh - 6} stroke="#0f766e" strokeWidth={1.3} strokeDasharray="3,2" />
             <line x1={rx + rw - 4} y1={ry + 6} x2={rx + rw - 4} y2={ry + rh - 6} stroke="#0f766e" strokeWidth={1.3} strokeDasharray="3,2" />
-            <text x={rx + rw / 2} y={ry + 13} fontSize={7.5} fontWeight={800} fill="#0f766e" textAnchor="middle">
+            <text x={rx + rw / 2} y={ry + 13} fontSize={13} fontWeight={800} fill="#0f766e" textAnchor="middle">
               سوپری ⇄
             </text>
           </g>
@@ -2855,7 +2855,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   {renderHandleBar(dx + 8, dy + leafH * 0.22, dy + leafH * 0.56)}
                   {renderHandleBar(dx + 8, splitY + 8, dy + leafH - 8)}
                   {renderVentSlots(dx + 2, dw - 4, dy + dh - grillH, grillH - 1)}
-                  <text x={dx + dw / 2} y={dy + leafH * 0.14} fontSize={8.5} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
+                  <text x={dx + dw / 2} y={dy + leafH * 0.14} fontSize={13} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
                     یخچال ({widthText})
                   </text>
                 </>
@@ -2872,7 +2872,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   {renderHandleBar(dx + 3.5 + halfW + 7, dy + leafH * 0.24, dy + leafH * 0.64)}
                   {renderDispenser(dx + halfW * 0.28, dy + leafH * 0.34, Math.max(10, halfW * 0.42), Math.max(18, leafH * 0.2))}
                   {renderVentSlots(dx + 2, dw - 4, dy + dh - grillH, grillH - 1)}
-                  <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={8.5} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
+                  <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={13} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
                     دوقلو ({widthText})
                   </text>
                 </>
@@ -2891,7 +2891,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                 {renderHandleBar(sbsSplit - 5, dy + leafH * 0.24, dy + leafH * 0.66)}
                 {renderHandleBar(sbsSplit + 6, dy + leafH * 0.24, dy + leafH * 0.66)}
                 {renderVentSlots(dx + 2, dw - 4, dy + dh - grillH, grillH - 1)}
-                <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={8.5} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
+                <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={13} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
                   ساید ({widthText})
                 </text>
               </>
@@ -2912,7 +2912,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
             <text
               x={dx + dw / 2}
               y={dy + dh / 2}
-              fontSize={9}
+              fontSize={13}
               fontWeight={700}
               fill="#64748b"
               textAnchor="middle"
@@ -2975,7 +2975,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                 <text
                   x={dx + dw / 2}
                   y={dy + dh - 5}
-                  fontSize={8.5}
+                  fontSize={13}
                   fontWeight={800}
                   fill="#475569"
                   textAnchor="middle"
@@ -3032,7 +3032,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                 <text
                   x={dx + dw / 2}
                   y={dy + 13}
-                  fontSize={8.5}
+                  fontSize={13}
                   fontWeight={800}
                   fill="#0369a1"
                   textAnchor="middle"
@@ -3103,7 +3103,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                 <text
                   x={dx + dw / 2}
                   y={leafY + leafH / 2 + 3.5}
-                  fontSize={9.5}
+                  fontSize={13}
                   fontWeight={800}
                   fill={labelColor}
                   textAnchor="middle"
@@ -3145,7 +3145,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
             <text
               x={dx + dw / 2}
               y={dy + dh / 2 + 3.5}
-              fontSize={9.5}
+              fontSize={13}
               fontWeight={800}
               fill={labelColor}
               textAnchor="middle"
@@ -3199,7 +3199,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       aria-label="نمای روبرو"
     >
       {/* عنوان دیوار بدون شلوغی */}
-      <div className="absolute top-2 right-2.5 z-15 bg-white/95 border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-extrabold text-slate-800 tabular-nums pointer-events-none max-w-[calc(100%-20px)] truncate">
+      <div className="absolute top-2 right-2.5 z-15 bg-white/95 border border-slate-300 rounded-lg px-2.5 py-1 text-[13px] font-extrabold text-slate-800 tabular-nums pointer-events-none max-w-[calc(100%-20px)] truncate">
         {wall
           ? `${wall.name} — طول ${wall.length} cm · ارتفاع ${wall.height} cm · زوم ${Math.round(
               (pxPerCm / 2.1) * 100
@@ -3213,7 +3213,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           multiSelection.openingIds.length +
           multiSelection.applianceIds.length >
           0 && (
-          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-slate-900/95 text-white px-3 py-1.5 rounded-xl shadow-lg text-xs font-bold">
+          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-slate-900/95 text-white px-3 py-1.5 rounded-xl shadow-lg text-[13px] font-bold">
             <span>
               انتخاب گروهی:{' '}
               {multiSelection.boxIds.length +
@@ -3243,7 +3243,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
       {wall && wall.boxes.length === 0 && (wall.openings || []).length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          <div className="bg-white/95 border border-dashed border-slate-400 rounded-xl px-5 py-3 text-center text-slate-600 text-xs font-bold">
+          <div className="bg-white/95 border border-dashed border-slate-400 rounded-xl px-5 py-3 text-center text-slate-600 text-[13px] font-bold">
             روی این دیوار باکسی نیست — از پایین ابزار <b>«باکس کابینت»</b> یا <b>«یخچال / پنجره»</b> را بزنید
           </div>
         </div>
@@ -3457,7 +3457,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                       <text
                         x={ox + ow / 2}
                         y={oy + oh / 2 + 3}
-                        fontSize={9.5}
+                        fontSize={13}
                         fontWeight={800}
                         fill="#0369a1"
                         textAnchor="middle"
@@ -3480,7 +3480,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                       <text
                         x={ox + ow / 2}
                         y={oy + oh / 2}
-                        fontSize={9.5}
+                        fontSize={13}
                         fontWeight={800}
                         fill="#0f172a"
                         textAnchor="middle"
@@ -3518,7 +3518,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                       <text
                         x={ox + ow / 2}
                         y={oy + 22}
-                        fontSize={9.5}
+                        fontSize={13}
                         fontWeight={800}
                         fill="#334155"
                         textAnchor="middle"
@@ -3933,7 +3933,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           <text
                             x={ux + uw / 2}
                             y={uy + Math.min(20, uh * 0.35)}
-                            fontSize={9}
+                            fontSize={13}
                             fontWeight={800}
                             fill={isUnitSel ? '#5b21b6' : '#475569'}
                             textAnchor="middle"
@@ -3944,7 +3944,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           <text
                             x={ux + uw / 2}
                             y={uy + Math.min(33, uh * 0.35 + 13)}
-                            fontSize={8}
+                            fontSize={13}
                             fontWeight={700}
                             fill={isUnitSel ? '#6d28d9' : '#64748b'}
                             textAnchor="middle"
@@ -3990,7 +3990,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                             <text
                               x={hx + hw / 2}
                               y={hy + 13}
-                              fontSize={8}
+                              fontSize={13}
                               fontWeight={800}
                               fill="#475569"
                               textAnchor="middle"
@@ -4305,7 +4305,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                         <text
                           x={bx + bw / 2}
                           y={labelY + 11}
-                          fontSize={9}
+                          fontSize={13}
                           fontWeight={800}
                           fill="#1e293b"
                           textAnchor="middle"
@@ -4352,7 +4352,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               return (
                 <g key={idx} pointerEvents="none" opacity={0.7}>
                   <line x1={gx1 + 2} y1={gy} x2={gx2 - 2} y2={gy} stroke="#64748b" strokeWidth={1} strokeDasharray="3,2" />
-                  <text x={(gx1 + gx2) / 2} y={gy - 4} fontSize={8.5} fontWeight={800} fill="#475569" textAnchor="middle">
+                  <text x={(gx1 + gx2) / 2} y={gy - 4} fontSize={13} fontWeight={800} fill="#475569" textAnchor="middle">
                     {g.len < 45 ? `${g.len}cm` : `فضای خالی ${g.len}cm`}
                   </text>
                 </g>
@@ -4393,7 +4393,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   <text
                     x={zx + zw / 2}
                     y={zy + heightPx / 2 + 3.5}
-                    fontSize={9}
+                    fontSize={13}
                     fontWeight={800}
                     fill="#b91c1c"
                     textAnchor="middle"
@@ -4500,7 +4500,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           <text
                             x={ax + aw / 2}
                             y={topY + apronH * 0.62}
-                            fontSize={8.5}
+                            fontSize={13}
                             fontWeight={800}
                             fill="#0369a1"
                             textAnchor="middle"
@@ -4535,7 +4535,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                         <text
                           x={ax + aw / 2}
                           y={topY - rimH - faucetH - 3}
-                          fontSize={8}
+                          fontSize={13}
                           fontWeight={800}
                           fill="#0f766e"
                           textAnchor="middle"
@@ -4593,7 +4593,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           <text
                             x={ax + aw / 2}
                             y={topY - 11}
-                            fontSize={7.5}
+                            fontSize={13}
                             fontWeight={800}
                             fill="#ffffff"
                             textAnchor="middle"
@@ -4657,7 +4657,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           <text
                             x={ax + aw / 2}
                             y={my + mh * (app.kind === 'washing' ? 0.12 : 0.55)}
-                            fontSize={8.5}
+                            fontSize={13}
                             fontWeight={800}
                             fill="#312e81"
                             textAnchor="middle"
@@ -4678,7 +4678,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               <g pointerEvents="none">
                 <g transform={`translate(${originX + ((dragGuides.itemStart + dragGuides.itemEnd) / 2) * s}, ${floorY - dragGuides.yTopCm * s - 18})`}>
                   <rect x={-64} y={-11} width={128} height={22} rx={6} fill="#0f172a" />
-                  <text x={0} y={3.5} fontSize={9.5} fontWeight={800} fill="#ffffff" textAnchor="middle">
+                  <text x={0} y={3.5} fontSize={13} fontWeight={800} fill="#ffffff" textAnchor="middle">
                     {`چپ ${dragGuides.leftGap}cm · راست ${dragGuides.rightGap}cm`}
                   </text>
                 </g>
@@ -4728,7 +4728,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           <line x1={gx} y1={gy + gh * 0.66} x2={gx + gw} y2={gy + gh * 0.66} stroke="#4f46e5" strokeWidth={1} strokeDasharray="3,2" />
                         </>
                       )}
-                      <text x={cursorPt.x} y={cursorPt.y + 3} fontSize={8.5} fontWeight={800} fill="#4338ca" textAnchor="middle">
+                      <text x={cursorPt.x} y={cursorPt.y + 3} fontSize={13} fontWeight={800} fill="#4338ca" textAnchor="middle">
                         {doorOrient === 'vertical' ? `درب ${doorTargetWidth}cm` : `کشو/افقی ${doorTargetWidth}cm`}
                       </text>
                     </>
@@ -4765,7 +4765,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           strokeWidth={1.8}
                           strokeDasharray="5,3"
                         />
-                        <text x={gx + gw / 2} y={topY - 10} fontSize={9} fontWeight={800} fill={validStroke} textAnchor="middle">
+                        <text x={gx + gw / 2} y={topY - 10} fontSize={13} fontWeight={800} fill={validStroke} textAnchor="middle">
                           {appHover.valid ? SINK_MODELS[appHover.sinkModel || 'steel-2'].shortLabel : appHover.reason}
                         </text>
                       </>
@@ -4808,7 +4808,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                         <text
                           x={gx + gw / 2}
                           y={topY + topPad + (floorY - topY - topPad) * 0.5}
-                          fontSize={9}
+                          fontSize={13}
                           fontWeight={800}
                           fill={appHover.valid ? '#312e81' : '#dc2626'}
                           textAnchor="middle"
@@ -4841,7 +4841,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   return (
                     <g transform={`translate(${bx + bw / 2}, ${by + bodyH * 0.45})`} pointerEvents="none">
                       <rect x={-72} y={-11} width={144} height={22} rx={6} fill="#dc2626" />
-                      <text x={0} y={3.5} fontSize={8.5} fontWeight={800} fill="#ffffff" textAnchor="middle">
+                      <text x={0} y={3.5} fontSize={13} fontWeight={800} fill="#ffffff" textAnchor="middle">
                         {frameHover.reason || 'موقعیت غیرمجاز فریم'}
                       </text>
                     </g>
@@ -4882,7 +4882,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     <text
                       x={rx + rw / 2}
                       y={ry + rh / 2 + 3}
-                      fontSize={8.5}
+                      fontSize={13}
                       fontWeight={800}
                       fill="#312e81"
                       textAnchor="middle"
@@ -4989,7 +4989,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                         <text
                           x={px + pwPx / 2}
                           y={py + phPx / 2 + 4}
-                          fontSize={10}
+                          fontSize={13}
                           fontWeight={800}
                           fill="#312e81"
                           textAnchor="middle"
@@ -5008,7 +5008,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     return (
                       <g transform={`translate(${bx + (doorHover?.cursorCmInBox || 0) * s}, ${by + 20})`}>
                         <rect x={-56} y={-11} width={112} height={22} rx={6} fill="#dc2626" />
-                        <text x={0} y={3.5} fontSize={9} fontWeight={800} fill="#ffffff" textAnchor="middle">
+                        <text x={0} y={3.5} fontSize={13} fontWeight={800} fill="#ffffff" textAnchor="middle">
                           غیرمجاز / خارج از بازه
                         </text>
                       </g>
@@ -5065,7 +5065,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   return (
                     <g transform={`translate(${tx}, ${by + bodyH * 0.45})`} pointerEvents="none">
                       <rect x={-72} y={-11} width={144} height={22} rx={6} fill="#b45309" />
-                      <text x={0} y={3.5} fontSize={9} fontWeight={800} fill="#ffffff" textAnchor="middle">
+                      <text x={0} y={3.5} fontSize={13} fontWeight={800} fill="#ffffff" textAnchor="middle">
                         {msg}
                       </text>
                     </g>
