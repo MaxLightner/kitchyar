@@ -53,6 +53,7 @@ export interface CursorToolPreviewProps {
   doorBandRatio?: number;
   drawBoxKind?: BoxKind;
   testId?: string;
+  interactionHint?: string;
 }
 
 const PREVIEW_TOOLS = new Set<ToolId>([
@@ -98,6 +99,7 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
   doorBandRatio = 0.26,
   drawBoxKind = 'base',
   testId = 'cursor-preview-2d',
+  interactionHint = '⇕ اسکرول تغییر',
 }) => {
   if (!visible || !PREVIEW_TOOLS.has(tool)) return null;
 
@@ -382,7 +384,7 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
       <div className="min-w-0 leading-tight">
         <div className="text-[13px] font-extrabold text-slate-900 truncate">{title}</div>
         <div className="text-[13px] font-bold text-slate-500 truncate">{sub}</div>
-        <div className="text-[13px] font-extrabold text-indigo-600 mt-0.5">⇕ اسکرول تغییر</div>
+        <div className="text-[13px] font-extrabold text-indigo-600 mt-0.5">{interactionHint}</div>
       </div>
     </div>
   );
