@@ -41,3 +41,11 @@
 /* Never reduce any tool text below 13px, even under compact layout breakpoints. */
 .kichiyar-safe-root button, .kichiyar-safe-root input, .kichiyar-safe-root select,
 .kichiyar-safe-root textarea { min-height: 34px; }
+
+/* Android tablets sometimes report zero safe-area inset while the status bar still overlays the app. */
+@media (pointer: coarse) and (max-width: 1280px) {
+  .kichiyar-safe-root { padding-top: max(24px, env(safe-area-inset-top, 0px)); }
+}
+@media (display-mode: standalone) {
+  .kichiyar-safe-root { padding-top: max(24px, env(safe-area-inset-top, 0px)); }
+}
