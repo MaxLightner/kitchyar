@@ -794,12 +794,17 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setFloorLocked(false);
 
       session.addEventListener('end', () => {
+        // Release the XR animation loop before returning to the desktop preview.
+        renderer.setAnimationLoop(null);
         xrSessionRef.current = null;
         hitTestSourceRef.current = null;
         transientHitSourceRef.current = null;
         setXrActive(false);
+        setFloorLocked(false);
+        setScanReady(false);
         setOcclusionStatus('idle');
         if (controlsRef.current) controlsRef.current.enabled = true;
+        renderOnceRef.current();
       });
 
       let referenceSpaceType: 'local-floor' | 'local' = 'local-floor';
@@ -926,6 +931,19 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       onToast('سشن WebXR AR فعال شد — دوربین را آرام روی کف حرکت دهید');
     } catch {
+      // A session may exist even if reference-space or hit-test initialization fails.
+      // Roll back every partial allocation so the user can retry AR without reloading.
+      const partialSession = xrSessionRef.current;
+      xrSessionRef.current = null;
+      if (partialSession) partialSession.end().catch(() => {});
+      renderer.setAnimationLoop(null);
+      hitTestSourceRef.current = null;
+      transientHitSourceRef.current = null;
+      setXrActive(false);
+      setFloorLocked(false);
+      setScanReady(false);
+      if (controlsRef.current) controlsRef.current.enabled = true;
+      renderOnceRef.current();
       onToast('امکان باز کردن دوربین AR در این مرورگر وجود نداشت؛ شبیه‌سازی کف فعال است');
     }
   };
