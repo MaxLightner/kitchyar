@@ -35,6 +35,7 @@ import {
   ToolId,
   Wall,
 } from '../cad/types';
+import { deriveFloorPolygon } from '../cad/floorPolygon';
 
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
@@ -1107,6 +1108,21 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
+        <defs>
+          <pattern id="plan-room-tiles" x={0} y={0} width={100 * s} height={100 * s} patternUnits="userSpaceOnUse">
+            <rect width={100 * s} height={100 * s} fill="#ffffff" stroke="#d9dddf" strokeWidth={Math.max(0.7, s * 0.4)} />
+          </pattern>
+        </defs>
+        {deriveFloorPolygon(displayWalls).length >= 3 && (
+          <polygon
+            data-testid="plan-room-floor"
+            pointerEvents="none"
+            points={deriveFloorPolygon(displayWalls).map(pt => `${pt.x * s},${pt.y * s}`).join(' ')}
+            fill="url(#plan-room-tiles)"
+            stroke="#cbd5e1"
+            strokeWidth={1}
+          />
+        )}
         {outsideBridges
           .filter((br) => !br.isWallCab)
           .map((br) => (
