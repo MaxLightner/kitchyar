@@ -28,7 +28,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           </div>
           <div>
             <div className="text-sm font-black text-slate-900 leading-tight">کیچی‌یار CAD</div>
-            <div className="text-[11px] font-semibold text-slate-500">طراحی دقیق کابینت + اسکن کف AR</div>
+            <div className="text-[13px] font-semibold text-slate-500">طراحی دقیق کابینت + اسکن کف AR</div>
           </div>
         </div>
 
@@ -36,7 +36,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           <button
             type="button"
             onClick={onOpenProjects}
-            className="h-9 px-3.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold inline-flex items-center gap-1.5"
+            className="h-9 px-3.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[13px] font-bold inline-flex items-center gap-1.5"
           >
             <FolderOpen className="w-4 h-4" />
             <span>پروژه‌های من ({projectsCount})</span>
@@ -46,7 +46,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-8 py-6 sm:py-8 flex flex-col items-center justify-center gap-5">
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-[11px] font-bold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-[13px] font-bold">
             <Camera className="w-3.5 h-3.5 text-slate-500" />
             <span>مدل‌سازی متریک سر پروژه با WebXR و انتقال بی‌درنگ به 2D / 3D</span>
           </div>
@@ -101,16 +101,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           {latestProject && (
             <div className="p-3.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-3">
               <div>
-                <div className="text-[11px] font-bold text-slate-400">آخرین پروژه باز</div>
-                <div className="text-xs font-black text-slate-900 mt-0.5">{latestProject.name}</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
+                <div className="text-[13px] font-bold text-slate-400">آخرین پروژه باز</div>
+                <div className="text-[13px] font-black text-slate-900 mt-0.5">{latestProject.name}</div>
+                <div className="text-[13px] text-slate-500 mt-0.5">
                   {latestProject.wallCount} دیوار • {latestProject.boxCount} باکس
                 </div>
               </div>
               <button
                 type="button"
                 onClick={onOpenProjects}
-                className="h-9 px-3.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-extrabold inline-flex items-center gap-1"
+                className="h-9 px-3.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-[13px] font-extrabold inline-flex items-center gap-1"
               >
                 <span>ادامه پروژه</span>
                 <ArrowLeft className="w-3.5 h-3.5" />
