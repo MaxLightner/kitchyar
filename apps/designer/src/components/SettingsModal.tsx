@@ -48,7 +48,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        <div className="p-4 space-y-3 text-xs">
+        <div className="p-4 space-y-3 text-[13px]">
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="text-slate-600 font-bold block mb-1">ارتفاع دیوار (cm)</span>
@@ -130,7 +130,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="button"
                 onClick={() => setForm((prev) => ({ ...prev, defaultHoodKind: 'chimney' }))}
                 aria-pressed={(form.defaultHoodKind || 'chimney') === 'chimney'}
-                className={`h-9 rounded-lg border text-xs font-bold transition ${
+                className={`h-9 rounded-lg border text-[13px] font-bold transition ${
                   (form.defaultHoodKind || 'chimney') === 'chimney'
                     ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
                     : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
@@ -142,7 +142,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="button"
                 onClick={() => setForm((prev) => ({ ...prev, defaultHoodKind: 'hidden' }))}
                 aria-pressed={form.defaultHoodKind === 'hidden'}
-                className={`h-9 rounded-lg border text-xs font-bold transition ${
+                className={`h-9 rounded-lg border text-[13px] font-bold transition ${
                   form.defaultHoodKind === 'hidden'
                     ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
                     : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
@@ -170,7 +170,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             type="button"
             onClick={() => setForm({ ...DEFAULT_PROJECT_SETTINGS })}
-            className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold"
+            className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-[13px] font-bold"
           >
             بازگردانی پیش‌فرض
           </button>
@@ -178,14 +178,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold"
+              className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-[13px] font-bold"
             >
               انصراف
             </button>
             <button
               type="button"
               onClick={() => onSave(form, applyToExisting)}
-              className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold"
+              className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold"
             >
               ذخیره و اعمال
             </button>
