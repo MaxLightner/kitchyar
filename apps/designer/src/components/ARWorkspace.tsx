@@ -37,7 +37,8 @@ import {
   OCCLUSION_STATUS_LABEL,
   OcclusionStatus,
 } from '../ar/nearOcclusion';
-import { DEFAULT_PROJECT_SETTINGS, FRIDGE_MODELS, OPENING_DEFAULTS, SINK_MODELS } from '../cad/constants';
+import { BOX_PRESETS, DEFAULT_PROJECT_SETTINGS, FRIDGE_MODELS, OPENING_DEFAULTS, SINK_MODELS } from '../cad/constants';
+import { getWallVectors } from '../cad/cornerLogic';
 import {
   carveBoxesForPlacedBox,
   createEmptyBox,
@@ -193,6 +194,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [arTool, setArTool] = useState<ArToolId>('wall');
   const [cursorPreview, setCursorPreview] = useState<{ x: number; y: number; valid: boolean } | null>(null);
   const lastPreviewTouchRef = useRef(0);
+  const modelChoiceRef = useRef({ fridgeModel, sinkModel, gasWidth, applianceKind, openingKind });
+  modelChoiceRef.current = { fridgeModel, sinkModel, gasWidth, applianceKind, openingKind };
   const lastSelectTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const toggleXrDoorAtPointRef = useRef<(x: number, y: number) => boolean>(() => false);
   const pickAtClientRef = useRef<(x: number, y: number) => Scene3DHitData | null>(() => null);
@@ -249,6 +252,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const kitchenMountRef = useRef<THREE.Group | null>(null);
   const reticleRef = useRef<THREE.Mesh | null>(null);
   const wallGhostRef = useRef<THREE.Mesh | null>(null);
+  const placementGhostRef = useRef<THREE.Mesh | null>(null);
   const wallStartMarkerRef = useRef<THREE.Mesh | null>(null);
   const pinARef = useRef<THREE.Group | null>(null);
   const pinBRef = useRef<THREE.Group | null>(null);
@@ -373,6 +377,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     wallGhost.renderOrder = 9;
     floorGroup.add(wallGhost);
     wallGhostRef.current = wallGhost;
+    const placementGhost = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0x2563eb, transparent: true, opacity: 0.23, depthWrite: false })
+    );
+    placementGhost.visible = false;
+    placementGhost.renderOrder = 9;
+    floorGroup.add(placementGhost);
+    placementGhostRef.current = placementGhost;
 
     const wallStartMarker = new THREE.Mesh(
       new THREE.CylinderGeometry(0.045, 0.045, 0.14, 16),
@@ -498,27 +510,88 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       return group.worldToLocal(worldHit);
     };
     updateArGhostRef.current = (localPt: THREE.Vector3) => {
-      const ghost = wallGhostRef.current;
-      if (!ghost) return;
-      const start = pendingWallStartRef.current;
-      if (arToolRef.current !== 'wall' || !start) {
-        ghost.visible = false;
-        return;
-      }
+      const wallGhost = wallGhostRef.current;
+      const placement = placementGhostRef.current;
+      if (!wallGhost || !placement) return;
+      wallGhost.visible = false;
+      placement.visible = false;
+
+      const tool = arToolRef.current;
       const al = alignmentRef.current;
       const c = Math.cos(al.yaw);
       const sn = Math.sin(al.yaw);
-      const startX = al.x + al.scale * (start.x * c + start.z * sn);
-      const startZ = al.z + al.scale * (-start.x * sn + start.z * c);
-      const dx = localPt.x - startX;
-      const dz = localPt.z - startZ;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.03) { ghost.visible = false; return; }
-      const h = (projectRef.current.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm) / 100;
-      ghost.position.set(startX + dx / 2, h / 2, startZ + dz / 2);
-      ghost.rotation.y = -Math.atan2(dz, dx);
-      ghost.scale.set(len, h, 0.1);
-      ghost.visible = true;
+      if (tool === 'wall') {
+        const start = pendingWallStartRef.current;
+        if (!start) return;
+        const sx = al.x + al.scale * (start.x * c + start.z * sn);
+        const sz = al.z + al.scale * (-start.x * sn + start.z * c);
+        const dx = localPt.x - sx;
+        const dz = localPt.z - sz;
+        const len = Math.hypot(dx, dz);
+        if (len < 0.03) return;
+        const h = (projectRef.current.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm) / 100;
+        wallGhost.position.set(sx + dx / 2, h / 2, sz + dz / 2);
+        wallGhost.rotation.y = -Math.atan2(dz, dx);
+        wallGhost.scale.set(len, h, 0.1);
+        wallGhost.visible = true;
+        return;
+      }
+
+      const choices = modelChoiceRef.current;
+      const dx = (localPt.x - al.x) / al.scale;
+      const dz = (localPt.z - al.z) / al.scale;
+      const modelX = dx * c - dz * sn;
+      const modelZ = dx * sn + dz * c;
+      const result = projectArPointOntoWalls({ x: modelX, z: modelZ }, projectRef.current.walls);
+      if (!result) return;
+      const w = result.wall;
+      const v = getWallVectors(w);
+      let width = 0;
+      let height = 0;
+      let depth = 0;
+      let elev = 0;
+      let startX = result.offsetCm;
+      if (tool === 'cab-base' || tool === 'cab-wall' || tool === 'cab-tall') {
+        const cfg = BOX_PRESETS[tool === 'cab-base' ? 'base' : tool === 'cab-wall' ? 'wall' : 'tall'];
+        width = Math.min(120, Math.max(60, w.length - startX));
+        height = cfg.height;
+        depth = cfg.depth;
+        elev = cfg.elevY;
+        startX = Math.max(0, Math.min(w.length - width, startX));
+      } else if (tool === 'fridge') {
+        const cfg = FRIDGE_MODELS[choices.fridgeModel];
+        width = cfg.width + 10;
+        height = cfg.height;
+        depth = 70;
+        startX = Math.max(0, Math.min(w.length - width, startX - width / 2));
+      } else if (tool === 'gas' || tool === 'sink' || tool === 'appliance') {
+        width = tool === 'gas' ? choices.gasWidth : tool === 'sink' ? SINK_MODELS[choices.sinkModel].width : 60;
+        height = 8;
+        depth = 42;
+        elev = 85;
+        startX = Math.max(0, Math.min(w.length - width, startX - width / 2));
+        // Only preview equipment on an existing lower cabinet, never on an empty wall.
+        if (!w.boxes.some(b => b.type === 'base' && startX >= b.offsetX - 3 && startX + width <= b.offsetX + b.width + 3)) return;
+      } else if (tool === 'opening') {
+        const cfg = OPENING_DEFAULTS[choices.openingKind];
+        width = cfg.width;
+        height = cfg.height;
+        depth = 12;
+        elev = choices.openingKind === 'window' ? 90 : 0;
+        startX = Math.max(0, Math.min(w.length - width, startX - width / 2));
+      } else return;
+      if (width <= 0 || w.length < width) return;
+
+      // CAD wall-space -> AR floor-local, using the same registration as kitchenMount.
+      const centreCm = startX + width / 2;
+      const px = (w.x1Cm + centreCm * v.tx + (depth / 2) * v.nx) / 100;
+      const pz = (w.y1Cm + centreCm * v.ty + (depth / 2) * v.ny) / 100;
+      placement.position.set(al.x + al.scale * (px * c + pz * sn),
+        (elev + height / 2) * 0.01 * al.scale,
+        al.z + al.scale * (-px * sn + pz * c));
+      placement.rotation.y = -Math.atan2(v.ty, v.tx) + al.yaw;
+      placement.scale.set(width * 0.01 * al.scale, height * 0.01 * al.scale, depth * 0.01 * al.scale);
+      placement.visible = true;
     };
     const toggleDoorByRay = (ndc: THREE.Vector2, viewCamera: THREE.Camera): boolean => {
       if (!activeRef.current || !builtSceneRef.current) return false;
@@ -657,6 +730,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       gridHelperRef.current.visible = !xrActive || !floorLocked;
     }
     if (wallGhostRef.current && !pendingWallStart) wallGhostRef.current.visible = false;
+    if (placementGhostRef.current && (!active || !floorLocked && xrActive)) placementGhostRef.current.visible = false;
 
     renderOnceRef.current();
   }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, active]);
@@ -997,7 +1071,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
         // Keep the AR wall ghost attached to the real center reticle when the user
         // is not currently dragging a finger across the live camera image.
-        if (floorLockedRef.current && arToolRef.current === 'wall' &&
+        if (floorLockedRef.current &&
             performance.now() - lastPreviewTouchRef.current > 450) {
           const rect = renderer.domElement.getBoundingClientRect();
           const local = floorPointAtClientRef.current(rect.left + rect.width / 2, rect.top + rect.height / 2);
