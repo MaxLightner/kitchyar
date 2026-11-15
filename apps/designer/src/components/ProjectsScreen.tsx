@@ -57,7 +57,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen w-screen bg-slate-50 text-slate-900 flex flex-col">
+    <div className="kichiyar-safe-root min-h-screen w-screen bg-slate-50 text-slate-900 flex flex-col">
       <header className="h-14 px-4 sm:px-8 border-b border-slate-200 bg-white flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2.5">
           <button
