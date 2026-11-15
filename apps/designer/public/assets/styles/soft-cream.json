@@ -1,0 +1,13 @@
+{
+  "id": "soft-cream",
+  "title": "کرم قاب‌دار آرام",
+  "subtitle": "درب CNC کشمیر، دستگیره خطی ظریف و مرمر سفید کلاسیک",
+  "image": "./assets/styles/soft-cream.webp",
+  "designStyle": "neoclassic",
+  "cabinetFinish": "cashmere",
+  "backsplashFinish": "calacatta-marble",
+  "countertopFinish": "calacatta-top",
+  "doorStyle": "cnc",
+  "handleStyle": "simple",
+  "defaultHoodKind": "chimney"
+}

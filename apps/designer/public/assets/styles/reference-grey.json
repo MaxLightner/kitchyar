@@ -1,0 +1,15 @@
+{
+  "id": "reference-grey",
+  "title": "گریژ، چوب و سنگ تیره",
+  "subtitle": "گریژ مات با هوایی بلوطی، کوارتز مشکی، کاشی جناغی تیره و هود مخفی",
+  "image": "./assets/styles/reference-grey.webp",
+  "designStyle": "modern",
+  "cabinetFinish": "greige",
+  "upperCabinetFinish": "natural-oak",
+  "wallDeepCabinetFinish": "greige",
+  "backsplashFinish": "herringbone-charcoal",
+  "countertopFinish": "dark-quartz",
+  "doorStyle": "flat",
+  "handleStyle": "hidden",
+  "defaultHoodKind": "hidden"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "walnut-sage",
+  "title": "گردویی و کاشی سبز",
+  "subtitle": "چوب گردویی یکدست مدرن، بین‌کابینتی شش‌ضلعی سبز و صفحه سفید رگه‌دار",
+  "image": "./assets/styles/walnut-sage.webp",
+  "designStyle": "modern",
+  "cabinetFinish": "walnut",
+  "backsplashFinish": "hex-sage",
+  "countertopFinish": "calacatta-top",
+  "doorStyle": "flat",
+  "handleStyle": "simple",
+  "defaultHoodKind": "chimney"
+}

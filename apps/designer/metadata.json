@@ -1,0 +1,6 @@
+{
+  "name": "Kichiyar - طراح کابینت",
+  "description": "نرم‌افزار تخصصی طراحی پلان و نمای روبروی کابینت آشپزخانه و کمد دیواری",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

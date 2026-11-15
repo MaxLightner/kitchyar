@@ -1,0 +1,13 @@
+{
+  "id": "reference-white",
+  "title": "سفید نئوکلاسیک روشن",
+  "subtitle": "درب قاب‌دار سفید، دستگیره قارچی، کاشی تراورتن گرم و صفحه مرمر",
+  "image": "./assets/styles/reference-white.webp",
+  "designStyle": "neoclassic",
+  "cabinetFinish": "warm-white",
+  "backsplashFinish": "warm-travertine",
+  "countertopFinish": "calacatta-top",
+  "doorStyle": "cnc",
+  "handleStyle": "knob",
+  "defaultHoodKind": "chimney"
+}

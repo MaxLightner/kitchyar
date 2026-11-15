@@ -1,0 +1,13 @@
+{
+  "id": "reference-green",
+  "title": "سبز مریم‌گلی نئوکلاسیک",
+  "subtitle": "نئوکلاسیک سبز ملایم بدون دستگیره، صفحه چوب بلوط و تراورتن گرم",
+  "image": "./assets/styles/reference-green.webp",
+  "designStyle": "neoclassic",
+  "cabinetFinish": "sage-green",
+  "backsplashFinish": "warm-travertine",
+  "countertopFinish": "oak-butcher",
+  "doorStyle": "cnc",
+  "handleStyle": "hidden",
+  "defaultHoodKind": "chimney"
+}

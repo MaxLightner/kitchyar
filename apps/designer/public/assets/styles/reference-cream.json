@@ -1,0 +1,15 @@
+{
+  "id": "reference-cream",
+  "title": "کرم مینیمال دو‌رنگ",
+  "subtitle": "کابینت سفید گرم و بلوط طبیعی، صفحه چوب، مرمر سفید و هود مخفی",
+  "image": "./assets/styles/reference-cream.webp",
+  "designStyle": "modern",
+  "cabinetFinish": "warm-white",
+  "upperCabinetFinish": "natural-oak",
+  "wallDeepCabinetFinish": "warm-white",
+  "backsplashFinish": "calacatta-marble",
+  "countertopFinish": "oak-butcher",
+  "doorStyle": "flat",
+  "handleStyle": "hidden",
+  "defaultHoodKind": "hidden"
+}

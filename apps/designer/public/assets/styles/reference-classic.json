@@ -1,0 +1,13 @@
+{
+  "id": "reference-classic",
+  "title": "نئوکلاسیک گریژ",
+  "subtitle": "درب ابزارخورده CNC گریژ، دستگیره خطی، مرمر کلکته و هود اکسپوز",
+  "image": "./assets/styles/reference-classic.webp",
+  "designStyle": "neoclassic",
+  "cabinetFinish": "greige",
+  "backsplashFinish": "calacatta-marble",
+  "countertopFinish": "calacatta-top",
+  "doorStyle": "cnc",
+  "handleStyle": "simple",
+  "defaultHoodKind": "chimney"
+}
