@@ -1727,3 +1727,35 @@ test('Soft-close easing curve smoothly drives hinged, lift, and drawer transform
 
 
 
+
+
+test('Moving a gas-bearing base cabinet preserves the overhead hood coupling', () => {
+  const wall = createWall('دیوار تست گاز', 0, 0, 500, 0);
+  const base = createEmptyBox('base', 0, 240);
+  const overhead = createEmptyBox('wall', 0, 500);
+  wall.boxes.push(base, overhead);
+  const placed = placeApplianceWithCabinetRules(
+    wall, [wall], 'gas', base, 100, {}, 'hidden', { customWidth: 80 }
+  );
+  assert.equal(placed.ok, true);
+  assert.ok(overhead.doors.some((d) => d.kind === 'lift' && Math.abs(d.startCm - 100) <= 0.5));
+  const moved = moveBoxHierarchically(wall, [wall], base.id, 40, {});
+  assert.ok(moved);
+  assert.equal(base.offsetX, 40);
+  assert.equal(placed.appliance!.offsetX, 140);
+  assert.ok(overhead.unitDividers.includes(140));
+  assert.ok(overhead.unitDividers.includes(220));
+  assert.ok(overhead.doors.some((d) => d.kind === 'lift' && Math.abs(d.startCm - 140) <= 0.5));
+  assert.equal(overhead.unitDividers.includes(100), false);
+});
+
+test('Cabinet magnetic snap aligns a base cabinet to an upper cabinet on the same wall', () => {
+  const wall = createWall('دیوار تست اسنپ', 0, 0, 400, 0);
+  const base = createEmptyBox('base', 0, 100);
+  const upper = createEmptyBox('wall', 160, 70);
+  wall.boxes.push(base, upper);
+  const res = moveBoxHierarchically(wall, [wall], base.id, 158, {});
+  assert.ok(res);
+  assert.equal(base.offsetX, 160);
+  assert.equal(upper.offsetX, 160);
+});
