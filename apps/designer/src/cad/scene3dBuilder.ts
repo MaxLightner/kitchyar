@@ -49,6 +49,8 @@ export interface Scene3DHitData {
   wallId: string;
   boxId?: string;
   doorId?: string;
+  /** Unique animated leaf/drawer part; keeps façade selection tied to doorId. */
+  animationId?: string;
   appId?: string;
   openingId?: string;
   frameId?: string;
@@ -1551,6 +1553,7 @@ function buildDoor3D(ctx: {
   if (door.kind === 'drawer' || (door.kind === 'lift' && door.drawerRatios.length > 0)) {
     const pts = [0, ...door.drawerRatios, 1];
     for (let r = 0; r < pts.length - 1; r++) {
+      const partId = `${door.id}:row:${r}`;
       // pts are top-down (0 top .. 1 bottom in 2D SVG)
       const rTop = 1 - pts[r];
       const rBot = 1 - pts[r + 1];
@@ -1563,8 +1566,30 @@ function buildDoor3D(ctx: {
         const baseY = rowBotY + rowH / 2;
         rowGrp.position.set(baseX, baseY, frontFaceZ);
         makePanelMesh(dw, rowH, 0, 0, rowGrp);
+        // A real lightweight drawer box travels with its own façade.
+        const drawerDepth = Math.max(0.12, Math.min(0.42, carcD * 0.78));
+        const sideH = Math.max(0.045, Math.min(0.16, rowH * 0.58));
+        const bodyW = Math.max(0.04, dw - 0.035);
+        const bodyY = -rowH / 2 + sideH / 2 + 0.01;
+        const drawerParts: THREE.Mesh[] = [
+          new THREE.Mesh(new THREE.BoxGeometry(bodyW, 0.012, drawerDepth), mats.matFrame),
+          new THREE.Mesh(new THREE.BoxGeometry(0.012, sideH, drawerDepth), mats.matFrame),
+          new THREE.Mesh(new THREE.BoxGeometry(0.012, sideH, drawerDepth), mats.matFrame),
+          new THREE.Mesh(new THREE.BoxGeometry(bodyW, sideH, 0.012), mats.matFrame),
+        ];
+        drawerParts[0].position.set(0, -rowH / 2 + 0.014, -normalSign * (drawerDepth / 2 + 0.01));
+        drawerParts[1].position.set(-bodyW / 2 + 0.006, bodyY, -normalSign * (drawerDepth / 2 + 0.01));
+        drawerParts[2].position.set(bodyW / 2 - 0.006, bodyY, -normalSign * (drawerDepth / 2 + 0.01));
+        drawerParts[3].position.set(0, bodyY, -normalSign * (drawerDepth + 0.01));
+        for (const part of drawerParts) {
+          part.castShadow = true;
+          part.receiveShadow = true;
+          part.userData = doorHit;
+          interactables.push(part);
+          rowGrp.add(part);
+        }
         const handle: AnimatedDoorHandle = {
-          doorId: door.id,
+          doorId: partId,
           group: rowGrp,
           kind: 'drawer',
           normalSign,
@@ -1584,7 +1609,7 @@ function buildDoor3D(ctx: {
         rowGrp.position.set(baseX, baseY, frontFaceZ);
         makePanelMesh(dw, rowH, 0, -rowH / 2, rowGrp);
         const handle: AnimatedDoorHandle = {
-          doorId: door.id,
+          doorId: partId,
           group: rowGrp,
           kind: 'lift',
           normalSign,
@@ -1630,6 +1655,9 @@ function buildDoor3D(ctx: {
         interactables.push(hMesh);
       }
 
+      rowGrp.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) child.userData = { ...child.userData, animationId: partId };
+      });
       grp.add(rowGrp);
     }
     return;
@@ -1788,8 +1816,12 @@ function buildDoor3D(ctx: {
       }
     });
     bandGrp.add(pullMesh);
+    const bandPartId = `${door.id}:band`;
+    bandGrp.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) child.userData = { ...child.userData, animationId: bandPartId };
+    });
     const bandHandle: AnimatedDoorHandle = {
-      doorId: door.id,
+      doorId: bandPartId,
       group: bandGrp,
       kind: 'drawer',
       normalSign,
