@@ -1040,7 +1040,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       {/* Top Floating AR Status & Calibration Card */}
       <div className="absolute top-2.5 right-2.5 left-2.5 flex flex-wrap items-start justify-between gap-2 pointer-events-none z-20">
-        <div className="pointer-events-auto bg-white/95 border border-slate-200 rounded-xl shadow-md px-3 py-2 flex flex-wrap items-center gap-2 text-xs">
+        <div className="pointer-events-auto bg-white/95 border border-slate-200 rounded-xl shadow-md px-3 py-2 flex flex-wrap items-center gap-2 text-[13px]">
           {xrSupported && !xrActive ? (
             <button
               type="button"
@@ -1112,7 +1112,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               type="button"
               onClick={() => setOcclusionEnabled((v) => !v)}
               title={OCCLUSION_STATUS_LABEL[occlusionStatus]}
-              className={`h-8 px-2.5 rounded-lg border text-[11px] font-bold ${
+              className={`h-8 px-2.5 rounded-lg border text-[13px] font-bold ${
                 occlusionEnabled
                   ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
                   : 'bg-white border-slate-300 text-slate-600'
@@ -1134,7 +1134,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         </div>
 
         {/* Collapsible A/B Scale & Orientation Calibration Box */}
-        <div className="pointer-events-auto bg-white/95 border border-slate-200 rounded-xl shadow-md p-2.5 text-xs space-y-2 max-w-xs">
+        <div className="pointer-events-auto bg-white/95 border border-slate-200 rounded-xl shadow-md p-2.5 text-[13px] space-y-2 max-w-xs">
           <div className="flex items-center justify-between gap-2">
             <span className="font-black text-slate-900 inline-flex items-center gap-1">
               <Ruler className="w-3.5 h-3.5 text-emerald-600" />
@@ -1143,7 +1143,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => setShowCalibPanel((v) => !v)}
-              className="text-[11px] font-bold text-indigo-600 hover:underline"
+              className="text-[13px] font-bold text-indigo-600 hover:underline"
             >
               {showCalibPanel ? 'بستن' : 'بازکردن'}
             </button>
@@ -1181,7 +1181,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               </div>
 
               <div className="flex items-center gap-1.5">
-                <label className="text-[11px] font-bold text-slate-600 whitespace-nowrap" htmlFor="ar-real-dist">
+                <label className="text-[13px] font-bold text-slate-600 whitespace-nowrap" htmlFor="ar-real-dist">
                   فاصله A-B (cm):
                 </label>
                 <input
@@ -1219,7 +1219,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
                 </button>
               </div>
 
-              <div className="text-[10px] text-slate-500">
+              <div className="text-[13px] text-slate-500">
                 فاصله فعلی در صحنه: <b className="tabular-nums">{abDistanceCm} cm</b> • برای رسم دیوار یا باکس روی کف کلیک کنید
               </div>
             </div>
@@ -1233,7 +1233,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setPendingWallStart(null)}
-            className="h-8 px-2 rounded-lg bg-amber-100 text-amber-800 text-[11px] font-bold inline-flex items-center gap-1 shrink-0"
+            className="h-8 px-2 rounded-lg bg-amber-100 text-amber-800 text-[13px] font-bold inline-flex items-center gap-1 shrink-0"
           >
             <X className="w-3.5 h-3.5" />
             <span>لغو نقطه شروع</span>
@@ -1262,7 +1262,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               type="button"
               onClick={() => setArTool(item.id)}
               aria-pressed={isAct}
-              className={`h-8 px-2.5 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition ${
+              className={`h-8 px-2.5 rounded-lg border text-[13px] font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition ${
                 isAct
                   ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
                   : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
