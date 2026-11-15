@@ -669,7 +669,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const built = buildKitchen3DScene(project, {
       doorOpenProgress: 0,
-      hideFloor: true,
+      // After two walls define the floor, show the same 1m tile polygon in AR,
+      // semi-transparent so the real floor remains visible to the installer.
+      hideFloor: false,
+      floorOpacity: 0.72,
     });
     builtSceneRef.current = built;
 
