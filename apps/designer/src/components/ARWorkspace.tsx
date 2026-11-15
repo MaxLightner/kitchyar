@@ -11,6 +11,7 @@ import {
   DoorClosed,
   DoorOpen,
   Droplets,
+  MousePointer2,
   Flame,
   Layers,
   Lock,
@@ -63,6 +64,7 @@ import {
 } from '../cad/types';
 
 export type ArToolId =
+  | 'select'
   | 'calibrate-a'
   | 'calibrate-b'
   | 'wall'
@@ -154,7 +156,7 @@ function resolveHitDoorId(obj: THREE.Object3D | null): string | undefined {
   let cur: THREE.Object3D | null = obj;
   while (cur) {
     const ud = cur.userData as Scene3DHitData | undefined;
-    if (ud?.doorId) return ud.doorId;
+    if (ud?.animationId || ud?.doorId) return ud.animationId || ud.doorId;
     cur = cur.parent;
   }
   return undefined;
@@ -187,6 +189,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [doorsOpen, setDoorsOpen] = useState(false);
 
   const [arTool, setArTool] = useState<ArToolId>('wall');
+  const lastSelectTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
+  const toggleXrDoorAtCenterRef = useRef<() => boolean>(() => false);
   const [pendingWallStart, setPendingWallStart] = useState<XZPoint | null>(null);
 
   const [pointA, setPointA] = useState<XZPoint>(() => project.arCalibration?.a || { x: -1.2, z: -0.9 });
@@ -433,6 +437,25 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const raycaster = new THREE.Raycaster();
     const ndcVec = new THREE.Vector2();
+    const toggleDoorByRay = (ndc: THREE.Vector2, viewCamera: THREE.Camera): boolean => {
+      if (!activeRef.current || !builtSceneRef.current) return false;
+      builtSceneRef.current.root.updateWorldMatrix(true, true);
+      raycaster.setFromCamera(ndc, viewCamera);
+      const hits = raycaster.intersectObjects(builtSceneRef.current.interactables, false);
+      // A door can be partly covered by its frame or handle; use the first interactive leaf hit.
+      const partId = hits.map((hit) => resolveHitDoorId(hit.object)).find((id): id is string => Boolean(id));
+      if (!partId) return false;
+      const states = doorStatesRef.current;
+      const st = states.get(partId) || { cur: 0, target: 0 };
+      states.set(partId, { cur: st.cur, target: st.target > 0.5 ? 0 : 1 });
+      setDoorsOpen(Array.from(states.values()).some((s) => s.target > 0.5));
+      requestPreviewRender();
+      return true;
+    };
+    toggleXrDoorAtCenterRef.current = () => {
+      if (!xrSessionRef.current) return false;
+      return toggleDoorByRay(new THREE.Vector2(0, 0), renderer.xr.getCamera());
+    };
     const onDblClick = (e: MouseEvent) => {
       if (!activeRef.current || xrSessionRef.current || !builtSceneRef.current) return;
       const rect = renderer.domElement.getBoundingClientRect();
@@ -440,18 +463,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       );
-      raycaster.setFromCamera(ndcVec, camera);
-      const hits = raycaster.intersectObjects(builtSceneRef.current.interactables, false);
-      if (!hits.length) return;
-      const doorId = resolveHitDoorId(hits[0].object);
-      if (!doorId) return;
-
-      const states = doorStatesRef.current;
-      const curSt = states.get(doorId) || { cur: 0, target: 0 };
-      const nextTarget = curSt.target > 0.5 ? 0 : 1;
-      states.set(doorId, { cur: curSt.cur, target: nextTarget });
-      setDoorsOpen(Array.from(states.values()).some((s) => s.target > 0.5));
-      requestPreviewRender();
+      toggleDoorByRay(ndcVec, camera);
     };
     renderer.domElement.addEventListener('dblclick', onDblClick);
 
@@ -470,6 +482,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
       renderer.domElement.removeEventListener('dblclick', onDblClick);
+      toggleXrDoorAtCenterRef.current = () => false;
       ro.disconnect();
       controls.dispose();
       occlusion.dispose();
@@ -579,6 +592,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const applyArFloorActionAt = (floorLocalPt: THREE.Vector3) => {
     const modelPt = floorLocalToModelXZ(floorLocalPt);
     const toolNow = arToolRef.current;
+
+    if (toolNow === 'select') return;
 
     if (toolNow === 'calibrate-a') {
       const curA = pointARef.current;
@@ -787,9 +802,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         if (controlsRef.current) controlsRef.current.enabled = true;
       });
 
-      const refSpace = await session.requestReferenceSpace('local-floor').catch(() =>
-        session.requestReferenceSpace('local')
-      );
+      let referenceSpaceType: 'local-floor' | 'local' = 'local-floor';
+      try {
+        await session.requestReferenceSpace('local-floor');
+      } catch {
+        referenceSpaceType = 'local';
+        await session.requestReferenceSpace('local');
+      }
       const viewerSpace = await session.requestReferenceSpace('viewer');
       hitTestSourceRef.current =
         (await session.requestHitTestSource?.({ space: viewerSpace })) || null;
@@ -798,9 +817,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           profile: 'generic-touchscreen',
         })) || null;
 
-      await renderer.xr.setReferenceSpaceType(refSpace ? 'local-floor' : 'local');
+      renderer.xr.setReferenceSpaceType(referenceSpaceType);
       await renderer.xr.setSession(session);
 
+      let lastXrFrameTime = 0;
       renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
         if (!frame || !rendererRef.current || !sceneRef.current || !cameraRef.current) return;
         const space = rendererRef.current.xr.getReferenceSpace();
@@ -885,8 +905,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }
 
         const built = builtSceneRef.current;
+        const elapsed = lastXrFrameTime ? (time - lastXrFrameTime) / 1000 : 0.016;
+        lastXrFrameTime = time;
         if (built && built.animatedDoors.length > 0) {
-          const step = 0.016 / DOOR_ANIM_DURATION_S;
+          const step = Math.min(0.05, Math.max(0.001, elapsed)) / DOOR_ANIM_DURATION_S;
           for (const h of built.animatedDoors) {
             const st = doorStatesRef.current.get(h.doorId);
             if (!st) continue;
@@ -935,6 +957,20 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || !containerRef.current || !cameraRef.current || !floorGroupRef.current) return;
+    if (arToolRef.current === 'select') {
+      // In immersive WebXR, desktop dblclick is not reliably emitted by mobile DOM overlays.
+      // Handle a deliberate double-tap in selection mode without adding wall points.
+      const now = performance.now();
+      const prev = lastSelectTapRef.current;
+      const repeated = prev && now - prev.time < 380 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 44;
+      lastSelectTapRef.current = repeated ? null : { time: now, x: e.clientX, y: e.clientY };
+      if (repeated && xrActive && toggleXrDoorAtCenterRef.current()) {
+        e.preventDefault();
+        onToast('درب انتخاب‌شده باز یا بسته شد');
+      }
+      return;
+    }
+    lastSelectTapRef.current = null;
     if (xrActive) {
       // In WebXR AR mode, use center reticle projection on locked floor plane
       const retPos = reticleRef.current?.position || new THREE.Vector3();
@@ -1188,6 +1224,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
         {(
           [
+            { id: 'select', label: 'انتخاب / بازکردن درب', icon: MousePointer2 },
             { id: 'wall', label: 'رسم دیوار', icon: BrickWall },
             { id: 'cab-base', label: 'باکس زمینی', icon: RectangleHorizontal },
             { id: 'cab-wall', label: 'باکس هوایی', icon: RectangleHorizontal },
