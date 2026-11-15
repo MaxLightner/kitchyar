@@ -265,6 +265,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const doorStatesRef = useRef<Map<string, { cur: number; target: number }>>(new Map());
   const pendingWallStart3DRef = useRef<{ xCm: number; yCm: number } | null>(null);
   const clearWallPreviewRef = useRef<() => void>(() => {});
+  const updateWallPreviewRef = useRef<(clientX: number, clientY: number) => void>(() => {});
 
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -681,6 +682,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
       requestRender();
     };
+
+    updateWallPreviewRef.current = updateWallFloorPreview;
 
     const updateGhostAndHover = (clientX: number, clientY: number) => {
       if (propsRef.current.tool === 'wall') {
@@ -1585,6 +1588,19 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const onWheelCapture = (e: WheelEvent) => {
       if (!builtRef.current) return;
       const cur = propsRef.current;
+      // Changing the cabinet family must work even over an empty wall or floor.
+      // Ctrl+wheel remains available for ordinary canvas zoom.
+      if (cur.tool === 'cab-draw' && !e.ctrlKey) {
+        const idx = Math.max(0, CAB_DRAW_KIND_ORDER.indexOf(cur.drawBoxKind));
+        const dir = e.deltaY < 0 ? 1 : -1;
+        const next = CAB_DRAW_KIND_ORDER[(idx + (dir > 0 ? 1 : CAB_DRAW_KIND_ORDER.length - 1)) % CAB_DRAW_KIND_ORDER.length];
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        cur.onSelectDrawBoxKind?.(next);
+        cur.onToast(`مدل باکس: ${BOX_PRESETS[next].name}`);
+        requestAnimationFrame(() => updateGhostAndHover(e.clientX, e.clientY));
+        return;
+      }
       raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
       const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
       if (!hits.length) return;
@@ -1705,22 +1721,21 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (!hits.length) return;
       const data = resolveHitData(hits[0].object);
       if (!data?.doorId) return;
+      const partId = data.animationId || data.doorId;
 
       const states = doorStatesRef.current;
-      const curSt = states.get(data.doorId) || {
+      const curSt = states.get(partId) || {
         cur: doorsOpenRef.current ? 1 : 0,
         target: doorsOpenRef.current ? 1 : 0,
       };
       curSt.target = curSt.target > 0.5 ? 0 : 1;
-      states.set(data.doorId, curSt);
+      states.set(partId, curSt);
       requestRender();
     };
 
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      const rd = rightDownClientRef.current;
       rightDownClientRef.current = null;
-      if (rd && Math.hypot(e.clientX - rd.x, e.clientY - rd.y) > 6) return;
 
       if (pendingWallStart3DRef.current) {
         pendingWallStart3DRef.current = null;
@@ -1736,6 +1751,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     let lastTwoFingerMidY: number | null = null;
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2 && propsRef.current.tool === 'cab-draw') {
+        controls.enabled = false;
         lastTwoFingerMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
         twoFingerAccumY = 0;
       } else {
@@ -1746,6 +1762,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (e.touches.length !== 2 || propsRef.current.tool !== 'cab-draw' || lastTwoFingerMidY === null) {
         return;
       }
+      e.preventDefault();
       const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       twoFingerAccumY += midY - lastTwoFingerMidY;
       lastTwoFingerMidY = midY;
@@ -1763,6 +1780,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     };
 
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        lastTwoFingerMidY = null;
+        twoFingerAccumY = 0;
+        if (!drag3DRef.current) controls.enabled = true;
+      }
+    };
+
     const onPointerLeave = () => {
       clearGhost();
       clearWallFloorPreview();
@@ -1775,7 +1800,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     dom.addEventListener('dblclick', onDoubleClick);
     dom.addEventListener('contextmenu', onContextMenu);
     dom.addEventListener('touchstart', onTouchStart, { passive: true });
-    dom.addEventListener('touchmove', onTouchMove, { passive: true });
+    dom.addEventListener('touchmove', onTouchMove, { passive: false });
+    dom.addEventListener('touchend', onTouchEnd);
     dom.addEventListener('pointerleave', onPointerLeave);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
@@ -1791,6 +1817,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       dom.removeEventListener('contextmenu', onContextMenu);
       dom.removeEventListener('touchstart', onTouchStart);
       dom.removeEventListener('touchmove', onTouchMove);
+      dom.removeEventListener('touchend', onTouchEnd);
       dom.removeEventListener('pointerleave', onPointerLeave);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
@@ -1817,7 +1844,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   }, []);
 
   useEffect(() => {
-    if (tool !== 'wall' && pendingWallStart3DRef.current) {
+    if (tool === 'wall') {
+      // Show the floor target immediately when the wall tool is selected.
+      const rect = hostRef.current?.getBoundingClientRect();
+      if (rect) updateWallPreviewRef.current(rect.left + rect.width * 0.5, rect.top + rect.height * 0.68);
+    } else {
       pendingWallStart3DRef.current = null;
       clearWallPreviewRef.current();
       requestRenderRef.current();
