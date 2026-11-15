@@ -1011,7 +1011,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       aria-label="نمای پلان دو‌بعدی"
     >
       <div className="absolute top-2 inset-x-2.5 z-15 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none">
-        <div className="pointer-events-auto bg-white/95 border border-slate-300 rounded-lg px-2.5 py-1 text-[11px] font-bold text-slate-700 max-w-full sm:max-w-[58%] truncate">
+        <div className="pointer-events-auto bg-white/95 border border-slate-300 rounded-lg px-2.5 py-1 text-[13px] font-bold text-slate-700 max-w-full sm:max-w-[58%] truncate">
           {hintText}
         </div>
 
@@ -1023,7 +1023,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                 setWallDraw({ startPt: null, currPt: null, lengthCm: 0, snappedCorner: false });
                 onToast('رسم دیوار متوقف شد');
               }}
-              className="h-7 px-2.5 rounded-md bg-amber-100 border border-amber-400 text-amber-900 text-[11px] font-bold"
+              className="h-7 px-2.5 rounded-md bg-amber-100 border border-amber-400 text-amber-900 text-[13px] font-bold"
             >
               پایان دیوار
             </button>
@@ -1031,7 +1031,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           <button
             type="button"
             onClick={onFlipActiveWallSide}
-            className="h-7 px-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[11px] font-bold"
+            className="h-7 px-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[13px] font-bold"
           >
             ⇄ چرخش نما
           </button>
@@ -1039,7 +1039,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             type="button"
             onClick={() => setPlanScale((v) => +Math.max(0.3, v - 0.1).toFixed(2))}
             aria-label="کوچک‌نمایی پلان"
-            className="h-7 w-7 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold"
+            className="h-7 w-7 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[13px] font-bold"
           >
             -
           </button>
@@ -1049,7 +1049,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
               setPan({ x: 0, y: 26 });
               setPlanScale(0.6);
             }}
-            className="h-7 px-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[11px] font-bold"
+            className="h-7 px-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[13px] font-bold"
           >
             مرکز
           </button>
@@ -1057,7 +1057,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             type="button"
             onClick={() => setPlanScale((v) => +Math.min(1.8, v + 0.1).toFixed(2))}
             aria-label="بزرگ‌نمایی پلان"
-            className="h-7 w-7 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold"
+            className="h-7 w-7 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[13px] font-bold"
           >
             +
           </button>
@@ -1066,7 +1066,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
 
       {walls.length === 0 && !wallDraw.startPt && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          <div className="bg-white/95 border border-dashed border-slate-400 rounded-xl px-5 py-3 text-center text-slate-600 text-xs font-bold leading-relaxed">
+          <div className="bg-white/95 border border-dashed border-slate-400 rounded-xl px-5 py-3 text-center text-slate-600 text-[13px] font-bold leading-relaxed">
             صفحه خالی است — ابزار <b>«دیوار»</b> را بزنید یا از بخش پروژه‌ها یک طرح آماده باز کنید
           </div>
         </div>
@@ -1593,7 +1593,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                         <text
                           x={ax + aw / 2}
                           y={ay + ad / 2 + 3}
-                          fontSize={7.5}
+                          fontSize={13}
                           fontWeight={800}
                           fill="#312e81"
                           textAnchor="middle"
@@ -1770,7 +1770,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                         <text
                           x={0}
                           y={3.5}
-                          fontSize={9.5}
+                          fontSize={13}
                           fontWeight={800}
                           fill={isAct ? '#ffffff' : '#334155'}
                           textAnchor="middle"
@@ -1815,7 +1815,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             <text
               x={0}
               y={3.5}
-              fontSize={9.5}
+              fontSize={13}
               fontWeight={800}
               fill="#c2410c"
               textAnchor="middle"
@@ -1875,7 +1875,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
               <text
                 x={0}
                 y={3.5}
-                fontSize={10}
+                fontSize={13}
                 fontWeight={800}
                 fill="#ffffff"
                 textAnchor="middle"
