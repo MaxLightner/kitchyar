@@ -2551,6 +2551,10 @@ export function getFreeMoveRangeForBox(
 
   for (const other of wall.boxes) {
     if (other.id === box.id) continue;
+    // Magnetic edge alignment works across base, wall, deep wall, tall and fridge tiers.
+    // Collision constraints are evaluated separately, so a snap never overrides them.
+    snapTargets.push(other.offsetX, other.offsetX + other.width);
+    snapTargets.push(other.offsetX - box.width, other.offsetX + other.width - box.width);
     if (other.linkedToBoxId === box.id || box.linkedToBoxId === other.id) continue;
     if (!tiersCollideForBoxMove(box, other)) continue;
     const otherCenter = other.offsetX + other.width / 2;
@@ -2567,6 +2571,12 @@ export function getFreeMoveRangeForBox(
         snapTargets.push(edge);
       }
     }
+  }
+
+  for (const app of wall.appliances) {
+    if (app.boxId === box.id) continue;
+    snapTargets.push(app.offsetX, app.offsetX + app.width);
+    snapTargets.push(app.offsetX - box.width, app.offsetX + app.width - box.width);
   }
 
   for (const op of wall.openings || []) {
@@ -2611,19 +2621,18 @@ export function moveBoxHierarchically(
   const { minX, maxX, snapTargets } = getFreeMoveRangeForBox(wall, allWalls, box, cornerOwners);
   let target = Math.max(minX, Math.min(maxX, Math.round(desiredOffsetX / 5) * 5));
 
-  for (const st of snapTargets) {
-    if (st >= minX && st <= maxX && Math.abs(desiredOffsetX - st) <= 4) {
-      target = Math.round(st);
-      break;
-    }
-  }
+  const closestSnap = snapTargets
+    .filter((st) => st >= minX && st <= maxX && Math.abs(desiredOffsetX - st) <= 4)
+    .sort((a, b) => Math.abs(desiredOffsetX - a) - Math.abs(desiredOffsetX - b))[0];
+  if (closestSnap !== undefined) target = Math.round(closestSnap);
 
   const oldX = box.offsetX;
   const delta = target - oldX;
   if (delta !== 0) {
     box.offsetX = target;
 
-    // Move attached appliances hierarchically
+    // Moving a base box must move its gas/sink AND resynchronize the overhead hood/rack.
+    const movedAppliances: ApplianceItem[] = [];
     for (const app of wall.appliances) {
       const belongs =
         app.boxId === box.id ||
@@ -2632,9 +2641,19 @@ export function moveBoxHierarchically(
           app.offsetX >= oldX - 2 &&
           app.offsetX + app.width <= oldX + box.width + 2);
       if (belongs) {
+        if (app.kind === 'gas') {
+          clearHoodUnitForGas(wall, app.offsetX, app.offsetX + app.width, app.id);
+        } else if (app.kind === 'sink') {
+          clearDishRackUnitAboveSink(wall, app.offsetX, app.offsetX + app.width, app.id);
+        }
         app.boxId = box.id;
         app.offsetX = +(app.offsetX + delta).toFixed(1);
+        movedAppliances.push(app);
       }
+    }
+    for (const app of movedAppliances) {
+      if (app.kind === 'gas') syncHoodUnitAboveGas(wall, app);
+      else if (app.kind === 'sink') ensureHorizontalDoorsAboveSink(wall, app.offsetX, app.width);
     }
 
     // Move linked over-fridge cabinet(s)
