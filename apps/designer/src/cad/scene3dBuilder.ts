@@ -280,7 +280,7 @@ function buildHandleMesh(
 
 export function buildKitchen3DScene(
   project: ProjectState,
-  opts: { doorOpenProgress?: number; hideFloor?: boolean } = {}
+  opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number } = {}
 ): BuiltKitchenScene {
   const root = new THREE.Group();
   const interactables: THREE.Object3D[] = [];
@@ -311,6 +311,9 @@ export function buildKitchen3DScene(
     clearcoat: 0.56,
     clearcoatRoughness: 0.18,
     envMapIntensity: 1.4,
+    transparent: (opts.floorOpacity ?? 1) < 1,
+    opacity: Math.max(0, Math.min(1, opts.floorOpacity ?? 1)),
+    depthWrite: (opts.floorOpacity ?? 1) >= 1,
   });
   const matWall = new THREE.MeshStandardMaterial({
     color: 0xf4f1ec,
