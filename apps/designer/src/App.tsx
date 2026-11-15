@@ -3000,13 +3000,13 @@ export default function App() {
               <h2 className="text-sm font-extrabold text-slate-900">
                 تغییر سبک آشپزخانه به نئوکلاسیک (CNC)؟
               </h2>
-              <p className="text-xs leading-6 text-slate-600">
+              <p className="text-[13px] leading-6 text-slate-600">
                 طرح سی‌ان‌سی مخصوص سبک نئوکلاسیک است و ترکیب آن با درب‌های مدرن ساده در کنار هم
                 توصیه نمی‌شود. روی تمام درب‌های پروژه اعمال شود یا فقط همین درب انتخاب‌شده؟
               </p>
             </div>
 
-            <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+            <label className="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={stylePromptModal.remember}
@@ -3024,7 +3024,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setStylePromptModal(null)}
-                className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700"
+                className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-[13px] font-bold text-slate-700"
               >
                 انصراف
               </button>
@@ -3035,7 +3035,7 @@ export default function App() {
                   setStylePromptModal(null);
                   executeDoorStyle(m.targetBoxId, m.targetDoorIds, m.requestedStyle, 'target', m.remember);
                 }}
-                className="h-9 px-3 rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-xs font-bold text-indigo-800"
+                className="h-9 px-3 rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-[13px] font-bold text-indigo-800"
               >
                 فقط همین درب
               </button>
@@ -3052,7 +3052,7 @@ export default function App() {
                     m.remember
                   );
                 }}
-                className="h-9 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-bold text-white shadow-sm"
+                className="h-9 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-[13px] font-bold text-white shadow-sm"
               >
                 اعمال روی همه درب‌ها
               </button>
@@ -3073,7 +3073,7 @@ export default function App() {
               <h2 className="text-sm font-extrabold text-amber-900">
                 هشدار سبک: دستگیره مخفی روی درب کلاسیک / CNC
               </h2>
-              <p className="text-xs leading-6 text-slate-700">
+              <p className="text-[13px] leading-6 text-slate-700">
                 در سبک نئوکلاسیک یا درب‌های سی‌ان‌سی معمولاً از دستگیره روکار (ساده یا قارچی) استفاده
                 می‌شود و پروفیل دستگیره مخفی مرسوم نیست. آیا مطمئن هستید که دستگیره مخفی نصب شود؟
               </p>
@@ -3083,7 +3083,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setHiddenHandleWarnModal(null)}
-                className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700"
+                className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-[13px] font-bold text-slate-700"
               >
                 انصراف
               </button>
@@ -3094,7 +3094,7 @@ export default function App() {
                   setHiddenHandleWarnModal(null);
                   confirmAction();
                 }}
-                className="h-9 px-3.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-xs font-bold text-white shadow-sm"
+                className="h-9 px-3.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-[13px] font-bold text-white shadow-sm"
               >
                 بله، دستگیره مخفی بزن
               </button>
@@ -3106,7 +3106,7 @@ export default function App() {
       {toast && (
         <div
           role="status"
-          className="fixed top-[92px] left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-lg z-50 pointer-events-none"
+          className="fixed top-[92px] left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-1.5 rounded-full text-[13px] font-bold shadow-lg z-50 pointer-events-none"
         >
           {toast}
         </div>
