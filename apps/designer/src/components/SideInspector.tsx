@@ -353,7 +353,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
       >
         {renderToolIcon()}
         {getToolBadge() && (
-          <span className="absolute -bottom-1 -left-1 px-1 min-w-[16px] h-4 rounded-full bg-slate-900 text-white text-[9px] font-black leading-4 text-center tabular-nums">
+          <span className="absolute -bottom-1 -left-1 px-1 min-w-[16px] h-4 rounded-full bg-slate-900 text-white text-[13px] font-black leading-4 text-center tabular-nums">
             {getToolBadge()}
           </span>
         )}
@@ -400,7 +400,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
       >
         <CheckSquare className="w-4 h-4" />
         {multiCount > 0 && (
-          <span className="absolute -bottom-1 -left-1 px-1 min-w-[16px] h-4 rounded-full bg-emerald-600 text-white text-[9px] font-black leading-4 text-center tabular-nums">
+          <span className="absolute -bottom-1 -left-1 px-1 min-w-[16px] h-4 rounded-full bg-emerald-600 text-white text-[13px] font-black leading-4 text-center tabular-nums">
             {multiCount}
           </span>
         )}
@@ -420,7 +420,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
           aria-label="افزودن به انتخاب (جمع +)"
           title="بالا: افزودن به انتخاب (+)"
           data-testid="sel-mode-add"
-          className={`h-6 w-full rounded-t-lg text-xs font-black flex items-center justify-center transition ${
+          className={`h-6 w-full rounded-t-lg text-[13px] font-black flex items-center justify-center transition ${
             selectionMode === 'add'
               ? 'bg-emerald-500 text-white shadow-sm ring-1 ring-emerald-300'
               : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -435,7 +435,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
           aria-label="انتخاب تکی (وسط ●)"
           title="وسط: انتخاب تکی"
           data-testid="sel-mode-single"
-          className={`h-5 w-full text-[9px] font-black flex items-center justify-center transition ${
+          className={`h-5 w-full text-[13px] font-black flex items-center justify-center transition ${
             selectionMode === 'single'
               ? 'bg-slate-200 text-slate-950 shadow-sm'
               : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -450,7 +450,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
           aria-label="کم کردن از انتخاب (منها −)"
           title="پایین: کم کردن از انتخاب (−)"
           data-testid="sel-mode-subtract"
-          className={`h-6 w-full rounded-b-lg text-xs font-black flex items-center justify-center transition ${
+          className={`h-6 w-full rounded-b-lg text-[13px] font-black flex items-center justify-center transition ${
             selectionMode === 'subtract'
               ? 'bg-rose-500 text-white shadow-sm ring-1 ring-rose-300'
               : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -483,7 +483,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
           className="absolute top-1.5 right-full mr-1.5 w-[256px] max-h-[calc(100vh-140px)] bg-white border border-slate-200 rounded-xl shadow-2xl flex flex-col overflow-hidden z-40"
         >
           <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200 shrink-0">
-            <span className="text-xs font-extrabold text-slate-800">
+            <span className="text-[13px] font-extrabold text-slate-800">
               {openTab === 'tool' && 'تنظیمات ابزار فعال'}
               {openTab === 'box' && 'باکس، یونیت و درب'}
               {openTab === 'item' && 'تجهیز، بازشو و جزئیات'}
@@ -499,18 +499,18 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
             </button>
           </div>
 
-          <div className="p-3 overflow-y-auto no-scrollbar space-y-3 text-xs">
+          <div className="p-3 overflow-y-auto no-scrollbar space-y-3 text-[13px]">
             {openTab === 'tool' && (
               <>
                 {activeTool === 'cab-draw' && (
                   <section className="space-y-1.5">
-                    <h3 className="text-[11px] font-extrabold text-slate-500">نوع باکس</h3>
+                    <h3 className="text-[13px] font-extrabold text-slate-500">نوع باکس</h3>
                     {BOX_KINDS.map((item) => (
                       <button
                         key={item.id}
                         type="button"
                         onClick={() => props.onSelectDrawBoxKind(item.id)}
-                        className={`w-full h-9 px-2.5 rounded-lg border text-right text-xs font-bold transition ${
+                        className={`w-full h-9 px-2.5 rounded-lg border text-right text-[13px] font-bold transition ${
                           props.drawBoxKind === item.id
                             ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                             : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -528,7 +528,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       <button
                         type="button"
                         onClick={() => props.onSetDoorOrient('vertical')}
-                        className={`h-8 rounded-lg border text-xs font-bold ${
+                        className={`h-8 rounded-lg border text-[13px] font-bold ${
                           props.doorOrient === 'vertical'
                             ? 'bg-indigo-600 border-indigo-600 text-white'
                             : 'bg-white border-slate-200 text-slate-700'
@@ -539,7 +539,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       <button
                         type="button"
                         onClick={() => props.onSetDoorOrient('horizontal')}
-                        className={`h-8 rounded-lg border text-xs font-bold ${
+                        className={`h-8 rounded-lg border text-[13px] font-bold ${
                           props.doorOrient === 'horizontal'
                             ? 'bg-indigo-600 border-indigo-600 text-white'
                             : 'bg-white border-slate-200 text-slate-700'
@@ -551,10 +551,10 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                     <div className="space-y-1.5 pt-2 border-t border-slate-100">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-slate-600">
+                        <span className="text-[13px] font-bold text-slate-600">
                           {isHorizWallMode ? 'عرض درب افقی هوایی' : 'عرض درب هدف'}
                         </span>
-                        <span className="text-xs font-extrabold text-indigo-700 tabular-nums">
+                        <span className="text-[13px] font-extrabold text-indigo-700 tabular-nums">
                           {clampedTargetWidth} cm
                         </span>
                       </div>
@@ -596,7 +596,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                             key={w}
                             type="button"
                             onClick={() => props.onSetDoorTargetWidth(w)}
-                            className={`h-7 rounded border text-[11px] font-bold tabular-nums ${
+                            className={`h-7 rounded border text-[13px] font-bold tabular-nums ${
                               clampedTargetWidth === w
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-600'
@@ -610,7 +610,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                     {props.doorOrient === 'vertical' ? (
                       <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                        <span className="text-[11px] font-bold text-slate-600 block">
+                        <span className="text-[13px] font-bold text-slate-600 block">
                           تعداد درب در هر کلیک
                         </span>
                         <div className="grid grid-cols-4 gap-1">
@@ -619,7 +619,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               key={cnt}
                               type="button"
                               onClick={() => props.onSetDoorVertCount(cnt)}
-                              className={`h-8 rounded-lg border text-xs font-bold tabular-nums ${
+                              className={`h-8 rounded-lg border text-[13px] font-bold tabular-nums ${
                                 props.doorVertCount === cnt
                                   ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                   : 'bg-white border-slate-200 text-slate-700'
@@ -632,7 +632,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       </div>
                     ) : (
                       <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                        <span className="text-[11px] font-bold text-slate-600 block">
+                        <span className="text-[13px] font-bold text-slate-600 block">
                           {isWallBox ? 'ردیف افقی هوایی' : 'الگوی کشو'}
                         </span>
                         {(isWallBox ? LIFT_PATTERNS : DRAWER_PATTERNS).map((pat, idx) => {
@@ -644,7 +644,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               onClick={() =>
                                 isWallBox ? props.onSetLiftPatIdx(idx) : props.onSetDrawerPatIdx(idx)
                               }
-                              className={`w-full h-8 px-2 rounded-lg border text-right text-xs font-bold ${
+                              className={`w-full h-8 px-2 rounded-lg border text-right text-[13px] font-bold ${
                                 active
                                   ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                   : 'bg-white border-slate-200 text-slate-700'
@@ -661,17 +661,17 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                 {activeTool === 'door-pencil' && (
                   <section className="space-y-2.5">
-                    <h3 className="text-[11px] font-extrabold text-indigo-700">
+                    <h3 className="text-[13px] font-extrabold text-indigo-700">
                       مداد هوشمند کشوی درب
                     </h3>
-                    <p className="text-[10.5px] leading-relaxed text-slate-500">
+                    <p className="text-[13px] leading-relaxed text-slate-500">
                       روی یک درب کلیک کنید یا روی چند درب پشت‌سرهم درگ افقی بکشید تا بالای همه کشو بخورد.
                     </p>
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
                         type="button"
                         onClick={() => props.onSetDoorBandPos?.('top')}
-                        className={`h-8 rounded-lg border text-xs font-bold ${
+                        className={`h-8 rounded-lg border text-[13px] font-bold ${
                           (props.doorBandPos ?? 'top') === 'top'
                             ? 'bg-indigo-600 border-indigo-600 text-white'
                             : 'bg-white border-slate-200 text-slate-700'
@@ -682,7 +682,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       <button
                         type="button"
                         onClick={() => props.onSetDoorBandPos?.('bottom')}
-                        className={`h-8 rounded-lg border text-xs font-bold ${
+                        className={`h-8 rounded-lg border text-[13px] font-bold ${
                           props.doorBandPos === 'bottom'
                             ? 'bg-indigo-600 border-indigo-600 text-white'
                             : 'bg-white border-slate-200 text-slate-700'
@@ -693,8 +693,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                     </div>
                     <div className="space-y-1.5 pt-2 border-t border-slate-100">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-slate-600">سهم ارتفاع کشو</span>
-                        <span className="text-xs font-extrabold text-indigo-700 tabular-nums">
+                        <span className="text-[13px] font-bold text-slate-600">سهم ارتفاع کشو</span>
+                        <span className="text-[13px] font-extrabold text-indigo-700 tabular-nums">
                           {Math.round((props.doorBandRatio ?? 0.26) * 100)}٪
                         </span>
                       </div>
@@ -704,7 +704,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                             key={r}
                             type="button"
                             onClick={() => props.onSetDoorBandRatio?.(r)}
-                            className={`h-7 rounded border text-[11px] font-bold tabular-nums ${
+                            className={`h-7 rounded border text-[13px] font-bold tabular-nums ${
                               Math.abs((props.doorBandRatio ?? 0.26) - r) < 0.02
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-600'
@@ -719,7 +719,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       <button
                         type="button"
                         onClick={props.onClearSelectedDoorBands}
-                        className="w-full h-8 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-bold"
+                        className="w-full h-8 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[13px] font-bold"
                       >
                         حذف کشوی درب(های) انتخاب‌شده
                       </button>
@@ -730,8 +730,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                 {activeTool === 'door-style' && (
                   <section className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-extrabold text-indigo-700">قلم مدل درب</span>
-                      <span className="text-[10px] font-bold text-slate-500">
+                      <span className="text-[13px] font-extrabold text-indigo-700">قلم مدل درب</span>
+                      <span className="text-[13px] font-bold text-slate-500">
                         {props.designStyle === 'neoclassic' ? 'نئوکلاسیک' : 'مدرن'}
                       </span>
                     </div>
@@ -748,8 +748,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                           }`}
                         >
-                          <div className="text-xs font-extrabold">{meta.label}</div>
-                          <div className="text-[10px] opacity-75">{meta.desc}</div>
+                          <div className="text-[13px] font-extrabold">{meta.label}</div>
+                          <div className="text-[13px] opacity-75">{meta.desc}</div>
                         </button>
                       );
                     })}
@@ -758,7 +758,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         type="button"
                         onClick={props.onApplyDoorStyleToSelected}
                         disabled={selectedDoorCount === 0}
-                        className="w-full h-8 rounded-lg border border-indigo-300 bg-indigo-50 disabled:opacity-40 text-indigo-800 text-[11px] font-bold"
+                        className="w-full h-8 rounded-lg border border-indigo-300 bg-indigo-50 disabled:opacity-40 text-indigo-800 text-[13px] font-bold"
                       >
                         اعمال روی انتخاب‌شده ({selectedDoorCount})
                       </button>
@@ -766,7 +766,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         type="button"
                         onClick={props.onApplyDoorStyleToBox}
                         disabled={!activeBox || activeBox.doors.length === 0}
-                        className="w-full h-8 rounded-lg border border-slate-300 bg-white disabled:opacity-40 text-slate-800 text-[11px] font-bold"
+                        className="w-full h-8 rounded-lg border border-slate-300 bg-white disabled:opacity-40 text-slate-800 text-[13px] font-bold"
                       >
                         اعمال روی کل باکس
                       </button>
@@ -778,8 +778,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   <section className="space-y-3">
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[11px] font-extrabold text-indigo-700">رنگ و روکش کابینت</span>
-                        <span className="text-[10px] font-bold text-slate-500">
+                        <span className="text-[13px] font-extrabold text-indigo-700">رنگ و روکش کابینت</span>
+                        <span className="text-[13px] font-bold text-slate-500">
                           {CABINET_FINISHES[props.cabinetFinishBrush].shortLabel}
                         </span>
                       </div>
@@ -814,14 +814,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           type="button"
                           onClick={() => props.onApplyFinish('box', activeWall?.id, activeBox?.id)}
                           disabled={!activeBox}
-                          className="h-8 rounded-lg border border-indigo-300 bg-indigo-50 disabled:opacity-40 text-indigo-800 text-[10px] font-bold"
+                          className="h-8 rounded-lg border border-indigo-300 bg-indigo-50 disabled:opacity-40 text-indigo-800 text-[13px] font-bold"
                         >
                           رنگ باکس فعال
                         </button>
                         <button
                           type="button"
                           onClick={() => props.onApplyFinish('all-cabinets')}
-                          className="h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold"
+                          className="h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold"
                         >
                           کل آشپزخانه
                         </button>
@@ -830,8 +830,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                     <div className="pt-2 border-t border-slate-100">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[11px] font-extrabold text-teal-700">کاشی بین کابینتی</span>
-                        <span className="text-[10px] font-bold text-slate-500">
+                        <span className="text-[13px] font-extrabold text-teal-700">کاشی بین کابینتی</span>
+                        <span className="text-[13px] font-bold text-slate-500">
                           {BACKSPLASH_FINISHES[props.backsplashBrush].shortLabel}
                         </span>
                       </div>
@@ -847,7 +847,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                                 props.onSetBacksplashBrush(bid);
                                 props.onApplyFinish('backsplash', undefined, undefined, bid);
                               }}
-                              className={`h-8 px-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1 ${
+                              className={`h-8 px-1.5 rounded-lg border text-[13px] font-bold flex items-center gap-1 ${
                                 active
                                   ? 'border-teal-600 bg-teal-50 text-teal-900'
                                   : 'border-slate-200 bg-white text-slate-700'
@@ -866,8 +866,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                     <div className="pt-2 border-t border-slate-100">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[11px] font-extrabold text-slate-700">صفحه روی کابینت</span>
-                        <span className="text-[10px] font-bold text-slate-500">
+                        <span className="text-[13px] font-extrabold text-slate-700">صفحه روی کابینت</span>
+                        <span className="text-[13px] font-bold text-slate-500">
                           {COUNTERTOP_FINISHES[props.countertopBrush].shortLabel}
                         </span>
                       </div>
@@ -883,7 +883,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                                 props.onSetCountertopBrush(cid);
                                 props.onApplyFinish('countertop', undefined, undefined, cid);
                               }}
-                              className={`h-8 px-2 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 ${
+                              className={`h-8 px-2 rounded-lg border text-[13px] font-bold flex items-center gap-1.5 ${
                                 active
                                   ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
                                   : 'border-slate-200 bg-white text-slate-700'
@@ -904,7 +904,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                 {activeTool === 'fridge' && (
                   <section className="space-y-2">
-                    <h3 className="text-[11px] font-extrabold text-slate-500">مدل یخچال</h3>
+                    <h3 className="text-[13px] font-extrabold text-slate-500">مدل یخچال</h3>
                     {FRIDGE_MODEL_ORDER.map((m) => {
                       const cfg = FRIDGE_MODELS[m];
                       return (
@@ -912,14 +912,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           key={m}
                           type="button"
                           onClick={() => props.onSetFridgeModel(m)}
-                          className={`w-full h-9 px-2.5 rounded-lg border text-right text-xs font-bold flex items-center justify-between ${
+                          className={`w-full h-9 px-2.5 rounded-lg border text-right text-[13px] font-bold flex items-center justify-between ${
                             props.fridgeModel === m
                               ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                               : 'bg-white border-slate-200 text-slate-700'
                           }`}
                         >
                           <span>{cfg.shortLabel}</span>
-                          <span className="text-[11px] tabular-nums opacity-80">
+                          <span className="text-[13px] tabular-nums opacity-80">
                             {cfg.width}×{cfg.depth}
                           </span>
                         </button>
@@ -939,7 +939,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                 {activeTool === 'sink' && (
                   <section className="space-y-1.5">
-                    <h3 className="text-[11px] font-extrabold text-teal-700">مدل سینک</h3>
+                    <h3 className="text-[13px] font-extrabold text-teal-700">مدل سینک</h3>
                     {SINK_MODEL_ORDER.map((m) => {
                       const cfg = SINK_MODELS[m];
                       return (
@@ -947,14 +947,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           key={m}
                           type="button"
                           onClick={() => props.onSetSinkModel(m)}
-                          className={`w-full h-9 px-2.5 rounded-lg border text-right text-xs font-bold flex items-center justify-between ${
+                          className={`w-full h-9 px-2.5 rounded-lg border text-right text-[13px] font-bold flex items-center justify-between ${
                             props.sinkModel === m
                               ? 'bg-teal-50 border-teal-600 text-teal-800'
                               : 'bg-white border-slate-200 text-slate-700'
                           }`}
                         >
                           <span>{cfg.shortLabel}</span>
-                          <span className="text-[11px] tabular-nums opacity-80">{cfg.width} cm</span>
+                          <span className="text-[13px] tabular-nums opacity-80">{cfg.width} cm</span>
                         </button>
                       );
                     })}
@@ -963,14 +963,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                 {activeTool === 'gas' && (
                   <section className="space-y-2.5">
-                    <span className="text-[11px] font-bold text-slate-600 block">عرض گاز (cm)</span>
+                    <span className="text-[13px] font-bold text-slate-600 block">عرض گاز (cm)</span>
                     <div className="grid grid-cols-4 gap-1">
                       {GAS_WIDTH_OPTIONS.map((w) => (
                         <button
                           key={w}
                           type="button"
                           onClick={() => props.onSetGasWidth(w)}
-                          className={`h-8 rounded-lg border text-xs font-bold tabular-nums ${
+                          className={`h-8 rounded-lg border text-[13px] font-bold tabular-nums ${
                             props.gasWidth === w
                               ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                               : 'bg-white border-slate-200 text-slate-700'
@@ -980,12 +980,12 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         </button>
                       ))}
                     </div>
-                    <span className="text-[11px] font-bold text-slate-600 block">هود متصل</span>
+                    <span className="text-[13px] font-bold text-slate-600 block">هود متصل</span>
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
                         type="button"
                         onClick={() => props.onSetHoodKind('hidden')}
-                        className={`h-8 rounded-lg border text-xs font-bold ${
+                        className={`h-8 rounded-lg border text-[13px] font-bold ${
                           props.hoodKind === 'hidden'
                             ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                             : 'bg-white border-slate-200 text-slate-700'
@@ -996,7 +996,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       <button
                         type="button"
                         onClick={() => props.onSetHoodKind('chimney')}
-                        className={`h-8 rounded-lg border text-xs font-bold ${
+                        className={`h-8 rounded-lg border text-[13px] font-bold ${
                           props.hoodKind === 'chimney'
                             ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                             : 'bg-white border-slate-200 text-slate-700'
@@ -1010,13 +1010,13 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                 {activeTool === 'appliance' && (
                   <section className="space-y-1.5">
-                    <h3 className="text-[11px] font-extrabold text-slate-500">تجهیزات زیر صفحه</h3>
+                    <h3 className="text-[13px] font-extrabold text-slate-500">تجهیزات زیر صفحه</h3>
                     {(['dishwasher', 'washing'] as ApplianceKind[]).map((k) => (
                       <button
                         key={k}
                         type="button"
                         onClick={() => props.onSetApplianceKind(k)}
-                        className={`w-full h-9 px-2.5 rounded-lg border text-right text-xs font-bold ${
+                        className={`w-full h-9 px-2.5 rounded-lg border text-right text-[13px] font-bold ${
                           props.applianceKind === k
                             ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                             : 'bg-white border-slate-200 text-slate-700'
@@ -1030,13 +1030,13 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                 {activeTool === 'opening' && (
                   <section className="space-y-2">
-                    <h3 className="text-[11px] font-extrabold text-slate-500">بازشو و ستون</h3>
+                    <h3 className="text-[13px] font-extrabold text-slate-500">بازشو و ستون</h3>
                     {(['window', 'door', 'column'] as OpeningKind[]).map((ok) => (
                       <button
                         key={ok}
                         type="button"
                         onClick={() => props.onSetOpeningKind(ok)}
-                        className={`w-full h-9 px-2.5 rounded-lg border text-right text-xs font-bold ${
+                        className={`w-full h-9 px-2.5 rounded-lg border text-right text-[13px] font-bold ${
                           props.openingKind === ok
                             ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                             : 'bg-white border-slate-200 text-slate-700'
@@ -1052,7 +1052,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                             key={sw.id}
                             type="button"
                             onClick={() => props.onSetOpeningSwing(sw.id)}
-                            className={`h-8 rounded border text-[11px] font-bold ${
+                            className={`h-8 rounded border text-[13px] font-bold ${
                               props.openingSwing === sw.id
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1080,7 +1080,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           key={c}
                           type="button"
                           onClick={() => props.onSetShelfCount(c)}
-                          className={`h-8 rounded-lg border text-xs font-bold tabular-nums ${
+                          className={`h-8 rounded-lg border text-[13px] font-bold tabular-nums ${
                             props.shelfCount === c
                               ? 'bg-amber-50 border-amber-600 text-amber-800'
                               : 'bg-white border-slate-200 text-slate-700'
@@ -1115,7 +1115,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           key={w}
                           type="button"
                           onClick={() => props.onSetFrameWidthCm(w)}
-                          className={`h-8 rounded-lg border text-xs font-bold tabular-nums ${
+                          className={`h-8 rounded-lg border text-[13px] font-bold tabular-nums ${
                             props.frameWidthCm === w
                               ? 'bg-amber-50 border-amber-600 text-amber-900'
                               : 'bg-white border-slate-200 text-slate-700'
@@ -1151,7 +1151,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           key={st.id}
                           type="button"
                           onClick={() => props.onSetHandleStyle(st.id)}
-                          className={`h-8 rounded-lg border text-xs font-bold ${
+                          className={`h-8 rounded-lg border text-[13px] font-bold ${
                             props.handleStyle === st.id
                               ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                               : 'bg-white border-slate-200 text-slate-700'
@@ -1175,7 +1175,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       type="button"
                       onClick={props.onApplyHandlesToSelected}
                       disabled={selectedDoorCount === 0}
-                      className="w-full h-8 rounded-lg border border-indigo-300 bg-indigo-50 disabled:opacity-40 text-indigo-800 text-[11px] font-bold"
+                      className="w-full h-8 rounded-lg border border-indigo-300 bg-indigo-50 disabled:opacity-40 text-indigo-800 text-[13px] font-bold"
                     >
                       اعمال روی انتخاب‌شده ({selectedDoorCount})
                     </button>
@@ -1183,7 +1183,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       type="button"
                       onClick={props.onApplyHandlesToBox}
                       disabled={!activeBox || activeBox.doors.length === 0}
-                      className="w-full h-8 rounded-lg border border-slate-300 bg-white disabled:opacity-40 text-slate-800 text-[11px] font-bold"
+                      className="w-full h-8 rounded-lg border border-slate-300 bg-white disabled:opacity-40 text-slate-800 text-[13px] font-bold"
                     >
                       اعمال روی کل باکس
                     </button>
@@ -1245,14 +1245,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                     {selectedDoor && selectedDoor.kind !== 'fridge' && (
                       <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                        <span className="text-[11px] font-bold text-slate-500 block">
+                        <span className="text-[13px] font-bold text-slate-500 block">
                           نوع درب انتخاب‌شده
                         </span>
                         <div className="grid grid-cols-3 gap-1">
                           <button
                             type="button"
                             onClick={() => props.onSetDoorKind('door', [])}
-                            className={`h-8 rounded-lg border text-[11px] font-bold inline-flex items-center justify-center gap-1 ${
+                            className={`h-8 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 ${
                               selectedDoor.kind === 'door'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1264,7 +1264,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           <button
                             type="button"
                             onClick={() => props.onSetDoorKind('drawer', [0.333, 0.667])}
-                            className={`h-8 rounded-lg border text-[11px] font-bold inline-flex items-center justify-center gap-1 ${
+                            className={`h-8 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 ${
                               isEq3Drawer
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1276,7 +1276,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           <button
                             type="button"
                             onClick={() => props.onSetDoorKind('drawer', [0.22, 0.54])}
-                            className={`h-8 rounded-lg border text-[11px] font-bold ${
+                            className={`h-8 rounded-lg border text-[13px] font-bold ${
                               isStepDrawer
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1287,7 +1287,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           <button
                             type="button"
                             onClick={() => props.onSetDoorKind('lift', [])}
-                            className={`h-8 rounded-lg border text-[11px] font-bold ${
+                            className={`h-8 rounded-lg border text-[13px] font-bold ${
                               selectedDoor.kind === 'lift'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1298,7 +1298,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           <button
                             type="button"
                             onClick={() => props.onSetDoorKind('open', [])}
-                            className={`h-8 rounded-lg border text-[11px] font-bold inline-flex items-center justify-center gap-1 ${
+                            className={`h-8 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 ${
                               selectedDoor.kind === 'open'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1310,7 +1310,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           <button
                             type="button"
                             onClick={() => props.onSetDoorKind('rail', [])}
-                            className={`h-8 rounded-lg border text-[11px] font-bold inline-flex items-center justify-center gap-1 ${
+                            className={`h-8 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 ${
                               selectedDoor.kind === 'rail'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1333,14 +1333,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         <button
                           type="button"
                           onClick={props.onOptimizeAppliances}
-                          className="w-full h-8 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-800 text-xs font-bold"
+                          className="w-full h-8 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-800 text-[13px] font-bold"
                         >
                           بهینه‌سازی جای تجهیزات
                         </button>
                       )}
 
                     <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      <span className="text-[11px] font-bold text-slate-500 block">رنگ این باکس</span>
+                      <span className="text-[13px] font-bold text-slate-500 block">رنگ این باکس</span>
                       <div className="grid grid-cols-4 gap-1">
                         {CABINET_FINISH_ORDER.map((fid) => {
                           const cfg = CABINET_FINISHES[fid];
@@ -1368,7 +1368,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                     </div>
 
                     <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      <span className="text-[11px] font-bold text-teal-700 block">متریال بین کابینتی</span>
+                      <span className="text-[13px] font-bold text-teal-700 block">متریال بین کابینتی</span>
                       <div className="grid grid-cols-3 gap-1">
                         {BACKSPLASH_FINISH_ORDER.map((bid) => {
                           const cfg = BACKSPLASH_FINISHES[bid];
@@ -1382,7 +1382,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                                 props.onSetBacksplashBrush(bid);
                                 props.onApplyFinish('backsplash', undefined, undefined, bid);
                               }}
-                              className={`h-7 px-1.5 rounded border text-[10px] font-bold flex items-center gap-1 ${
+                              className={`h-7 px-1.5 rounded border text-[13px] font-bold flex items-center gap-1 ${
                                 isAct
                                   ? 'border-teal-600 bg-teal-50 text-teal-900'
                                   : 'border-slate-200 bg-white text-slate-700'
@@ -1402,7 +1402,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                     <button
                       type="button"
                       onClick={props.onDeleteSelectedBox}
-                      className="w-full h-8 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold inline-flex items-center justify-center gap-1"
+                      className="w-full h-8 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[13px] font-bold inline-flex items-center justify-center gap-1"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>حذف باکس</span>
@@ -1436,7 +1436,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               key={m}
                               type="button"
                               onClick={() => props.onChangeSelectedApplianceSinkModel!(m)}
-                              className={`h-7 px-1.5 rounded border text-[11px] font-bold truncate ${
+                              className={`h-7 px-1.5 rounded border text-[13px] font-bold truncate ${
                                 (props.selectedAppliance?.sinkModel || 'steel-2') === m
                                   ? 'bg-teal-50 border-teal-600 text-teal-800'
                                   : 'bg-white border-slate-200 text-slate-700'
@@ -1453,7 +1453,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           <button
                             type="button"
                             onClick={() => props.onChangeSelectedApplianceHood!('hidden')}
-                            className={`h-7 rounded border text-[11px] font-bold ${
+                            className={`h-7 rounded border text-[13px] font-bold ${
                               props.selectedAppliance.hoodKind === 'hidden'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1464,7 +1464,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           <button
                             type="button"
                             onClick={() => props.onChangeSelectedApplianceHood!('chimney')}
-                            className={`h-7 rounded border text-[11px] font-bold ${
+                            className={`h-7 rounded border text-[13px] font-bold ${
                               (props.selectedAppliance.hoodKind || 'chimney') === 'chimney'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1494,7 +1494,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                     </span>
                     <div className="grid grid-cols-2 gap-2">
                       <label className="block">
-                        <span className="text-[10px] text-slate-500 block">فاصله</span>
+                        <span className="text-[13px] text-slate-500 block">فاصله</span>
                         <input
                           type="number"
                           min={0}
@@ -1505,7 +1505,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         />
                       </label>
                       <label className="block">
-                        <span className="text-[10px] text-slate-500 block">عرض</span>
+                        <span className="text-[13px] text-slate-500 block">عرض</span>
                         <input
                           type="number"
                           min={20}
@@ -1517,7 +1517,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       </label>
                       {selectedOpening.kind === 'window' && (
                         <label className="block">
-                          <span className="text-[10px] text-slate-500 block">ارتفاع کف</span>
+                          <span className="text-[13px] text-slate-500 block">ارتفاع کف</span>
                           <input
                             type="number"
                             min={0}
@@ -1530,7 +1530,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       )}
                       {selectedOpening.kind !== 'column' && (
                         <label className="block">
-                          <span className="text-[10px] text-slate-500 block">ارتفاع</span>
+                          <span className="text-[13px] text-slate-500 block">ارتفاع</span>
                           <input
                             type="number"
                             min={40}
@@ -1549,7 +1549,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                             key={sw.id}
                             type="button"
                             onClick={() => props.onChangeOpeningSwing(sw.id)}
-                            className={`h-7 rounded border text-[11px] font-bold ${
+                            className={`h-7 rounded border text-[13px] font-bold ${
                               selectedOpening.swingDir === sw.id
                                 ? 'bg-sky-50 border-sky-600 text-sky-700'
                                 : 'bg-white border-slate-200 text-slate-700'
@@ -1624,7 +1624,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
             {openTab === 'multi' && (
               <div className="space-y-2.5">
                 <div className="space-y-1">
-                  <span className="text-[11px] font-bold text-slate-600 block">
+                  <span className="text-[13px] font-bold text-slate-600 block">
                     حالت انتخاب سه‌وضعته (تبلت)
                   </span>
                   <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-xl">
@@ -1632,7 +1632,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       type="button"
                       onClick={() => props.onSetSelectionMode('add')}
                       aria-pressed={selectionMode === 'add'}
-                      className={`h-8 rounded-lg text-[11px] font-extrabold ${
+                      className={`h-8 rounded-lg text-[13px] font-extrabold ${
                         selectionMode === 'add'
                           ? 'bg-emerald-500 text-white'
                           : 'bg-slate-800 text-slate-300'
@@ -1644,7 +1644,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       type="button"
                       onClick={() => props.onSetSelectionMode('single')}
                       aria-pressed={selectionMode === 'single'}
-                      className={`h-8 rounded-lg text-[11px] font-extrabold ${
+                      className={`h-8 rounded-lg text-[13px] font-extrabold ${
                         selectionMode === 'single'
                           ? 'bg-white text-slate-900'
                           : 'bg-slate-800 text-slate-300'
@@ -1656,7 +1656,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       type="button"
                       onClick={() => props.onSetSelectionMode('subtract')}
                       aria-pressed={selectionMode === 'subtract'}
-                      className={`h-8 rounded-lg text-[11px] font-extrabold ${
+                      className={`h-8 rounded-lg text-[13px] font-extrabold ${
                         selectionMode === 'subtract'
                           ? 'bg-rose-500 text-white'
                           : 'bg-slate-800 text-slate-300'
@@ -1671,7 +1671,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   <button
                     type="button"
                     onClick={props.onSelectAllBoxDoors}
-                    className="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-[11px] font-bold"
+                    className="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-[13px] font-bold"
                   >
                     انتخاب همه درب‌های باکس فعال
                   </button>
@@ -1695,21 +1695,21 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           <button
                             type="button"
                             onClick={() => props.onBulkSetDoorKind('door', [])}
-                            className="h-8 rounded-lg border border-indigo-200 bg-white text-[11px] font-bold"
+                            className="h-8 rounded-lg border border-indigo-200 bg-white text-[13px] font-bold"
                           >
                             درب
                           </button>
                           <button
                             type="button"
                             onClick={() => props.onBulkSetDoorKind('drawer', [0.333, 0.667])}
-                            className="h-8 rounded-lg border border-indigo-200 bg-white text-[11px] font-bold"
+                            className="h-8 rounded-lg border border-indigo-200 bg-white text-[13px] font-bold"
                           >
                             کشو
                           </button>
                           <button
                             type="button"
                             onClick={props.onBulkEqualizeDoors}
-                            className="h-8 rounded-lg border border-indigo-200 bg-white text-[11px] font-bold"
+                            className="h-8 rounded-lg border border-indigo-200 bg-white text-[13px] font-bold"
                           >
                             مساوی
                           </button>
@@ -1717,7 +1717,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         <button
                           type="button"
                           onClick={props.onApplyHandlesToSelected}
-                          className="w-full h-8 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-[11px] font-bold"
+                          className="w-full h-8 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-[13px] font-bold"
                         >
                           نصب دستگیره ({multiSelection.doorIds.length})
                         </button>
