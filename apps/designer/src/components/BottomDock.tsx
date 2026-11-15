@@ -45,7 +45,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   onDeleteSelection,
 }) => {
   const btnCls = (active: boolean) =>
-    `h-8 px-2 sm:px-2.5 rounded-lg border text-[10.5px] sm:text-[11px] font-bold inline-flex items-center gap-1 sm:gap-1.5 whitespace-nowrap shrink-0 transition active:scale-95 ${
+    `h-8 px-2 sm:px-2.5 rounded-lg border text-[13px] sm:text-[13px] font-bold inline-flex items-center gap-1 sm:gap-1.5 whitespace-nowrap shrink-0 transition active:scale-95 ${
       active
         ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
         : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50'
@@ -74,7 +74,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
       >
         {/* ردیف ۱: ابزارهای ساخت و چیدمان و تجهیزات */}
         <div className="h-10 flex items-center justify-start lg:justify-center px-2 sm:px-2.5 gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar">
-          <span className="text-[10px] font-extrabold text-slate-400 pl-1 shrink-0 select-none">
+          <span className="text-[13px] font-extrabold text-slate-400 pl-1 shrink-0 select-none">
             چیدمان
           </span>
 
@@ -151,7 +151,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
 
         {/* ردیف ۲: ابزارهای درب و دیتیل + پاک‌کن/حذف */}
         <div className="h-10 bg-slate-50/70 flex items-center justify-start lg:justify-center px-2 sm:px-2.5 gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar">
-          <span className="text-[10px] font-extrabold text-indigo-500 pl-1 shrink-0 select-none">
+          <span className="text-[13px] font-extrabold text-indigo-500 pl-1 shrink-0 select-none">
             دیتیل
           </span>
 
