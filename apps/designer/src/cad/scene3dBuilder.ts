@@ -18,6 +18,7 @@ import {
   getUnitsInBox,
 } from './doorRules';
 import { createKitchenMaterialPack, KitchenMaterialPack } from './materials3d';
+import { deriveFloorPolygon } from './floorPolygon';
 import {
   ApplianceItem,
   CabinetBox,
@@ -178,25 +179,26 @@ function createFloorTileTexture(): THREE.CanvasTexture {
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#edeae4';
+  // One complete 100x100cm white porcelain tile per texture repeat.
+  ctx.fillStyle = '#fcfcfa';
   ctx.fillRect(0, 0, 256, 256);
-
-  // subtle speckle / travertine feel
-  ctx.fillStyle = 'rgba(180, 174, 165, 0.22)';
-  for (let i = 0; i < 240; i++) {
-    const x = (i * 73) % 256;
-    const y = (i * 137) % 256;
-    ctx.fillRect(x, y, 2, 2);
+  ctx.fillStyle = 'rgba(223,226,228,0.14)';
+  for (let i = 0; i < 64; i++) {
+    const x = (i * 73) % 253 + 1;
+    const y = (i * 137) % 253 + 1;
+    ctx.fillRect(x, y, 1, 1);
   }
-  ctx.strokeStyle = '#d6d1c8';
-  ctx.lineWidth = 3;
+  // 2px grout (approximately 8mm per metre on this preview map).
+  ctx.strokeStyle = '#d7d9d9';
+  ctx.lineWidth = 2;
   ctx.strokeRect(0, 0, 256, 256);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.repeat.set(14, 14);
+  tex.repeat.set(1, 1);
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -302,10 +304,13 @@ export function buildKitchen3DScene(
   // Shared procedural material pack (finishes, gradient+bevel normal doors, tiles, countertops)
   const matPack = createKitchenMaterialPack(project);
   const floorTex = createFloorTileTexture();
-  const matFloor = new THREE.MeshStandardMaterial({
+  const matFloor = new THREE.MeshPhysicalMaterial({
     map: floorTex,
-    roughness: 0.72,
-    metalness: 0.04,
+    roughness: 0.26,
+    metalness: 0.02,
+    clearcoat: 0.56,
+    clearcoatRoughness: 0.18,
+    envMapIntensity: 1.4,
   });
   const matWall = new THREE.MeshStandardMaterial({
     color: 0xf4f1ec,
@@ -401,18 +406,33 @@ export function buildKitchen3DScene(
     minZ = -2;
     maxZ = 2;
   }
-  const cxWorld = (minX + maxX) / 2;
-  const czWorld = (minZ + maxZ) / 2;
-  const floorW = Math.max(7, maxX - minX + 4);
-  const floorD = Math.max(7, maxZ - minZ + 4);
-
   const bounds = new THREE.Box3();
   if (!opts.hideFloor) {
-    const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(floorW, 0.04, floorD), matFloor);
-    floorMesh.position.set(cxWorld, -0.02, czWorld);
-    floorMesh.receiveShadow = true;
-    root.add(floorMesh);
-    bounds.expandByObject(floorMesh);
+    const vertices = deriveFloorPolygon(project.walls);
+    if (vertices.length >= 3) {
+      // THREE.Shape is in XY; -Z in shape space becomes +Z after rotating onto the floor.
+      const outline = new THREE.Shape();
+      outline.moveTo(vertices[0].x * CM, -vertices[0].y * CM);
+      for (let i = 1; i < vertices.length; i++) {
+        outline.lineTo(vertices[i].x * CM, -vertices[i].y * CM);
+      }
+      outline.closePath();
+      const geo = new THREE.ShapeGeometry(outline);
+      geo.rotateX(-Math.PI / 2);
+      // World-aligned 1m UVs: the tile grid does not stretch with room dimensions.
+      const pos = geo.getAttribute('position');
+      const uv = geo.getAttribute('uv');
+      for (let i = 0; i < pos.count; i++) {
+        uv.setXY(i, pos.getX(i), pos.getZ(i));
+      }
+      uv.needsUpdate = true;
+      const floorMesh = new THREE.Mesh(geo, matFloor);
+      floorMesh.position.y = -0.012;
+      floorMesh.receiveShadow = true;
+      floorMesh.userData = { kind: 'floor' };
+      root.add(floorMesh);
+      bounds.expandByObject(floorMesh);
+    }
   }
 
   for (const wall of project.walls) {
