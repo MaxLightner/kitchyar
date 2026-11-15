@@ -380,9 +380,9 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
     >
       {graphic}
       <div className="min-w-0 leading-tight">
-        <div className="text-[11px] font-extrabold text-slate-900 truncate">{title}</div>
-        <div className="text-[9.5px] font-bold text-slate-500 truncate">{sub}</div>
-        <div className="text-[9px] font-extrabold text-indigo-600 mt-0.5">⇕ اسکرول تغییر</div>
+        <div className="text-[13px] font-extrabold text-slate-900 truncate">{title}</div>
+        <div className="text-[13px] font-bold text-slate-500 truncate">{sub}</div>
+        <div className="text-[13px] font-extrabold text-indigo-600 mt-0.5">⇕ اسکرول تغییر</div>
       </div>
     </div>
   );
