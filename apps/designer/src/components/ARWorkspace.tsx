@@ -1180,6 +1180,75 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     renderOnceRef.current();
   };
 
+  const handleArDetailAction = (clientX: number, clientY: number) => {
+    const picked = detailedPickAtClientRef.current(clientX, clientY);
+    const mount = kitchenMountRef.current;
+    const built = builtSceneRef.current;
+    if (!picked?.data.boxId || !mount || !built) {
+      onToast('ابتدا روی قسمت معتبر یک کابینت لمس کنید');
+      return;
+    }
+    const transform = built.wallTransforms.get(picked.data.wallId);
+    if (!transform) return;
+    // Transform the true world hit point into CAD coordinates. This must use the
+    // same registered kitchen mount as the visual scene, not the floor reticle.
+    mount.updateWorldMatrix(true, true);
+    const modelPt = mount.worldToLocal(picked.point.clone());
+    const distance = modelPt.clone().sub(transform.origin);
+    const xCm = distance.dot(transform.tangent) * 100;
+    const yCm = modelPt.y * 100;
+    const toolNow = arToolRef.current;
+    let feedback = '';
+    onUpdateProject(prev => {
+      const next: ProjectState = JSON.parse(JSON.stringify(prev));
+      const w = next.walls.find(w => w.id === picked.data.wallId);
+      const box = w?.boxes.find(b => b.id === picked.data.boxId);
+      if (!w || !box) return prev;
+      const localX = Math.max(0, Math.min(box.width, xCm - box.offsetX));
+      const zones = getCornerBlockedZonesForWall(w, next.walls, next.cornerOwners);
+      if (toolNow === 'doors') {
+        const preview = computeDoorBrushPreview(box, localX, 'vertical', 1, 1, 0, zones, 60);
+        const res = applyDoorBrushPreview(box, localX, preview);
+        if (!res.ok) { feedback = res.message || 'امکان درج درب در این محل نیست'; return prev; }
+        next.selectedDoorId = res.selectedDoorId;
+        next.activeBoxId = box.id;
+        next.activeWallId = w.id;
+        feedback = 'درب با رعایت قوانین Solver ثبت شد';
+      } else if (toolNow === 'shelf') {
+        const unit = getUnitsInBox(box, zones).find(u => localX >= u.startCm && localX <= u.endCm);
+        if (!unit || !unit.canHaveShelves) {
+          feedback = unit?.blockedReason || 'این یونیت ظرفیت طبقه جدید ندارد';
+          return prev;
+        }
+        const innerH = Math.max(1, box.height - box.plinth - box.countertopCm);
+        const yRatio = Math.max(0, Math.min(1, 1 - (yCm - box.elevY - box.plinth) / innerH));
+        const res = addShelvesWithMinGap(box, unit.startCm, unit.endCm, 1, yRatio);
+        if (!res.ok) { feedback = res.message; return prev; }
+        next.activeBoxId = box.id;
+        next.activeWallId = w.id;
+        feedback = 'طبقه با حداقل فاصله ۲۵cm اضافه شد';
+      } else if (toolNow === 'frame') {
+        const yLocal = yCm - box.elevY;
+        const margin = 8;
+        const side =
+          localX <= margin ? 'left' :
+          localX >= box.width - margin ? 'right' :
+          yLocal >= box.height - margin ? 'top' :
+          yLocal <= margin ? 'bottom' : null;
+        if (!side) { feedback = 'برای نصب فریم روی لبه باکس لمس کنید'; return prev; }
+        const exposure = getBoxSideExposure(box, w, next.walls, next.cornerOwners, zones);
+        const res = placeFrameOnBox(box, side, 5, undefined, exposure);
+        if (!res.ok) { feedback = res.message; return prev; }
+        next.activeBoxId = box.id;
+        next.activeWallId = w.id;
+        next.selectedFrameId = res.frame?.id || null;
+        feedback = res.message;
+      } else return prev;
+      return next;
+    });
+    if (feedback) onToast(feedback);
+  };
+
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || !containerRef.current || !cameraRef.current || !floorGroupRef.current) return;
     if (xrActive && !floorLocked) {
@@ -1211,6 +1280,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       return;
     }
     lastSelectTapRef.current = null;
+    if (arToolRef.current === 'doors' || arToolRef.current === 'shelf' || arToolRef.current === 'frame') {
+      handleArDetailAction(e.clientX, e.clientY);
+      return;
+    }
     const local = floorPointAtClientRef.current(e.clientX, e.clientY);
     if (!local) {
       onToast('روی سطح کف یا کابینت معتبر لمس کنید');
@@ -1454,6 +1527,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             { id: 'gas', label: 'گاز', icon: Flame },
             { id: 'appliance', label: 'تجهیزات', icon: WashingMachine },
             { id: 'opening', label: 'بازشو / ستون', icon: AppWindow },
+            { id: 'doors', label: 'درب', icon: DoorClosed },
+            { id: 'shelf', label: 'طبقه', icon: PanelTop },
+            { id: 'frame', label: 'فریم', icon: Frame },
           ],
         ] as const).map((items, idx) => (
           <div key={idx} className="flex items-center justify-start gap-1.5 overflow-x-auto no-scrollbar w-full border-b last:border-b-0 border-slate-200 pb-1 last:pb-0">
@@ -1496,7 +1572,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               visible={true}
               clientX={cursorPreview.x}
               clientY={cursorPreview.y}
-              tool={arTool.startsWith('cab-') ? 'cab-draw' : arTool as ToolId}
+              tool={arTool.startsWith('cab-') ? 'cab-draw' : arTool === 'shelf' ? 'pencil' : arTool as ToolId}
               drawBoxKind={arTool === 'cab-wall' ? 'wall' : arTool === 'cab-tall' ? 'tall' : 'base'}
               sinkModel={sinkModel} gasWidth={gasWidth} hoodKind={hoodKind}
               applianceKind={applianceKind} fridgeModel={fridgeModel} openingKind={openingKind}
