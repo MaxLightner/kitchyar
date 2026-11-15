@@ -13,6 +13,8 @@ import {
   Droplets,
   MousePointer2,
   Flame,
+  PanelTop,
+  Frame,
   Layers,
   Lock,
   LockOpen,
@@ -38,11 +40,17 @@ import {
   OcclusionStatus,
 } from '../ar/nearOcclusion';
 import { BOX_PRESETS, DEFAULT_PROJECT_SETTINGS, FRIDGE_MODELS, OPENING_DEFAULTS, SINK_MODELS } from '../cad/constants';
-import { getWallVectors } from '../cad/cornerLogic';
+import { getCornerBlockedZonesForWall, getWallVectors } from '../cad/cornerLogic';
 import {
+  addShelvesWithMinGap,
+  applyDoorBrushPreview,
   carveBoxesForPlacedBox,
+  computeDoorBrushPreview,
   createEmptyBox,
+  getBoxSideExposure,
+  getUnitsInBox,
   placeApplianceWithCabinetRules,
+  placeFrameOnBox,
   placeFridgeOnWall,
 } from '../cad/doorRules';
 import { createWallOpening } from '../cad/openingRules';
@@ -78,7 +86,10 @@ export type ArToolId =
   | 'sink'
   | 'gas'
   | 'appliance'
-  | 'opening';
+  | 'opening'
+  | 'doors'
+  | 'shelf'
+  | 'frame';
 
 interface ARWorkspaceProps {
   active: boolean;
@@ -199,6 +210,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const lastSelectTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const toggleXrDoorAtPointRef = useRef<(x: number, y: number) => boolean>(() => false);
   const pickAtClientRef = useRef<(x: number, y: number) => Scene3DHitData | null>(() => null);
+  const detailedPickAtClientRef = useRef<(x: number, y: number) => { data: Scene3DHitData; point: THREE.Vector3 } | null>(() => null);
   const floorPointAtClientRef = useRef<(x: number, y: number) => THREE.Vector3 | null>(() => null);
   const updateArGhostRef = useRef<(local: THREE.Vector3) => void>(() => {});
   const [pendingWallStart, setPendingWallStart] = useState<XZPoint | null>(null);
@@ -484,7 +496,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       raycaster.setFromCamera(pointerNdc(clientX, clientY), pickingCamera());
       return raycaster.ray;
     };
-    pickAtClientRef.current = (clientX, clientY) => {
+    detailedPickAtClientRef.current = (clientX, clientY) => {
       if (!builtSceneRef.current) return null;
       builtSceneRef.current.root.updateWorldMatrix(true, true);
       getPointerRay(clientX, clientY);
@@ -492,13 +504,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       for (const hit of hits) {
         let obj: THREE.Object3D | null = hit.object;
         while (obj) {
-          const hitData = obj.userData as Scene3DHitData | undefined;
-          if (hitData?.kind && hitData.wallId) return hitData;
+          const data = obj.userData as Scene3DHitData | undefined;
+          if (data?.kind && data.wallId) return { data, point: hit.point.clone() };
           obj = obj.parent;
         }
       }
       return null;
     };
+    pickAtClientRef.current = (x, y) => detailedPickAtClientRef.current(x, y)?.data || null;
     floorPointAtClientRef.current = (clientX, clientY) => {
       const group = floorGroupRef.current;
       if (!group) return null;
@@ -638,6 +651,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       renderer.domElement.removeEventListener('dblclick', onDblClick);
       toggleXrDoorAtPointRef.current = () => false;
       pickAtClientRef.current = () => null;
+      detailedPickAtClientRef.current = () => null;
       floorPointAtClientRef.current = () => null;
       updateArGhostRef.current = () => {};
       ro.disconnect();
