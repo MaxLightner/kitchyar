@@ -45,14 +45,14 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   onDeleteSelection,
 }) => {
   const btnCls = (active: boolean) =>
-    `h-8 px-2 sm:px-2.5 rounded-lg border text-[13px] sm:text-[13px] font-bold inline-flex items-center gap-1 sm:gap-1.5 whitespace-nowrap shrink-0 transition active:scale-95 ${
+    `h-11 px-2 sm:px-2.5 rounded-lg border text-[13px] sm:text-[13px] font-bold inline-flex items-center gap-1 sm:gap-1.5 whitespace-nowrap shrink-0 transition active:scale-95 ${
       active
         ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
         : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50'
     }`;
 
   const compactIconCls = (active: boolean, tone: 'default' | 'danger' | 'purple' | 'amber' = 'default') =>
-    `h-8 w-8 rounded-lg border inline-flex items-center justify-center shrink-0 transition active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed ${
+    `h-11 w-11 rounded-lg border inline-flex items-center justify-center shrink-0 transition active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed ${
       active
         ? tone === 'danger'
           ? 'bg-red-600 border-red-600 text-white shadow-sm'
@@ -73,7 +73,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
         className="flex flex-col divide-y divide-slate-100"
       >
         {/* ردیف ۱: ابزارهای ساخت و چیدمان و تجهیزات */}
-        <div className="h-10 flex items-center justify-start lg:justify-center px-2 sm:px-2.5 gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="h-12 flex items-center justify-start lg:justify-center px-2 sm:px-2.5 gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar">
           <span className="text-[13px] font-extrabold text-slate-400 pl-1 shrink-0 select-none">
             چیدمان
           </span>
@@ -150,7 +150,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
         </div>
 
         {/* ردیف ۲: ابزارهای درب و دیتیل + پاک‌کن/حذف */}
-        <div className="h-10 bg-slate-50/70 flex items-center justify-start lg:justify-center px-2 sm:px-2.5 gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="h-12 bg-slate-50/70 flex items-center justify-start lg:justify-center px-2 sm:px-2.5 gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar">
           <span className="text-[13px] font-extrabold text-indigo-500 pl-1 shrink-0 select-none">
             دیتیل
           </span>
