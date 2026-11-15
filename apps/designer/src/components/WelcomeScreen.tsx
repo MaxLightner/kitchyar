@@ -20,7 +20,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenProjects,
 }) => {
   return (
-    <div className="min-h-screen w-screen bg-slate-50 text-slate-900 flex flex-col overflow-y-auto">
+    <div className="kichiyar-safe-root min-h-screen w-screen bg-slate-50 text-slate-900 flex flex-col overflow-y-auto">
       <header className="h-14 px-4 sm:px-8 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="h-9 w-9 rounded-xl bg-slate-900 text-white font-black text-base flex items-center justify-center">
@@ -72,7 +72,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button
               type="button"
-              onClick={() => (latestProject ? onContinueLatest('2d') : onStartMode('2d', 'L'))}
+              onClick={onOpenProjects}
               className="h-14 px-5 rounded-xl border border-indigo-200/70 bg-indigo-50/40 hover:bg-indigo-50/80 text-slate-800 text-sm font-black inline-flex items-center justify-center gap-2.5 transition active:scale-95"
             >
               <Layers className="w-4 h-4 text-indigo-500" />
@@ -81,7 +81,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
             <button
               type="button"
-              onClick={() => (latestProject ? onContinueLatest('3d') : onStartMode('3d', 'L'))}
+              onClick={onOpenProjects}
               className="h-14 px-5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100/80 text-slate-800 text-sm font-black inline-flex items-center justify-center gap-2.5 transition active:scale-95"
             >
               <Box className="w-4 h-4 text-slate-500" />
@@ -90,7 +90,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
             <button
               type="button"
-              onClick={() => (latestProject ? onContinueLatest('ar') : onStartMode('ar', 'L'))}
+              onClick={onOpenProjects}
               className="h-14 px-5 rounded-xl border border-emerald-200/70 bg-emerald-50/40 hover:bg-emerald-50/80 text-slate-800 text-sm font-black inline-flex items-center justify-center gap-2.5 transition active:scale-95"
             >
               <Camera className="w-4 h-4 text-emerald-600" />
@@ -109,7 +109,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => onContinueLatest(latestProject.preferredMode || '2d')}
+                onClick={onOpenProjects}
                 className="h-9 px-3.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-extrabold inline-flex items-center gap-1"
               >
                 <span>ادامه پروژه</span>
