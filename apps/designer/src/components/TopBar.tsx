@@ -100,20 +100,20 @@ export const TopBar: React.FC<TopBarProps> = ({
               onClick={onOpenProjects}
               aria-label="بازگشت به پروژه‌های من"
               title={projectName ? `پروژه‌ها (${projectName})` : 'پروژه‌های من'}
-              className="h-8 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-black tracking-tight inline-flex items-center gap-1.5 shrink-0 transition active:scale-95"
+              className="h-8 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[13px] font-black tracking-tight inline-flex items-center gap-1.5 shrink-0 transition active:scale-95"
             >
               <FolderOpen className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline text-[11px] font-extrabold max-w-[120px] truncate">
+              <span className="hidden lg:inline text-[13px] font-extrabold max-w-[120px] truncate">
                 {projectName || 'پروژه‌ها'}
               </span>
             </button>
           ) : (
             <div
-              className="h-8 px-2 rounded-lg bg-slate-900 text-white text-xs font-black tracking-tight inline-flex items-center gap-1.5 shrink-0 select-none"
+              className="h-8 px-2 rounded-lg bg-slate-900 text-white text-[13px] font-black tracking-tight inline-flex items-center gap-1.5 shrink-0 select-none"
               title={`کیچی‌یار • سبک ${designStyle === 'neoclassic' ? 'نئوکلاسیک' : 'مدرن'}`}
             >
               <span>K</span>
-              <span className="hidden md:inline text-[11px] font-extrabold">کیچی‌یار</span>
+              <span className="hidden md:inline text-[13px] font-extrabold">کیچی‌یار</span>
             </div>
           )}
 
@@ -157,7 +157,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               onClick={onOpenStyles}
               aria-label="انتخاب استایل از عکس"
               title="انتخاب استایل آشپزخانه از روی عکس"
-              className="h-8 px-2 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-extrabold inline-flex items-center gap-1 shrink-0 transition active:scale-95"
+              className="h-8 px-2 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[13px] font-extrabold inline-flex items-center gap-1 shrink-0 transition active:scale-95"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span className="hidden lg:inline">استایل</span>
@@ -231,7 +231,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               aria-pressed={viewMode === '2d'}
               aria-label="نمای دوبعدی"
               title="طراحی دقیق دوبعدی (2D)"
-              className={`h-7 px-2 rounded-md text-[11px] font-black inline-flex items-center gap-1 transition ${
+              className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${
                 viewMode === '2d'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-slate-700 hover:bg-white'
@@ -246,7 +246,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               aria-pressed={viewMode === '3d'}
               aria-label="نمای سه‌بعدی"
               title="نمایش و ویرایش سه‌بعدی (3D)"
-              className={`h-7 px-2 rounded-md text-[11px] font-black inline-flex items-center gap-1 transition ${
+              className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${
                 viewMode === '3d'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-slate-700 hover:bg-white'
@@ -261,7 +261,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               aria-pressed={viewMode === 'ar'}
               aria-label="حالت واقعیت افزوده AR"
               title="اسکن کف و کالیبراسیون AR (بدون بسته شدن سشن)"
-              className={`h-7 px-2 rounded-md text-[11px] font-black inline-flex items-center gap-1 transition ${
+              className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${
                 viewMode === 'ar'
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'text-emerald-700 hover:bg-white'
@@ -281,7 +281,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           className="h-9 bg-slate-50 border-t border-slate-200 flex items-center justify-center px-2 gap-1.5 overflow-x-auto no-scrollbar whitespace-nowrap"
         >
           {(selectedApplianceName || activeBoxName) && (
-            <span className="text-[11px] font-extrabold text-slate-600 px-1.5 whitespace-nowrap shrink-0">
+            <span className="text-[13px] font-extrabold text-slate-600 px-1.5 whitespace-nowrap shrink-0">
               {selectedApplianceName ? `${selectedApplianceName}` : activeBoxName}
             </span>
           )}
