@@ -2230,7 +2230,7 @@ export default function App() {
   return (
     <div
       ref={editorOverlayRef}
-      className={`w-screen h-screen flex flex-col overflow-hidden relative text-slate-900 ${
+      className={`kichiyar-safe-root w-screen h-screen flex flex-col overflow-hidden relative text-slate-900 ${
         viewMode === 'ar' ? 'bg-transparent' : 'bg-slate-50'
       }`}
     >
