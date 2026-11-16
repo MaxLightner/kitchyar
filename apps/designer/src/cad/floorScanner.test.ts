@@ -15,17 +15,17 @@ function hit(x: number, z: number, horizontal = true): XRHitTestResult {
 const space = {} as XRReferenceSpace;
 const viewer = new THREE.Vector3(0, 1.5, 0);
 
-test('floor scan accepts three spatially distinct level hits from side rays without a center hit', () => {
+test('Chido requires a central hit and three distinct level observations', () => {
   const scanner = new FloorScanner();
   const point = scanner.update(
-    [],
-    [hit(-0.4, -0.7), hit(0.2, -0.6), hit(0.5, -1.0)],
+    [hit(-0.4, -0.7)],
+    [hit(0.2, -0.6), hit(0.5, -1.0)],
     space,
     viewer,
     100,
     new THREE.Vector3(0, -0.6, -0.8)
   );
-  assert.ok(point, 'a peripheral floor hit should establish a valid floor candidate');
+  assert.ok(point, 'Chido central hit should establish a valid floor candidate');
   assert.equal(scanner.ready, true);
   assert.equal(scanner.rawHits, 3);
   assert.equal(scanner.validHits, 3);
@@ -43,15 +43,14 @@ test('vertical plane hits must never mark the floor ready', () => {
   assert.equal(scanner.validHits, 0);
 });
 
-test('a transient missed frame preserves recent observations and never confirms without new floor hits', () => {
+test('Chido clears observations when the central floor hit is absent', () => {
   const scanner = new FloorScanner();
   scanner.update([hit(0, -0.5)], [hit(-0.3, -0.5)], space, viewer, 100);
   assert.equal(scanner.ready, false);
-  const before = scanner.history.length;
   scanner.update([], [], space, viewer, 150);
   assert.equal(scanner.ready, false);
   assert.equal(scanner.point, null);
-  assert.equal(scanner.history.length, before);
+  assert.equal(scanner.history.length, 0);
   scanner.update([], [], space, viewer, 3000);
   assert.equal(scanner.history.length, 0, 'old samples expire');
 });

@@ -34,6 +34,7 @@ import {
   XZPoint,
 } from '../ar/arCalibration';
 import { FloorScanner } from '../ar/floorScanner';
+import { ChidoFloorTracking } from '../ar/chidoFloorTracking';
 import { AnchorSample, AnchorStabilizer, ChidoVec3, transformPoint as chidoTransformPoint } from '../ar/chidoAnchorRig';
 import { CHIDO_REFERENCE_SPACE, requestChidoSession, xrLaunchError } from '../ar/chidoSession';
 import { chidoScanReadiness } from '../ar/chidoScanReadiness';
@@ -195,10 +196,7 @@ type ArDragState =
     };
 
 // Chido's central viewer ray plus eight rotated peripheral rays.
-const CHIDO_SCAN_RAYS: ReadonlyArray<readonly [number, number]> = [
-  [-0.24, 0], [0.24, 0], [0, -0.24], [0, 0.24],
-  [-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18],
-];
+
 const MAX_SCAN_CROSSES = 20;
 
 /** Pending ARCore and hit-test promises cannot stall the scan indefinitely. */
@@ -592,6 +590,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const xrSessionRef = useRef<XRSession | null>(null);
   const skipEndNotificationRef = useRef(false);
   const floorScannerRef = useRef(new FloorScanner());
+  const floorTrackingRef = useRef(new ChidoFloorTracking(floorScannerRef.current));
   const fallbackLocalSpaceRef = useRef<XRReferenceSpace | null>(null);
   const xrFrameCountRef = useRef(0);
   const xrStartTimeRef = useRef(0);
@@ -608,9 +607,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const pendingAnchorCreateRef = useRef(false);
   const floorRevealStartRef = useRef<number | null>(null);
   const basePoseRef = useRef<{ x: number; y: number; z: number; yaw: number } | null>(null);
-  const hitTestSourcesRef = useRef<XRHitTestSource[]>([]);
-  const lowerHitSourceRef = useRef<XRHitTestSource | null>(null);
-  const transientHitSourceRef = useRef<XRTransientInputHitTestSource | null>(null);
+
 
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   // Chido Wide View: virtual scene uses XR tracking, but a separate perspective
@@ -1602,6 +1599,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       window.removeEventListener('pointerup', onPointerUp);
       ro.disconnect();
       controls.dispose();
+      floorTrackingRef.current.dispose();
       occlusion.dispose();
       if (xrSessionRef.current) {
         xrSessionRef.current.end().catch(() => {});
@@ -2231,14 +2229,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       session.addEventListener('end', () => {
         renderer.setAnimationLoop(null);
         xrSessionRef.current = null;
-        for (const s of hitTestSourcesRef.current) {
-          try { s.cancel(); } catch {}
-        }
-        hitTestSourcesRef.current = [];
-        try { lowerHitSourceRef.current?.cancel(); } catch {}
-        lowerHitSourceRef.current = null;
-        try { transientHitSourceRef.current?.cancel(); } catch {}
-        transientHitSourceRef.current = null;
+        floorTrackingRef.current.dispose();
         setXrActive(false);
         setFloorLocked(false);
         setScanReady(false);
@@ -2320,12 +2311,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           floorNetUniformsRef.current.uTime.value = time / 1000;
         }
 
-        occlusionRef.current?.update(frame, pose, rendererRef.current, session, {
-          enabled: occlusionEnabledRef.current,
-          ar: true,
-        });
-        if (occlusionRef.current) setOcclusionStatus(occlusionRef.current.status);
-
         // Exact Chido Studio.updateAnchor strategy: sequential anchors (up to
         // five), 42-cm separation, 5.5-cm level filter, robust pose estimation.
         if (floorLockedRef.current) {
@@ -2349,7 +2334,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
           const origin = basePoseRef.current;
           if (origin && typeof frame.createAnchor === 'function' && anchorsRef.current.length + Number(anchorPendingRef.current) < 5) {
-            const centralSource = hitTestSourcesRef.current[0];
+            const centralSource = floorTrackingRef.current.hitSource;
             if (centralSource) {
               for (const hit of frame.getHitTestResults(centralSource)) {
                 const candidatePose = hit.getPose(space);
@@ -2426,42 +2411,18 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           // Canceling and shifting it here makes an angled ray the new
           // central source and can stall subsequent floor detection.
         } else if (!floorLockedRef.current) {
-          const allSources = hitTestSourcesRef.current;
-          const centerResults = allSources[0] ? frame.getHitTestResults(allSources[0]) : [];
-          const extraResults: XRHitTestResult[] = [];
-          for (let i = 1; i < allSources.length; i++) {
-            extraResults.push(...frame.getHitTestResults(allSources[i]));
-          }
-          if (lowerHitSourceRef.current) {
-            extraResults.push(...frame.getHitTestResults(lowerHitSourceRef.current));
-          }
-          if (transientHitSourceRef.current) {
-            for (const t of frame.getHitTestResultsForTransientInput(transientHitSourceRef.current)) {
-              extraResults.push(...t.results);
-            }
-          }
-
           const viewPos = new THREE.Vector3(
-            pose.views[0].transform.position.x,
-            pose.views[0].transform.position.y,
-            pose.views[0].transform.position.z
+            pose.transform.position.x, pose.transform.position.y, pose.transform.position.z
           );
-          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
-            new THREE.Quaternion(
-              pose.views[0].transform.orientation.x,
-              pose.views[0].transform.orientation.y,
-              pose.views[0].transform.orientation.z,
-              pose.views[0].transform.orientation.w
-            )
-          );
-          const pt = floorScannerRef.current.update(
-            centerResults,
-            extraResults,
-            space,
-            viewPos,
-            time,
-            forward
-          );
+          let pt: THREE.Vector3 | null = null;
+          try {
+            pt = floorTrackingRef.current.update(frame, space, pose, time);
+          } catch (error) {
+            // A required central-provider failure is a real error, not an
+            // endless "camera ready" instruction. Optional rays are isolated
+            // inside the copied Chido tracking path.
+            setXrStartError(xrLaunchError(error, 'دریافت برخورد مرکزی کف'));
+          }
           setScanReady(floorScannerRef.current.ready);
           if (time - lastScanReportMsRef.current > 250 || floorScannerRef.current.ready) {
             lastScanReportMsRef.current = time;
@@ -2502,6 +2463,17 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             const mat = c.userData.mat as THREE.MeshBasicMaterial | undefined;
             if (mat) mat.color.setHex(h.accepted ? 0x83ffe3 : 0xff6b61);
           });
+        }
+
+        // Chido samples the floor before optional visual/depth effects.
+        // A missing depth API must not interrupt the scan frame.
+        try {
+          occlusionRef.current?.update(frame, pose, renderer, session, {
+            enabled: occlusionEnabledRef.current, ar: true,
+          });
+          if (occlusionRef.current) setOcclusionStatus(occlusionRef.current.status);
+        } catch {
+          occlusionRef.current?.hide('unsupported');
         }
 
         if (
@@ -2567,57 +2539,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }
       });
       setXrStarting(false);
-      startupStage = 'فضای دید دوربین';
-      const viewerSpace = await withXRStartupTimeout(session.requestReferenceSpace('viewer'), 'ردیابی دوربین', 15000);
-      if (!session.requestHitTestSource) {
-        throw new DOMException('Chido floor scanning requires WebXR hit-test', 'NotSupportedError');
-      }
       startupStage = 'تشخیص کف (hit-test)';
-      const central = await withXRStartupTimeout(Promise.resolve(session.requestHitTestSource({
-        space: viewerSpace,
-        entityTypes: ['plane'],
-      })), 'تشخیص سطح مرکزی', 15000);
-      if (!central) throw new DOMException('Chido central plane hit test unavailable', 'NotSupportedError');
-      hitTestSourcesRef.current = [central];
-      // Preserve Chido's plane-only central ray. On ARCore versions that
-      // discover feature points before a stable plane, also sample points as
-      // a strictly optional source; FloorScanner still accepts ONLY level hits.
-      void Promise.resolve(session.requestHitTestSource!({
-        space: viewerSpace,
-        entityTypes: ['point'],
-      })).then(source => {
-        if (source && xrSessionRef.current === session) lowerHitSourceRef.current = source;
-        else source?.cancel();
-      }).catch(error => console.debug('[Kitchyar XR] optional point hit test unavailable', error));
-      // The previous implementation awaited all eight auxiliary hit sources
-      // one by one BEFORE starting the real scan loop. On Android, even one
-      // unresolved request left the reticle and floor scan frozen. Start the
-      // central scanner immediately, and add angled rays asynchronously.
-      for (const [rx, ry] of CHIDO_SCAN_RAYS) {
-        void (async () => {
-          try {
-            const direction = new THREE.Vector3(rx, ry, -1).normalize();
-            const rotation = new THREE.Quaternion().setFromUnitVectors(
-              new THREE.Vector3(0, 0, -1), direction
-            );
-            const raySpace = viewerSpace.getOffsetReferenceSpace(
-              new XRRigidTransform({}, {
-                x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w,
-              })
-            );
-            const hit = await session.requestHitTestSource!({
-              space: raySpace,
-              entityTypes: ['plane'],
-            });
-            if (!hit) return;
-            if (xrSessionRef.current === session) hitTestSourcesRef.current.push(hit);
-            else hit.cancel();
-          } catch (error) {
-            // One unsupported extra ray must never block central scanning.
-            console.debug('[Kitchyar XR] optional angled ray unavailable', error);
-          }
-        })();
-      }
+      await withXRStartupTimeout(floorTrackingRef.current.start(session), 'تشخیص سطح مرکزی', 15000);
       startupStage = 'نمایش ابزارها (DOM Overlay)';
       if (!session.domOverlayState) {
         throw new DOMException('Chido needs WebXR DOM Overlay for floor confirmation', 'NotSupportedError');
@@ -2643,9 +2566,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // session too, so retry never competes with a camera we no longer own.
       else if (sessionRequest) void sessionRequest.then(session => session.end()).catch(() => {});
       renderer.setAnimationLoop(null);
-      hitTestSourcesRef.current = [];
-      lowerHitSourceRef.current = null;
-      transientHitSourceRef.current = null;
+      floorTrackingRef.current.dispose();
       setXrActive(false);
       setFloorLocked(false);
       setScanReady(false);

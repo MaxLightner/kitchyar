@@ -2,7 +2,7 @@ name: Browser smoke — Chido floor scan from Welcome
 
 on:
   push:
-    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16', 'fix/unified-xr-session-2026-11-16', 'fix/tablet-scan-entry-20261116']
+    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16', 'fix/unified-xr-session-2026-11-16', 'fix/tablet-scan-entry-20261116', 'fix/chido-floor-runtime-20261116']
     paths:
       - 'apps/designer/**'
       - '.github/workflows/scan-ui-smoke.yml'
