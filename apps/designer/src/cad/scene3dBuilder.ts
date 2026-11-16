@@ -237,12 +237,21 @@ export function buildHandleMesh(
   const frontOutZ = normalSign * (thick * 0.5 + 0.008);
 
   if (style === 'knob') {
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.014, 12), matDarkChrome);
-    stem.rotation.x = Math.PI / 2;
-    stem.position.set(0, 0, frontOutZ);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.014, 14, 10), matDarkChrome);
-    cap.position.set(0, 0, normalSign * (thick * 0.5 + 0.018));
-    grp.add(stem, cap);
+    // Real single-screw mushroom/button pull: a short narrow neck under a
+    // broad, gently domed 40-mm head (not the former sphere-on-a-stick).
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.0065, 0.0075, 0.014, 24), matDarkChrome);
+    neck.rotation.x = Math.PI / 2;
+    neck.position.z = normalSign * (thick * 0.5 + 0.007);
+    const profile = [
+      [0, 0], [0.009, 0], [0.015, 0.0015],
+      [0.019, 0.004], [0.020, 0.0075],
+      [0.019, 0.011], [0.015, 0.014],
+      [0.008, 0.016], [0, 0.016],
+    ].map(([radius, depth]) => new THREE.Vector2(radius, depth));
+    const head = new THREE.Mesh(new THREE.LatheGeometry(profile, 32), matDarkChrome);
+    head.rotation.x = normalSign > 0 ? Math.PI / 2 : -Math.PI / 2;
+    head.position.z = normalSign * (thick * 0.5 + 0.013);
+    grp.add(neck, head);
     return grp;
   }
 
