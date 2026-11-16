@@ -96,6 +96,7 @@ import {
 } from './cad/types';
 import { ARWorkspace } from './components/ARWorkspace';
 import { chidoSessionOptions } from './ar/chidoSession';
+import { alignSelectedDoorsInBox, equalizeSelectedVerticalWidths, equalizeSelectedDrawerHeights } from './cad/selectionAlign';
 import { BottomDock } from './components/BottomDock';
 import { FrontCanvas } from './components/FrontCanvas';
 import { PlanCanvas } from './components/PlanCanvas';
@@ -1334,36 +1335,36 @@ export default function App() {
     showToast(`کشوی ${updated} درب حذف شد`);
   };
 
-  const handleEqualizeVertical = () => {
-    if (!activeWall || !activeBox) return;
+  const handleEqualizeSelected = (axis: 'vertical' | 'horizontal') => {
+    const ids = project.multiSelection?.doorIds.length
+      ? project.multiSelection.doorIds
+      : project.selectedDoorId ? [project.selectedDoorId] : [];
+    if (ids.length < 2) {
+      showToast(axis === 'vertical' ? 'حداقل دو درب عمودی انتخاب کنید' : 'حداقل دو مجموعه کشو انتخاب کنید');
+      return;
+    }
     const next = cloneProject(project);
-    const w = next.walls.find((x) => x.id === activeWall.id);
-    const b = w?.boxes.find((x) => x.id === activeBox.id);
-    if (!w || !b) return;
-    const blocked = getCornerBlockedZonesForWall(w, next.walls, next.cornerOwners);
-    const res = equalizeVerticalDoorsInBox(b, blocked, w, next.walls, next.cornerOwners);
-    if (!res.ok) {
-      showToast(res.message);
+    let changed = 0;
+    let error = '';
+    for (const wall of next.walls) for (const box of wall.boxes) {
+      const selectedInBox = ids.filter(id => box.doors.some(d => d.id === id));
+      if (selectedInBox.length < 2) continue;
+      const res = axis === 'vertical'
+        ? equalizeSelectedVerticalWidths(box, selectedInBox)
+        : equalizeSelectedDrawerHeights(box, selectedInBox);
+      if (res.ok) changed++;
+      else error = res.message;
+    }
+    if (!changed) {
+      showToast(error || 'حداقل دو آیتم هم‌نوع از یک باکس را انتخاب کنید');
       return;
     }
     commitState(next, true);
-    showToast(res.message);
+    showToast(axis === 'vertical' ? 'فقط عرض درب‌های انتخاب‌شده برابر شد'
+      : 'فقط ارتفاع کشوهای انتخاب‌شده برابر شد');
   };
-
-  const handleEqualizeHorizontal = () => {
-    if (!activeWall || !activeBox) return;
-    const next = cloneProject(project);
-    const w = next.walls.find((x) => x.id === activeWall.id);
-    const b = w?.boxes.find((x) => x.id === activeBox.id);
-    if (!w || !b) return;
-    const res = equalizeHorizontalInBox(b, selectedDoor?.id || null);
-    if (!res.ok) {
-      showToast(res.message);
-      return;
-    }
-    commitState(next, true);
-    showToast(res.message);
-  };
+  const handleEqualizeVertical = () => handleEqualizeSelected('vertical');
+  const handleEqualizeHorizontal = () => handleEqualizeSelected('horizontal');
 
   const handleEqualizeAndFill = () => {
     if (!activeWall || !activeBox) return;
@@ -1548,35 +1549,65 @@ export default function App() {
   };
 
   const handleAlignBox = (pos: 'left' | 'center' | 'right') => {
-    if (!activeWall) return;
     const next = cloneProject(project);
-    const w = next.walls.find((x) => x.id === activeWall.id);
-    if (!w) return;
-
-    if (next.selectedApplianceId && w.appliances.some((a) => a.id === next.selectedApplianceId)) {
-      const res = alignApplianceOnBoxFront(w, next.walls, next.selectedApplianceId, pos, next.cornerOwners);
-      if (!res.ok) {
-        showToast(res.message);
-        return;
+    const ids = project.multiSelection?.doorIds.length
+      ? project.multiSelection.doorIds
+      : project.selectedDoorId ? [project.selectedDoorId] : [];
+    // Door selection comes first: do NOT move the whole box when a door
+    // within it is selected. Unselected doors remain in their original place.
+    if (ids.length > 0) {
+      let changed = 0;
+      let message = '';
+      for (const wall of next.walls) for (const box of wall.boxes) {
+        const inBox = ids.filter(id => box.doors.some(door => door.id === id));
+        if (!inBox.length) continue;
+        const result = alignSelectedDoorsInBox(box, inBox, pos);
+        if (result.ok) changed++;
+        message = result.message;
       }
-      commitState(next, true);
-      showToast(res.message);
+      if (changed) commitState(next, true);
+      showToast(message || 'درب انتخاب‌شده پیدا نشد');
       return;
     }
 
-    if (!activeBox) return;
-    const b = w.boxes.find((x) => x.id === activeBox.id);
-    if (!b) return;
-    const range = getFreeMoveRangeForBox(w, next.walls, b, next.cornerOwners);
-    const desired =
-      pos === 'left'
-        ? range.minX
-        : pos === 'right'
-        ? range.maxX
+    // Keep existing gas/sink/hood/corner solver: position of the selection
+    // is measured against its parent cabinet front, not the wall midpoint.
+    const appIds = project.multiSelection?.applianceIds.length
+      ? project.multiSelection.applianceIds
+      : project.selectedApplianceId ? [project.selectedApplianceId] : [];
+    if (appIds.length) {
+      let count = 0;
+      let message = '';
+      for (const appId of appIds) {
+        const wall = next.walls.find(w => w.appliances.some(a => a.id === appId));
+        if (!wall) continue;
+        const result = alignApplianceOnBoxFront(wall, next.walls, appId, pos, next.cornerOwners);
+        if (result.ok) count++;
+        message = result.message;
+      }
+      if (count) commitState(next, true);
+      showToast(message || 'تجهیز انتخاب‌شده پیدا نشد');
+      return;
+    }
+
+    const boxes = project.multiSelection?.boxIds.length
+      ? project.multiSelection.boxIds
+      : project.activeBoxId ? [project.activeBoxId] : [];
+    let count = 0;
+    for (const id of boxes) {
+      const wall = next.walls.find(w => w.boxes.some(b => b.id === id));
+      const box = wall?.boxes.find(b => b.id === id);
+      if (!wall || !box) continue;
+      const range = getFreeMoveRangeForBox(wall, next.walls, box, next.cornerOwners);
+      const target = pos === 'left' ? range.minX : pos === 'right' ? range.maxX
         : +((range.minX + range.maxX) / 2).toFixed(1);
-    moveBoxHierarchically(w, next.walls, b.id, desired, next.cornerOwners);
-    commitState(next, true);
-    showToast('موقعیت باکس تراز شد');
+      if (Math.abs(box.offsetX - target) < .1) continue;
+      moveBoxHierarchically(wall, next.walls, box.id, target, next.cornerOwners);
+      count++;
+    }
+    if (count) commitState(next, true);
+    showToast(count ? 'آیتم‌های انتخابی تا محدوده آزاد جابه‌جا شدند'
+      : 'آیتمی انتخاب نشده یا فضای آزاد دیگری وجود ندارد');
   };
 
   const handleDeleteSelectedBox = useCallback(() => {
@@ -1930,25 +1961,18 @@ export default function App() {
     }
   };
 
-  const canEqualizeVertical = useMemo(
-    () => Boolean(activeBox && activeBox.doors.filter((d) => d.kind === 'door').length >= 2),
-    [activeBox]
-  );
-
-  const canEqualizeHorizontal = useMemo(
-    () =>
-      Boolean(
-        activeBox &&
-          activeBox.doors.some(
-            (d) =>
-              d.kind === 'drawer' ||
-              (d.kind === 'lift' &&
-                (d.drawerRatios.length > 0 ||
-                  activeBox.doors.filter((x) => x.kind === 'lift').length >= 2))
-          )
-      ),
-    [activeBox]
-  );
+  const canEqualizeVertical = useMemo(() => {
+    const ids = project.multiSelection?.doorIds || [];
+    return project.walls.some(w => w.boxes.some(b =>
+      b.doors.filter(d => ids.includes(d.id) && d.kind === 'door').length >= 2
+    ));
+  }, [project.multiSelection, project.walls]);
+  const canEqualizeHorizontal = useMemo(() => {
+    const ids = project.multiSelection?.doorIds || [];
+    return project.walls.some(w => w.boxes.some(b =>
+      b.doors.filter(d => ids.includes(d.id) && d.kind === 'drawer').length >= 2
+    ));
+  }, [project.multiSelection, project.walls]);
 
   const hasAnySelection = Boolean(
     (project.multiSelection &&
