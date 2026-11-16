@@ -4,25 +4,20 @@ import {
   AlignLeft,
   AlignRight,
   ArrowLeft,
-  ArrowLeftRight,
-  ArrowRight,
   Box,
   Camera,
   Columns3,
   Download,
   FilePlus2,
-  FlipHorizontal2,
   FolderOpen,
   House,
   Maximize2,
   Minimize2,
   Layers,
-  LayoutGrid,
   Redo2,
   Rows3,
   Settings,
   Sparkles,
-  StretchHorizontal,
   Undo2,
   Upload,
 } from 'lucide-react';
@@ -324,190 +319,55 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* نوار آیکونی تراز فرانت باکس، هم‌اندازه‌سازی هوشمند درب‌های هم‌ردیف، مرتب‌سازی خودکار و جابجایی یونیت */}
-      {viewMode !== 'ar' && (hasActiveBox || hasSelectedUnit || hasSelectedAppliance || hasBaseAndWallBoxes) && (
+      {/* Exactly five alignment operations: left, right, box-center,
+          equal selected upright door widths, equal selected drawer heights. */}
+      {viewMode !== 'ar' && (hasActiveBox || hasSelectedUnit || hasSelectedAppliance) && (
         <div
-          aria-label="تراز و ویرایش باکس، تجهیز و یونیت فعال"
-          className="h-9 bg-slate-50 border-t border-slate-200 flex items-center justify-center px-2 gap-1.5 overflow-x-auto no-scrollbar whitespace-nowrap"
+          data-testid="selection-align-toolbar"
+          aria-label="تراز و هم‌اندازه‌سازی آیتم‌های انتخابی"
+          className="h-10 bg-slate-50 border-t border-slate-200 flex items-center justify-center px-2 gap-2 overflow-x-auto no-scrollbar whitespace-nowrap"
         >
           {(selectedApplianceName || activeBoxName) && (
-            <span className="text-[13px] font-extrabold text-slate-600 px-1.5 whitespace-nowrap shrink-0">
-              {selectedApplianceName ? `${selectedApplianceName}` : activeBoxName}
+            <span className="text-[13px] font-extrabold text-slate-600 px-1.5 shrink-0">
+              {selectedApplianceName || activeBoxName}
             </span>
           )}
-
-          {(hasActiveBox || hasSelectedAppliance) && (
-            <>
-              {hasActiveBox && (
-                <>
-                  <button
-                    type="button"
-                    data-testid="align-equalize-fill-btn"
-                    onClick={onEqualizeDoorsAndFill}
-                    aria-label="هم‌اندازه و پرکردن فضای خالی درب‌ها"
-                    title="میانگین‌گیری اندازه درب‌ها و پرکردن خودکار فضاهای خالی باکس"
-                    className="h-7 px-2 rounded-md border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[12px] font-bold inline-flex items-center gap-1 shrink-0 transition active:scale-95"
-                  >
-                    <StretchHorizontal className="w-3.5 h-3.5" />
-                    <span>هم‌اندازه + پرکردن</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    data-testid="align-compact-doors-btn"
-                    onClick={onCompactDoorsAndAppliances}
-                    aria-label="جمع‌کردن و مرتب‌سازی درب‌ها و تجهیزات"
-                    title="مرتب‌سازی و چسباندن درب‌های پراکنده و جابجایی هوشمند تجهیزات برای حذف فضاهای پرت"
-                    className="h-7 px-2 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[12px] font-bold inline-flex items-center gap-1 shrink-0 transition active:scale-95"
-                  >
-                    <ArrowLeftRight className="w-3.5 h-3.5" />
-                    <span>جمع‌کردن درها</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={onEqualizeVertical}
-                    disabled={!canEqualizeVertical}
-                    aria-label="هم‌اندازه‌سازی درب‌های عمودی هم‌ردیف"
-                    title="هم‌اندازه‌سازی هوشمند تمام درب‌های عمودی هم‌راستا (با جابجایی خودکار گاز/تجهیز در صورت نیاز)"
-                    className={subIconBtn}
-                  >
-                    <Columns3 className="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={onEqualizeHorizontal}
-                    disabled={!canEqualizeHorizontal}
-                    aria-label="مساوی‌سازی کشو و درب افقی"
-                    title="مساوی‌سازی ارتفاع کشوها و درب‌های افقی هم‌ردیف"
-                    className={subIconBtn}
-                  >
-                    <Rows3 className="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={onMirrorBox}
-                    aria-label="قرینه‌سازی چیدمان باکس"
-                    title="قرینه‌سازی چیدمان باکس"
-                    className={subIconBtn}
-                  >
-                    <FlipHorizontal2 className="w-3.5 h-3.5" />
-                  </button>
-
-                  <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => onAlignBox?.('right')}
-                aria-label={
-                  hasSelectedAppliance
-                    ? 'تراز تجهیز در راست فرانت باکس'
-                    : 'چسباندن باکس به راست فضای آزاد'
-                }
-                title={
-                  hasSelectedAppliance
-                    ? 'چسباندن تجهیز به راست فرانت قابل‌دید باکس (با جابجایی هود)'
-                    : 'چسباندن باکس به راست فضای آزاد'
-                }
-                className={
-                  hasSelectedAppliance
-                    ? 'h-7 w-7 rounded-md border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 inline-flex items-center justify-center shrink-0 transition active:scale-95'
-                    : subIconBtn
-                }
-              >
-                <AlignRight className="w-3.5 h-3.5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onAlignBox?.('center')}
-                aria-label={
-                  hasSelectedAppliance
-                    ? 'مرکز کردن تجهیز در فرانت باکس'
-                    : 'وسط قرار دادن باکس در فضای آزاد'
-                }
-                title={
-                  hasSelectedAppliance
-                    ? 'مرکز فرانت باکس (بدون محاسبه کنج کور، همراه با هود و تنظیم درب‌های طرفین)'
-                    : 'مرکز فضای آزاد دیوار'
-                }
-                className={
-                  hasSelectedAppliance
-                    ? 'h-7 w-7 rounded-md border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 inline-flex items-center justify-center shrink-0 transition active:scale-95'
-                    : subIconBtn
-                }
-              >
-                <AlignCenterHorizontal className="w-3.5 h-3.5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onAlignBox?.('left')}
-                aria-label={
-                  hasSelectedAppliance
-                    ? 'تراز تجهیز در چپ فرانت باکس'
-                    : 'چسباندن باکس به چپ فضای آزاد'
-                }
-                title={
-                  hasSelectedAppliance
-                    ? 'چسباندن تجهیز به چپ فرانت قابل‌دید باکس (با جابجایی هود)'
-                    : 'چسباندن باکس به چپ فضای آزاد'
-                }
-                className={
-                  hasSelectedAppliance
-                    ? 'h-7 w-7 rounded-md border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 inline-flex items-center justify-center shrink-0 transition active:scale-95'
-                    : subIconBtn
-                }
-              >
-                <AlignLeft className="w-3.5 h-3.5" />
-              </button>
-            </>
-          )}
-
-          {hasBaseAndWallBoxes && onAlignWallAndBaseDoors && (
-            <>
-              <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-              <button
-                type="button"
-                data-testid="align-wall-base-btn"
-                onClick={onAlignWallAndBaseDoors}
-                aria-label="هم‌راستاسازی درز درب بالا و پایین"
-                title="هماهنگ‌کردن درز درب‌های کابینت هوایی با زمینی زیرین (پیشنهادی برای نماهای مدرن مینیمال)"
-                className="h-7 px-2 rounded-md border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[12px] font-bold inline-flex items-center gap-1 shrink-0 transition active:scale-95"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>درز بالا و پایین</span>
-              </button>
-            </>
-          )}
-
-          {hasSelectedUnit && onMoveUnit && (
-            <>
-              <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-              <button
-                type="button"
-                onClick={() => onMoveUnit('right')}
-                aria-label="جابجایی یونیت به راست"
-                title="جابجایی یونیت به راست (با حفظ درب‌ها)"
-                className="h-7 px-2 rounded-md border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-700 inline-flex items-center justify-center shrink-0 transition"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onMoveUnit('left')}
-                aria-label="جابجایی یونیت به چپ"
-                title="جابجایی یونیت به چپ (با حفظ درب‌ها)"
-                className="h-7 px-2 rounded-md border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-700 inline-flex items-center justify-center shrink-0 transition"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-              </button>
-            </>
-          )}
+          <button type="button" data-testid="align-selected-left"
+            onClick={() => onAlignBox?.('left')}
+            aria-label="چپ‌چین آیتم‌های انتخابی تا نزدیک‌ترین فضای آزاد"
+            title="چپ‌چین تا مانع یا انتهای فضای آزاد؛ سایر آیتم‌ها جابه‌جا نمی‌شوند"
+            className={subIconBtn}>
+            <AlignLeft className="w-4 h-4" />
+          </button>
+          <button type="button" data-testid="align-selected-right"
+            onClick={() => onAlignBox?.('right')}
+            aria-label="راست‌چین آیتم‌های انتخابی تا نزدیک‌ترین فضای آزاد"
+            title="راست‌چین تا مانع یا انتهای فضای آزاد؛ سایر آیتم‌ها جابه‌جا نمی‌شوند"
+            className={subIconBtn}>
+            <AlignRight className="w-4 h-4" />
+          </button>
+          <button type="button" data-testid="align-selected-center"
+            onClick={() => onAlignBox?.('center')}
+            aria-label="وسط‌چین آیتم‌های انتخابی داخل باکس کابینت"
+            title="وسط‌چین نسبت به مرکز باکس کابینت؛ مناسب گاز و سینک"
+            className={subIconBtn}>
+            <AlignCenterHorizontal className="w-4 h-4" />
+          </button>
+          <div className="h-5 w-px bg-slate-300 shrink-0" />
+          <button type="button" data-testid="align-selected-vertical-widths"
+            onClick={onEqualizeVertical} disabled={!canEqualizeVertical}
+            aria-label="یکسان‌کردن عرض درب‌های عمودی انتخاب‌شده"
+            title="فقط درب‌های عمودی انتخاب‌شده هم‌عرض می‌شوند"
+            className={subIconBtn}>
+            <Columns3 className="w-4 h-4" />
+          </button>
+          <button type="button" data-testid="align-selected-horizontal-heights"
+            onClick={onEqualizeHorizontal} disabled={!canEqualizeHorizontal}
+            aria-label="یکسان‌کردن ارتفاع کشوهای افقی انتخاب‌شده"
+            title="فقط کشوهای افقی انتخاب‌شده هم‌ارتفاع می‌شوند"
+            className={subIconBtn}>
+            <Rows3 className="w-4 h-4" />
+          </button>
         </div>
       )}
     </header>
