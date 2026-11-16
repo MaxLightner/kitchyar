@@ -50,6 +50,7 @@ import {
 import {
   applyAnimatedDoorProgress,
   buildHandleMesh,
+  attachSelectedHandlePreviews,
   BuiltKitchenScene,
   buildKitchen3DScene,
   CM,
@@ -2300,6 +2301,22 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       requestRenderRef.current();
     }
   }, [project, props.scanMode]);
+
+  // Choosing a handle now previews it on EVERY selected door in the real
+  // 3D scene, not only beneath a hovering mouse pointer.
+  useEffect(() => {
+    const built = builtRef.current;
+    if (!built || props.scanMode || tool !== 'handle') return;
+    const previews = attachSelectedHandlePreviews(built, project, props.handleStyle, props.handleOrient);
+    requestRenderRef.current();
+    return () => {
+      for (const preview of previews) {
+        preview.parent?.remove(preview);
+        disposeObject3D(preview);
+      }
+      requestRenderRef.current();
+    };
+  }, [project, props.scanMode, tool, props.handleStyle, props.handleOrient]);
 
   const handleToggleAllDoors = () => {
     const nextOpen = !doorsOpen;
