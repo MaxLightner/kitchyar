@@ -140,6 +140,13 @@ interface ARWorkspaceProps {
   onSwitchViewMode: (mode: '2d' | '3d' | 'ar') => void;
   onToast: (msg: string) => void;
   sessionKillSignal?: number;
+  /** The WebXR request is started synchronously by the Welcome/Projects click. */
+  initialSession?: Promise<XRSession> | null;
+  /** In the unified designer the scanner is a camera/input layer, not an editor. */
+  embeddedIn3D?: boolean;
+  sharedTool?: ToolId;
+  onSessionEnded?: () => void;
+  onFloorConfirmed?: () => void;
 }
 
 interface AlignmentState {
@@ -385,6 +392,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   onSwitchViewMode,
   onToast,
   sessionKillSignal = 0,
+  initialSession = null,
+  embeddedIn3D = false,
+  sharedTool,
+  onSessionEnded,
+  onFloorConfirmed,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -479,6 +491,19 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   projectRef.current = project;
   const arToolRef = useRef(arTool);
   arToolRef.current = arTool;
+  // The tool selection comes from the same 3D SideInspector and BottomDock.
+  // AR does not maintain an independent toolbar or an independent tool state.
+  useEffect(() => {
+    if (!embeddedIn3D || !sharedTool) return;
+    const mapped: ArToolId = sharedTool === 'cab-draw'
+      ? (drawBoxKind === 'wall' || drawBoxKind === 'wall-deep' ? 'cab-wall' : drawBoxKind === 'tall' ? 'cab-tall' : 'cab-base')
+      : sharedTool === 'pencil' ? 'shelf'
+      : sharedTool === 'door-pencil' || sharedTool === 'door-style' ? 'doors'
+      : sharedTool === 'skeleton' ? 'frame'
+      : sharedTool === 'finish' || sharedTool === 'eraser' ? 'select'
+      : sharedTool;
+    setArTool(mapped);
+  }, [embeddedIn3D, sharedTool, drawBoxKind]);
   const pendingWallStartRef = useRef(pendingWallStart);
   pendingWallStartRef.current = pendingWallStart;
   const pointARef = useRef(pointA);
@@ -2031,11 +2056,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   };
 
   // Start / Resume WebXR session with full MaxLightner/kitchyar multi-ray + plane hit-test & anchors!
-  const startWebXrSession = async () => {
+  const startWebXrSession = async (pendingSession?: Promise<XRSession> | null) => {
     const xr = (navigator as unknown as { xr?: XRSystem }).xr;
     const renderer = rendererRef.current;
-    const overlayRoot = overlayRootRef.current;
-    if (!xr || !renderer || !overlayRoot) {
+    // A pre-requested session uses document.body as its persistent DOM overlay.
+    const overlayRoot = overlayRootRef.current || document.body;
+    if ((!xr && !pendingSession) || !renderer || !overlayRoot) {
       onToast('این مرورگر یا دستگاه از WebXR AR پشتیبانی نمی‌کند (پیش‌نمایش کالیبراسیون فعال است)');
       return;
     }
@@ -2046,7 +2072,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     try {
-      const session = await xr.requestSession('immersive-ar', nearDepthSessionOptions(overlayRoot));
+      const session = await (pendingSession || xr!.requestSession('immersive-ar', nearDepthSessionOptions(overlayRoot)));
       xrSessionRef.current = session;
       setXrActive(true);
       if (controlsRef.current) controlsRef.current.enabled = false;
@@ -2070,6 +2096,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         setFloorLocked(false);
         setScanReady(false);
         setOcclusionStatus('idle');
+        onSessionEnded?.();
         if (controlsRef.current) controlsRef.current.enabled = true;
         renderOnceRef.current();
       });
@@ -2319,8 +2346,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
     for (const c of crossesPoolRef.current) c.visible = false;
     setFloorLocked(true);
-    setArTool('select');
-    onToast('کف قفل شد؛ باکس‌ها و نقاط A/B را بکشید یا ابزار دلخواه را انتخاب کنید');
+    setArTool('wall');
+    onFloorConfirmed?.();
+    onToast('کف تأیید شد؛ ابزار دیوار در محیط سه‌بعدی آماده است');
   };
 
   const handleApplyRealDistance = () => {
@@ -2342,6 +2370,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     () => Math.round(Math.hypot(pointB.x - pointA.x, pointB.z - pointA.z) * alignment.scale * 100),
     [pointA, pointB, alignment.scale]
   );
+
+  // React effects run after the 3D canvas and WebXR renderer are mounted. The
+  // actual requestSession() happened in the preceding real user click.
+  useEffect(() => {
+    if (initialSession) void startWebXrSession(initialSession);
+    // Each launch promise has unique identity; do not restart for tool changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSession]);
 
   const previewToolId: ToolId = arTool.startsWith('cab-')
     ? 'cab-draw'
@@ -2388,6 +2424,36 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         </div>
       )}
 
+      {/* The scanned camera is only a layer of the existing 3D editor. */}
+      {embeddedIn3D ? (
+        <div className="absolute top-2.5 left-2.5 right-2.5 z-20 pointer-events-none flex justify-center">
+          <div className="pointer-events-auto bg-white/95 border border-emerald-300 rounded-xl shadow-lg px-3 py-2 flex items-center gap-2 text-[13px] font-bold">
+            {!xrActive ? (
+              <button type="button" onClick={() => void startWebXrSession()} className="h-10 px-3 rounded-lg bg-emerald-600 text-white">
+                شروع دوربین و اسکن کف
+              </button>
+            ) : !floorLocked ? (
+              <>
+                <span>{scanReady ? 'کف شناسایی شد' : 'دوربین را آرام روی کف حرکت دهید'}</span>
+                <button type="button" disabled={!scanReady} onClick={handleLockFloor}
+                  className="h-10 px-3 rounded-lg bg-indigo-600 text-white disabled:bg-slate-300 disabled:text-slate-600">
+                  تأیید کف
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="text-emerald-800">کف تأیید شد • نمای سه‌بعدی با دوربین تبلت</span>
+                <button type="button" onClick={() => {
+                  floorScannerRef.current.reset();
+                  anchorsRef.current = [];
+                  setFloorLocked(false);
+                  setScanReady(false);
+                }} className="h-9 px-2 rounded-lg border border-emerald-300 text-emerald-700">اسکن مجدد</button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
       {/* Top Floating AR Status & Calibration Card */}
       <div className="absolute top-2.5 right-2.5 left-2.5 flex flex-wrap items-start justify-between gap-2 pointer-events-none z-20">
         <div className="pointer-events-auto bg-white/95 border border-slate-200 rounded-xl shadow-md px-3 py-2 flex flex-wrap items-center gap-2 text-[13px]">
@@ -2602,6 +2668,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         </div>
       </div>
 
+      )}
+
       {/* Confirm (تأیید) and Cancel (لغو) floating AR editing actions */}
       {(arTool !== 'select' || pendingWallStart || (xrActive && !floorLocked)) && (
         <div className="absolute bottom-[118px] left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2.5 py-1.5">
@@ -2626,6 +2694,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         </div>
       )}
 
+      {/* Only standalone legacy AR owns its toolbar; unified 3D uses BottomDock. */}
+      {!embeddedIn3D && (
       {/* Two-level AR tool dock */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[96vw] z-20 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2 py-1.5 flex flex-col items-stretch gap-1.5">
         {([
@@ -2679,6 +2749,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           </div>
         ))}
       </div>
+
+      )}
 
       {/* Strictly image-only CursorToolPreview persisting across ALL active placement/edit tools */}
       {cursorPreview && (
