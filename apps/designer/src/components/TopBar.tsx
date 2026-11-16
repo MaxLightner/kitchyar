@@ -47,6 +47,8 @@ interface TopBarProps {
   onUndo: () => void;
   onRedo: () => void;
   onSelectViewMode: (mode: ViewMode) => void;
+  floorScanActive?: boolean;
+  onToggleFloorScan?: () => void;
   onOpenSettings: () => void;
   onExportProject?: () => void;
   onImportProject?: (jsonText: string) => void;
@@ -86,6 +88,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onUndo,
   onRedo,
   onSelectViewMode,
+  floorScanActive = false,
+  onToggleFloorScan,
   onOpenSettings,
   onExportProject,
   onImportProject,
@@ -229,7 +233,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           )}
         </div>
 
-        {/* بخش چپ: سوئیچ سه‌گانه 2D | 3D | AR */}
+        {/* بخش چپ: نمای دوبعدی و سه‌بعدی با اسکن کف در همان محیط */}
         <div className="flex items-center gap-1.5 shrink-0">
           <div
             role="group"
@@ -266,21 +270,22 @@ export const TopBar: React.FC<TopBarProps> = ({
               <Box className="w-3.5 h-3.5" />
               <span>3D</span>
             </button>
-            <button
-              type="button"
-              onClick={() => onSelectViewMode('ar')}
-              aria-pressed={viewMode === 'ar'}
-              aria-label="حالت واقعیت افزوده AR"
-              title="اسکن کف و کالیبراسیون AR (بدون بسته شدن سشن)"
-              className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${
-                viewMode === 'ar'
+            {onToggleFloorScan && (
+              <button
+                type="button"
+                data-testid="toggle-floor-scan-3d"
+                onClick={onToggleFloorScan}
+                aria-pressed={floorScanActive}
+                aria-label={floorScanActive ? 'پایان اسکن کف' : 'اسکن کف با دوربین واقعی'}
+                title={floorScanActive ? 'بازگشت به نمای سه‌بعدی آزاد' : 'اسکن کف در همین محیط سه‌بعدی'}
+                className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${floorScanActive
                   ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-emerald-700 hover:bg-white'
-              }`}
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>AR</span>
-            </button>
+                  : 'text-emerald-700 hover:bg-white'}`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>{floorScanActive ? 'دوربین فعال' : 'اسکن کف'}</span>
+              </button>
+            )}   </button>
           </div>
         </div>
       </div>
