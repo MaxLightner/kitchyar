@@ -1,0 +1,64 @@
+name: Browser smoke — Chido floor scan from Welcome
+
+on:
+  push:
+    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16']
+    paths:
+      - 'apps/designer/**'
+      - '.github/workflows/scan-ui-smoke.yml'
+
+jobs:
+  welcome-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build actual designer
+        working-directory: apps/designer
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: Install isolated browser test runtime
+        run: |
+          npm install --no-save --no-package-lock --prefix /tmp/kitchyar-smoke playwright@1.58.0
+          /tmp/kitchyar-smoke/node_modules/.bin/playwright install chromium --with-deps
+      - name: Exercise Welcome scan in Chromium without WebXR
+        working-directory: apps/designer
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run preview --host 127.0.0.1 --port 4173 >/tmp/kitchyar-preview.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node <<'JS'
+          const { chromium } = require('/tmp/kitchyar-smoke/node_modules/playwright');
+          const assert = require('node:assert/strict');
+          (async () => {
+            const browser = await chromium.launch({ headless:true, args:['--no-sandbox'] });
+            const page = await browser.newPage({viewport:{width:1024,height:768}});
+            const errors = [];
+            page.on('pageerror', error => errors.push(error.message));
+            await page.goto('http://127.0.0.1:4173/', {waitUntil:'networkidle'});
+            await page.getByRole('button',{name:'اسکن کف AR'}).click();
+            const scanner = page.getByTestId('chido-floor-scan-readiness');
+            await scanner.waitFor({timeout:15000});
+            assert.equal(await scanner.isVisible(), true, 'Chido scanner must be shown immediately from Welcome');
+            const label = await page.getByTestId('chido-scan-stage').textContent();
+            assert.match(label, /WebXR|دوربین|اسکن/, 'Scanner must report its actual XR state');
+            assert.equal(await page.getByTestId('chido-scan-progress').count(), 1);
+            assert.equal(await page.getByTestId('3d-fov-normal').isVisible(), true, '3D toolbar must be preserved');
+            assert.equal(await page.getByTestId('scene-3d-canvas').count(), 0, 'Do not allocate competing WebGL canvas during XR');
+            console.log('PASS: Welcome opens Chido scanner, shows diagnosis and preserves 3D toolbar:',label);
+            await page.getByTestId('toggle-floor-scan-3d').click();
+            await page.getByTestId('scene-3d-canvas').waitFor({timeout:15000});
+            console.log('PASS: Turning scan off restores normal 3D canvas.');
+            if(errors.length) throw Error('Browser errors: '+errors.join('; '));
+            await browser.close();
+          })().catch(e=>{console.error(e);process.exitCode=1;});
+          JS
