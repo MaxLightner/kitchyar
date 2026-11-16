@@ -57,7 +57,23 @@ module.exports=async function(browser){
  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  assert.deepEqual(await t.getByTestId('scene-3d-root').evaluate(e=>[e.dataset.cursorX,e.dataset.cursorY,e.dataset.cursorZ]),target);
  assert.equal(await t.evaluate(()=>JSON.stringify(JSON.parse(localStorage.getItem('kichiyar_projects_v2'))[0].state)),before);
+ await t.getByRole('button',{name:'دیوار',exact:true}).tap();
+ await t.getByTestId('scene-confirm-placement').tap();
+ const movedX=x+110,movedY=y+15;
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y,id:1}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:movedX,y:movedY,id:1}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ assert.equal(await t.evaluate(()=>JSON.parse(localStorage.getItem('kichiyar_projects_v2'))[0].state.walls.length),1,
+   'dragging the cursor previews only');
+ await t.touchscreen.tap(movedX,movedY);
+ await t.waitForFunction(()=>JSON.parse(localStorage.getItem('kichiyar_projects_v2'))[0].state.walls.length===2);
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:movedX,y:movedY,id:1}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:movedX-150,y:movedY+20,id:1}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await t.keyboard.press('Enter');
+ await t.waitForFunction(()=>JSON.parse(localStorage.getItem('kichiyar_projects_v2'))[0].state.walls.length===3);
  await touch.close();
+ console.log('PASS: Confirm starts placement, dragging previews, the next tap and Enter commit at the pinned target.');
  console.log('PASS: first touch positions the world cursor; two fingers keep its location and do not place objects.');
 
  const tracked=await browser.newContext({viewport:{width:1024,height:768},hasTouch:true,

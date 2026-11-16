@@ -891,6 +891,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       );
     };
     const pickingCamera = (): THREE.Camera => {
+      if(trackedWideCameraRef.current && wideViewModeRef.current !== 'normal')return trackedWideCameraRef.current;
       if (!xrSessionRef.current) return camera;
       const xrCamera = renderer.xr.getCamera();
       return xrCamera.cameras[0] || xrCamera;
@@ -2178,7 +2179,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   // Triggered by floating Confirm (تأیید) button in AR
   const handleConfirmAction = () => {
     const renderer = rendererRef.current;
-    const cam = renderer?.xr.isPresenting ? (renderer.xr.getCamera().cameras[0] || renderer.xr.getCamera()) : cameraRef.current;
+    const cam = trackedWideCameraRef.current || (renderer?.xr.isPresenting ? (renderer.xr.getCamera().cameras[0] || renderer.xr.getCamera()) : cameraRef.current);
     const pinned = renderer && cam ? surfaceCursorRef.current.screen(cam, renderer.domElement) : null;
     if (xrActive && !floorLocked) {
       handleLockFloor();
@@ -2556,7 +2557,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           performance.now() - lastPreviewTouchRef.current > 450
         ) {
           const rect = renderer.domElement.getBoundingClientRect();
-          const pinned=surfaceCursorRef.current.screen(renderer.xr.getCamera().cameras[0]||renderer.xr.getCamera(),renderer.domElement);
+          const pinned=surfaceCursorRef.current.screen(trackedWideCameraRef.current || renderer.xr.getCamera().cameras[0] || renderer.xr.getCamera(),renderer.domElement);
           const cx = pinned?.x ?? rect.left + rect.width / 2;
           const cy = pinned?.y ?? rect.top + rect.height / 2;
           const local = floorPointAtClientRef.current(cx, cy);

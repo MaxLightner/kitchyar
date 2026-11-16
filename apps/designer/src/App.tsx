@@ -2842,7 +2842,7 @@ export default function App() {
             sharedTool={tool}
             initialSession={initialXrSession}
             onSessionEnded={() => { setFloorScanActive(false); setTrackedFloorConfirmed(false); setInitialXrSession(null); setSharedWideMode('normal'); }}
-            onFloorConfirmed={() => { setTrackedFloorConfirmed(true); setTool('select'); }}
+            onFloorConfirmed={() => { setTrackedFloorConfirmed(true); setTool('select'); setSharedWideMode('wide'); }}
             wideViewModeExternal={sharedWideMode}
             onWideViewModeChange={setSharedWideMode}
             overlayRootRef={editorOverlayRef}
