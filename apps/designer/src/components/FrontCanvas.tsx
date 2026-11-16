@@ -1055,7 +1055,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         const ratio = dist / Math.max(10, touchPinch.current.dist);
         const nextS = +Math.max(0.6, Math.min(5.2, touchPinch.current.origScale * ratio)).toFixed(2);
         onZoomAndPanChange(nextS, {
-          x: touchPinch.current.origPan.x + (midX - touchPinch.current.midX),
+          x: touchPinch.current.origPan.x + (midX - touchPinch.current.midX) * (wall?.flipSide === -1 ? -1 : 1),
           y: touchPinch.current.origPan.y + (midY - touchPinch.current.midY),
         });
       } else {
@@ -1078,7 +1078,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           return;
         }
         onPanChange({
-          x: touchPinch.current.origPan.x + (midX - touchPinch.current.midX),
+          x: touchPinch.current.origPan.x + (midX - touchPinch.current.midX) * (wall?.flipSide === -1 ? -1 : 1),
           y: touchPinch.current.origPan.y + (midY - touchPinch.current.midY),
         });
       }
@@ -2433,7 +2433,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     const op = dragOp.current;
     if (op.mode === 'pan') {
       onPanChange({
-        x: op.origX + (e.clientX - op.startX),
+        x: op.origX + (e.clientX - op.startX) * (wall?.flipSide === -1 ? -1 : 1),
         y: op.origY + (e.clientY - op.startY),
       });
     } else if (op.mode === 'marquee') {
@@ -3364,12 +3364,14 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         </div>
       )}
 
+      <style>{'.front-elevation-reversed text { transform-box: fill-box; transform-origin: center; transform: scaleX(-1); }'}</style>
       <svg
         ref={svgRef}
         data-testid="front-svg"
+        data-front-direction={wall?.flipSide === -1 ? 'reversed' : 'forward'}
         viewBox={viewBox}
-        className="w-full h-full block touch-none"
-        style={{ cursor: spaceDown ? 'grab' : tool === 'eraser' ? 'not-allowed' : undefined }}
+        className={`w-full h-full block touch-none ${wall?.flipSide === -1 ? 'front-elevation-reversed' : ''}`}
+        style={{ transform: wall?.flipSide === -1 ? 'scaleX(-1)' : undefined, cursor: spaceDown ? 'grab' : tool === 'eraser' ? 'not-allowed' : undefined }}
         onContextMenu={(e) => {
           e.preventDefault();
           dragOp.current = null;
@@ -5292,11 +5294,11 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         )}
       </svg>
 
-      {hoverClientPt && !dragOp.current && (
+      {(hoverClientPt || tool !== 'select') && !dragOp.current && (
         <CursorToolPreview
           visible={true}
-          clientX={hoverClientPt.x}
-          clientY={hoverClientPt.y}
+          clientX={hoverClientPt?.x ?? 0}
+          clientY={hoverClientPt?.y ?? 0}
           tool={tool}
           hoverTarget={hoverFinishTarget}
           targetStatus={frontHoverStatus}

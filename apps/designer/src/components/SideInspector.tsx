@@ -15,6 +15,7 @@ import {
   Lock,
   LockOpen,
   MousePointer2,
+  Copy,
   Paintbrush,
   Palette,
   PanelTop,
@@ -193,6 +194,7 @@ interface SideInspectorProps {
   onBulkEqualizeDoors: () => void;
   onClearMultiSelection: () => void;
   onDeleteCurrentSelection?: () => void;
+  onCopySelection?: () => void;
   hasAnySelection?: boolean;
 }
 
@@ -346,6 +348,17 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
         </button>
       )}
 
+      <button type="button" data-testid="rail-delete" onClick={props.onDeleteCurrentSelection}
+        disabled={!props.hasAnySelection} aria-label="حذف مورد انتخاب‌شده" title="حذف (Delete)"
+        className={railBtnCls(false) + ' text-red-600 disabled:opacity-35 disabled:cursor-not-allowed'}>
+        <Trash2 className="w-4 h-4" />
+      </button>
+      <button type="button" data-testid="rail-copy" onClick={props.onCopySelection}
+        disabled={!props.hasAnySelection} aria-label="کپی مورد انتخاب‌شده" title="کپی (Ctrl+D)"
+        className={railBtnCls(false) + ' disabled:opacity-35 disabled:cursor-not-allowed'}>
+        <Copy className="w-4 h-4" />
+      </button>
+
       {/* ۱. آیکون تنظیمات ابزار فعال */}
       <button
         type="button"
@@ -465,19 +478,6 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
       </div>
 
       <div className="flex-1" />
-
-      {/* ۵. دکمه حذف سریع انتخاب‌شده روی ریل */}
-      {props.hasAnySelection && props.onDeleteCurrentSelection && (
-        <button
-          type="button"
-          onClick={props.onDeleteCurrentSelection}
-          aria-label="حذف مورد انتخاب‌شده"
-          title="حذف مورد انتخاب‌شده"
-          className="w-9 h-9 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 inline-flex items-center justify-center shrink-0 transition active:scale-95"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      )}
 
       {/* پنجره شناور بازشونده کنار ریل (مشابه پنل‌های فتوشاپ) */}
       {openTab && (

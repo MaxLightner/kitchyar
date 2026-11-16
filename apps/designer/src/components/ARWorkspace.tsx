@@ -34,6 +34,8 @@ import {
   XZPoint,
 } from '../ar/arCalibration';
 import { FloorScanner } from '../ar/floorScanner';
+import { FloorConfirmation } from '../ar/floorConfirmation';
+import { SurfaceCursor, createSurfaceCursorMarker, updateSurfaceCursorMarker } from '../utils/surfaceCursor';
 import { ChidoFloorTracking } from '../ar/chidoFloorTracking';
 import { AnchorSample, AnchorStabilizer, ChidoVec3, transformPoint as chidoTransformPoint } from '../ar/chidoAnchorRig';
 import { CHIDO_REFERENCE_SPACE, requestChidoSession, xrLaunchError } from '../ar/chidoSession';
@@ -590,6 +592,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const xrSessionRef = useRef<XRSession | null>(null);
   const skipEndNotificationRef = useRef(false);
   const floorScannerRef = useRef(new FloorScanner());
+  const floorConfirmationRef = useRef(new FloorConfirmation());
+  const surfaceCursorRef = useRef(new SurfaceCursor());
+  const surfaceMarkerRef = useRef<THREE.Group | null>(null);
+  const [surfaceCursorActive, setSurfaceCursorActive] = useState(false);
+  const confirmActionRef = useRef<() => void>(()=>{});
   const floorTrackingRef = useRef(new ChidoFloorTracking(floorScannerRef.current));
   const fallbackLocalSpaceRef = useRef<XRReferenceSpace | null>(null);
   const xrFrameCountRef = useRef(0);
@@ -818,6 +825,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     floorGroup.add(rulerTicks);
     rulerTicksRef.current = rulerTicks;
 
+    const surfaceMarker = createSurfaceCursorMarker();
+    scene.add(surfaceMarker);
+    surfaceMarkerRef.current=surfaceMarker;
     const occlusion = new NearRealOcclusion(scene);
     occlusionRef.current = occlusion;
 
@@ -855,6 +865,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
       const doorsMoving = stepDoorAnimations(dt);
       const ctrlChanged = controls.update();
+      updateSurfaceCursorMarker(surfaceMarker,surfaceCursorRef.current);
       renderer.render(scene, camera);
       if (doorsMoving || ctrlChanged) {
         rafId = requestAnimationFrame(renderPreview);
@@ -880,6 +891,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       );
     };
     const pickingCamera = (): THREE.Camera => {
+      if(trackedWideCameraRef.current && wideViewModeRef.current !== 'normal')return trackedWideCameraRef.current;
       if (!xrSessionRef.current) return camera;
       const xrCamera = renderer.xr.getCamera();
       return xrCamera.cameras[0] || xrCamera;
@@ -1229,6 +1241,30 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const dom = renderer.domElement;
 
     // Native capture-phase pointerdown intercepts A/B handles & base/wall/tall cabinets BEFORE OrbitControls!
+
+    const pinSurfaceCursor = (clientX:number,clientY:number) => {
+      getPointerRay(clientX,clientY);
+      builtSceneRef.current?.root.updateWorldMatrix(true,true);
+      const hit=builtSceneRef.current ? raycaster.intersectObjects(builtSceneRef.current.interactables,false)[0] : null;
+      if(hit) {
+        const normal=hit.face?.normal.clone().transformDirection(hit.object.matrixWorld)||new THREE.Vector3(0,1,0);
+        if(normal.dot(raycaster.ray.direction)>0)normal.negate();
+        surfaceCursorRef.current.pin(hit.point,normal);
+      } else {
+        const floor=floorPointAtClientRef.current(clientX,clientY);
+        if(!floor||!floorGroupRef.current)return;
+        surfaceCursorRef.current.pin(floorGroupRef.current.localToWorld(floor.clone()));
+      }
+      setSurfaceCursorActive(true);
+      updateSurfaceCursorMarker(surfaceMarker,surfaceCursorRef.current);
+      const floor=floorPointAtClientRef.current(clientX,clientY);
+      if(floor)updateArGhostRef.current(floor,clientX,clientY);
+      lastHoverCoordsRef.current={x:clientX,y:clientY};
+      setCursorPreview({x:clientX,y:clientY,status:floor?'valid':'invalid'});
+      requestPreviewRender();
+    };
+    const cursorScreen = (x:number,y:number)=>surfaceCursorRef.current.screen(pickingCamera(),dom)||{x,y};
+
     const onPointerDownCapture = (e: PointerEvent) => {
       if (e.button !== 0 || !activeRef.current) return;
       if (xrSessionRef.current && !floorLockedRef.current) {
@@ -1237,6 +1273,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
 
       const toolNow = arToolRef.current;
+      const pinnedScreen=surfaceCursorRef.current.screen(pickingCamera(),dom);
+      const nearCursor=pinnedScreen && Math.hypot(e.clientX-pinnedScreen.x,e.clientY-pinnedScreen.y)<34;
+      if(e.pointerType==='touch' && toolNow==='select' && !surfaceCursorRef.current.point)pinSurfaceCursor(e.clientX,e.clientY);
+      if(e.pointerType==='touch' && (toolNow!=='select'||nearCursor) && !toolNow.startsWith('calibrate-')) {
+        e.preventDefault();e.stopImmediatePropagation();controls.enabled=false;
+        surfaceCursorRef.current.begin(e.pointerId,e.clientX,e.clientY);
+        if(!surfaceCursorRef.current.point)pinSurfaceCursor(e.clientX,e.clientY);
+        try{dom.setPointerCapture(e.pointerId);}catch{}
+        return;
+      }
       dragDownClientRef.current = { x: e.clientX, y: e.clientY };
 
       // 1) Direct A/B calibration handle grab (works in select AND calibrate-a/calibrate-b!)
@@ -1364,6 +1410,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const onPointerMove = (e: PointerEvent) => {
       if (!activeRef.current) return;
+      if(e.pointerType==='touch' && surfaceCursorRef.current.dragging) {
+        if(surfaceCursorRef.current.moving(e.pointerId,e.clientX,e.clientY))pinSurfaceCursor(e.clientX,e.clientY);
+        return;
+      }
       const dr = arDragRef.current;
       if (dr) {
         const dc = dragDownClientRef.current;
@@ -1446,6 +1496,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      if(!activeRef.current)return;
+      if(e.pointerType==='touch' && (arToolRef.current!=='select'||surfaceCursorRef.current.dragging) && !arToolRef.current.startsWith('calibrate-')) {
+        if(surfaceCursorRef.current.end(e.pointerId)&&arToolRef.current!=='select')confirmActionRef.current();
+        return;
+      }
       const dr = arDragRef.current;
       arDragRef.current = null;
       dragDownClientRef.current = null;
@@ -1517,6 +1572,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       t !== 'select' && t !== 'wall' && !t.startsWith('calibrate-');
 
     const updateTouchPreview = (midX: number, midY: number) => {
+      const target=cursorScreen(midX,midY);
+      midX=target.x;midY=target.y;
       lastHoverCoordsRef.current = { x: midX, y: midY };
       const floor = floorPointAtClientRef.current(midX, midY);
       const status = floor ? updateArGhostRef.current(floor, midX, midY) : 'invalid';
@@ -1526,11 +1583,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2 && arToolRef.current !== 'select' && !arToolRef.current.startsWith('calibrate-')) {
+        surfaceCursorRef.current.cancelGesture();
         controls.enabled = false;
         gestureStepperRef.current.resetTouch();
         const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
         twoFingerMidY = midY;
+        if(!surfaceCursorRef.current.point)pinSurfaceCursor(midX,midY);
         updateTouchPreview(midX, midY);
       } else {
         twoFingerMidY = null;
@@ -1568,6 +1627,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       updateTouchPreview(e.clientX, e.clientY);
     };
 
+    const onPlacementKey=(event:KeyboardEvent)=>{
+      if(activeRef.current && event.key==='Enter' && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target as HTMLElement)?.isContentEditable)) {
+        event.preventDefault();confirmActionRef.current();
+      }
+    };
+    window.addEventListener('keydown',onPlacementKey);
     dom.addEventListener('pointerdown', onPointerDownCapture, { capture: true });
     dom.addEventListener('wheel', onWheelCapture as EventListener, { passive: false, capture: true });
     dom.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -1591,6 +1656,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
       dom.removeEventListener('pointerdown', onPointerDownCapture, { capture: true });
+      window.removeEventListener('keydown',onPlacementKey);
+      disposeObject3D(surfaceMarker);
+      surfaceMarkerRef.current=null;
       dom.removeEventListener('wheel', onWheelCapture as EventListener, { capture: true });
       dom.removeEventListener('touchstart', onTouchStart);
       dom.removeEventListener('touchmove', onTouchMove);
@@ -2111,6 +2179,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   // Triggered by floating Confirm (تأیید) button in AR
   const handleConfirmAction = () => {
     const renderer = rendererRef.current;
+    const cam = trackedWideCameraRef.current || (renderer?.xr.isPresenting ? (renderer.xr.getCamera().cameras[0] || renderer.xr.getCamera()) : cameraRef.current);
+    const pinned = renderer && cam ? surfaceCursorRef.current.screen(cam, renderer.domElement) : null;
     if (xrActive && !floorLocked) {
       handleLockFloor();
       return;
@@ -2118,8 +2188,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     if (arToolRef.current === 'wall' && pendingWallStartRef.current && renderer) {
       const rect = renderer.domElement.getBoundingClientRect();
       const centerLocal = floorPointAtClientRef.current(
-        rect.left + rect.width / 2,
-        rect.top + rect.height / 2
+        pinned?.x ?? rect.left + rect.width / 2,
+        pinned?.y ?? rect.top + rect.height / 2
       );
       if (!centerLocal) {
         onToast('نشانگر روی کف نیست؛ دوربین را به سمت کف بگیرید');
@@ -2138,8 +2208,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
     if (renderer) {
       const rect = renderer.domElement.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
+      const cx = pinned?.x ?? rect.left + rect.width / 2;
+      const cy = pinned?.y ?? rect.top + rect.height / 2;
       if (
         arToolRef.current === 'doors' ||
         arToolRef.current === 'handle' ||
@@ -2155,6 +2225,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
     }
   };
+
+  confirmActionRef.current = handleConfirmAction;
 
   // Triggered by floating Cancel (لغو) button in AR
   const handleCancelAction = () => {
@@ -2210,6 +2282,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setXrActive(true);
       if (controlsRef.current) controlsRef.current.enabled = false;
       floorScannerRef.current.reset();
+      floorConfirmationRef.current.reset();
       fallbackLocalSpaceRef.current = null;
       xrFrameCountRef.current = 0;
       xrStartTimeRef.current = performance.now();
@@ -2280,6 +2353,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         try { pose = frame.getViewerPose(space); }
         catch (error) { console.warn('[Kitchyar XR] viewer pose rejected', error); }
         if (!pose) {
+          floorConfirmationRef.current.reset();
+          setScanReady(false);
           if (time - lastScanReportMsRef.current > 300) {
             lastScanReportMsRef.current = time;
             setScanDiagnostics({ tracking: false, rawHits: 0, validHits: 0 });
@@ -2300,10 +2375,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }
 
         if (!activeRef.current) {
-          occlusionRef.current?.update(frame, pose, rendererRef.current, session, {
-            enabled: occlusionEnabledRef.current,
-            ar: false,
-          });
+          // 2D covers the camera with its DOM view while this same session and
+          // reference space keep tracking. No end/unmount or fresh floor scan.
+          renderer.render(sceneRef.current, renderer.xr.getCamera());
           return;
         }
 
@@ -2316,7 +2390,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         if (floorLockedRef.current) {
           if (pendingAnchorCreateRef.current) {
             pendingAnchorCreateRef.current = false;
-            anchorCandidatesRef.current = [
+            if(!anchorCandidatesRef.current.length)anchorCandidatesRef.current = [
               ...floorScannerRef.current.observations.map(p => p.clone()),
               ...(floorScannerRef.current.point ? [floorScannerRef.current.point.clone()] : []),
             ];
@@ -2423,7 +2497,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             // inside the copied Chido tracking path.
             setXrStartError(xrLaunchError(error, 'دریافت برخورد مرکزی کف'));
           }
-          setScanReady(floorScannerRef.current.ready);
+          floorConfirmationRef.current.observe(pt, floorScannerRef.current.observations, floorScannerRef.current.ready, performance.now());
+          setScanReady(Boolean(floorConfirmationRef.current.current(performance.now())));
           if (time - lastScanReportMsRef.current > 250 || floorScannerRef.current.ready) {
             lastScanReportMsRef.current = time;
             setScanDiagnostics({
@@ -2482,8 +2557,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           performance.now() - lastPreviewTouchRef.current > 450
         ) {
           const rect = renderer.domElement.getBoundingClientRect();
-          const cx = rect.left + rect.width / 2;
-          const cy = rect.top + rect.height / 2;
+          const pinned=surfaceCursorRef.current.screen(trackedWideCameraRef.current || renderer.xr.getCamera().cameras[0] || renderer.xr.getCamera(),renderer.domElement);
+          const cx = pinned?.x ?? rect.left + rect.width / 2;
+          const cy = pinned?.y ?? rect.top + rect.height / 2;
           const local = floorPointAtClientRef.current(cx, cy);
           if (local) {
             if (reticleRef.current) reticleRef.current.position.set(local.x, 0.012, local.z);
@@ -2507,6 +2583,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
         }
 
+        if(surfaceMarkerRef.current)updateSurfaceCursorMarker(surfaceMarkerRef.current,surfaceCursorRef.current);
         const xrCam = rendererRef.current.xr.getCamera();
         rendererRef.current.render(sceneRef.current, xrCam);
         const wideRenderer = trackedWideRendererRef.current;
@@ -2609,11 +2686,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   }, [embeddedIn3D, xrActive, floorLocked, wideViewMode]);
 
   const handleLockFloor = () => {
-    if (xrActive && !floorScannerRef.current.ready) {
+    const evidence = floorConfirmationRef.current.current(performance.now());
+    if (!xrActive || !evidence || performance.now()-xrLastPoseTimeRef.current>600) {
       onToast('چیدو هنوز سه نقطه مستقل هم‌ارتفاع روی کف پیدا نکرده؛ دوربین را آرام روی کف حرکت دهید');
       return;
     }
-    const pt = floorScannerRef.current.point;
+    const pt = evidence?.point || floorScannerRef.current.point;
     if (xrActive && pt && floorGroupRef.current) {
       basePoseRef.current = { x: pt.x, y: pt.y, z: pt.z, yaw: 0 };
       floorGroupRef.current.position.set(pt.x, pt.y, pt.z);
@@ -2626,14 +2704,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       anchorPendingRef.current = false;
       anchorStabilizerRef.current = new AnchorStabilizer();
       anchorLastTimeRef.current = 0;
+      anchorCandidatesRef.current = evidence?.observations.map(p=>p.clone()) || [];
       pendingAnchorCreateRef.current = true;
       floorRevealStartRef.current = performance.now();
     }
     for (const c of crossesPoolRef.current) c.visible = false;
+    floorLockedRef.current = true;
     setFloorLocked(true);
-    setArTool('wall');
+    setArTool('select');
     onFloorConfirmed?.();
-    onToast('کف تأیید شد؛ ابزار دیوار در محیط سه‌بعدی آماده است');
+    onToast('کف تأیید شد؛ ابزار انتخاب فعال است');
   };
 
   const handleApplyRealDistance = () => {
@@ -2734,11 +2814,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }}
         className={`flex-1 relative cursor-crosshair ${
           xrActive || embeddedIn3D ? 'bg-transparent' : 'bg-gradient-to-b from-slate-200 via-slate-100 to-slate-200'
-        } ${embeddedIn3D ? 'pointer-events-none' : 'pointer-events-auto'}`}
+        } ${active ? 'pointer-events-auto' : 'pointer-events-none'}`}
       />
 
       {/* Aiming Reticle overlay for precise AR aiming */}
-      {reticleEnabled && (
+      {reticleEnabled && !surfaceCursorActive && (
         <div
           data-testid="ar-reticle-overlay"
           className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
@@ -2845,9 +2925,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               </>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-2 text-[14px] font-bold">
-                <span className="text-emerald-800">کف تثبیت شد • ترسیم دیوار در همین سه‌بعدی فعال است</span>
+                <span className="text-emerald-800">کف تثبیت شد • ابزار انتخاب فعال است</span>
                 <button type="button" onClick={() => {
                   floorScannerRef.current.reset();
+                  floorConfirmationRef.current.reset();
+                  surfaceCursorRef.current.clear();setSurfaceCursorActive(false);
                   anchorGenerationRef.current++;
                   for (const anchor of anchorsRef.current) {
                     try { anchor.anchor.delete(); } catch {}
@@ -3083,13 +3165,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       )}
 
       {/* Confirm (تأیید) and Cancel (لغو) floating AR editing actions */}
-      {(arTool !== 'select' || pendingWallStart || (xrActive && !floorLocked)) && (
-        <div className="absolute bottom-[118px] left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2.5 py-1.5">
+      {(arTool !== 'select' || pendingWallStart || surfaceCursorActive || (xrActive && !floorLocked)) && (
+        <div className="pointer-events-auto absolute bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2.5 py-1.5">
           <button
             type="button"
             data-testid="ar-confirm-btn"
             onClick={handleConfirmAction}
-            className="h-9 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-black inline-flex items-center gap-1.5 transition active:scale-95"
+            disabled={xrActive && !floorLocked && !scanReady}
+            className="h-11 px-3.5 rounded-lg disabled:opacity-40 bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-black inline-flex items-center gap-1.5 transition active:scale-95"
           >
             <Check className="w-4 h-4" />
             <span>تأیید</span>
@@ -3167,14 +3250,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       )}
 
       {/* Strictly image-only CursorToolPreview persisting across ALL active placement/edit tools */}
-      {cursorPreview && (
+      {active && (cursorPreview || previewToolId !== 'select') && (
         <CursorToolPreview
           visible={true}
-          clientX={cursorPreview.x}
-          clientY={cursorPreview.y}
+          clientX={cursorPreview?.x ?? 0}
+          clientY={cursorPreview?.y ?? 0}
           tool={previewToolId}
           drawBoxKind={previewBoxKind}
-          targetStatus={cursorPreview.status}
+          targetStatus={cursorPreview?.status}
           sinkModel={sinkModel}
           gasWidth={gasWidth}
           hoodKind={hoodKind}

@@ -117,8 +117,8 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
   const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
   const cardW = 104;
   const cardH = 68;
-  const left = Math.min(Math.max(8, clientX + 18), vw - cardW - 10);
-  const top = Math.min(Math.max(8, clientY - cardH - 12 > 54 ? clientY - cardH - 12 : clientY + 18), vh - cardH - 10);
+  const left = Math.max(8, (vw - cardW) / 2);
+  const top = 62;
 
   let graphic: React.ReactNode = null;
   let badgeLabel = '';
@@ -461,7 +461,7 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
       data-testid={testId}
       data-target-status={targetStatus}
       className={`fixed z-50 pointer-events-none flex flex-col items-center justify-center gap-1 rounded-xl shadow-xl px-2 py-1.5 select-none transition-colors duration-100 ${statusToneClass}`}
-      style={{ left: `${left}px`, top: `${top}px` }}
+      style={{ left: '50%', top: `${top}px`, transform: 'translateX(-50%)', minWidth: `${cardW}px` }}
     >
       {graphic}
       {badgeLabel && (

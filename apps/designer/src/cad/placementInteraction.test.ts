@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import * as THREE from 'three';
+import { FloorConfirmation } from '../ar/floorConfirmation';
+import { SurfaceCursor } from '../utils/surfaceCursor';
+import { copySelection } from './copySelection';
+import { createEmptyBox, createWall } from './doorRules';
+import { ProjectState } from './types';
+
+test('floor confirmation survives a brief missed scan frame but expires old evidence',()=>{
+  const floor=new FloorConfirmation();
+  const point=new THREE.Vector3(.3,0,-1);
+  floor.observe(point,[point],true,100);
+  point.y=10;
+  floor.observe(null,[],false,116);
+  assert.equal(floor.current(200)?.point.y,0);
+  assert.equal(floor.current(1400),null);
+  floor.reset();
+  assert.equal(floor.current(200),null);
+});
+test('touch target moves only by dragging, and a two-finger option gesture never places or moves it',()=>{
+  const cursor=new SurfaceCursor();
+  cursor.begin(1,100,100);cursor.pin(new THREE.Vector3(1,.9,2));
+  assert.equal(cursor.end(1),false,'first tap only positions the target');
+  cursor.begin(2,100,100);
+  cursor.cancelGesture();
+  assert.equal(cursor.end(2),false);
+  assert.deepEqual(cursor.point?.toArray(),[1,.9,2]);
+  cursor.begin(3,100,100);
+  assert.equal(cursor.moving(3,130,140),true);
+  cursor.pin(new THREE.Vector3(2,1.5,3),new THREE.Vector3(0,0,1));
+  assert.equal(cursor.end(3),false,'dragging only moves the target');
+  cursor.begin(4,20,20);
+  assert.equal(cursor.end(4),true,'next tap confirms at the pinned target');
+  assert.deepEqual(cursor.point?.toArray(),[2,1.5,3]);
+});
+test('copy creates independent semantic IDs and internal references, or makes no change when crowded',()=>{
+  const wall=createWall('wall',0,0,600,0);
+  const box=createEmptyBox('base',0,100);
+  box.doors=[{id:'door-source',startCm:0,widthCm:100,kind:'door',drawerRatios:[1]}];
+  box.handles=[{id:'handle-source',doorId:box.doors[0].id,rowIndex:0,xRatio:.8,yRatio:.5,orient:'vertical',style:'knob',lengthCm:3}];
+  wall.boxes.push(box);
+  const project:ProjectState={walls:[wall],cornerOwners:{},activeWallId:wall.id,activeBoxId:box.id,selectedDoorId:null,doorsLocked:false};
+  const before=JSON.stringify(project);
+  const result=copySelection(project);
+  assert.ok(result.next);
+  const copied=result.next.walls[0].boxes[1];
+  assert.notEqual(copied.id,box.id);
+  assert.notEqual(copied.doors[0].id,box.doors[0].id);
+  assert.equal(copied.handles[0].doorId,copied.doors[0].id);
+  assert.ok(copied.offsetX>=box.offsetX+box.width);
+  assert.equal(JSON.stringify(project),before);
+  wall.length=100;wall.x2Cm=100;
+  assert.equal(copySelection(project).next,null);
+});
