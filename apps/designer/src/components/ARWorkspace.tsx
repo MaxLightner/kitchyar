@@ -74,6 +74,7 @@ import {
 import { createWallOpening } from '../cad/openingRules';
 import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
 import { PacedGestureStepper } from '../utils/gesturePacing';
+import { wideViewVerticalFov, WideViewMode } from '../ar/wideView';
 import {
   applyAnimatedDoorProgress,
   buildHandleMesh,
@@ -408,6 +409,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [occlusionStatus, setOcclusionStatus] = useState<OcclusionStatus>('idle');
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [reticleEnabled, setReticleEnabled] = useState(true);
+  const [wideViewMode, setWideViewMode] = useState<WideViewMode>('normal');
+  const wideViewModeRef = useRef<WideViewMode>('normal');
+  wideViewModeRef.current = wideViewMode;
 
   const [arTool, setArTool] = useState<ArToolId>('select');
   const [cursorPreview, setCursorPreview] = useState<{ x: number; y: number; status: CursorTargetStatus } | null>(null);
@@ -532,6 +536,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const transientHitSourceRef = useRef<XRTransientInputHitTestSource | null>(null);
 
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  // Chido Wide View: virtual scene uses XR tracking, but a separate perspective
+  // from the physical camera; no OrbitControls are enabled during a live scan.
+  const trackedWideRendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const trackedWideCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -2312,6 +2320,26 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
         const xrCam = rendererRef.current.xr.getCamera();
         rendererRef.current.render(sceneRef.current, xrCam);
+        const wideRenderer = trackedWideRendererRef.current;
+        const wideCamera = trackedWideCameraRef.current;
+        if (wideRenderer && wideCamera && floorLockedRef.current) {
+          const view = pose.views.find((v) => v.eye === 'none') || pose.views[0];
+          const t = view.transform;
+          wideCamera.position.set(t.position.x, t.position.y, t.position.z);
+          wideCamera.quaternion.set(t.orientation.x, t.orientation.y, t.orientation.z, t.orientation.w);
+          const host = containerRef.current;
+          const width = Math.max(1, Math.floor(host?.clientWidth || 800));
+          const height = Math.max(1, Math.floor(host?.clientHeight || 500));
+          if (wideRenderer.domElement.width !== Math.round(width * wideRenderer.getPixelRatio()) ||
+              wideRenderer.domElement.height !== Math.round(height * wideRenderer.getPixelRatio())) {
+            wideRenderer.setSize(width, height, false);
+          }
+          wideCamera.aspect = width / height;
+          wideCamera.fov = wideViewVerticalFov(wideViewModeRef.current, wideCamera.aspect);
+          wideCamera.updateProjectionMatrix();
+          wideCamera.updateMatrixWorld(true);
+          wideRenderer.render(sceneRef.current, wideCamera);
+        }
       });
 
       onToast('اسکن خودکار کف فعال شد — دوربین را رو به کف نگه دارید');
@@ -2331,6 +2359,33 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       onToast('امکان باز کردن دوربین AR در این مرورگر وجود نداشت؛ پیش‌نمایش کالیبراسیون فعال است');
     }
   };
+
+  useEffect(() => {
+    const parent = containerRef.current;
+    if (!embeddedIn3D || !xrActive || !floorLocked || wideViewMode === 'normal' || !parent) return;
+    const wideRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    wideRenderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
+    wideRenderer.setClearColor(0xf3f4f6, 1);
+    wideRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    wideRenderer.toneMapping = THREE.ReinhardToneMapping;
+    wideRenderer.toneMappingExposure = 1.12;
+    wideRenderer.shadowMap.enabled = true;
+    wideRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    const canvas = wideRenderer.domElement;
+    canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
+    parent.appendChild(canvas);
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 80);
+    trackedWideRendererRef.current = wideRenderer;
+    trackedWideCameraRef.current = camera;
+    return () => {
+      if (trackedWideRendererRef.current === wideRenderer) {
+        trackedWideRendererRef.current = null;
+        trackedWideCameraRef.current = null;
+      }
+      wideRenderer.dispose();
+      canvas.remove();
+    };
+  }, [embeddedIn3D, xrActive, floorLocked, wideViewMode]);
 
   const handleLockFloor = () => {
     if (xrActive && !floorScannerRef.current.ready) {
@@ -2424,9 +2479,56 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         </div>
       )}
 
+      {embeddedIn3D && (
+        <div className="absolute top-2.5 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
+          <div className="pointer-events-auto flex items-center gap-1 bg-white/95 border border-slate-300 rounded-xl p-1 shadow-sm">
+            <button type="button" aria-pressed={true} className="h-7 px-2.5 rounded-lg bg-indigo-600 text-white text-[13px] font-bold">سه‌بعدی</button>
+            <button type="button" disabled title="کنترل دوربین اکنون با حرکت تبلت است"
+              className="h-7 px-2.5 rounded-lg text-[13px] font-bold text-slate-400">روبروی دیوار</button>
+            <button type="button" disabled title="در اسکن فعال، زاویه دوربین با تبلت کنترل می‌شود"
+              className="h-7 px-2.5 rounded-lg text-[13px] font-bold text-slate-400">بالا (پلان)</button>
+            <div className="w-px h-4 bg-slate-200 mx-0.5" />
+            {(['normal', 'wide', 'ultra'] as const).map((mode) => (
+              <button key={mode} type="button" data-testid={`tracked-3d-fov-${mode}`}
+                onClick={() => setWideViewMode(mode)} aria-pressed={wideViewMode === mode}
+                className={`h-7 px-2 rounded-lg text-[13px] font-bold ${wideViewMode === mode
+                  ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+              >{mode === 'normal' ? 'عادی' : mode === 'wide' ? 'واید' : 'اولترا'}</button>
+            ))}
+            <div className="w-px h-4 bg-slate-200 mx-0.5" />
+            <button type="button" data-testid="toggle-3d-doors-btn" aria-pressed={doorsOpen}
+              onClick={() => {
+                const next = !doorsOpen;
+                const built = builtSceneRef.current;
+                if (next && (!built || !built.animatedDoors.length)) {
+                  onToast('ابتدا برای درب‌ها دستگیره قرار دهید');
+                  return;
+                }
+                setDoorsOpen(next);
+                for (const h of built?.animatedDoors || []) {
+                  const st = doorStatesRef.current.get(h.doorId);
+                  doorStatesRef.current.set(h.doorId, {cur: st?.cur || 0, target: next ? 1 : 0});
+                }
+              }} className="h-7 px-2 rounded-lg text-[13px] font-bold text-slate-700 hover:bg-slate-100">
+              {doorsOpen ? 'درب‌ها باز' : 'درب‌ها بسته'}
+            </button>
+          </div>
+          <div className="pointer-events-auto flex items-center gap-1 bg-white/95 border border-slate-300 rounded-xl p-1 shadow-sm max-w-full overflow-x-auto">
+            <Layers className="w-3.5 h-3.5 text-slate-500" />
+            {project.walls.map(w => (
+              <button key={w.id} type="button" aria-pressed={project.activeWallId === w.id}
+                onClick={() => onUpdateProject(prev => ({...prev, activeWallId: w.id, activeBoxId: null}))}
+                className={`h-7 px-2 rounded-lg text-[13px] font-bold whitespace-nowrap ${project.activeWallId === w.id ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}>
+                {w.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* The scanned camera is only a layer of the existing 3D editor. */}
       {embeddedIn3D ? (
-        <div className="absolute top-2.5 left-2.5 right-2.5 z-20 pointer-events-none flex justify-center">
+        <div className="absolute top-[58px] left-2.5 right-2.5 z-20 pointer-events-none flex justify-center">
           <div className="pointer-events-auto bg-white/95 border border-emerald-300 rounded-xl shadow-lg px-3 py-2 flex items-center gap-2 text-[13px] font-bold">
             {!xrActive ? (
               <button type="button" onClick={() => void startWebXrSession()} className="h-10 px-3 rounded-lg bg-emerald-600 text-white">
