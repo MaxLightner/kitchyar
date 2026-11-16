@@ -4,6 +4,7 @@ import {
   AlignLeft,
   AlignRight,
   ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
   Box,
   Camera,
@@ -13,10 +14,12 @@ import {
   FlipHorizontal2,
   FolderOpen,
   Layers,
+  LayoutGrid,
   Redo2,
   Rows3,
   Settings,
   Sparkles,
+  StretchHorizontal,
   Undo2,
   Upload,
 } from 'lucide-react';
@@ -32,6 +35,7 @@ interface TopBarProps {
   hasActiveBox?: boolean;
   hasSelectedUnit?: boolean;
   hasSelectedAppliance?: boolean;
+  hasBaseAndWallBoxes?: boolean;
   selectedApplianceName?: string;
   canEqualizeVertical?: boolean;
   canEqualizeHorizontal?: boolean;
@@ -48,6 +52,9 @@ interface TopBarProps {
   onImportProject?: (jsonText: string) => void;
   onEqualizeVertical?: () => void;
   onEqualizeHorizontal?: () => void;
+  onEqualizeDoorsAndFill?: () => void;
+  onCompactDoorsAndAppliances?: () => void;
+  onAlignWallAndBaseDoors?: () => void;
   onMirrorBox?: () => void;
   onAlignBox?: (pos: 'left' | 'center' | 'right') => void;
   onMoveUnit?: (dir: 'left' | 'right') => void;
@@ -67,6 +74,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   hasActiveBox = false,
   hasSelectedUnit = false,
   hasSelectedAppliance = false,
+  hasBaseAndWallBoxes = false,
   selectedApplianceName,
   canEqualizeVertical = false,
   canEqualizeHorizontal = false,
@@ -83,6 +91,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onImportProject,
   onEqualizeVertical,
   onEqualizeHorizontal,
+  onEqualizeDoorsAndFill,
+  onCompactDoorsAndAppliances,
+  onAlignWallAndBaseDoors,
   onMirrorBox,
   onAlignBox,
   onMoveUnit,
@@ -274,8 +285,8 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* نوار آیکونی تراز فرانت باکس، هم‌اندازه‌سازی هوشمند درب‌های هم‌ردیف، قرینه‌سازی و جابجایی یونیت */}
-      {viewMode !== 'ar' && (hasActiveBox || hasSelectedUnit || hasSelectedAppliance) && (
+      {/* نوار آیکونی تراز فرانت باکس، هم‌اندازه‌سازی هوشمند درب‌های هم‌ردیف، مرتب‌سازی خودکار و جابجایی یونیت */}
+      {viewMode !== 'ar' && (hasActiveBox || hasSelectedUnit || hasSelectedAppliance || hasBaseAndWallBoxes) && (
         <div
           aria-label="تراز و ویرایش باکس، تجهیز و یونیت فعال"
           className="h-9 bg-slate-50 border-t border-slate-200 flex items-center justify-center px-2 gap-1.5 overflow-x-auto no-scrollbar whitespace-nowrap"
@@ -290,6 +301,30 @@ export const TopBar: React.FC<TopBarProps> = ({
             <>
               {hasActiveBox && (
                 <>
+                  <button
+                    type="button"
+                    data-testid="align-equalize-fill-btn"
+                    onClick={onEqualizeDoorsAndFill}
+                    aria-label="هم‌اندازه و پرکردن فضای خالی درب‌ها"
+                    title="میانگین‌گیری اندازه درب‌ها و پرکردن خودکار فضاهای خالی باکس"
+                    className="h-7 px-2 rounded-md border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[12px] font-bold inline-flex items-center gap-1 shrink-0 transition active:scale-95"
+                  >
+                    <StretchHorizontal className="w-3.5 h-3.5" />
+                    <span>هم‌اندازه + پرکردن</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="align-compact-doors-btn"
+                    onClick={onCompactDoorsAndAppliances}
+                    aria-label="جمع‌کردن و مرتب‌سازی درب‌ها و تجهیزات"
+                    title="مرتب‌سازی و چسباندن درب‌های پراکنده و جابجایی هوشمند تجهیزات برای حذف فضاهای پرت"
+                    className="h-7 px-2 rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[12px] font-bold inline-flex items-center gap-1 shrink-0 transition active:scale-95"
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    <span>جمع‌کردن درها</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={onEqualizeVertical}
@@ -390,6 +425,23 @@ export const TopBar: React.FC<TopBarProps> = ({
                 }
               >
                 <AlignLeft className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+
+          {hasBaseAndWallBoxes && onAlignWallAndBaseDoors && (
+            <>
+              <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
+              <button
+                type="button"
+                data-testid="align-wall-base-btn"
+                onClick={onAlignWallAndBaseDoors}
+                aria-label="هم‌راستاسازی درز درب بالا و پایین"
+                title="هماهنگ‌کردن درز درب‌های کابینت هوایی با زمینی زیرین (پیشنهادی برای نماهای مدرن مینیمال)"
+                className="h-7 px-2 rounded-md border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[12px] font-bold inline-flex items-center gap-1 shrink-0 transition active:scale-95"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>درز بالا و پایین</span>
               </button>
             </>
           )}

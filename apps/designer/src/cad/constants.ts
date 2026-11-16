@@ -408,6 +408,22 @@ export const DRAWER_PATTERNS: DrawerPattern[] = [
   { id: '3eq', label: '۳ کشو مساوی', shortLabel: '۳ کشو', ratios: [0.333, 0.667] },
   { id: '3step', label: '۳ کشو پلکانی', shortLabel: 'پلکانی', ratios: [0.22, 0.54] },
   { id: '4eq', label: '۴ کشو مساوی', shortLabel: '۴ کشو', ratios: [0.25, 0.5, 0.75] },
+  {
+    id: '1top',
+    label: 'تک کشو بالا (درب + کشو)',
+    shortLabel: 'تک کشو بالا',
+    ratios: [],
+    kind: 'door',
+    drawerBand: { position: 'top', ratio: 0.26 },
+  },
+  {
+    id: '1bot',
+    label: 'تک کشو پایین (درب + کشو)',
+    shortLabel: 'تک کشو پایین',
+    ratios: [],
+    kind: 'door',
+    drawerBand: { position: 'bottom', ratio: 0.26 },
+  },
 ];
 
 export const LIFT_PATTERNS: DrawerPattern[] = [

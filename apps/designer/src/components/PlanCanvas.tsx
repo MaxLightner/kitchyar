@@ -36,6 +36,8 @@ import {
   Wall,
 } from '../cad/types';
 import { deriveFloorPolygon } from '../cad/floorPolygon';
+import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
+import { PacedGestureStepper } from '../utils/gesturePacing';
 
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
@@ -194,6 +196,9 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     offsetCm: number;
     boxId: string | null;
   } | null>(null);
+  const [planHoverClientPt, setPlanHoverClientPt] = useState<{ x: number; y: number } | null>(null);
+  const [planHoverStatus, setPlanHoverStatus] = useState<CursorTargetStatus>('neutral');
+  const gestureStepperRef = useRef(new PacedGestureStepper());
 
   const dragOp = useRef<
     | { mode: 'pan'; startX: number; startY: number; origX: number; origY: number }
@@ -241,6 +246,10 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       }
     | null
   >(null);
+
+  const activePointersRef = useRef<Set<number>>(new Set());
+  const lastMultiTouchMsRef = useRef(0);
+  const lastPlaceTapRef = useRef<{ ts: number; x: number; y: number; tool: ToolId } | null>(null);
 
   const touchPinch = useRef<{
     dist: number;
@@ -355,8 +364,53 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     return best;
   };
 
+  const isSpacedDoublePlacement = (e: React.PointerEvent<SVGSVGElement>, toolId: ToolId): boolean => {
+    const now = performance.now();
+    if (now - lastMultiTouchMsRef.current < 420 || activePointersRef.current.size > 1) {
+      lastPlaceTapRef.current = null;
+      return false;
+    }
+    const prev = lastPlaceTapRef.current;
+    const minGap = e.pointerType === 'touch' ? 75 : 0;
+    if (
+      prev &&
+      prev.tool === toolId &&
+      now - prev.ts >= minGap &&
+      now - prev.ts <= 750 &&
+      Math.hypot(e.clientX - prev.x, e.clientY - prev.y) <= 38
+    ) {
+      lastPlaceTapRef.current = null;
+      return true;
+    }
+    lastPlaceTapRef.current = { ts: now, x: e.clientX, y: e.clientY, tool: toolId };
+    return false;
+  };
+
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button === 2) return;
+    activePointersRef.current.add(e.pointerId);
+    if (
+      (e.pointerType === 'touch' && activePointersRef.current.size >= 2) ||
+      performance.now() - lastMultiTouchMsRef.current < 420
+    ) {
+      if (e.pointerType === 'touch' && activePointersRef.current.size >= 2) {
+        lastMultiTouchMsRef.current = performance.now();
+      }
+      lastPlaceTapRef.current = null;
+      dragOp.current = null;
+      if (cabSweep.active) {
+        setCabSweep({
+          active: false,
+          startWallId: null,
+          startOffsetCm: 0,
+          hasDragged: false,
+          flipOverrides: {},
+          segments: [],
+          suggestedOwners: {},
+        });
+      }
+      return;
+    }
     if (e.button === 1) {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -470,20 +524,22 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       }
     }
 
-    // Place Fridge directly in Plan view!
+    // Place Fridge directly in Plan view (spaced double-click/tap required)!
     if (tool === 'fridge') {
       const hit = projectPointToWalls(ptCm, walls);
       if (hit) {
+        if (!isSpacedDoublePlacement(e, 'fridge')) return;
         const cfg = FRIDGE_MODELS[fridgeModel];
         onPlaceFridgeFromPlan(hit.wall.id, hit.offsetCm - cfg.width / 2);
         return;
       }
     }
 
-    // Place Sink / Gas / Dishwasher / Washing directly in Plan view!
+    // Place Sink / Gas / Dishwasher / Washing directly in Plan view (spaced double-click/tap required)!
     if (tool === 'sink' || tool === 'gas' || tool === 'appliance') {
       const hit = projectPointToWalls(ptCm, walls);
       if (hit) {
+        if (!isSpacedDoublePlacement(e, tool)) return;
         const targetKind: ApplianceKind =
           tool === 'sink' ? 'sink' : tool === 'gas' ? 'gas' : applianceKind;
         const targetWidth =
@@ -506,16 +562,17 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             targetKind
           );
         } else {
-          onToast('روی یک باکس زمینی در پلان کلیک کنید');
+          onToast('روی یک باکس زمینی در پلان دابل‌کلیک کنید');
         }
         return;
       }
     }
 
-    // Place Window / Room Door / Column directly in Plan view!
+    // Place Window / Room Door / Column directly in Plan view (spaced double-click/tap required)!
     if (tool === 'opening') {
       const hit = projectPointToWalls(ptCm, walls);
       if (hit) {
+        if (!isSpacedDoublePlacement(e, 'opening')) return;
         const def = OPENING_DEFAULTS[openingKind];
         onPlaceOpeningFromPlan(hit.wall.id, hit.offsetCm - def.width / 2);
         return;
@@ -674,6 +731,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    setPlanHoverClientPt({ x: e.clientX, y: e.clientY });
     const ptCm = clientToCm(e.clientX, e.clientY);
 
     if (tool === 'wall' && wallDraw.startPt) {
@@ -771,13 +829,15 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       return;
     }
 
-    // Hover ghost previews for fridge, sink, gas, appliance, and opening in Plan view
+    // Hover ghost previews and valid-target detection in Plan view
     if (
       tool === 'fridge' ||
       tool === 'sink' ||
       tool === 'gas' ||
       tool === 'appliance' ||
-      tool === 'opening'
+      tool === 'opening' ||
+      tool === 'cab-draw' ||
+      tool === 'wall'
     ) {
       const hit = projectPointToWalls(ptCm, walls);
       if (hit) {
@@ -792,20 +852,28 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           offsetCm: hit.offsetCm,
           boxId: box?.id ?? null,
         });
+        if (tool === 'sink' || tool === 'gas' || tool === 'appliance') {
+          setPlanHoverStatus(box ? 'valid' : 'invalid');
+        } else {
+          setPlanHoverStatus('valid');
+        }
       } else {
         setPlanHoverWall(null);
+        setPlanHoverStatus(tool === 'wall' ? 'valid' : 'neutral');
       }
-    } else if (planHoverWall) {
-      setPlanHoverWall(null);
+    } else {
+      if (planHoverWall) setPlanHoverWall(null);
+      setPlanHoverStatus('neutral');
     }
   };
 
   const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    activePointersRef.current.delete(e.pointerId);
     if (cabSweep.active) {
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
-      const valid = cabSweep.segments.filter((seg) => seg.widthCm >= 30);
+      const valid = cabSweep.hasDragged ? cabSweep.segments.filter((seg) => seg.widthCm >= 30) : [];
       const owners = cabSweep.suggestedOwners;
       const flips = cabSweep.flipOverrides;
       setCabSweep({
@@ -850,7 +918,22 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   };
 
   const handleTouchStart = (e: React.TouchEvent<SVGSVGElement>) => {
-    if (e.touches.length === 2) {
+    if (e.touches.length >= 2) {
+      lastMultiTouchMsRef.current = performance.now();
+      lastPlaceTapRef.current = null;
+      dragOp.current = null;
+      gestureStepperRef.current.resetTouch();
+      if (cabSweep.active) {
+        setCabSweep({
+          active: false,
+          startWallId: null,
+          startOffsetCm: 0,
+          hasDragged: false,
+          flipOverrides: {},
+          segments: [],
+          suggestedOwners: {},
+        });
+      }
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
@@ -918,11 +1001,20 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
 
   wheelHandlerRef.current = (e: WheelEvent) => {
     e.preventDefault();
-    const ptCm = clientToCm(e.clientX, e.clientY);
-    const hit = projectPointToWalls(ptCm, walls);
-    const dir = e.deltaY < 0 ? 1 : -1;
+    const isPlanCyclableTool =
+      tool === 'cab-draw' ||
+      tool === 'fridge' ||
+      tool === 'sink' ||
+      tool === 'gas' ||
+      tool === 'appliance' ||
+      tool === 'opening';
 
-    if (hit && stepPlanToolOption(dir)) {
+    if (!e.ctrlKey && isPlanCyclableTool) {
+      setPlanHoverClientPt({ x: e.clientX, y: e.clientY });
+      const pacedDir = gestureStepperRef.current.consumeWheelDelta(e.deltaY, e.deltaMode);
+      if (pacedDir !== 0) {
+        stepPlanToolOption(pacedDir);
+      }
       return;
     }
 
@@ -934,18 +1026,29 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   touchMoveHandlerRef.current = (e: TouchEvent) => {
     if (e.touches.length === 2 && touchPinch.current) {
       e.preventDefault();
+      lastMultiTouchMsRef.current = performance.now();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.hypot(dx, dy);
       const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       const distDelta = Math.abs(dist - touchPinch.current.dist);
-      if (distDelta <= 16 && touchPinch.current.overWall) {
+      const isPlanCyclableTool =
+        tool === 'cab-draw' ||
+        tool === 'fridge' ||
+        tool === 'sink' ||
+        tool === 'gas' ||
+        tool === 'appliance' ||
+        tool === 'opening';
+      if (distDelta <= 22 && isPlanCyclableTool) {
+        setPlanHoverClientPt({ x: midX, y: midY });
         const stepDelta = midY - touchPinch.current.lastStepY;
-        if (Math.abs(stepDelta) >= 30 && stepPlanToolOption(stepDelta < 0 ? 1 : -1)) {
-          touchPinch.current.lastStepY = midY;
-          return;
+        touchPinch.current.lastStepY = midY;
+        const pacedDir = gestureStepperRef.current.consumeTouchDelta(stepDelta);
+        if (pacedDir !== 0) {
+          stepPlanToolOption(pacedDir);
         }
+        return;
       }
       const ratio = dist / Math.max(10, touchPinch.current.dist);
       setPlanScale(
@@ -1102,11 +1205,21 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         onTouchStart={handleTouchStart}
         onTouchEnd={() => {
           touchPinch.current = null;
+          gestureStepperRef.current.resetTouch();
+          lastMultiTouchMsRef.current = performance.now();
         }}
-        onPointerLeave={() => setPlanHoverWall(null)}
+        onPointerLeave={() => {
+          setPlanHoverWall(null);
+          setPlanHoverClientPt(null);
+          setPlanHoverStatus('neutral');
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={(e) => {
+          activePointersRef.current.delete(e.pointerId);
+          dragOp.current = null;
+        }}
       >
         <defs>
           <pattern id="plan-room-tiles" x={0} y={0} width={100 * s} height={100 * s} patternUnits="userSpaceOnUse">
@@ -1918,6 +2031,34 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           </g>
         )}
       </svg>
+
+      {planHoverClientPt && !dragOp.current && (
+        <CursorToolPreview
+          visible={true}
+          clientX={planHoverClientPt.x}
+          clientY={planHoverClientPt.y}
+          tool={tool}
+          targetStatus={planHoverStatus}
+          sinkModel={sinkModel}
+          gasWidth={gasWidth}
+          applianceKind={applianceKind}
+          fridgeModel={fridgeModel}
+          openingKind={openingKind}
+          doorOrient="vertical"
+          doorTargetWidth={45}
+          doorVertCount={2}
+          drawerPatIdx={0}
+          liftPatIdx={0}
+          doorStyleBrush="flat"
+          cabinetFinishBrush="warm-white"
+          backsplashBrush="subway-white"
+          countertopBrush="calacatta-top"
+          frameWidthCm={5}
+          shelfCount={1}
+          drawBoxKind={drawBoxKind}
+          testId="cursor-preview-plan"
+        />
+      )}
     </section>
   );
 };

@@ -12,9 +12,11 @@ import {
   applyFullBoxFrame,
   applyHandlesToBoxDoors,
   autoUnitizeBoxForHandles,
+  canDoorOpenIn3D,
   carveBoxesForPlacedBox,
   clampBoxInternalsAfterResize,
   clampShelfRatioWithMinGap,
+  computeCabinetSweepRange,
   computeDoorBrushPreview,
   computeWallBacksplashSpans,
   createEmptyBox,
@@ -22,8 +24,11 @@ import {
   deleteApplianceHierarchically,
   deleteBoxHierarchically,
   equalizeDoorsInBox,
+  equalizeDoorsAndFillGaps,
   equalizeHorizontalInBox,
   equalizeVerticalDoorsInBox,
+  compactDisconnectedDoorsInBox,
+  alignWallAndBaseDoorSeams,
   eraseDoorWithRule,
   getBoxFrameInsets,
   getBoxInteriorHeightCm,
@@ -49,6 +54,7 @@ import {
 } from './doorRules';
 import {
   APPLIANCE_CONFIGS,
+  DRAWER_PATTERNS,
   FRAME_WIDTH_OPTIONS,
   FRIDGE_FRAME_CM,
   MAX_LIFT_DOOR_CM,
@@ -82,9 +88,11 @@ import { buildPresetProject } from './presets';
 import {
   buildArScannedWall,
   computeScaleFromRealDistanceCm,
+  fitCalibrationDragABWithScale,
   fitCalibrationDragB,
   projectArPointOntoWalls,
 } from '../ar/arCalibration';
+import { FloorScanner } from '../ar/floorScanner';
 import { applyKitchenStylePreset, KITCHEN_STYLE_PRESETS } from './stylePresets';
 import {
   applyAnimatedDoorProgress,
@@ -377,16 +385,28 @@ test('Drawers & horizontal doors auto-create unit dividers; shelves target whole
   assert.equal(units[1].hasDrawer, true);
   assert.equal(units[1].canHaveShelves, false);
 
-  // A 180cm box with 3 hinged doors and NO unit divider must require defining unit divider first
-  const box3 = createEmptyBox('base', 0, 180);
-  applyDoorBrushPreview(box3, 10, computeDoorBrushPreview(box3, 10, 'vertical', 3, 0, 0, []));
-  const undivided = getUnitsInBox(box3, []);
+  // A manually undivided 180cm box with 3 hinged doors must require defining unit divider first
+  const boxManual = createEmptyBox('base', 0, 180);
+  boxManual.doors = [
+    { id: 'md1', startCm: 0, widthCm: 60, kind: 'door', drawerRatios: [] },
+    { id: 'md2', startCm: 60, widthCm: 60, kind: 'door', drawerRatios: [] },
+    { id: 'md3', startCm: 120, widthCm: 60, kind: 'door', drawerRatios: [] },
+  ];
+  const undivided = getUnitsInBox(boxManual, []);
   assert.equal(undivided[0].canHaveShelves, false);
-  box3.unitDividers.push(120);
-  const divided = getUnitsInBox(box3, []);
+  boxManual.unitDividers.push(120);
+  const divided = getUnitsInBox(boxManual, []);
   assert.equal(divided.length, 2);
   assert.equal(divided[0].canHaveShelves, true);
   assert.equal(divided[1].canHaveShelves, true);
+
+  // Placing 3 hinged doors via Door Brush auto-creates paired unit divider (2 + 1 -> 2 units)
+  const box3 = createEmptyBox('base', 0, 180);
+  applyDoorBrushPreview(box3, 10, computeDoorBrushPreview(box3, 10, 'vertical', 3, 0, 0, []));
+  const autoUnits = getUnitsInBox(box3, []);
+  assert.equal(autoUnits.length, 2);
+  assert.equal(autoUnits[0].canHaveShelves, true);
+  assert.equal(autoUnits[1].canHaveShelves, true);
 });
 
 test('Door Brush supports direct targetDoorWidthCm < 60 (e.g. 40cm and 35cm) in empty bays', () => {
@@ -1759,3 +1779,199 @@ test('Cabinet magnetic snap aligns a base cabinet to an upper cabinet on the sam
   assert.equal(base.offsetX, 160);
   assert.equal(upper.offsetX, 160);
 });
+
+test('equalizeDoorsAndFillGaps averages selected/uneven doors and fills empty gaps uniformly', () => {
+  const wall = createWall('دیوار هم‌اندازه', 0, 0, 300, 0);
+  const base = createEmptyBox('base', 0, 180);
+  base.doors = [
+    { id: 'd1', startCm: 0, widthCm: 35, kind: 'door', drawerRatios: [] },
+    { id: 'd2', startCm: 80, widthCm: 50, kind: 'door', drawerRatios: [] },
+  ];
+  base.handles = [{ id: 'h1', doorId: 'd1', style: 'simple', orient: 'vertical', lengthCm: 16, xRatio: 0.86, yRatio: 0.5, rowIndex: 0 }];
+  wall.boxes.push(base);
+
+  const res = equalizeDoorsAndFillGaps(base, [], wall, [wall], {}, 'd1');
+  assert.equal(res.ok, true);
+  assert.equal(base.doors.length, 4);
+  const totalW = base.doors.reduce((s, d) => s + d.widthCm, 0);
+  assert.equal(totalW, 180);
+  assert.ok(base.doors.every((d) => Math.abs(d.widthCm - 45) <= 0.1));
+  assert.equal(base.handles.length, 4);
+});
+
+test('compactDisconnectedDoorsInBox packs scattered doors and shifts appliances to close <30cm slivers', () => {
+  const wall = createWall('دیوار جمع‌کردن', 0, 0, 300, 0);
+  const base = createEmptyBox('base', 0, 180);
+  wall.boxes.push(base);
+  const gasRes = placeApplianceWithCabinetRules(wall, [wall], 'gas', base, 20, {}, 'hidden', { customWidth: 80 });
+  assert.equal(gasRes.ok, true);
+  // Move doors away leaving a scattered 15cm gap
+  base.doors.push(
+    { id: 'sd1', startCm: 115, widthCm: 40, kind: 'door', drawerRatios: [] },
+  );
+
+  const res = compactDisconnectedDoorsInBox(base, [], wall, [wall], {});
+  assert.equal(res.ok, true);
+  // Gas left 20cm dead sliver at 0..20 -> should slide flush to 0..80, freeing 80..180 = 100cm, and sd1 packs cleanly!
+  assert.equal(gasRes.appliance!.offsetX, 0);
+  const hinged = base.doors.filter((d) => d.kind === 'door');
+  assert.equal(hinged.length, 1);
+  assert.equal(hinged[0].startCm, 80);
+});
+
+test('alignWallAndBaseDoorSeams matches upper vertical door seams to lower seams while skipping gas/sink bays', () => {
+  const wall = createWall('دیوار بالا پایین', 0, 0, 240, 0);
+  const base = createEmptyBox('base', 0, 180);
+  base.doors = [
+    { id: 'bd1', startCm: 0, widthCm: 45, kind: 'door', drawerRatios: [] },
+    { id: 'bd2', startCm: 45, widthCm: 45, kind: 'door', drawerRatios: [] },
+  ];
+  const wallBox = createEmptyBox('wall', 0, 180);
+  wallBox.doors = [
+    { id: 'wd1', startCm: 0, widthCm: 60, kind: 'door', drawerRatios: [] },
+    { id: 'wd2', startCm: 60, widthCm: 30, kind: 'door', drawerRatios: [] },
+  ];
+  wall.boxes.push(base, wallBox);
+
+  const res = alignWallAndBaseDoorSeams(wall, [wall], {});
+  assert.equal(res.ok, true);
+  assert.equal(wallBox.doors[0].widthCm, 45);
+  assert.equal(wallBox.doors[1].widthCm, 45);
+});
+
+test('fitCalibrationDragABWithScale anchors point A while rotating and uniformly scaling the entire kitchen scene via point B', () => {
+  const a = { x: -1, z: 0 };
+  const b = { x: 1, z: 0 }; // 2m model span along +X
+  const anchorA = { x: 0.5, z: -1.0 };
+  // Move target B to 3m along +Z (rotated -90deg & 1.5x uniform scale!)
+  const targetB = { x: 0.5, z: 2.0 };
+  const sol = fitCalibrationDragABWithScale(a, b, anchorA, targetB);
+  assert.ok(sol);
+  assert.equal(sol!.scale, 1.5);
+  const c = Math.cos(sol!.yaw);
+  const s = Math.sin(sol!.yaw);
+  const mapPt = (p: { x: number; z: number }) => ({
+    x: sol!.x + sol!.scale * (p.x * c + p.z * s),
+    z: sol!.z + sol!.scale * (-p.x * s + p.z * c),
+  });
+  const mappedA = mapPt(a);
+  const mappedB = mapPt(b);
+  assert.ok(Math.hypot(mappedA.x - anchorA.x, mappedA.z - anchorA.z) < 0.005);
+  assert.ok(Math.hypot(mappedB.x - targetB.x, mappedB.z - targetB.z) < 0.005);
+});
+
+test('FloorScanner marks floor ready on multi-ray detection OR steady single-ray scan without needing manual taps', () => {
+  const makeHit = (x: number, y: number, z: number): XRHitTestResult => {
+    const m = new THREE.Matrix4().makeTranslation(x, y, z);
+    return {
+      getPose: () => ({ transform: { matrix: m.elements } }),
+    } as unknown as XRHitTestResult;
+  };
+  const space = {} as XRReferenceSpace;
+  const viewer = new THREE.Vector3(0, 1.5, 0);
+
+  // 1) Multi-ray scan becomes ready on the very first frame (zero clicks!)
+  const scannerMulti = new FloorScanner();
+  scannerMulti.update(
+    [makeHit(0, 0, -1)],
+    [makeHit(0.35, 0.002, -1), makeHit(-0.35, -0.002, -1.2)],
+    space,
+    viewer,
+    100
+  );
+  assert.equal(scannerMulti.ready, true);
+
+  // 2) Single-ray fallback also reaches ready cleanly once steady for 10 frames (zero manual taps!)
+  const scannerSingle = new FloorScanner();
+  for (let i = 0; i < 10; i++) {
+    scannerSingle.update([makeHit(0, 0, -1)], [], space, viewer, 200 + i * 33);
+  }
+  assert.equal(scannerSingle.ready, true);
+});
+
+test('Drawer patterns include single top/bottom drawer + door and leave uncovered cabinet space empty', () => {
+  const topIdx = DRAWER_PATTERNS.findIndex((p) => p.id === '1top');
+  const botIdx = DRAWER_PATTERNS.findIndex((p) => p.id === '1bot');
+  assert.ok(topIdx >= 0 && botIdx >= 0);
+
+  const box = createEmptyBox('base', 0, 180);
+  const pTop = computeDoorBrushPreview(box, 15, 'horizontal', 1, topIdx, 0, [], 60);
+  assert.equal(pTop.ok, true);
+  assert.equal(pTop.items.length, 1);
+  assert.equal(pTop.items[0].kind, 'door');
+  assert.equal(pTop.items[0].widthCm, 60);
+  assert.deepEqual(pTop.items[0].drawerBand, { position: 'top', ratio: 0.26 });
+
+  applyDoorBrushPreview(box, 15, pTop);
+  assert.equal(box.doors.length, 1);
+  assert.deepEqual(box.doors[0].drawerBand, { position: 'top', ratio: 0.26 });
+  // Remainder (60..180) remains genuinely empty
+  assert.equal(box.doors[0].startCm + box.doors[0].widthCm, 60);
+
+  // Applying 1bot replaces drawerBand on existing door cleanly
+  const pBot = computeDoorBrushPreview(box, 25, 'horizontal', 1, botIdx, 0, [], 60);
+  assert.equal(pBot.ok, true);
+  applyDoorBrushPreview(box, 25, pBot);
+  assert.equal(box.doors[0].kind, 'door');
+  assert.deepEqual(box.doors[0].drawerBand, { position: 'bottom', ratio: 0.26 });
+});
+
+test('Placing doors auto-creates paired units (2->1, 4->2, 5->3, 6->3) without filling empty remainder', () => {
+  const b2 = createEmptyBox('base', 0, 120);
+  applyDoorBrushPreview(b2, 10, computeDoorBrushPreview(b2, 10, 'vertical', 2, 0, 0, [], 60));
+  assert.equal(getUnitsInBox(b2, []).length, 1);
+  assert.equal(b2.unitDividers.length, 0);
+
+  const b4 = createEmptyBox('base', 0, 240);
+  applyDoorBrushPreview(b4, 10, computeDoorBrushPreview(b4, 10, 'vertical', 4, 0, 0, [], 60));
+  assert.equal(getUnitsInBox(b4, []).length, 2);
+  assert.deepEqual(b4.unitDividers, [120]);
+
+  const b5 = createEmptyBox('base', 0, 300);
+  applyDoorBrushPreview(b5, 10, computeDoorBrushPreview(b5, 10, 'vertical', 5, 0, 0, [], 60));
+  assert.equal(getUnitsInBox(b5, []).length, 3);
+  assert.equal(b5.unitDividers.length, 2);
+
+  const b6 = createEmptyBox('base', 0, 360);
+  applyDoorBrushPreview(b6, 10, computeDoorBrushPreview(b6, 10, 'vertical', 6, 0, 0, [], 60));
+  assert.equal(getUnitsInBox(b6, []).length, 3);
+  assert.deepEqual(b6.unitDividers, [120, 240]);
+
+  // Partial 2-door placement inside wider 240cm box leaves remaining 120..240cm empty
+  const partial = createEmptyBox('base', 0, 240);
+  applyDoorBrushPreview(partial, 10, computeDoorBrushPreview(partial, 10, 'vertical', 2, 0, 0, [], 60));
+  assert.deepEqual(partial.doors.map((d) => d.widthCm), [60, 60]);
+  assert.equal(partial.doors[1].startCm + partial.doors[1].widthCm, 120);
+});
+
+test('canDoorOpenIn3D locks doors, drawers, and lifts closed until a handle is placed', () => {
+  const box = createEmptyBox('base', 0, 120);
+  box.doors = [
+    { id: 'd1', startCm: 0, widthCm: 60, kind: 'door', drawerRatios: [], drawerBand: { position: 'top', ratio: 0.26 } },
+    { id: 'd2', startCm: 60, widthCm: 60, kind: 'drawer', drawerRatios: [0.333, 0.667] },
+  ];
+
+  // Neither door nor drawer rows can open without handles
+  assert.equal(canDoorOpenIn3D(box, box.doors[0]), false);
+  assert.equal(canDoorOpenIn3D(box, box.doors[1], 0), false);
+  assert.equal(canDoorOpenIn3D(box, box.doors[1], 1), false);
+
+  // Add handle to d1 and only row 1 of drawer d2
+  box.handles.push(
+    { id: 'h1', doorId: 'd1', rowIndex: 0, xRatio: 0.86, yRatio: 0.18, orient: 'vertical', style: 'simple', lengthCm: 16 },
+    { id: 'h2', doorId: 'd2', rowIndex: 1, xRatio: 0.5, yRatio: 0.5, orient: 'horizontal', style: 'simple', lengthCm: 16 }
+  );
+  assert.equal(canDoorOpenIn3D(box, box.doors[0]), true);
+  assert.equal(canDoorOpenIn3D(box, box.doors[1], 0), false);
+  assert.equal(canDoorOpenIn3D(box, box.doors[1], 1), true);
+});
+
+test('computeCabinetSweepRange supports forward/backward two-click sweep with 5cm snap and 30cm minimum', () => {
+  assert.deepEqual(computeCabinetSweepRange(22, 163, 340, 30), { offsetX: 20, width: 145 });
+  assert.deepEqual(computeCabinetSweepRange(200, 81, 340, 30), { offsetX: 80, width: 120 });
+  assert.deepEqual(computeCabinetSweepRange(100, 105, 340, 30), { offsetX: 100, width: 30 });
+  assert.deepEqual(computeCabinetSweepRange(335, 340, 340, 30), { offsetX: 310, width: 30 });
+});
+
+
+

@@ -265,7 +265,54 @@ export interface DoorPreviewResult {
     widthCm: number;
     kind: DoorKind;
     drawerRatios: number[];
+    drawerBand?: { position: 'top' | 'bottom'; ratio: number };
   }>;
+}
+
+export function canDoorOpenIn3D(
+  box: CabinetBox,
+  door: DoorUnit,
+  rowIndex?: number
+): boolean {
+  if (door.kind === 'fridge') return true;
+  if (door.kind === 'open' || door.kind === 'rail') return false;
+  return box.handles.some((h) => {
+    if (h.doorId !== door.id) return false;
+    if (rowIndex !== undefined && (door.kind === 'drawer' || door.kind === 'lift')) {
+      return (h.rowIndex ?? 0) === rowIndex;
+    }
+    return true;
+  });
+}
+
+export function computeCabinetSweepRange(
+  startXCm: number,
+  currXCm: number,
+  wallLengthCm: number,
+  minWidthCm: number = 30
+): { offsetX: number; width: number } {
+  const safeWallLen = Math.max(minWidthCm, wallLengthCm);
+  const s = Math.max(0, Math.min(safeWallLen, Math.round(startXCm / 5) * 5));
+  const c = Math.max(0, Math.min(safeWallLen, Math.round(currXCm / 5) * 5));
+  let offsetX = Math.min(s, c);
+  let endX = Math.max(s, c);
+  if (endX - offsetX < minWidthCm) {
+    if (c >= s) {
+      endX = Math.min(safeWallLen, offsetX + minWidthCm);
+      if (endX - offsetX < minWidthCm) {
+        offsetX = Math.max(0, endX - minWidthCm);
+      }
+    } else {
+      offsetX = Math.max(0, endX - minWidthCm);
+      if (endX - offsetX < minWidthCm) {
+        endX = Math.min(safeWallLen, offsetX + minWidthCm);
+      }
+    }
+  }
+  return {
+    offsetX: +offsetX.toFixed(1),
+    width: +(endX - offsetX).toFixed(1),
+  };
 }
 
 export interface CabinetUnitInfo {
@@ -459,29 +506,30 @@ function computeShrinkInsertPreview(
   const newEntries = bayDoors.map((d, idx) => ({
     kind: d.kind,
     drawerRatios: [...d.drawerRatios],
+    drawerBand: d.drawerBand ? { ...d.drawerBand } : undefined,
     widthCm: widths[idx],
   }));
   newEntries.splice(insertAt, 0, {
     kind: 'door',
     drawerRatios: [],
+    drawerBand: undefined,
     widthCm: newDoorW,
   });
 
-  // Ensure exact bay sum (distribute any leftover freeGap > 0 back if needed, or clamp remainder)
+  // Preserve uncovered space when bay was only partially covered; only close tiny sub-1cm rounding when bay was full
   const used = newEntries.reduce((s, e) => s + e.widthCm, 0);
   const diff = +(bayWidth - used).toFixed(1);
-  if (Math.abs(diff) > 0.05) {
-    // Only fill leftover gap if bay had no untouched gaps elsewhere (when full bay or tiny sliver)
+  if (freeGap < 1 && Math.abs(diff) > 0.05) {
     newEntries[insertAt].widthCm = +(
       Math.max(MIN_DOOR_CM, Math.min(MAX_DOOR_CM, newEntries[insertAt].widthCm + diff))
     ).toFixed(1);
   }
 
-  let cur = bayStart;
+  let cur = freeGap >= 1 && bayDoors.length > 0 ? Math.min(bayDoors[0].startCm, bayStart) : bayStart;
   const items = newEntries.map((ent, idx) => {
     const startCm = +cur.toFixed(1);
     const w =
-      idx === newEntries.length - 1
+      freeGap < 1 && idx === newEntries.length - 1
         ? +(bayEnd - startCm).toFixed(1)
         : Math.max(MIN_DOOR_CM, ent.widthCm);
     cur = startCm + w;
@@ -490,6 +538,7 @@ function computeShrinkInsertPreview(
       widthCm: w,
       kind: ent.kind,
       drawerRatios: ent.drawerRatios,
+      ...(ent.drawerBand ? { drawerBand: ent.drawerBand } : {}),
     };
   });
 
@@ -571,6 +620,20 @@ export function computeDoorBrushPreview(
         };
       } else {
         const pat = DRAWER_PATTERNS[drawerPatternIdx % DRAWER_PATTERNS.length];
+        if (pat.drawerBand) {
+          return {
+            ok: true,
+            items: [
+              {
+                startCm: existingDoor.startCm,
+                widthCm: existingDoor.widthCm,
+                kind: 'door',
+                drawerRatios: [],
+                drawerBand: { ...pat.drawerBand },
+              },
+            ],
+          };
+        }
         return {
           ok: true,
           items: [
@@ -684,7 +747,10 @@ export function computeDoorBrushPreview(
   const desiredW = Math.max(minW, Math.min(maxW, Math.round(targetDoorWidthCm)));
 
   if (orient === 'horizontal') {
-    const w = Math.min(desiredW, freeLen);
+    const pat = !isWallBox ? DRAWER_PATTERNS[drawerPatternIdx % DRAWER_PATTERNS.length] : null;
+    const isBandDoor = Boolean(pat?.drawerBand);
+    const effectiveDes = isBandDoor ? Math.min(desiredW, MAX_DOOR_CM) : desiredW;
+    const w = Math.min(effectiveDes, freeLen);
     let start = Math.max(
       span.startCm,
       Math.min(span.endCm - w, Math.round((cursorCmInBox - w / 2) / 5) * 5)
@@ -698,16 +764,35 @@ export function computeDoorBrushPreview(
         ok: true,
         items: [{ startCm: +start.toFixed(1), widthCm: +w.toFixed(1), kind: 'lift', drawerRatios: wallRatios }],
       };
-    } else {
-      const pat = DRAWER_PATTERNS[drawerPatternIdx % DRAWER_PATTERNS.length];
+    } else if (pat?.drawerBand) {
       return {
         ok: true,
-        items: [{ startCm: +start.toFixed(1), widthCm: +w.toFixed(1), kind: 'drawer', drawerRatios: [...pat.ratios] }],
+        items: [
+          {
+            startCm: +start.toFixed(1),
+            widthCm: +w.toFixed(1),
+            kind: 'door',
+            drawerRatios: [],
+            drawerBand: { ...pat.drawerBand },
+          },
+        ],
+      };
+    } else {
+      return {
+        ok: true,
+        items: [
+          {
+            startCm: +start.toFixed(1),
+            widthCm: +w.toFixed(1),
+            kind: 'drawer',
+            drawerRatios: [...(pat?.ratios || [0.333, 0.667])],
+          },
+        ],
       };
     }
   }
 
-  // Vertical brush in empty space — directly respects targetDoorWidthCm (30..60cm)!
+  // Vertical brush in empty space — directly respects targetDoorWidthCm (30..60cm) and leaves remainder empty!
   if (verticalCount <= 1) {
     const w = Math.min(desiredW, freeLen);
     let start = Math.max(
@@ -727,9 +812,9 @@ export function computeDoorBrushPreview(
     };
   }
 
-  // Multi-door placement in empty span
+  // Multi-door placement in empty span — honors desired door width & leaves unused span empty!
   const count = verticalCount;
-  const maxSpanForCount = Math.min(freeLen, count * MAX_DOOR_CM);
+  const maxSpanForCount = Math.min(freeLen, count * desiredW);
   const eachW = +(maxSpanForCount / count).toFixed(1);
   if (eachW < MIN_DOOR_CM) {
     return {
@@ -778,11 +863,21 @@ function ensureUnitDividersForRange(box: CabinetBox, startCm: number, endCm: num
 export function applyDoorBrushPreview(
   box: CabinetBox,
   cursorCmInBox: number,
-  preview: DoorPreviewResult
+  preview: DoorPreviewResult,
+  blockedZones: BlockedZone[] = []
 ): { ok: boolean; selectedDoorId: string | null; message?: string } {
   if (!preview.ok || !preview.items.length) {
     return { ok: false, selectedDoorId: null, message: preview.reason };
   }
+
+  const mapItemToDoor = (it: DoorPreviewResult['items'][number]): DoorUnit => ({
+    id: uid('door'),
+    startCm: it.startCm,
+    widthCm: it.widthCm,
+    kind: it.kind,
+    drawerRatios: [...it.drawerRatios],
+    ...(it.drawerBand ? { drawerBand: { ...it.drawerBand } } : {}),
+  });
 
   if (preview.replaceSpan) {
     const { startCm, endCm } = preview.replaceSpan;
@@ -797,15 +892,10 @@ export function applyDoorBrushPreview(
     box.doors = box.doors.filter((d) => !removedIds.has(d.id));
     box.handles = box.handles.filter((h) => !removedIds.has(h.doorId));
 
-    const created: DoorUnit[] = preview.items.map((it) => ({
-      id: uid('door'),
-      startCm: it.startCm,
-      widthCm: it.widthCm,
-      kind: it.kind,
-      drawerRatios: [...it.drawerRatios],
-    }));
+    const created: DoorUnit[] = preview.items.map(mapItemToDoor);
     box.doors.push(...created);
     box.doors.sort((a, b) => a.startCm - b.startCm);
+    ensurePairedDoorUnitDividers(box, blockedZones);
     return { ok: true, selectedDoorId: created[0]?.id ?? null };
   }
 
@@ -815,32 +905,34 @@ export function applyDoorBrushPreview(
 
   if (existingDoor) {
     const idx = box.doors.indexOf(existingDoor);
-    if (preview.items.length === 1 && (preview.items[0].kind === 'drawer' || preview.items[0].kind === 'lift')) {
-      existingDoor.kind = preview.items[0].kind;
-      existingDoor.drawerRatios = [...preview.items[0].drawerRatios];
+    const first = preview.items[0];
+    if (
+      preview.items.length === 1 &&
+      (first.kind === 'drawer' || first.kind === 'lift' || Boolean(first.drawerBand))
+    ) {
+      existingDoor.kind = first.kind;
+      existingDoor.drawerRatios = [...first.drawerRatios];
+      if (first.drawerBand) {
+        existingDoor.drawerBand = { ...first.drawerBand };
+      } else {
+        delete existingDoor.drawerBand;
+      }
       box.handles = box.handles.filter((h) => h.doorId !== existingDoor.id);
-      ensureUnitDividersForRange(box, existingDoor.startCm, existingDoor.startCm + existingDoor.widthCm);
+      if (existingDoor.kind === 'drawer' || existingDoor.kind === 'lift') {
+        ensureUnitDividersForRange(box, existingDoor.startCm, existingDoor.startCm + existingDoor.widthCm);
+      } else {
+        ensurePairedDoorUnitDividers(box, blockedZones);
+      }
       return { ok: true, selectedDoorId: existingDoor.id };
     }
-    const created: DoorUnit[] = preview.items.map((it) => ({
-      id: uid('door'),
-      startCm: it.startCm,
-      widthCm: it.widthCm,
-      kind: it.kind,
-      drawerRatios: [...it.drawerRatios],
-    }));
+    const created: DoorUnit[] = preview.items.map(mapItemToDoor);
     box.doors.splice(idx, 1, ...created);
     box.handles = box.handles.filter((h) => h.doorId !== existingDoor.id);
+    ensurePairedDoorUnitDividers(box, blockedZones);
     return { ok: true, selectedDoorId: created[0].id };
   }
 
-  const created: DoorUnit[] = preview.items.map((it) => ({
-    id: uid('door'),
-    startCm: it.startCm,
-    widthCm: it.widthCm,
-    kind: it.kind,
-    drawerRatios: [...it.drawerRatios],
-  }));
+  const created: DoorUnit[] = preview.items.map(mapItemToDoor);
   box.doors.push(...created);
   box.doors.sort((a, b) => a.startCm - b.startCm);
   for (const c of created) {
@@ -848,6 +940,7 @@ export function applyDoorBrushPreview(
       ensureUnitDividersForRange(box, c.startCm, c.startCm + c.widthCm);
     }
   }
+  ensurePairedDoorUnitDividers(box, blockedZones);
   return { ok: true, selectedDoorId: created[0].id };
 }
 
@@ -3350,16 +3443,15 @@ export function applyFullBoxFrame(
 }
 
 /**
- * Automatically divides undivided multi-door hinged runs inside a box into ergonomic 2-door pairs
- * (preserving manual dividers), handling single (1), even (2,4,6 -> pairs), and odd (3 -> 2+1 / 5 -> 2+1+2) runs,
- * and sets paired opposing `hingeSide` values so two-door units get facing center-seam handles.
+ * Automatically adds paired 2-door carcass unit dividers for contiguous hinged door runs
+ * (1-2 doors -> 1 unit, 3-4 -> 2 units, 5-6 -> 3 units, etc.) while preserving manual dividers.
  */
-export function autoUnitizeBoxForHandles(
+export function ensurePairedDoorUnitDividers(
   box: CabinetBox,
   blockedZones: BlockedZone[] = []
-): { addedDividers: number[]; pairedUnits: number } {
+): number[] {
   if (box.type === 'fridge' || !box.doors.length) {
-    return { addedDividers: [], pairedUnits: 0 };
+    return [];
   }
 
   const units = getUnitsInBox(box, blockedZones);
@@ -3382,7 +3474,6 @@ export function autoUnitizeBoxForHandles(
 
     for (const run of runs) {
       if (run.length <= 2) continue;
-      // Compute split indices after which a unit divider should be placed
       const splitAfterIndices: number[] = [];
       const n = run.length;
       if (n % 2 === 0) {
@@ -3390,13 +3481,12 @@ export function autoUnitizeBoxForHandles(
       } else if (n === 3) {
         const nearLeftCorner = run[0].startCm <= 4 && blockedZones.some((z) => z.startCm <= 2);
         splitAfterIndices.push(nearLeftCorner ? 0 : 1);
+      } else if (n === 5) {
+        // [2 + 1 + 2] => 3 units (matches architectural centering and existing unit convention)
+        splitAfterIndices.push(1, 2);
       } else {
-        // Odd >= 5: [2 + ... + 1 center single + ... + 2]
-        const mid = Math.floor(n / 2);
-        for (let i = 1; i < mid; i += 2) splitAfterIndices.push(i);
-        if (!splitAfterIndices.includes(mid - 1)) splitAfterIndices.push(mid - 1);
-        splitAfterIndices.push(mid);
-        for (let i = mid + 2; i < n - 1; i += 2) splitAfterIndices.push(i);
+        // Odd >= 7: pairs of 2 from left, leaving 1 single at end -> Math.ceil(n / 2) units
+        for (let i = 1; i < n - 1; i += 2) splitAfterIndices.push(i);
       }
 
       for (const idx of splitAfterIndices) {
@@ -3412,6 +3502,23 @@ export function autoUnitizeBoxForHandles(
   if (addedDividers.length > 0) {
     box.unitDividers.sort((a, b) => a - b);
   }
+  return addedDividers;
+}
+
+/**
+ * Automatically divides undivided multi-door hinged runs inside a box into ergonomic 2-door pairs
+ * (preserving manual dividers), handling single (1), even (2,4,6 -> pairs), and odd (3 -> 2+1 / 5 -> 2+1+2) runs,
+ * and sets paired opposing `hingeSide` values so two-door units get facing center-seam handles.
+ */
+export function autoUnitizeBoxForHandles(
+  box: CabinetBox,
+  blockedZones: BlockedZone[] = []
+): { addedDividers: number[]; pairedUnits: number } {
+  if (box.type === 'fridge' || !box.doors.length) {
+    return { addedDividers: [], pairedUnits: 0 };
+  }
+
+  const addedDividers = ensurePairedDoorUnitDividers(box, blockedZones);
 
   // Assign coherent default hingeSide for every unit
   const finalUnits = getUnitsInBox(box, blockedZones);
@@ -4471,6 +4578,643 @@ export function addShelvesWithMinGap(
     message: `${validCandidates.length} طبقه منظم در یونیت اضافه شد`,
   };
 }
+
+function getBoxObstacleIntervals(
+  box: CabinetBox,
+  wall?: Wall
+): Array<{ startCm: number; endCm: number; kind: 'appliance' | 'drawer' | 'lift' | 'door' }> {
+  const obs: Array<{ startCm: number; endCm: number; kind: 'appliance' | 'drawer' | 'lift' | 'door' }> = [];
+  if (wall) {
+    for (const app of wall.appliances) {
+      const ls = +(app.offsetX - box.offsetX).toFixed(1);
+      const le = +(ls + app.width).toFixed(1);
+      if (le > 1 && ls < box.width - 1) {
+        obs.push({ startCm: Math.max(0, ls), endCm: Math.min(box.width, le), kind: 'appliance' });
+      }
+    }
+  }
+  return obs;
+}
+
+/**
+ * Equalizes doors across open bays of a cabinet box (averaging uneven door widths) AND expands/adds
+ * uniform doors across every empty gap inside usable spans so no dead spaces remain, keeping
+ * doors strictly within [30..60cm] (or [50..110cm] for horizontal wall lifts) and respecting corners/appliances.
+ */
+export function equalizeDoorsAndFillGaps(
+  box: CabinetBox,
+  blockedZones: BlockedZone[],
+  wall?: Wall,
+  allWalls?: Wall[],
+  cornerOwners: Record<string, string> = {},
+  selectedDoorId?: string | null
+): { ok: boolean; message: string } {
+  if (box.type === 'fridge') {
+    return { ok: false, message: 'یخچال قابل تقسیم نیست' };
+  }
+
+  const isWall = box.type === 'wall' || box.type === 'wall-deep';
+  const selectedDoor = selectedDoorId ? box.doors.find((d) => d.id === selectedDoorId) : undefined;
+  const targetKind: DoorKind =
+    selectedDoor?.kind === 'lift' || (!selectedDoor && isWall && box.doors.some((d) => d.kind === 'lift') && !box.doors.some((d) => d.kind === 'door'))
+      ? 'lift'
+      : 'door';
+
+  const minW = targetKind === 'lift' && isWall ? MIN_LIFT_DOOR_CM : MIN_DOOR_CM;
+  const maxW = targetKind === 'lift' && isWall ? MAX_LIFT_DOOR_CM : MAX_DOOR_CM;
+
+  const usable = getBoxUsableFrontSpan(box, blockedZones);
+  if (usable.endCm - usable.startCm < minW - 0.1) {
+    return { ok: false, message: 'فضای مجاز کافی برای تنظیم درب وجود ندارد' };
+  }
+
+  // First pack/balance if there is a movable separating appliance between vertical runs AND negligible empty gaps
+  const existingTargetDoors = box.doors
+    .filter((d) => d.kind === targetKind)
+    .sort((a, b) => a.startCm - b.startCm);
+
+  // Build fixed obstacle intervals (drawers, non-target door kinds, appliances) inside usable span
+  const obstacles: Array<{ start: number; end: number }> = [];
+  for (const ob of getBoxObstacleIntervals(box, wall)) {
+    const s = Math.max(usable.startCm, ob.startCm);
+    const e = Math.min(usable.endCm, ob.endCm);
+    if (e - s > 1) obstacles.push({ start: s, end: e });
+  }
+  for (const d of box.doors) {
+    if (d.kind === targetKind) continue;
+    const s = Math.max(usable.startCm, d.startCm);
+    const e = Math.min(usable.endCm, +(d.startCm + d.widthCm).toFixed(1));
+    if (e - s > 1) obstacles.push({ start: s, end: e });
+  }
+  obstacles.sort((a, b) => a.start - b.start);
+
+  const mergedObs: Array<{ start: number; end: number }> = [];
+  for (const ob of obstacles) {
+    const last = mergedObs[mergedObs.length - 1];
+    if (!last || ob.start > last.end + 0.5) {
+      mergedObs.push({ ...ob });
+    } else {
+      last.end = Math.max(last.end, ob.end);
+    }
+  }
+
+  // Extract continuous refillable open bays [bayStart, bayEnd]
+  const bays: Array<{ startCm: number; endCm: number }> = [];
+  let cursor = usable.startCm;
+  for (const ob of mergedObs) {
+    if (ob.start - cursor >= minW - 0.1) {
+      bays.push({ startCm: +cursor.toFixed(1), endCm: +ob.start.toFixed(1) });
+    }
+    cursor = Math.max(cursor, ob.end);
+  }
+  if (usable.endCm - cursor >= minW - 0.1) {
+    bays.push({ startCm: +cursor.toFixed(1), endCm: +usable.endCm.toFixed(1) });
+  }
+
+  if (!bays.length) {
+    return { ok: false, message: 'فضای آزادی برای هم‌اندازه‌سازی و پر کردن درب وجود ندارد' };
+  }
+
+  // Average width across existing target doors (کوچیک و بزرگ میانگین میشه)
+  let preferredW = targetKind === 'lift' ? 80 : 45;
+  if (existingTargetDoors.length > 0) {
+    preferredW = existingTargetDoors.reduce((s, d) => s + d.widthCm, 0) / existingTargetDoors.length;
+  } else if (selectedDoor && selectedDoor.kind === targetKind) {
+    preferredW = selectedDoor.widthCm;
+  }
+
+  let totalCreated = 0;
+  let hadGap = false;
+  const wallLiftRatios = targetKind === 'lift' && isWall ? getWallHorizontalDrawerRatios(box) : [];
+
+  for (const bay of bays) {
+    const bayW = +(bay.endCm - bay.startCm).toFixed(1);
+    const inBay = box.doors
+      .filter((d) => {
+        const mid = d.startCm + d.widthCm / 2;
+        return d.kind === targetKind && mid >= bay.startCm - 0.5 && mid <= bay.endCm + 0.5;
+      })
+      .sort((a, b) => a.startCm - b.startCm);
+
+    // Skip completely empty bay only if box already had doors AND bay isn't adjacent/part of usable layout?
+    // No — user explicitly wants empty gaps filled too!
+    const existingSum = inBay.reduce((s, d) => s + d.widthCm, 0);
+    if (bayW - existingSum > 2) hadGap = true;
+
+    const minN = Math.max(1, Math.ceil(bayW / maxW));
+    const maxN = Math.max(minN, Math.floor(bayW / minW));
+
+    let bestN = minN;
+    let bestScore = Infinity;
+    for (let n = minN; n <= maxN; n++) {
+      const w = bayW / n;
+      if (w < minW - 0.1 || w > maxW + 0.1) continue;
+      let score = Math.abs(w - preferredW);
+      // Slight preference to match or expand existing door count when filling empty space
+      if (inBay.length > 0 && n < inBay.length) score += 4;
+      if (score < bestScore - 0.01) {
+        bestScore = score;
+        bestN = n;
+      }
+    }
+
+    const eachW = +(bayW / bestN).toFixed(1);
+    if (eachW < minW - 0.1 || eachW > maxW + 0.1) continue;
+
+    const removedIds = new Set(inBay.map((d) => d.id));
+    const oldHandles = box.handles.filter((h) => removedIds.has(h.doorId));
+    const templateDoor = selectedDoor?.kind === targetKind ? selectedDoor : inBay[0];
+
+    box.doors = box.doors.filter((d) => !removedIds.has(d.id));
+    box.handles = box.handles.filter((h) => !removedIds.has(h.doorId));
+
+    // Drop old dividers strictly inside this bay (not boundary dividers on bay edges)
+    box.unitDividers = box.unitDividers.filter(
+      (u) => u <= bay.startCm + 1.5 || u >= bay.endCm - 1.5
+    );
+    if (box.frames?.length) {
+      box.frames = box.frames.filter(
+        (f) =>
+          f.side !== 'seam' ||
+          f.seamCm === undefined ||
+          f.seamCm <= bay.startCm + 1.5 ||
+          f.seamCm >= bay.endCm - 1.5
+      );
+    }
+
+    const newBayDoors: DoorUnit[] = [];
+    for (let i = 0; i < bestN; i++) {
+      const startCm = +(bay.startCm + i * eachW).toFixed(1);
+      const widthCm = i === bestN - 1 ? +(bay.endCm - startCm).toFixed(1) : eachW;
+      const hingeSide: 'left' | 'right' | undefined =
+        targetKind === 'door'
+          ? bestN === 2
+            ? i === 0
+              ? 'left'
+              : 'right'
+            : templateDoor?.hingeSide
+          : undefined;
+      const nd: DoorUnit = {
+        id: uid('door'),
+        startCm,
+        widthCm,
+        kind: targetKind,
+        doorStyle: templateDoor?.doorStyle,
+        hingeSide,
+        drawerBand: targetKind === 'door' && templateDoor?.drawerBand ? { ...templateDoor.drawerBand } : undefined,
+        drawerRatios:
+          targetKind === 'lift'
+            ? [...(templateDoor?.drawerRatios?.length ? templateDoor.drawerRatios : wallLiftRatios)]
+            : [],
+      };
+      box.doors.push(nd);
+      newBayDoors.push(nd);
+      totalCreated++;
+
+      // Auto-unit dividers cleanly every 1 or 2 doors when bay has lift doors or wide run
+      if (targetKind === 'lift' && i < bestN - 1) {
+        box.unitDividers.push(+(startCm + widthCm).toFixed(1));
+      }
+    }
+
+    // Reattach handles onto proportional matching new doors
+    if (oldHandles.length > 0 && newBayDoors.length > 0) {
+      const sampleH = oldHandles[0];
+      newBayDoors.forEach((nd, idx) => {
+        const xRatio =
+          targetKind === 'lift'
+            ? 0.5
+            : newBayDoors.length === 2
+            ? idx === 0
+              ? 0.86
+              : 0.14
+            : nd.hingeSide === 'right'
+            ? 0.14
+            : 0.86;
+        box.handles.push({
+          id: uid('hnd'),
+          doorId: nd.id,
+          style: sampleH.style,
+          orient: targetKind === 'lift' ? 'horizontal' : sampleH.orient,
+          lengthCm: sampleH.lengthCm,
+          xRatio,
+          yRatio: sampleH.yRatio,
+          rowIndex: sampleH.rowIndex,
+        });
+      });
+    }
+  }
+
+  box.doors.sort((a, b) => a.startCm - b.startCm);
+  box.unitDividers = Array.from(new Set(box.unitDividers.map((u) => +u.toFixed(1)))).sort((a, b) => a - b);
+
+  // If vertical doors are separated by a movable gas/sink appliance across runs, try global balance too
+  if (wall && targetKind === 'door') {
+    const hingedNow = box.doors.filter((d) => d.kind === 'door').sort((a, b) => a.startCm - b.startCm);
+    if (hingedNow.length >= 2) {
+      const balanced = tryEqualizeVerticalWithMovableAppliance(
+        box,
+        hingedNow,
+        wall,
+        allWalls || [wall],
+        cornerOwners
+      );
+      if (balanced) return balanced;
+    }
+  }
+
+  if (totalCreated === 0) {
+    return { ok: false, message: 'تغییری برای هم‌اندازه‌سازی یا پر کردن فضا لازم نبود' };
+  }
+
+  return {
+    ok: true,
+    message: hadGap
+      ? `درب‌ها هم‌اندازه شدند و فضاهای خالی باکس به شکل یکنواخت پر شدند (${totalCreated} درب)`
+      : `${totalCreated} درب باکس هم‌اندازه و مرتب شدند`,
+  };
+}
+
+/**
+ * Compacts scattered / disconnected doors inside a box so dead slivers (<30cm) are eliminated
+ * and disconnected doors sit cleanly together. Also optimizes movable appliances inside `box`
+ * (`dishwasher`/`washing` via `optimizeBoxWithAppliances`, plus shifting `gas`/`sink` to eliminate
+ * orphan <30cm slivers when `wall` is provided).
+ */
+export function compactDisconnectedDoorsInBox(
+  box: CabinetBox,
+  blockedZones: BlockedZone[],
+  wall?: Wall,
+  allWalls?: Wall[],
+  cornerOwners: Record<string, string> = {}
+): { ok: boolean; message: string } {
+  if (box.type === 'fridge') {
+    return { ok: false, message: 'یخچال قابل جمع‌کردن نیست' };
+  }
+
+  let movedAppliances = 0;
+  let movedDoors = 0;
+
+  // 1) Compact dishwasher / washing via built-in appliance optimizer
+  if (wall && allWalls) {
+    const optRes = optimizeBoxWithAppliances(wall, allWalls, box, cornerOwners);
+    if (optRes.ok) movedAppliances++;
+
+    // 2) Check if gas or sink sits near usable edge / another appliance leaving an unusable <30cm sliver
+    const usableBox = getBoxUsableFrontSpan(box, blockedZones);
+    const boxGlobalMin = +(box.offsetX + usableBox.startCm).toFixed(1);
+    const boxGlobalMax = +(box.offsetX + usableBox.endCm).toFixed(1);
+    const movableApps = wall.appliances
+      .filter(
+        (a) =>
+          (a.kind === 'gas' || a.kind === 'sink') &&
+          a.offsetX >= box.offsetX - 1 &&
+          a.offsetX + a.width <= box.offsetX + box.width + 1
+      )
+      .sort((a, b) => a.offsetX - b.offsetX);
+
+    for (const app of movableApps) {
+      const range = getFreeMoveRangeForAppliance(wall, allWalls, app, cornerOwners);
+      const leftBound = Math.max(boxGlobalMin, range.minX);
+      const rightBound = Math.min(boxGlobalMax - app.width, range.maxX);
+      const leftGap = +(app.offsetX - leftBound).toFixed(1);
+      const rightGap = +(rightBound - app.offsetX).toFixed(1);
+
+      let targetX: number | null = null;
+      if (leftGap > 0.5 && leftGap < MIN_DOOR_CM) {
+        // Close unusable sliver on the left edge if that still leaves >=30cm or 0 on right
+        const nextRightGap = +(rightBound - leftBound).toFixed(1);
+        if (nextRightGap === 0 || nextRightGap >= MIN_DOOR_CM) {
+          targetX = leftBound;
+        }
+      } else if (rightGap > 0.5 && rightGap < MIN_DOOR_CM) {
+        const nextLeftGap = +(rightBound - leftBound).toFixed(1);
+        if (nextLeftGap === 0 || nextLeftGap >= MIN_DOOR_CM) {
+          targetX = rightBound;
+        }
+      }
+
+      if (targetX !== null && Math.abs(targetX - app.offsetX) > 0.5) {
+        const res = moveApplianceHierarchically(wall, allWalls, app.id, targetX, cornerOwners, {
+          exact: true,
+          refitAdjacentDoors: false,
+        });
+        if (res) movedAppliances++;
+      }
+    }
+  }
+
+  const usable = getBoxUsableFrontSpan(box, blockedZones);
+  const bayObstacles: Array<{ start: number; end: number }> = [];
+  for (const ob of getBoxObstacleIntervals(box, wall)) {
+    const s = Math.max(usable.startCm, ob.startCm);
+    const e = Math.min(usable.endCm, ob.endCm);
+    if (e - s > 1) bayObstacles.push({ start: s, end: e });
+  }
+  bayObstacles.sort((a, b) => a.start - b.start);
+
+  const openBays: Array<{ startCm: number; endCm: number }> = [];
+  let cursor = usable.startCm;
+  for (const ob of bayObstacles) {
+    if (ob.start - cursor >= MIN_DOOR_CM - 0.1) {
+      openBays.push({ startCm: +cursor.toFixed(1), endCm: +ob.start.toFixed(1) });
+    }
+    cursor = Math.max(cursor, ob.end);
+  }
+  if (usable.endCm - cursor >= MIN_DOOR_CM - 0.1) {
+    openBays.push({ startCm: +cursor.toFixed(1), endCm: +usable.endCm.toFixed(1) });
+  }
+
+  const isWall = box.type === 'wall' || box.type === 'wall-deep';
+
+  // 3) Within each open bay, pack non-contiguous doors flush together and eliminate orphan slivers (<30cm)
+  for (const bay of openBays) {
+    const bayDoors = box.doors
+      .filter((d) => {
+        const mid = d.startCm + d.widthCm / 2;
+        return mid >= bay.startCm - 0.5 && mid <= bay.endCm + 0.5;
+      })
+      .sort((a, b) => a.startCm - b.startCm);
+
+    if (!bayDoors.length) continue;
+
+    // Pack all doors in this bay tightly starting from bay.startCm
+    let packCursor = bay.startCm;
+    const oldEnds = new Map<string, number>();
+    const newEnds = new Map<string, number>();
+
+    for (const d of bayDoors) {
+      const oldEnd = +(d.startCm + d.widthCm).toFixed(1);
+      oldEnds.set(d.id, oldEnd);
+      if (Math.abs(d.startCm - packCursor) > 0.2) {
+        d.startCm = +packCursor.toFixed(1);
+        movedDoors++;
+      }
+      packCursor = +(d.startCm + d.widthCm).toFixed(1);
+      newEnds.set(d.id, packCursor);
+    }
+
+    // Check remaining gap on the right edge of the bay
+    const leftover = +(bay.endCm - packCursor).toFixed(1);
+    if (leftover > 0.5 && leftover < MIN_DOOR_CM) {
+      // Unusable dead sliver! Absorb it across stretchable doors in this bay if allowed by [min..max]
+      const stretchable = bayDoors.filter((d) => d.kind !== 'fridge');
+      if (stretchable.length > 0) {
+        let rem = leftover;
+        // Distribute evenly starting from last doors
+        for (let pass = 0; pass < 3 && rem > 0.1; pass++) {
+          const slice = +(rem / stretchable.length).toFixed(1);
+          for (const d of stretchable) {
+            const maxAllowed =
+              d.kind === 'lift' && isWall
+                ? MAX_LIFT_DOOR_CM
+                : d.kind === 'drawer'
+                ? 110
+                : MAX_DOOR_CM;
+            const room = Math.max(0, +(maxAllowed - d.widthCm).toFixed(1));
+            const add = Math.min(rem, Math.min(room, pass === 2 ? rem : Math.max(slice, 1)));
+            if (add > 0.05) {
+              d.widthCm = +(d.widthCm + add).toFixed(1);
+              rem = +(rem - add).toFixed(1);
+            }
+          }
+        }
+        // Recompute compacted positions after absorption
+        let c = bay.startCm;
+        for (const d of bayDoors) {
+          d.startCm = +c.toFixed(1);
+          c = +(c + d.widthCm).toFixed(1);
+          newEnds.set(d.id, c);
+        }
+        movedDoors++;
+      }
+    }
+
+    // Update unit dividers tied to old boundaries inside this bay
+    const divRemap = new Map<number, number>();
+    for (const d of bayDoors) {
+      const oE = oldEnds.get(d.id);
+      const nE = newEnds.get(d.id);
+      if (oE !== undefined && nE !== undefined && Math.abs(oE - nE) > 0.2) {
+        divRemap.set(oE, nE);
+      }
+    }
+    if (divRemap.size > 0) {
+      box.unitDividers = box.unitDividers
+        .map((u) => {
+          for (const [oU, nU] of divRemap.entries()) {
+            if (Math.abs(u - oU) <= 1.8) return nU;
+          }
+          return u;
+        })
+        .filter((u) => u > 2 && u < box.width - 2);
+      if (box.frames?.length) {
+        box.frames.forEach((f) => {
+          if (f.side !== 'seam' || f.seamCm === undefined) return;
+          for (const [oU, nU] of divRemap.entries()) {
+            if (Math.abs(f.seamCm - oU) <= 1.8) f.seamCm = nU;
+          }
+        });
+      }
+    }
+  }
+
+  box.doors.sort((a, b) => a.startCm - b.startCm);
+  box.unitDividers = Array.from(new Set(box.unitDividers.map((u) => +u.toFixed(1)))).sort((a, b) => a - b);
+
+  if (movedDoors === 0 && movedAppliances === 0) {
+    return { ok: false, message: 'درب یا تجهیز نامنظمی با فاصله پرتی روی این باکس یافت نشد' };
+  }
+
+  return {
+    ok: true,
+    message:
+      movedAppliances > 0
+        ? 'درب‌های نامرتب و تجهیزات باکس بدون فاصله اضافه کنار هم جمع شدند'
+        : 'درب‌های غیرمتصل باکس به صورت یکدست کنار هم جمع شدند',
+  };
+}
+
+/**
+ * Optional alignment helper: aligns vertical upper-cabinet (`wall`/`wall-deep`) door seams cleanly
+ * to the vertical base-cabinet door/unit seams directly beneath them on the same wall, skipping
+ * corner blind zones, gas/hood bays, and over-sink dish-rack horizontal lift bays.
+ */
+export function alignWallAndBaseDoorSeams(
+  wall: Wall,
+  allWalls: Wall[] = [wall],
+  cornerOwners: Record<string, string> = {}
+): { ok: boolean; updatedBoxes: number; message: string } {
+  const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
+  const baseBoxes = wall.boxes.filter((b) => b.type === 'base');
+  const upperBoxes = wall.boxes.filter((b) => (b.type === 'wall' || b.type === 'wall-deep') && !b.linkedToBoxId);
+
+  if (!baseBoxes.length || !upperBoxes.length) {
+    return { ok: false, updatedBoxes: 0, message: 'برای هم‌راستاسازی به باکس زمینی و دیواری روی این دیوار نیاز است' };
+  }
+
+  // Collect global vertical seam X positions along base cabinets (box edges + door seams + appliance edges)
+  const baseSeamSet = new Set<number>();
+  for (const bb of baseBoxes) {
+    baseSeamSet.add(+bb.offsetX.toFixed(1));
+    baseSeamSet.add(+(bb.offsetX + bb.width).toFixed(1));
+    for (const d of bb.doors) {
+      baseSeamSet.add(+(bb.offsetX + d.startCm).toFixed(1));
+      baseSeamSet.add(+(bb.offsetX + d.startCm + d.widthCm).toFixed(1));
+    }
+  }
+  const baseSeams = Array.from(baseSeamSet).sort((a, b) => a - b);
+
+  // Reserved horizontal spans in upper tier (hoods above gas, dish racks above sink)
+  const reservedUpper: Array<{ start: number; end: number }> = wall.appliances
+    .filter((a) => a.kind === 'gas' || a.kind === 'sink')
+    .map((a) => ({ start: a.offsetX, end: a.offsetX + a.width }));
+
+  let updatedBoxes = 0;
+
+  for (const ub of upperBoxes) {
+    const usable = getBoxUsableFrontSpan(ub, blocked);
+    const localStart = usable.startCm;
+    const localEnd = usable.endCm;
+    if (localEnd - localStart < MIN_DOOR_CM) continue;
+
+    // Preserve any existing lift doors or hood/sink bays inside this upper box
+    const protectedSpans: Array<{ start: number; end: number }> = [];
+    for (const res of reservedUpper) {
+      const ls = Math.max(localStart, +(res.start - ub.offsetX).toFixed(1));
+      const le = Math.min(localEnd, +(res.end - ub.offsetX).toFixed(1));
+      if (le - ls > 1) protectedSpans.push({ start: ls, end: le });
+    }
+    for (const d of ub.doors) {
+      if (d.kind === 'lift') {
+        const ls = Math.max(localStart, d.startCm);
+        const le = Math.min(localEnd, +(d.startCm + d.widthCm).toFixed(1));
+        if (le - ls > 1) protectedSpans.push({ start: ls, end: le });
+      }
+    }
+    protectedSpans.sort((a, b) => a.start - b.start);
+
+    const openBays: Array<{ startCm: number; endCm: number }> = [];
+    let cur = localStart;
+    for (const pr of protectedSpans) {
+      if (pr.start - cur >= MIN_DOOR_CM - 0.1) {
+        openBays.push({ startCm: +cur.toFixed(1), endCm: +pr.start.toFixed(1) });
+      }
+      cur = Math.max(cur, pr.end);
+    }
+    if (localEnd - cur >= MIN_DOOR_CM - 0.1) {
+      openBays.push({ startCm: +cur.toFixed(1), endCm: +localEnd.toFixed(1) });
+    }
+
+    let boxChanged = false;
+    for (const bay of openBays) {
+      // Find matching base seams strictly inside (bay.startCm..bay.endCm)
+      const innerCuts = baseSeams
+        .map((gs) => +(gs - ub.offsetX).toFixed(1))
+        .filter((lx) => lx > bay.startCm + 1 && lx < bay.endCm - 1);
+
+      const allPts = [bay.startCm, ...innerCuts, bay.endCm];
+      // Build candidate cuts only preserving intervals >= MIN_DOOR_CM
+      const validPts: number[] = [bay.startCm];
+      for (let i = 1; i < allPts.length - 1; i++) {
+        if (allPts[i] - validPts[validPts.length - 1] >= MIN_DOOR_CM - 0.1 && bay.endCm - allPts[i] >= MIN_DOOR_CM - 0.1) {
+          validPts.push(allPts[i]);
+        }
+      }
+      validPts.push(bay.endCm);
+
+      const segmentDoors: Array<{ startCm: number; widthCm: number }> = [];
+      let valid = true;
+      for (let i = 0; i < validPts.length - 1; i++) {
+        const segW = +(validPts[i + 1] - validPts[i]).toFixed(1);
+        if (segW < MIN_DOOR_CM - 0.1) {
+          valid = false;
+          break;
+        }
+        if (segW <= MAX_DOOR_CM + 0.1) {
+          segmentDoors.push({ startCm: validPts[i], widthCm: segW });
+        } else {
+          const n = Math.max(2, Math.round(segW / 45));
+          const clampedN = Math.max(Math.ceil(segW / MAX_DOOR_CM), Math.min(Math.floor(segW / MIN_DOOR_CM), n));
+          const ew = +(segW / clampedN).toFixed(1);
+          if (ew < MIN_DOOR_CM - 0.1 || ew > MAX_DOOR_CM + 0.1) {
+            valid = false;
+            break;
+          }
+          for (let k = 0; k < clampedN; k++) {
+            const s = +(validPts[i] + k * ew).toFixed(1);
+            const w = k === clampedN - 1 ? +(validPts[i + 1] - s).toFixed(1) : ew;
+            segmentDoors.push({ startCm: s, widthCm: w });
+          }
+        }
+      }
+
+      if (!valid || !segmentDoors.length) continue;
+
+      const existingInBay = ub.doors.filter((d) => {
+        const mid = d.startCm + d.widthCm / 2;
+        return d.kind === 'door' && mid >= bay.startCm - 0.5 && mid <= bay.endCm + 0.5;
+      });
+      const sampleDoor = existingInBay[0];
+      const existingIds = new Set(existingInBay.map((d) => d.id));
+      const oldHandles = ub.handles.filter((h) => existingIds.has(h.doorId));
+
+      ub.doors = ub.doors.filter((d) => !existingIds.has(d.id));
+      ub.handles = ub.handles.filter((h) => !existingIds.has(h.doorId));
+
+      segmentDoors.forEach((sd, idx) => {
+        const hingeSide: 'left' | 'right' =
+          segmentDoors.length === 2
+            ? idx === 0
+              ? 'left'
+              : 'right'
+            : idx % 2 === 0
+            ? 'left'
+            : 'right';
+        const nd: DoorUnit = {
+          id: uid('door'),
+          startCm: sd.startCm,
+          widthCm: sd.widthCm,
+          kind: 'door',
+          doorStyle: sampleDoor?.doorStyle,
+          hingeSide,
+          drawerRatios: [],
+        };
+        ub.doors.push(nd);
+        if (oldHandles.length > 0) {
+          const sh = oldHandles[0];
+          ub.handles.push({
+            id: uid('hnd'),
+            doorId: nd.id,
+            style: sh.style,
+            orient: sh.orient,
+            lengthCm: sh.lengthCm,
+            xRatio: hingeSide === 'right' ? 0.14 : 0.86,
+            yRatio: sh.yRatio,
+            rowIndex: sh.rowIndex,
+          });
+        }
+      });
+
+      boxChanged = true;
+    }
+
+    if (boxChanged) {
+      ub.doors.sort((a, b) => a.startCm - b.startCm);
+      updatedBoxes++;
+    }
+  }
+
+  if (updatedBoxes === 0) {
+    return { ok: false, updatedBoxes: 0, message: 'درز مناسبی بین کابینت‌های زمینی و دیواری برای هم‌راستایی یافت نشد' };
+  }
+  return {
+    ok: true,
+    updatedBoxes,
+    message: `خطوط درز عمودی ${updatedBoxes} باکس دیواری (بدون دست‌کاری کنج و هود/آبچکان) با پایین هم‌راستا شد`,
+  };
+}
+
 
 
 

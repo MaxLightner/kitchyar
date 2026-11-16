@@ -107,20 +107,58 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
             <Camera className="w-4 h-4" />
             <span>پروژه جدید AR</span>
           </button>
-
-          <button
-            type="button"
-            onClick={() => onCreateProject('2d', 'L')}
-            className="h-9 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold inline-flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span>پروژه جدید</span>
-          </button>
         </div>
       </header>
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-8 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <article
+            data-testid="new-project-card"
+            className="rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/50 hover:bg-indigo-50 hover:border-indigo-500 p-4 flex flex-col justify-between gap-3 transition shadow-xs"
+          >
+            <button
+              type="button"
+              onClick={() => onCreateProject('2d')}
+              aria-label="ایجاد پروژه جدید خالی"
+              className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-2 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+            >
+              <span className="w-11 h-11 rounded-xl bg-indigo-600 text-white inline-flex items-center justify-center shadow-xs">
+                <Plus className="w-6 h-6" />
+              </span>
+              <span className="text-sm font-black text-slate-900">پروژه جدید</span>
+              <span className="text-[12px] font-semibold text-slate-600">
+                فایل کاملاً خالی (۰ دیوار و ۰ باکس)
+              </span>
+            </button>
+
+            <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-indigo-200/70">
+              <button
+                type="button"
+                onClick={() => onCreateProject('2d')}
+                className="h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold inline-flex items-center justify-center gap-1"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>2D</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onCreateProject('3d')}
+                className="h-8 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-slate-800 text-[13px] font-bold inline-flex items-center justify-center gap-1"
+              >
+                <Box className="w-3.5 h-3.5" />
+                <span>3D</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onCreateProject('ar')}
+                className="h-8 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[13px] font-bold inline-flex items-center justify-center gap-1"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>AR</span>
+              </button>
+            </div>
+          </article>
+
           {projects.map((rec) => {
             const isActive = rec.id === activeProjectId;
             const dateStr = new Date(rec.updatedAt).toLocaleDateString('fa-IR', {

@@ -77,44 +77,11 @@ function createDoorGradientTexture(
     }
   }
 
-  // Soft darkened edge shadow around closed door perimeter so adjacent doors separate unmistakably
-  if (isClosed) {
-    const tGrad = ctx.createLinearGradient(0, 0, 0, 18);
-    tGrad.addColorStop(0, 'rgba(15,23,42,0.28)');
-    tGrad.addColorStop(1, 'rgba(15,23,42,0)');
-    ctx.fillStyle = tGrad;
-    ctx.fillRect(0, 0, size, 18);
-
-    const bGrad = ctx.createLinearGradient(0, size - 18, 0, size);
-    bGrad.addColorStop(0, 'rgba(15,23,42,0)');
-    bGrad.addColorStop(1, 'rgba(15,23,42,0.34)');
-    ctx.fillStyle = bGrad;
-    ctx.fillRect(0, size - 18, size, 18);
-
-    const lGrad = ctx.createLinearGradient(0, 0, 16, 0);
-    lGrad.addColorStop(0, 'rgba(15,23,42,0.28)');
-    lGrad.addColorStop(1, 'rgba(15,23,42,0)');
-    ctx.fillStyle = lGrad;
-    ctx.fillRect(0, 0, 16, size);
-
-    const rGrad = ctx.createLinearGradient(size - 16, 0, size, 0);
-    rGrad.addColorStop(0, 'rgba(15,23,42,0)');
-    rGrad.addColorStop(1, 'rgba(15,23,42,0.32)');
-    ctx.fillStyle = rGrad;
-    ctx.fillRect(size - 16, 0, 16, size);
-  }
-
-  const rimWidth = isClosed ? 10 : 5;
-  const rimAlpha = isClosed ? 0.55 : 0.16;
-  ctx.strokeStyle = isSelected ? 'rgba(79,70,229,0.82)' : edgeHex;
-  ctx.globalAlpha = rimAlpha;
-  ctx.lineWidth = rimWidth;
-  ctx.strokeRect(rimWidth / 2, rimWidth / 2, size - rimWidth, size - rimWidth);
-
-  ctx.globalAlpha = isClosed ? 0.85 : 0.28;
+  // Keep front panel bright & true to finish; add only a crisp hairline perimeter seam when closed so doors separate clearly
+  ctx.globalAlpha = isClosed ? 0.72 : 0.22;
   ctx.strokeStyle = isSelected ? '#4338ca' : '#1e293b';
-  ctx.lineWidth = isClosed ? 3.5 : 1.5;
-  ctx.strokeRect(1.5, 1.5, size - 3, size - 3);
+  ctx.lineWidth = isClosed ? 2.2 : 1.2;
+  ctx.strokeRect(1, 1, size - 2, size - 2);
   ctx.globalAlpha = 1;
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -583,7 +550,7 @@ export function createKitchenMaterialPack(project: ProjectState): KitchenMateria
     const edgeColor = isSelected
       ? '#4338ca'
       : isClosed
-        ? mixHex(cfg.hexDark, '#0f172a', 0.56)
+        ? mixHex(cfg.hexDark, '#0f172a', 0.78)
         : cfg.hexDark;
     const mat = new THREE.MeshStandardMaterial({
       color: edgeColor,

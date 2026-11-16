@@ -206,6 +206,8 @@ export interface DrawerPattern {
   label: string;
   shortLabel: string;
   ratios: number[];
+  kind?: 'door' | 'drawer';
+  drawerBand?: { position: 'top' | 'bottom'; ratio: number };
 }
 
 export interface ProjectSettings {

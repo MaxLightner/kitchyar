@@ -12,6 +12,7 @@ import {
   getWallVectors,
 } from './cornerLogic';
 import {
+  canDoorOpenIn3D,
   computeWallBacksplashSpans,
   doesFridgeTouchCabinet,
   getBoxFrameInsets,
@@ -221,7 +222,7 @@ function addOutlineHighlight(
   parent.add(seg);
 }
 
-function buildHandleMesh(
+export function buildHandleMesh(
   style: 'simple' | 'knob' | 'hidden',
   orient: 'vertical' | 'horizontal',
   lengthCm: number,
@@ -1322,24 +1323,6 @@ function buildBox3D(ctx: {
     }
   } else {
     // 9. Doors + Handles (hidden when doorsHidden === true!)
-    // When doors are closed, add a recessed dark shadow liner behind the door seams so each door leaf separates crisply
-    if (doorOpenProgress < 0.08 && box.doors.length > 0) {
-      for (const sp of solidHorizSpans) {
-        const spanW = (sp.e - sp.s) * scaleX * CM - 0.004;
-        if (spanW < 0.06) continue;
-        const liner = new THREE.Mesh(
-          new THREE.BoxGeometry(spanW, innerH - 0.004, 0.005),
-          mats.matDoorRevealDark
-        );
-        liner.position.set(
-          bx + (rawIn.left + sp.s * scaleX) * CM + spanW / 2 + 0.002,
-          innerBottomY + innerH / 2,
-          frontFaceZ - normalSign * 0.009
-        );
-        grp.add(liner);
-      }
-    }
-
     for (const door of box.doors) {
       buildDoor3D({
         wall,
@@ -1584,6 +1567,8 @@ function buildDoor3D(ctx: {
       const rowBotY = dyBot + rBot * dh + 0.0015;
       const rowGrp = new THREE.Group();
 
+      const rowCanOpen = canDoorOpenIn3D(box, door, r);
+
       if (door.kind === 'drawer') {
         const baseX = dxLeft + dw / 2;
         const baseY = rowBotY + rowH / 2;
@@ -1611,40 +1596,44 @@ function buildDoor3D(ctx: {
           interactables.push(part);
           rowGrp.add(part);
         }
-        const handle: AnimatedDoorHandle = {
-          doorId: partId,
-          group: rowGrp,
-          kind: 'drawer',
-          normalSign,
-          baseX,
-          baseY,
-          baseZ: frontFaceZ,
-          baseRotX: 0,
-          baseRotY: 0,
-          maxSlide: 0.34,
-        };
-        if (doorOpenProgress > 0) applyAnimatedDoorProgress(handle, doorOpenProgress);
-        animatedDoors.push(handle);
+        if (rowCanOpen) {
+          const handle: AnimatedDoorHandle = {
+            doorId: partId,
+            group: rowGrp,
+            kind: 'drawer',
+            normalSign,
+            baseX,
+            baseY,
+            baseZ: frontFaceZ,
+            baseRotX: 0,
+            baseRotY: 0,
+            maxSlide: 0.34,
+          };
+          if (doorOpenProgress > 0) applyAnimatedDoorProgress(handle, doorOpenProgress);
+          animatedDoors.push(handle);
+        }
       } else {
         // Lift row pivots from its top edge
         const baseX = dxLeft + dw / 2;
         const baseY = rowBotY + rowH;
         rowGrp.position.set(baseX, baseY, frontFaceZ);
         makePanelMesh(dw, rowH, 0, -rowH / 2, rowGrp);
-        const handle: AnimatedDoorHandle = {
-          doorId: partId,
-          group: rowGrp,
-          kind: 'lift',
-          normalSign,
-          baseX,
-          baseY,
-          baseZ: frontFaceZ,
-          baseRotX: 0,
-          baseRotY: 0,
-          maxAngle: 1.15,
-        };
-        if (doorOpenProgress > 0) applyAnimatedDoorProgress(handle, doorOpenProgress);
-        animatedDoors.push(handle);
+        if (rowCanOpen) {
+          const handle: AnimatedDoorHandle = {
+            doorId: partId,
+            group: rowGrp,
+            kind: 'lift',
+            normalSign,
+            baseX,
+            baseY,
+            baseZ: frontFaceZ,
+            baseRotX: 0,
+            baseRotY: 0,
+            maxAngle: 1.15,
+          };
+          if (doorOpenProgress > 0) applyAnimatedDoorProgress(handle, doorOpenProgress);
+          animatedDoors.push(handle);
+        }
       }
 
       // Attach handles belonging to this row
@@ -1688,25 +1677,28 @@ function buildDoor3D(ctx: {
 
   // Single Lift door (top-hinged)
   if (door.kind === 'lift') {
+    const canOpen = canDoorOpenIn3D(box, door);
     const pivot = new THREE.Group();
     const baseX = dxLeft + dw / 2;
     const baseY = dyBot + dh;
     pivot.position.set(baseX, baseY, frontFaceZ);
     makePanelMesh(dw, dh, 0, -dh / 2, pivot);
-    const animHandle: AnimatedDoorHandle = {
-      doorId: door.id,
-      group: pivot,
-      kind: 'lift',
-      normalSign,
-      baseX,
-      baseY,
-      baseZ: frontFaceZ,
-      baseRotX: 0,
-      baseRotY: 0,
-      maxAngle: 1.25,
-    };
-    if (doorOpenProgress > 0) applyAnimatedDoorProgress(animHandle, doorOpenProgress);
-    animatedDoors.push(animHandle);
+    if (canOpen) {
+      const animHandle: AnimatedDoorHandle = {
+        doorId: door.id,
+        group: pivot,
+        kind: 'lift',
+        normalSign,
+        baseX,
+        baseY,
+        baseZ: frontFaceZ,
+        baseRotX: 0,
+        baseRotY: 0,
+        maxAngle: 1.25,
+      };
+      if (doorOpenProgress > 0) applyAnimatedDoorProgress(animHandle, doorOpenProgress);
+      animatedDoors.push(animHandle);
+    }
 
     for (const h of box.handles) {
       if (h.doorId !== door.id) continue;
@@ -1742,25 +1734,28 @@ function buildDoor3D(ctx: {
   // Pantry pull-out vs standard Hinged Door
   const isPantry = dStyle === 'pantry';
   if (isPantry) {
+    const canOpen = canDoorOpenIn3D(box, door);
     const pivot = new THREE.Group();
     const baseX = dxLeft + dw / 2;
     const baseY = dyBot + dh / 2;
     pivot.position.set(baseX, baseY, frontFaceZ);
     makePanelMesh(dw, dh, 0, 0, pivot);
-    const animHandle: AnimatedDoorHandle = {
-      doorId: door.id,
-      group: pivot,
-      kind: 'drawer',
-      normalSign,
-      baseX,
-      baseY,
-      baseZ: frontFaceZ,
-      baseRotX: 0,
-      baseRotY: 0,
-      maxSlide: 0.42,
-    };
-    if (doorOpenProgress > 0) applyAnimatedDoorProgress(animHandle, doorOpenProgress);
-    animatedDoors.push(animHandle);
+    if (canOpen) {
+      const animHandle: AnimatedDoorHandle = {
+        doorId: door.id,
+        group: pivot,
+        kind: 'drawer',
+        normalSign,
+        baseX,
+        baseY,
+        baseZ: frontFaceZ,
+        baseRotX: 0,
+        baseRotY: 0,
+        maxSlide: 0.42,
+      };
+      if (doorOpenProgress > 0) applyAnimatedDoorProgress(animHandle, doorOpenProgress);
+      animatedDoors.push(animHandle);
+    }
 
     for (const h of box.handles) {
       if (h.doorId !== door.id) continue;
@@ -1794,6 +1789,7 @@ function buildDoor3D(ctx: {
   }
 
   // Hinged vertical door (with optional top/bottom drawerBand!)
+  const hasDoorHandle = canDoorOpenIn3D(box, door);
   const firstHand = box.handles.find((h) => h.doorId === door.id);
   const hingeSide: 'left' | 'right' =
     door.hingeSide ||
@@ -1843,20 +1839,22 @@ function buildDoor3D(ctx: {
     bandGrp.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) child.userData = { ...child.userData, animationId: bandPartId };
     });
-    const bandHandle: AnimatedDoorHandle = {
-      doorId: bandPartId,
-      group: bandGrp,
-      kind: 'drawer',
-      normalSign,
-      baseX: bandBaseX,
-      baseY: bandCenterY,
-      baseZ: frontFaceZ,
-      baseRotX: 0,
-      baseRotY: 0,
-      maxSlide: 0.34,
-    };
-    if (doorOpenProgress > 0) applyAnimatedDoorProgress(bandHandle, doorOpenProgress);
-    animatedDoors.push(bandHandle);
+    if (hasDoorHandle) {
+      const bandHandle: AnimatedDoorHandle = {
+        doorId: bandPartId,
+        group: bandGrp,
+        kind: 'drawer',
+        normalSign,
+        baseX: bandBaseX,
+        baseY: bandCenterY,
+        baseZ: frontFaceZ,
+        baseRotX: 0,
+        baseRotY: 0,
+        maxSlide: 0.34,
+      };
+      if (doorOpenProgress > 0) applyAnimatedDoorProgress(bandHandle, doorOpenProgress);
+      animatedDoors.push(bandHandle);
+    }
     grp.add(bandGrp);
   }
 
@@ -1865,21 +1863,23 @@ function buildDoor3D(ctx: {
   pivot.position.set(pivotX, pivotBaseY, frontFaceZ);
   makePanelMesh(dw, leafH, panelOffsetX, 0, pivot);
 
-  const swingKind = hingeSide === 'left' ? 'hinge-left' : 'hinge-right';
-  const pivotHandle: AnimatedDoorHandle = {
-    doorId: door.id,
-    group: pivot,
-    kind: swingKind,
-    normalSign,
-    baseX: pivotX,
-    baseY: pivotBaseY,
-    baseZ: frontFaceZ,
-    baseRotX: 0,
-    baseRotY: 0,
-    maxAngle: 1.38,
-  };
-  if (doorOpenProgress > 0) applyAnimatedDoorProgress(pivotHandle, doorOpenProgress);
-  animatedDoors.push(pivotHandle);
+  if (hasDoorHandle) {
+    const swingKind = hingeSide === 'left' ? 'hinge-left' : 'hinge-right';
+    const pivotHandle: AnimatedDoorHandle = {
+      doorId: door.id,
+      group: pivot,
+      kind: swingKind,
+      normalSign,
+      baseX: pivotX,
+      baseY: pivotBaseY,
+      baseZ: frontFaceZ,
+      baseRotX: 0,
+      baseRotY: 0,
+      maxAngle: 1.38,
+    };
+    if (doorOpenProgress > 0) applyAnimatedDoorProgress(pivotHandle, doorOpenProgress);
+    animatedDoors.push(pivotHandle);
+  }
 
   for (const h of box.handles) {
     if (h.doorId !== door.id) continue;

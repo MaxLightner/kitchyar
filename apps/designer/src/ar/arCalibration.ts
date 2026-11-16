@@ -50,6 +50,48 @@ export function fitCalibrationDragB(
   };
 }
 
+export interface CalibrationScaledFitResult {
+  scale: number;
+  yaw: number;
+  x: number;
+  z: number;
+}
+
+/**
+ * Anchors reference point A at `anchorA` in physical AR space and rotates + uniformly scales
+ * the entire kitchen mount so reference point B lands on `targetB`.
+ */
+export function fitCalibrationDragABWithScale(
+  a: XZPoint,
+  b: XZPoint,
+  anchorA: XZPoint,
+  targetB: XZPoint
+): CalibrationScaledFitResult | null {
+  const values = [a?.x, a?.z, b?.x, b?.z, anchorA?.x, anchorA?.z, targetB?.x, targetB?.z];
+  if (!values.every(Number.isFinite)) return null;
+
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const wx = targetB.x - anchorA.x;
+  const wz = targetB.z - anchorA.z;
+  const modelLength = Math.hypot(dx, dz);
+  const physicalLength = Math.hypot(wx, wz);
+
+  if (modelLength < 0.08 || physicalLength < 0.1) return null;
+
+  const scale = Math.max(0.25, Math.min(3.5, +(physicalLength / modelLength).toFixed(4)));
+  const yaw = Math.atan2(dz, dx) - Math.atan2(wz, wx);
+  const cosine = Math.cos(yaw);
+  const sine = Math.sin(yaw);
+
+  return {
+    scale,
+    yaw,
+    x: anchorA.x - scale * (a.x * cosine + a.z * sine),
+    z: anchorA.z - scale * (-a.x * sine + a.z * cosine),
+  };
+}
+
 /**
  * Computes global uniform AR scale factor when user enters the real tape-measured distance
  * between calibration point A and calibration point B.

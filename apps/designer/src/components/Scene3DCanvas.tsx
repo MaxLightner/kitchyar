@@ -31,8 +31,10 @@ import {
   applyDoorBrushPreview,
   applyDoorDrawerBand,
   autoUnitizeBoxForHandles,
+  canDoorOpenIn3D,
   carveBoxesForPlacedBox,
   clampBoxInternalsAfterResize,
+  computeCabinetSweepRange,
   computeDoorBrushPreview,
   createEmptyBox,
   createWall,
@@ -47,6 +49,7 @@ import {
 } from '../cad/doorRules';
 import {
   applyAnimatedDoorProgress,
+  buildHandleMesh,
   BuiltKitchenScene,
   buildKitchen3DScene,
   CM,
@@ -73,11 +76,13 @@ import {
   ToolId,
   Wall,
 } from '../cad/types';
-import { CursorToolPreview } from './CursorToolPreview';
+import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
+import { PacedGestureStepper } from '../utils/gesturePacing';
 
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
+const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
 
 interface Scene3DCanvasProps {
   project: ProjectState;
@@ -123,6 +128,7 @@ interface Scene3DCanvasProps {
   onSetApplianceKind: (k: ApplianceKind) => void;
   onSetOpeningKind: (k: OpeningKind) => void;
   onSetDoorOrient?: (o: Orientation) => void;
+  onSetHandleStyle?: (s: HandleStyle) => void;
   onSetHandleOrient?: (o: Orientation) => void;
   onSelectWallAndBox: (
     wallId: string,
@@ -177,6 +183,7 @@ type Drag3D =
       lastTargetX: number;
       startDot: number;
       sessionId: string;
+      moved?: boolean;
     }
   | {
       kind: 'move-app';
@@ -186,6 +193,7 @@ type Drag3D =
       lastTargetX: number;
       startDot: number;
       sessionId: string;
+      moved?: boolean;
     }
   | {
       kind: 'resize-box';
@@ -247,7 +255,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const [hoverPreview, setHoverPreview] = useState<{
     clientX: number;
     clientY: number;
-    hoverTarget: 'cabinet' | 'backsplash' | 'countertop' | null;
+    hoverTarget: 'cabinet' | 'backsplash' | 'countertop' | 'wall' | null;
+    targetStatus: CursorTargetStatus;
+    sweepWidthCm?: number;
   } | null>(null);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -261,9 +271,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const downClientRef = useRef<{ x: number; y: number } | null>(null);
   const rightDownClientRef = useRef<{ x: number; y: number } | null>(null);
   const lastHoverCheckRef = useRef<{ x: number; y: number; ts: number }>({ x: 0, y: 0, ts: 0 });
+  const gestureStepperRef = useRef(new PacedGestureStepper());
   const camInitDoneRef = useRef(false);
   const doorStatesRef = useRef<Map<string, { cur: number; target: number }>>(new Map());
   const pendingWallStart3DRef = useRef<{ xCm: number; yCm: number } | null>(null);
+  const pendingCabDraw3DRef = useRef<{ wallId: string; startXCm: number; boxKind: BoxKind } | null>(null);
   const clearWallPreviewRef = useRef<() => void>(() => {});
   const updateWallPreviewRef = useRef<(clientX: number, clientY: number) => void>(() => {});
 
@@ -316,10 +328,31 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         focus.y = explicitWallId ? tr.heightCm * CM * 0.45 : Math.max(0.9, center.y * 0.65);
         ctrl.target.copy(focus);
         const dist = Math.max(3.4, maxDim * 0.92);
-        cam.position
-          .copy(focus)
+
+        const candA = focus
+          .clone()
           .addScaledVector(tr.normal, dist * 0.85)
           .addScaledVector(tr.tangent, -dist * 0.42);
+        const candB = focus
+          .clone()
+          .addScaledVector(tr.normal, dist * 0.85)
+          .addScaledVector(tr.tangent, +dist * 0.42);
+
+        const scoreCam = (p: THREE.Vector3) => {
+          let behindWalls = 0;
+          if (builtRef.current) {
+            for (const wt of builtRef.current.wallTransforms.values()) {
+              const rel = p.clone().sub(wt.origin);
+              const along = rel.dot(wt.tangent);
+              if (along >= -0.35 && along <= wt.lengthCm * CM + 0.35 && rel.dot(wt.normal) < -0.08) {
+                behindWalls++;
+              }
+            }
+          }
+          return behindWalls * 1000 + p.distanceTo(center);
+        };
+
+        cam.position.copy(scoreCam(candB) < scoreCam(candA) ? candB : candA);
         cam.position.y = Math.max(2.2, maxDim * 0.62);
       } else {
         cam.position.set(center.x + maxDim * 0.75, Math.max(2.2, maxDim * 0.65), center.z + maxDim * 0.85);
@@ -575,13 +608,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       return { xCm, yCm, tr };
     };
 
-    const clearGhost = () => {
+    const disposeGhostChildren = () => {
       while (ghostGroup.children.length > 0) {
         const ch = ghostGroup.children[0];
         ghostGroup.remove(ch);
-        const m = ch as THREE.Mesh;
-        if (m.geometry) m.geometry.dispose();
+        disposeObject3D(ch);
       }
+    };
+
+    const clearGhost = () => {
+      disposeGhostChildren();
       if (ghostGroup.visible) {
         ghostGroup.visible = false;
         requestRender();
@@ -686,36 +722,108 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     updateWallPreviewRef.current = updateWallFloorPreview;
 
     const updateGhostAndHover = (clientX: number, clientY: number) => {
-      if (propsRef.current.tool === 'wall') {
+      const curTool = propsRef.current.tool;
+      if (curTool === 'wall') {
         clearGhost();
-        setHoverPreview((prev) => (prev ? null : prev));
+        setHoverPreview({ clientX, clientY, hoverTarget: null, targetStatus: 'valid' });
         updateWallFloorPreview(clientX, clientY);
         return;
       }
       clearWallFloorPreview();
       if (!builtRef.current) {
         clearGhost();
+        setHoverPreview({ clientX, clientY, hoverTarget: null, targetStatus: 'neutral' });
         return;
       }
+      const cur = propsRef.current;
+
+      // Active 2-click cab-draw sweep can track cursor even across wall edges
+      const pendingSweep = pendingCabDraw3DRef.current;
+      if (cur.tool === 'cab-draw' && pendingSweep) {
+        const sweepWall = cur.project.walls.find((x) => x.id === pendingSweep.wallId);
+        const sweepTr = builtRef.current.wallTransforms.get(pendingSweep.wallId);
+        if (sweepWall && sweepTr) {
+          raycaster.setFromCamera(setNdc(clientX, clientY), camera);
+          const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
+          const sameWallHit = hits.find((h) => resolveHitData(h.object)?.wallId === sweepWall.id);
+          let currXCm: number | null = null;
+          if (sameWallHit) {
+            scratchRel.copy(sameWallHit.point).sub(sweepTr.origin);
+            currXCm = Math.max(0, Math.min(sweepWall.length, scratchRel.dot(sweepTr.tangent) / CM));
+          } else {
+            const proj = projectPointerOntoWall(sweepWall.id, clientX, clientY);
+            if (proj) currXCm = Math.max(0, Math.min(sweepWall.length, proj.xCm));
+          }
+          if (currXCm !== null) {
+            const kindNow = cur.drawBoxKind;
+            const preset = BOX_PRESETS[kindNow] || BOX_PRESETS.base;
+            const range = computeCabinetSweepRange(pendingSweep.startXCm, currXCm, sweepWall.length, 30);
+            disposeGhostChildren();
+            ghostGroup.position.copy(sweepTr.origin);
+            basisMat.makeBasis(sweepTr.tangent, upAxis, sweepTr.rightVec);
+            ghostGroup.quaternion.setFromRotationMatrix(basisMat);
+
+            const geo = new THREE.BoxGeometry(
+              Math.max(0.02, range.width * CM),
+              Math.max(0.02, preset.height * CM),
+              Math.max(0.015, preset.depth * CM)
+            );
+            const mesh = new THREE.Mesh(geo, ghostMatIndigo);
+            mesh.position.set(
+              (range.offsetX + range.width / 2) * CM,
+              (preset.elevY + preset.height / 2) * CM,
+              sweepTr.normalSign * (preset.depth / 2) * CM
+            );
+            ghostGroup.add(mesh);
+            const edges = new THREE.EdgesGeometry(geo);
+            const line = new THREE.LineSegments(edges, ghostMatWire);
+            line.position.copy(mesh.position);
+            ghostGroup.add(line);
+
+            // Start anchor marker strip
+            const pinGeo = new THREE.BoxGeometry(0.025, Math.max(0.05, preset.height * CM + 0.04), 0.025);
+            const pinMesh = new THREE.Mesh(pinGeo, ghostMatTeal);
+            pinMesh.position.set(
+              pendingSweep.startXCm * CM,
+              (preset.elevY + preset.height / 2) * CM,
+              sweepTr.normalSign * (preset.depth + 2) * CM
+            );
+            ghostGroup.add(pinMesh);
+
+            ghostGroup.visible = true;
+            setHoverPreview({
+              clientX,
+              clientY,
+              hoverTarget: null,
+              targetStatus: 'valid',
+              sweepWidthCm: range.width,
+            });
+            requestRender();
+            return;
+          }
+        }
+      }
+
       raycaster.setFromCamera(setNdc(clientX, clientY), camera);
       const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
       if (!hits.length) {
         clearGhost();
-        setHoverPreview((prev) => (prev ? null : prev));
+        setHoverPreview({ clientX, clientY, hoverTarget: null, targetStatus: 'neutral' });
         return;
       }
       const topHit = hits[0];
       const data = resolveHitData(topHit.object);
       if (!data) {
         clearGhost();
+        setHoverPreview({ clientX, clientY, hoverTarget: null, targetStatus: 'neutral' });
         return;
       }
 
-      const cur = propsRef.current;
       const wall = cur.project.walls.find((x) => x.id === data.wallId);
       const tr = builtRef.current.wallTransforms.get(data.wallId);
       if (!wall || !tr) {
         clearGhost();
+        setHoverPreview({ clientX, clientY, hoverTarget: null, targetStatus: 'neutral' });
         return;
       }
 
@@ -723,7 +831,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const hitXCm = Math.max(0, Math.min(wall.length, scratchRel.dot(tr.tangent) / CM));
       const hitYCm = Math.max(0, Math.min(wall.height, topHit.point.y / CM));
 
-      let finishTarget: 'cabinet' | 'backsplash' | 'countertop' | null = null;
+      let finishTarget: 'cabinet' | 'backsplash' | 'countertop' | 'wall' | null = null;
       if (cur.tool === 'finish') {
         finishTarget =
           data.kind === 'countertop'
@@ -733,20 +841,18 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             : data.boxId
             ? 'cabinet'
             : null;
+      } else if (cur.tool === 'doors' && data.boxId) {
+        const bHover = wall.boxes.find((b) => b.id === data.boxId);
+        if (bHover && (bHover.type === 'wall' || bHover.type === 'wall-deep')) {
+          finishTarget = 'wall';
+        }
       }
 
-      setHoverPreview({ clientX, clientY, hoverTarget: finishTarget });
-
-      // Update translucent 3D ghost mesh on hovered wall
-      while (ghostGroup.children.length > 0) {
-        const ch = ghostGroup.children[0];
-        ghostGroup.remove(ch);
-        const m = ch as THREE.Mesh;
-        if (m.geometry) m.geometry.dispose();
-      }
+      // Update translucent 3D ghost mesh on hovered wall using right-handed wall basis (det = +1)
+      disposeGhostChildren();
 
       ghostGroup.position.copy(tr.origin);
-      basisMat.makeBasis(tr.tangent, upAxis, tr.normal);
+      basisMat.makeBasis(tr.tangent, upAxis, tr.rightVec);
       ghostGroup.quaternion.setFromRotationMatrix(basisMat);
 
       const addGhostBox = (
@@ -760,7 +866,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       ) => {
         const geo = new THREE.BoxGeometry(Math.max(0.02, wCm * CM), Math.max(0.02, hCm * CM), Math.max(0.015, dCm * CM));
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set((x1Cm + wCm / 2) * CM, (y1Cm + hCm / 2) * CM, (z1Cm + dCm / 2) * CM);
+        mesh.position.set(
+          (x1Cm + wCm / 2) * CM,
+          (y1Cm + hCm / 2) * CM,
+          tr.normalSign * (z1Cm + dCm / 2) * CM
+        );
         ghostGroup.add(mesh);
         const edges = new THREE.EdgesGeometry(geo);
         const line = new THREE.LineSegments(edges, ghostMatWire);
@@ -769,12 +879,17 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       };
 
       let hasGhost = false;
+      let targetStatus: CursorTargetStatus = 'neutral';
+      let previewSweepWidth: number | undefined;
+
       if (cur.tool === 'cab-draw') {
         const preset = BOX_PRESETS[cur.drawBoxKind] || BOX_PRESETS.base;
-        const wCm = 120;
+        const wCm = Math.min(60, Math.max(30, wall.length));
         const startCm = Math.max(0, Math.min(wall.length - wCm, Math.round((hitXCm - wCm / 2) / 5) * 5));
         addGhostBox(startCm, preset.elevY, 0, wCm, preset.height, preset.depth, ghostMatIndigo);
         hasGhost = true;
+        targetStatus = 'valid';
+        previewSweepWidth = wCm;
       } else if (cur.tool === 'fridge') {
         const cfg = FRIDGE_MODELS[cur.fridgeModel];
         const fw = cfg.width + FRIDGE_FRAME_CM * 2;
@@ -782,12 +897,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         const startCm = Math.max(0, Math.min(wall.length - fw, Math.round((hitXCm - fw / 2) / 5) * 5));
         addGhostBox(startCm, 0, 0, fw, fh, cfg.depth, ghostMatIndigo);
         hasGhost = true;
+        targetStatus = 'valid';
       } else if (cur.tool === 'opening') {
         const def = OPENING_DEFAULTS[cur.openingKind];
         const elev = cur.openingKind === 'window' ? Math.max(20, Math.round(hitYCm - def.height / 2)) : 0;
         const startCm = Math.max(0, Math.min(wall.length - def.width, Math.round((hitXCm - def.width / 2) / 5) * 5));
         addGhostBox(startCm, elev, -2, def.width, def.height, 14, ghostMatTeal);
         hasGhost = true;
+        targetStatus = 'valid';
       } else if (cur.tool === 'sink' || cur.tool === 'gas' || cur.tool === 'appliance') {
         const baseBox =
           (data.boxId ? wall.boxes.find((b) => b.id === data.boxId && b.type === 'base') : undefined) ||
@@ -806,11 +923,17 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           );
           const topY = baseBox.elevY + baseBox.height;
           if (kind === 'sink' || kind === 'gas') {
-            addGhostBox(startCm, topY - 1, 6, tw, 12, 48, ghostMatTeal);
+            const appDepthCm = kind === 'gas' ? 48 : 50;
+            const appZStart = Math.max(2, (baseBox.depth - appDepthCm) / 2);
+            const appH = kind === 'gas' ? 5 : 4;
+            addGhostBox(startCm, topY, appZStart, tw, appH, appDepthCm, ghostMatTeal);
           } else {
             addGhostBox(startCm, baseBox.plinth, 0, tw, topY - baseBox.countertopCm - baseBox.plinth, baseBox.depth + 2, ghostMatIndigo);
           }
           hasGhost = true;
+          targetStatus = 'valid';
+        } else {
+          targetStatus = 'invalid';
         }
       } else if (cur.tool === 'doors' && data.boxId) {
         const box = wall.boxes.find((b) => b.id === data.boxId);
@@ -827,17 +950,46 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             cur.doorTargetWidth
           );
           if (prev.ok) {
+            const innerBotCm = box.elevY + box.plinth;
+            const innerHCm = Math.max(10, box.height - box.plinth - box.countertopCm - 1);
             for (const it of prev.items) {
-              addGhostBox(
-                box.offsetX + it.startCm + 0.5,
-                box.elevY + box.plinth + 0.5,
-                box.depth + 0.5,
-                Math.max(4, it.widthCm - 1),
-                Math.max(10, box.height - box.plinth - box.countertopCm - 1),
-                2.5,
-                ghostMatIndigo
-              );
+              if (it.drawerBand) {
+                const bandH = Math.max(8, innerHCm * it.drawerBand.ratio - 0.4);
+                const leafH = Math.max(10, innerHCm - bandH - 0.6);
+                const isTop = it.drawerBand.position === 'top';
+                const bandY = isTop ? innerBotCm + innerHCm - bandH + 0.5 : innerBotCm + 0.5;
+                const leafY = isTop ? innerBotCm + 0.5 : innerBotCm + bandH + 1.1;
+                addGhostBox(
+                  box.offsetX + it.startCm + 0.5,
+                  bandY,
+                  box.depth + 0.5,
+                  Math.max(4, it.widthCm - 1),
+                  bandH,
+                  2.5,
+                  ghostMatTeal
+                );
+                addGhostBox(
+                  box.offsetX + it.startCm + 0.5,
+                  leafY,
+                  box.depth + 0.5,
+                  Math.max(4, it.widthCm - 1),
+                  leafH,
+                  2.5,
+                  ghostMatIndigo
+                );
+              } else {
+                addGhostBox(
+                  box.offsetX + it.startCm + 0.5,
+                  innerBotCm + 0.5,
+                  box.depth + 0.5,
+                  Math.max(4, it.widthCm - 1),
+                  innerHCm,
+                  2.5,
+                  ghostMatIndigo
+                );
+              }
             }
+            targetStatus = 'valid';
           } else {
             addGhostBox(
               hitXCm - 15,
@@ -848,8 +1000,62 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
               2.5,
               ghostMatDanger
             );
+            targetStatus = 'invalid';
           }
           hasGhost = true;
+        }
+      } else if (cur.tool === 'handle' && data.boxId) {
+        const box = wall.boxes.find((b) => b.id === data.boxId);
+        const localX = box ? hitXCm - box.offsetX : 0;
+        const door =
+          (data.doorId ? box?.doors.find((d) => d.id === data.doorId) : undefined) ||
+          box?.doors.find((d) => localX >= d.startCm - 0.5 && localX <= d.startCm + d.widthCm + 0.5);
+        if (box && door && door.kind !== 'fridge') {
+          const innerBot = box.elevY + box.plinth;
+          const innerH = Math.max(10, box.height - box.plinth - box.countertopCm);
+          const normY = Math.max(0, Math.min(1, 1 - (hitYCm - innerBot) / innerH));
+          let rowCenterNorm = 0.5;
+          let rowH = innerH;
+          if ((door.kind === 'drawer' || door.kind === 'lift') && door.drawerRatios.length > 0) {
+            const pts = [0, ...door.drawerRatios, 1];
+            for (let ri = 0; ri < pts.length - 1; ri++) {
+              if (normY >= pts[ri] && normY <= pts[ri + 1]) {
+                rowCenterNorm = (pts[ri] + pts[ri + 1]) / 2;
+                rowH = (pts[ri + 1] - pts[ri]) * innerH;
+                break;
+              }
+            }
+          } else if (door.kind === 'door' && door.doorStyle !== 'pantry') {
+            rowCenterNorm = box.type === 'wall' || box.type === 'wall-deep' ? 0.82 : 0.18;
+          }
+
+          let xRatio = 0.5;
+          if (door.kind === 'door' && door.doorStyle !== 'pantry') {
+            const midDoorCm = door.startCm + door.widthCm / 2;
+            xRatio = localX >= midDoorCm ? 0.86 : 0.14;
+          }
+
+          const handleCenterXCm = box.offsetX + door.startCm + xRatio * door.widthCm;
+          const handleCenterYCm = innerBot + (1 - rowCenterNorm) * innerH;
+          const hMesh = buildHandleMesh(
+            cur.handleStyle,
+            cur.handleOrient,
+            16,
+            door.widthCm * CM,
+            rowH * CM,
+            0.02,
+            tr.normalSign,
+            ghostMatTeal,
+            ghostMatTeal
+          );
+          hMesh.position.set(
+            handleCenterXCm * CM,
+            handleCenterYCm * CM,
+            tr.normalSign * (box.depth + 2.2) * CM
+          );
+          ghostGroup.add(hMesh);
+          hasGhost = true;
+          targetStatus = 'valid';
         }
       } else if (cur.tool === 'door-pencil' && data.boxId && data.doorId) {
         const box = wall.boxes.find((b) => b.id === data.boxId);
@@ -873,15 +1079,30 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             ghostMatIndigo
           );
           hasGhost = true;
+          targetStatus = 'valid';
         }
       } else if (cur.tool === 'finish' && data.boxId) {
         const box = wall.boxes.find((b) => b.id === data.boxId);
         if (box) {
           addGhostBox(box.offsetX, box.elevY, 0, box.width, box.height, box.depth + 3, ghostMatIndigo);
           hasGhost = true;
+          targetStatus = 'valid';
         }
+      } else if (cur.tool === 'finish' && (data.kind === 'countertop' || data.kind === 'backsplash')) {
+        targetStatus = 'valid';
+      } else if (cur.tool === 'door-style' && data.boxId && data.doorId) {
+        targetStatus = 'valid';
+      } else if ((cur.tool === 'pencil' || cur.tool === 'skeleton' || cur.tool === 'frame') && data.boxId) {
+        targetStatus = 'valid';
       }
 
+      setHoverPreview({
+        clientX,
+        clientY,
+        hoverTarget: finishTarget,
+        targetStatus,
+        ...(previewSweepWidth !== undefined ? { sweepWidthCm: previewSweepWidth } : {}),
+      });
       ghostGroup.visible = hasGhost;
       requestRender();
     };
@@ -920,6 +1141,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         if (canDragApp && app) {
           cur.onSelectAppliance(wall.id, app.id);
           controls.enabled = false;
+          e.stopPropagation();
+          try {
+            dom.setPointerCapture(e.pointerId);
+          } catch {}
           drag3DRef.current = {
             kind: 'move-app',
             wallId: wall.id,
@@ -928,6 +1153,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             lastTargetX: app.offsetX,
             startDot: wallProj.xCm,
             sessionId: `3dapp_${Date.now()}`,
+            moved: false,
           };
           return;
         }
@@ -938,6 +1164,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           const box = wall.boxes.find((b) => b.id === data.boxId);
           if (box) {
             controls.enabled = false;
+            e.stopPropagation();
+            try {
+              dom.setPointerCapture(e.pointerId);
+            } catch {}
             drag3DRef.current = {
               kind: 'resize-box',
               wallId: wall.id,
@@ -955,31 +1185,24 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           }
           return;
         }
-        if (data.kind === 'unit' && data.boxId && data.unitStart !== undefined && data.unitEnd !== undefined) {
-          cur.onSelectUnit(wall.id, { boxId: data.boxId, startCm: data.unitStart, endCm: data.unitEnd });
-          return;
-        }
         if (data.kind === 'unit-div' && data.boxId && data.seamCm !== undefined) {
           cur.onSelectUnitDivider(wall.id, { boxId: data.boxId, seamCm: data.seamCm });
-          return;
-        }
-        if (data.kind === 'frame' && data.boxId && data.frameId) {
-          cur.onSelectFrame(wall.id, data.boxId, data.frameId);
-          return;
-        }
-        if (data.kind === 'shelf' && data.boxId && data.shelfId) {
-          cur.onSelectShelf(wall.id, data.boxId, data.shelfId);
-          return;
-        }
-        if (data.kind === 'handle' && data.boxId && data.handleId) {
-          cur.onSelectHandle(wall.id, data.boxId, data.handleId);
           return;
         }
         if (data.kind === 'opening' && data.openingId) {
           cur.onSelectOpening(wall.id, data.openingId);
           return;
         }
-        if ((data.kind === 'box' || data.kind === 'door') && data.boxId) {
+        if (
+          data.boxId &&
+          (data.kind === 'box' ||
+            data.kind === 'door' ||
+            data.kind === 'countertop' ||
+            data.kind === 'unit' ||
+            data.kind === 'frame' ||
+            data.kind === 'shelf' ||
+            data.kind === 'handle')
+        ) {
           const box = wall.boxes.find((b) => b.id === data.boxId);
           if (cur.selectionMode !== 'single') {
             const nextSel = data.doorId
@@ -995,9 +1218,24 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             return;
           }
 
-          cur.onSelectWallAndBox(wall.id, data.boxId, data.doorId ?? null);
+          if (data.kind === 'unit' && data.unitStart !== undefined && data.unitEnd !== undefined) {
+            cur.onSelectUnit(wall.id, { boxId: data.boxId, startCm: data.unitStart, endCm: data.unitEnd });
+          } else if (data.kind === 'frame' && data.frameId) {
+            cur.onSelectFrame(wall.id, data.boxId, data.frameId);
+          } else if (data.kind === 'shelf' && data.shelfId) {
+            cur.onSelectShelf(wall.id, data.boxId, data.shelfId);
+          } else if (data.kind === 'handle' && data.handleId) {
+            cur.onSelectHandle(wall.id, data.boxId, data.handleId);
+          } else {
+            cur.onSelectWallAndBox(wall.id, data.boxId, data.doorId ?? null);
+          }
+
           if (box && wallProj) {
             controls.enabled = false;
+            e.stopPropagation();
+            try {
+              dom.setPointerCapture(e.pointerId);
+            } catch {}
             drag3DRef.current = {
               kind: 'move-box',
               wallId: wall.id,
@@ -1006,6 +1244,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
               lastTargetX: box.offsetX,
               startDot: wallProj.xCm,
               sessionId: `3dbox_${Date.now()}`,
+              moved: false,
             };
           }
           return;
@@ -1032,17 +1271,27 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const proj = projectPointerOntoWall(dr.wallId, e.clientX, e.clientY);
       if (!proj) return;
       const cur = propsRef.current;
+      const dc = downClientRef.current;
+      const pointerMovedPx = dc ? Math.hypot(e.clientX - dc.x, e.clientY - dc.y) : 999;
 
       if (dr.kind === 'move-box') {
+        if (!dr.moved && pointerMovedPx < 5 && Math.abs(proj.xCm - dr.startDot) < 2.5) return;
+        dr.moved = true;
         const dx = Math.round((proj.xCm - dr.startDot) / 5) * 5;
         const target = dr.origX + dx;
-        dr.lastTargetX = target;
-        cur.onMoveBox(dr.wallId, dr.boxId, target, false, dr.sessionId);
+        if (target !== dr.lastTargetX) {
+          dr.lastTargetX = target;
+          cur.onMoveBox(dr.wallId, dr.boxId, target, false, dr.sessionId);
+        }
       } else if (dr.kind === 'move-app') {
+        if (!dr.moved && pointerMovedPx < 5 && Math.abs(proj.xCm - dr.startDot) < 2.5) return;
+        dr.moved = true;
         const dx = Math.round((proj.xCm - dr.startDot) / 5) * 5;
         const target = dr.origX + dx;
-        dr.lastTargetX = target;
-        cur.onMoveAppliance(dr.wallId, dr.appId, target, false, dr.sessionId);
+        if (target !== dr.lastTargetX) {
+          dr.lastTargetX = target;
+          cur.onMoveAppliance(dr.wallId, dr.appId, target, false, dr.sessionId);
+        }
       } else if (dr.kind === 'resize-box') {
         const dx = Math.round(proj.xCm - dr.startDot);
         const dy = Math.round(proj.yCm - dr.startY);
@@ -1090,12 +1339,15 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const dr = drag3DRef.current;
       drag3DRef.current = null;
       controls.enabled = true;
+      try {
+        if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
+      } catch {}
 
       const cur = propsRef.current;
       if (dr) {
-        if (dr.kind === 'move-box' && dr.lastTargetX !== dr.origX) {
+        if (dr.kind === 'move-box' && dr.moved && dr.lastTargetX !== dr.origX) {
           cur.onMoveBox(dr.wallId, dr.boxId, dr.lastTargetX, true, dr.sessionId);
-        } else if (dr.kind === 'move-app' && dr.lastTargetX !== dr.origX) {
+        } else if (dr.kind === 'move-app' && dr.moved && dr.lastTargetX !== dr.origX) {
           cur.onMoveAppliance(dr.wallId, dr.appId, dr.lastTargetX, true, dr.sessionId);
         } else if (dr.kind === 'resize-box') {
           const wall = cur.project.walls.find((x) => x.id === dr.wallId);
@@ -1142,6 +1394,52 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         return;
       }
 
+      // Complete 2-click cab-draw sweep even if pointer ends outside wall mesh bounds
+      if (cur.tool === 'cab-draw' && pendingCabDraw3DRef.current) {
+        const pending = pendingCabDraw3DRef.current;
+        const pWall = cur.project.walls.find((x) => x.id === pending.wallId);
+        const pTr = builtRef.current.wallTransforms.get(pending.wallId);
+        if (pWall && pTr) {
+          raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
+          const sweepHits = raycaster.intersectObjects(builtRef.current.interactables, false);
+          const sameWallHit = sweepHits.find((h) => resolveHitData(h.object)?.wallId === pWall.id);
+          let currXCm: number | null = null;
+          if (sameWallHit) {
+            scratchRel.copy(sameWallHit.point).sub(pTr.origin);
+            currXCm = Math.max(0, Math.min(pWall.length, scratchRel.dot(pTr.tangent) / CM));
+          } else {
+            const proj = projectPointerOntoWall(pWall.id, e.clientX, e.clientY);
+            if (proj) currXCm = Math.max(0, Math.min(pWall.length, proj.xCm));
+          }
+          if (currXCm !== null) {
+            const range = computeCabinetSweepRange(pending.startXCm, currXCm, pWall.length, 30);
+            const box = createEmptyBox(pending.boxKind, range.offsetX, range.width, {
+              settings: cur.project.settings,
+            });
+            let carvedTall = false;
+            cur.onMutateWallById(
+              pWall.id,
+              (w) => {
+                w.boxes.push(box);
+                if (box.type === 'tall') {
+                  carvedTall = carveBoxesForPlacedBox(w, box).carved;
+                }
+              },
+              true,
+              carvedTall
+                ? `باکس ${box.name} (${range.width}cm) جایگزین و فضا برش داده شد`
+                : `باکس ${box.name} (${range.width}cm) اضافه شد`
+            );
+            pendingCabDraw3DRef.current = null;
+            clearGhost();
+            cur.onSelectWallAndBox(pWall.id, box.id, null);
+            return;
+          }
+        }
+        pendingCabDraw3DRef.current = null;
+        clearGhost();
+      }
+
       raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
       const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
       if (!hits.length) {
@@ -1177,24 +1475,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const hitYCm = Math.max(0, Math.min(wall.height, topHit.point.y / CM));
 
       if (cur.tool === 'cab-draw') {
-        const wCm = 120;
-        const startCm = Math.max(0, Math.min(wall.length - wCm, Math.round((hitXCm - wCm / 2) / 5) * 5));
-        const box = createEmptyBox(cur.drawBoxKind, startCm, wCm, { settings: cur.project.settings });
-        let carvedTall = false;
-        cur.onMutateWallById(
-          wall.id,
-          (w) => {
-            w.boxes.push(box);
-            if (box.type === 'tall') {
-              carvedTall = carveBoxesForPlacedBox(w, box).carved;
-            }
-          },
-          true,
-          carvedTall
-            ? `باکس ${box.name} جایگزین و فضا برش داده شد`
-            : `باکس ${box.name} در نمای سه‌بعدی اضافه شد`
-        );
-        cur.onSelectWallAndBox(wall.id, box.id, null);
+        const startXCm = Math.max(0, Math.min(wall.length, Math.round(hitXCm / 5) * 5));
+        pendingCabDraw3DRef.current = {
+          wallId: wall.id,
+          startXCm,
+          boxKind: cur.drawBoxKind,
+        };
+        updateGhostAndHover(e.clientX, e.clientY);
+        cur.onToast('نقطه شروع باکس ثبت شد — موس را روی دیوار بکشید و با کلیک دوم تمام کنید');
         return;
       }
 
@@ -1265,7 +1553,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           (w) => {
             const b = w.boxes.find((x) => x.id === box.id);
             if (!b) return;
-            selDoor = applyDoorBrushPreview(b, cursorCm, prev).selectedDoorId;
+            selDoor = applyDoorBrushPreview(b, cursorCm, prev, blockedZones).selectedDoorId;
           },
           true
         );
@@ -1458,7 +1746,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
 
       if (cur.tool === 'handle') {
-        if (!data.boxId || !data.doorId) {
+        const box = data.boxId ? wall.boxes.find((b) => b.id === data.boxId) : undefined;
+        const localX = box ? hitXCm - box.offsetX : 0;
+        const door =
+          (data.doorId ? box?.doors.find((d) => d.id === data.doorId) : undefined) ||
+          box?.doors.find((d) => localX >= d.startCm - 0.5 && localX <= d.startCm + d.widthCm + 0.5);
+
+        if (!box || !door || door.kind === 'fridge') {
           const nextOrient: Orientation = cur.handleOrient === 'vertical' ? 'horizontal' : 'vertical';
           cur.onSetHandleOrient?.(nextOrient);
           cur.onToast(`جهت دستگیره: ${nextOrient === 'vertical' ? 'عمودی' : 'افقی'}`);
@@ -1469,19 +1763,43 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             cur.project.multiSelection,
             cur.selectionMode,
             'door',
-            data.doorId
+            door.id
           );
           cur.onSetMultiSelection(nextSel);
           cur.onSelectWallAndBox(
             wall.id,
-            data.boxId,
-            cur.selectionMode === 'subtract' ? null : data.doorId,
+            box.id,
+            cur.selectionMode === 'subtract' ? null : door.id,
             true
           );
           return;
         }
-        const box = wall.boxes.find((b) => b.id === data.boxId);
-        if (!box) return;
+
+        const innerBot = box.elevY + box.plinth;
+        const innerH = Math.max(10, box.height - box.plinth - box.countertopCm);
+        const normY = Math.max(0, Math.min(1, 1 - (hitYCm - innerBot) / innerH));
+        let rowIndex = 0;
+        let yRatio = box.type === 'wall' || box.type === 'wall-deep' ? 0.82 : 0.18;
+
+        if ((door.kind === 'drawer' || door.kind === 'lift') && door.drawerRatios.length > 0) {
+          const pts = [0, ...door.drawerRatios, 1];
+          for (let ri = 0; ri < pts.length - 1; ri++) {
+            if (normY >= pts[ri] && normY <= pts[ri + 1]) {
+              rowIndex = ri;
+              yRatio = 0.5;
+              break;
+            }
+          }
+        } else if (door.kind === 'door' && door.doorStyle === 'pantry') {
+          yRatio = 0.5;
+        }
+
+        let xRatio = 0.5;
+        if (door.kind === 'door' && door.doorStyle !== 'pantry') {
+          const midDoorCm = door.startCm + door.widthCm / 2;
+          xRatio = localX >= midDoorCm ? 0.86 : 0.14;
+        }
+
         const blockedZones = getCornerBlockedZonesForWall(wall, cur.project.walls, cur.project.cornerOwners);
         cur.onMutateWallById(
           wall.id,
@@ -1489,14 +1807,17 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             const b = w.boxes.find((x) => x.id === box.id);
             if (!b) return;
             autoUnitizeBoxForHandles(b, blockedZones);
-            b.handles = b.handles.filter((h) => !(h.doorId === data.doorId && h.rowIndex === 0));
-            const door = b.doors.find((d) => d.id === data.doorId);
+            const targetDoor = b.doors.find((d) => d.id === door.id);
+            if (targetDoor && targetDoor.kind === 'door' && targetDoor.doorStyle !== 'pantry') {
+              targetDoor.hingeSide = xRatio >= 0.65 ? 'left' : 'right';
+            }
+            b.handles = b.handles.filter((h) => !(h.doorId === door.id && (h.rowIndex ?? 0) === rowIndex));
             const hItem: HandleItem = {
               id: uid('hand'),
-              doorId: data.doorId!,
-              rowIndex: 0,
-              xRatio: door?.hingeSide === 'right' ? 0.14 : 0.86,
-              yRatio: b.type === 'wall' || b.type === 'wall-deep' ? 0.82 : 0.18,
+              doorId: door.id,
+              rowIndex,
+              xRatio,
+              yRatio,
               orient: cur.handleOrient,
               style: cur.handleStyle,
               lengthCm: 16,
@@ -1506,6 +1827,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           true,
           'دستگیره نصب شد'
         );
+        cur.onSelectWallAndBox(wall.id, box.id, door.id);
         return;
       }
 
@@ -1524,7 +1846,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             wall.id,
             (w) => {
               const b = w.boxes.find((x) => x.id === data.boxId);
-              if (b) b.handles = b.handles.filter((h) => h.id !== data.handleId);
+              if (b) {
+                const removed = b.handles.find((h) => h.id === data.handleId);
+                b.handles = b.handles.filter((h) => h.id !== data.handleId);
+                if (removed && !b.handles.some((h) => h.doorId === removed.doorId)) {
+                  const affDoor = b.doors.find((d) => d.id === removed.doorId);
+                  if (affDoor) affDoor.hingeSide = undefined;
+                }
+              }
             },
             true,
             'دستگیره حذف شد'
@@ -1585,97 +1914,100 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     };
 
-    const onWheelCapture = (e: WheelEvent) => {
-      if (!builtRef.current) return;
+    const is3DCyclableTool = (t: ToolId): boolean =>
+      t !== 'select' && t !== 'wall' && t !== 'eraser';
+
+    const step3DToolOption = (dir: 1 | -1, clientX: number, clientY: number): boolean => {
       const cur = propsRef.current;
-      // Changing the cabinet family must work even over an empty wall or floor.
-      // Ctrl+wheel remains available for ordinary canvas zoom.
-      if (cur.tool === 'cab-draw' && !e.ctrlKey) {
-        const idx = Math.max(0, CAB_DRAW_KIND_ORDER.indexOf(cur.drawBoxKind));
-        const dir = e.deltaY < 0 ? 1 : -1;
-        const next = CAB_DRAW_KIND_ORDER[(idx + (dir > 0 ? 1 : CAB_DRAW_KIND_ORDER.length - 1)) % CAB_DRAW_KIND_ORDER.length];
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        cur.onSelectDrawBoxKind?.(next);
-        cur.onToast(`مدل باکس: ${BOX_PRESETS[next].name}`);
-        requestAnimationFrame(() => updateGhostAndHover(e.clientX, e.clientY));
-        return;
+      let contextBox: { type: string } | null = null;
+      let hitKind: string | undefined;
+
+      if (builtRef.current) {
+        raycaster.setFromCamera(setNdc(clientX, clientY), camera);
+        const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
+        const data = hits[0] ? resolveHitData(hits[0].object) : null;
+        if (data) {
+          hitKind = data.kind;
+          const wall = cur.project.walls.find((x) => x.id === data.wallId);
+          contextBox = wall && data.boxId ? wall.boxes.find((b) => b.id === data.boxId) || null : null;
+        }
       }
-      raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
-      const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
-      if (!hits.length) return;
-      const data = resolveHitData(hits[0].object);
-      if (!data) return;
-      const wall = cur.project.walls.find((x) => x.id === data.wallId);
-      if (!wall) return;
 
-      const contextBox = data.boxId ? wall.boxes.find((b) => b.id === data.boxId) || null : null;
-      const dir = e.deltaY < 0 ? 1 : -1;
-      let consumed = false;
-
+      if (cur.tool === 'handle') {
+        const idx = Math.max(0, HANDLE_STYLE_ORDER.indexOf(cur.handleStyle));
+        const nxt = HANDLE_STYLE_ORDER[(idx + (dir > 0 ? 1 : HANDLE_STYLE_ORDER.length - 1)) % HANDLE_STYLE_ORDER.length];
+        cur.onSetHandleStyle?.(nxt);
+        cur.onToast(`مدل دستگیره: ${nxt === 'knob' ? 'دکمه‌ای' : nxt === 'hidden' ? 'مخفی' : 'میله‌ای'}`);
+        return true;
+      }
       if (cur.tool === 'cab-draw') {
         const idx = Math.max(0, CAB_DRAW_KIND_ORDER.indexOf(cur.drawBoxKind));
-        const nxt =
-          CAB_DRAW_KIND_ORDER[
-            (idx + (dir > 0 ? 1 : CAB_DRAW_KIND_ORDER.length - 1)) % CAB_DRAW_KIND_ORDER.length
-          ];
-        cur.onSelectDrawBoxKind?.(nxt);
-        cur.onToast(`مدل باکس: ${BOX_PRESETS[nxt].name}`);
-        consumed = true;
-      } else if (cur.tool === 'doors' && contextBox && contextBox.type !== 'fridge') {
+        const next = CAB_DRAW_KIND_ORDER[(idx + (dir > 0 ? 1 : CAB_DRAW_KIND_ORDER.length - 1)) % CAB_DRAW_KIND_ORDER.length];
+        cur.onSelectDrawBoxKind?.(next);
+        cur.onToast(`مدل باکس: ${BOX_PRESETS[next].name}`);
+        return true;
+      }
+      if (cur.tool === 'doors') {
         if (cur.doorOrient === 'vertical') {
           cur.onSetDoorVertCount(Math.max(1, Math.min(4, cur.doorVertCount + dir)));
-        } else if (contextBox.type === 'wall' || contextBox.type === 'wall-deep') {
+        } else if (contextBox && (contextBox.type === 'wall' || contextBox.type === 'wall-deep')) {
           cur.onSetLiftPatIdx((cur.liftPatIdx + (dir > 0 ? 1 : LIFT_PATTERNS.length - 1)) % LIFT_PATTERNS.length);
         } else {
           cur.onSetDrawerPatIdx(
             (cur.drawerPatIdx + (dir > 0 ? 1 : DRAWER_PATTERNS.length - 1)) % DRAWER_PATTERNS.length
           );
         }
-        consumed = true;
-      } else if (cur.tool === 'sink' && contextBox && contextBox.type === 'base') {
+        return true;
+      }
+      if (cur.tool === 'sink') {
         const idx = SINK_MODEL_ORDER.indexOf(cur.sinkModel);
         cur.onSetSinkModel(
           SINK_MODEL_ORDER[(idx + (dir > 0 ? 1 : SINK_MODEL_ORDER.length - 1)) % SINK_MODEL_ORDER.length]
         );
-        consumed = true;
-      } else if (cur.tool === 'gas' && contextBox && contextBox.type === 'base') {
+        return true;
+      }
+      if (cur.tool === 'gas') {
         const widths = [...GAS_WIDTH_OPTIONS];
         const idx = Math.max(0, widths.indexOf(cur.gasWidth as (typeof GAS_WIDTH_OPTIONS)[number]));
         cur.onSetGasWidth(widths[(idx + (dir > 0 ? 1 : widths.length - 1)) % widths.length]);
-        consumed = true;
-      } else if (cur.tool === 'appliance' && contextBox && contextBox.type === 'base') {
+        return true;
+      }
+      if (cur.tool === 'appliance') {
         const idx = Math.max(0, APPLIANCE_ORDER.indexOf(cur.applianceKind));
         cur.onSetApplianceKind(
           APPLIANCE_ORDER[(idx + (dir > 0 ? 1 : APPLIANCE_ORDER.length - 1)) % APPLIANCE_ORDER.length]
         );
-        consumed = true;
-      } else if (cur.tool === 'fridge') {
+        return true;
+      }
+      if (cur.tool === 'fridge') {
         const idx = FRIDGE_MODEL_ORDER.indexOf(cur.fridgeModel);
         cur.onSetFridgeModel(
           FRIDGE_MODEL_ORDER[(idx + (dir > 0 ? 1 : FRIDGE_MODEL_ORDER.length - 1)) % FRIDGE_MODEL_ORDER.length]
         );
-        consumed = true;
-      } else if (cur.tool === 'opening') {
+        return true;
+      }
+      if (cur.tool === 'opening') {
         const idx = OPENING_ORDER.indexOf(cur.openingKind);
         cur.onSetOpeningKind(
           OPENING_ORDER[(idx + (dir > 0 ? 1 : OPENING_ORDER.length - 1)) % OPENING_ORDER.length]
         );
-        consumed = true;
-      } else if (cur.tool === 'door-style') {
+        return true;
+      }
+      if (cur.tool === 'door-style') {
         const idx = Math.max(0, DOOR_STYLE_ORDER.indexOf(cur.doorStyleBrush));
         const nxt = DOOR_STYLE_ORDER[(idx + (dir > 0 ? 1 : DOOR_STYLE_ORDER.length - 1)) % DOOR_STYLE_ORDER.length];
         cur.onSetDoorStyleBrush(nxt);
         cur.onToast(`مدل درب: ${DOOR_STYLE_META[nxt].label}`);
-        consumed = true;
-      } else if (cur.tool === 'finish') {
-        if (data.kind === 'countertop') {
+        return true;
+      }
+      if (cur.tool === 'finish') {
+        if (hitKind === 'countertop') {
           const idx = Math.max(0, COUNTERTOP_FINISH_ORDER.indexOf(cur.countertopBrush));
           const nxt =
             COUNTERTOP_FINISH_ORDER[(idx + (dir > 0 ? 1 : COUNTERTOP_FINISH_ORDER.length - 1)) % COUNTERTOP_FINISH_ORDER.length];
           cur.onSetCountertopBrush(nxt);
           cur.onToast(`صفحه: ${COUNTERTOP_FINISHES[nxt].label}`);
-        } else if (data.kind === 'backsplash') {
+        } else if (hitKind === 'backsplash') {
           const idx = Math.max(0, BACKSPLASH_FINISH_ORDER.indexOf(cur.backsplashBrush));
           const nxt =
             BACKSPLASH_FINISH_ORDER[(idx + (dir > 0 ? 1 : BACKSPLASH_FINISH_ORDER.length - 1)) % BACKSPLASH_FINISH_ORDER.length];
@@ -1688,28 +2020,41 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           cur.onSetCabinetFinishBrush(nxt);
           cur.onToast(`رنگ کابینت: ${CABINET_FINISHES[nxt].label}`);
         }
-        consumed = true;
-      } else if (cur.tool === 'door-pencil') {
+        return true;
+      }
+      if (cur.tool === 'door-pencil') {
         const nxt = (cur.doorBandPos ?? 'top') === 'top' ? 'bottom' : 'top';
         cur.onSetDoorBandPos?.(nxt);
         cur.onToast(`موقعیت کشو: ${nxt === 'top' ? 'بالای درب' : 'پایین درب'}`);
-        consumed = true;
-      } else if ((cur.tool === 'pencil' || cur.tool === 'skeleton') && contextBox && contextBox.type !== 'fridge') {
+        return true;
+      }
+      if (cur.tool === 'pencil' || cur.tool === 'skeleton') {
         cur.onSetShelfCount(Math.max(1, Math.min(4, cur.shelfCount + dir)));
-        consumed = true;
-      } else if (cur.tool === 'frame') {
+        return true;
+      }
+      if (cur.tool === 'frame') {
         const idx = Math.max(
           0,
           FRAME_WIDTH_OPTIONS.indexOf(cur.frameWidthCm as (typeof FRAME_WIDTH_OPTIONS)[number])
         );
         const nextIdx = Math.max(0, Math.min(FRAME_WIDTH_OPTIONS.length - 1, idx + dir));
         cur.onSetFrameWidthCm(FRAME_WIDTH_OPTIONS[nextIdx]);
-        consumed = true;
+        return true;
       }
+      return false;
+    };
 
-      if (consumed) {
+    const onWheelCapture = (e: WheelEvent) => {
+      if (!builtRef.current) return;
+      const cur = propsRef.current;
+      // Ctrl+wheel remains available for ordinary canvas zoom.
+      if (!e.ctrlKey && is3DCyclableTool(cur.tool)) {
         e.preventDefault();
         e.stopImmediatePropagation();
+        const pacedDir = gestureStepperRef.current.consumeWheelDelta(e.deltaY, e.deltaMode);
+        if (pacedDir !== 0) {
+          step3DToolOption(pacedDir, e.clientX, e.clientY);
+        }
         requestAnimationFrame(() => updateGhostAndHover(e.clientX, e.clientY));
       }
     };
@@ -1720,7 +2065,25 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
       if (!hits.length) return;
       const data = resolveHitData(hits[0].object);
-      if (!data?.doorId) return;
+      if (!data?.doorId || !data.boxId) return;
+
+      const cur = propsRef.current;
+      const wall = cur.project.walls.find((x) => x.id === data.wallId);
+      const box = wall?.boxes.find((b) => b.id === data.boxId);
+      const door = box?.doors.find((d) => d.id === data.doorId);
+      if (!box || !door) return;
+
+      let rowIdx: number | undefined;
+      if (data.animationId && data.animationId.includes(':row:')) {
+        const raw = Number(data.animationId.split(':row:')[1]);
+        if (!Number.isNaN(raw)) rowIdx = raw;
+      }
+
+      if (!canDoorOpenIn3D(box, door, rowIdx)) {
+        cur.onToast('تا روی این درب دستگیره قرار ندهید درب باز نمی‌شود');
+        return;
+      }
+
       const partId = data.animationId || data.doorId;
 
       const states = doorStatesRef.current;
@@ -1742,48 +2105,53 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         clearWallFloorPreview();
         requestRender();
       }
+      if (pendingCabDraw3DRef.current) {
+        pendingCabDraw3DRef.current = null;
+        clearGhost();
+        requestRender();
+      }
       if (propsRef.current.tool !== 'select') {
         propsRef.current.onExitToSelect();
       }
     };
 
-    let twoFingerAccumY = 0;
     let lastTwoFingerMidY: number | null = null;
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2 && propsRef.current.tool === 'cab-draw') {
+      if (e.touches.length === 2 && is3DCyclableTool(propsRef.current.tool)) {
         controls.enabled = false;
-        lastTwoFingerMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-        twoFingerAccumY = 0;
+        gestureStepperRef.current.resetTouch();
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        lastTwoFingerMidY = midY;
+        updateGhostAndHover(midX, midY);
       } else {
         lastTwoFingerMidY = null;
       }
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2 || propsRef.current.tool !== 'cab-draw' || lastTwoFingerMidY === null) {
+      if (
+        e.touches.length !== 2 ||
+        !is3DCyclableTool(propsRef.current.tool) ||
+        lastTwoFingerMidY === null
+      ) {
         return;
       }
       e.preventDefault();
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-      twoFingerAccumY += midY - lastTwoFingerMidY;
+      const deltaY = midY - lastTwoFingerMidY;
       lastTwoFingerMidY = midY;
-      if (Math.abs(twoFingerAccumY) >= 26) {
-        const dir = twoFingerAccumY < 0 ? 1 : -1;
-        twoFingerAccumY = 0;
-        const cur = propsRef.current;
-        const idx = Math.max(0, CAB_DRAW_KIND_ORDER.indexOf(cur.drawBoxKind));
-        const nxt =
-          CAB_DRAW_KIND_ORDER[
-            (idx + (dir > 0 ? 1 : CAB_DRAW_KIND_ORDER.length - 1)) % CAB_DRAW_KIND_ORDER.length
-          ];
-        cur.onSelectDrawBoxKind?.(nxt);
-        cur.onToast(`مدل باکس: ${BOX_PRESETS[nxt].name}`);
+      const pacedDir = gestureStepperRef.current.consumeTouchDelta(deltaY);
+      if (pacedDir !== 0) {
+        step3DToolOption(pacedDir, midX, midY);
       }
+      requestAnimationFrame(() => updateGhostAndHover(midX, midY));
     };
 
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) {
         lastTwoFingerMidY = null;
-        twoFingerAccumY = 0;
+        gestureStepperRef.current.resetTouch();
         if (!drag3DRef.current) controls.enabled = true;
       }
     };
@@ -1796,7 +2164,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     const dom = renderer.domElement;
     dom.addEventListener('wheel', onWheelCapture, { passive: false, capture: true });
-    dom.addEventListener('pointerdown', onPointerDown);
+    dom.addEventListener('pointerdown', onPointerDown, { capture: true });
     dom.addEventListener('dblclick', onDoubleClick);
     dom.addEventListener('contextmenu', onContextMenu);
     dom.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -1812,7 +2180,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (rafId !== null) cancelAnimationFrame(rafId);
       ro.disconnect();
       dom.removeEventListener('wheel', onWheelCapture, { capture: true });
-      dom.removeEventListener('pointerdown', onPointerDown);
+      dom.removeEventListener('pointerdown', onPointerDown, { capture: true });
       dom.removeEventListener('dblclick', onDoubleClick);
       dom.removeEventListener('contextmenu', onContextMenu);
       dom.removeEventListener('touchstart', onTouchStart);
@@ -1844,6 +2212,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   }, []);
 
   useEffect(() => {
+    if (tool !== 'cab-draw') {
+      pendingCabDraw3DRef.current = null;
+    }
     if (tool === 'wall') {
       // Show the floor target immediately when the wall tool is selected.
       const rect = hostRef.current?.getBoundingClientRect();
@@ -1894,6 +2265,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
   const handleToggleAllDoors = () => {
     const nextOpen = !doorsOpen;
+    if (nextOpen && (!builtRef.current || builtRef.current.animatedDoors.length === 0)) {
+      props.onToast('برای باز شدن درب‌ها ابتدا روی آن‌ها دستگیره قرار دهید');
+      return;
+    }
     setDoorsOpen(nextOpen);
     const states = doorStatesRef.current;
     const targetVal = nextOpen ? 1 : 0;
@@ -2031,7 +2406,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           clientY={hoverPreview.clientY}
           tool={tool}
           drawBoxKind={props.drawBoxKind}
+          activeCabWidthCm={hoverPreview.sweepWidthCm}
           hoverTarget={hoverPreview.hoverTarget}
+          targetStatus={hoverPreview.targetStatus}
           sinkModel={props.sinkModel}
           gasWidth={props.gasWidth}
           hoodKind={props.hoodKind}
@@ -2051,6 +2428,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           countertopBrush={props.countertopBrush}
           frameWidthCm={props.frameWidthCm}
           shelfCount={props.shelfCount}
+          handleStyle={props.handleStyle}
+          handleOrient={props.handleOrient}
           testId="cursor-preview-3d"
         />
       )}

@@ -167,7 +167,11 @@ interface SideInspectorProps {
   onSetOpeningSwing: (s: DoorSwing) => void;
   onToggleLock: () => void;
   // Selection actions
-  onSetDoorKind: (kind: DoorKind, drawerRatios?: number[]) => void;
+  onSetDoorKind: (
+    kind: DoorKind,
+    drawerRatios?: number[],
+    drawerBand?: { position: 'top' | 'bottom'; ratio: number } | null
+  ) => void;
   onDeleteSelectedBox: () => void;
   onUpdateOpeningNumeric: (
     field: 'offsetX' | 'width' | 'elevY' | 'height',
@@ -1251,9 +1255,9 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         <div className="grid grid-cols-3 gap-1">
                           <button
                             type="button"
-                            onClick={() => props.onSetDoorKind('door', [])}
+                            onClick={() => props.onSetDoorKind('door', [], null)}
                             className={`h-8 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 ${
-                              selectedDoor.kind === 'door'
+                              selectedDoor.kind === 'door' && !selectedDoor.drawerBand
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                                 : 'bg-white border-slate-200 text-slate-700'
                             }`}
@@ -1263,7 +1267,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => props.onSetDoorKind('drawer', [0.333, 0.667])}
+                            onClick={() => props.onSetDoorKind('drawer', [0.333, 0.667], null)}
                             className={`h-8 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 ${
                               isEq3Drawer
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
@@ -1275,7 +1279,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => props.onSetDoorKind('drawer', [0.22, 0.54])}
+                            onClick={() => props.onSetDoorKind('drawer', [0.22, 0.54], null)}
                             className={`h-8 rounded-lg border text-[13px] font-bold ${
                               isStepDrawer
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
@@ -1286,7 +1290,33 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => props.onSetDoorKind('lift', [])}
+                            onClick={() =>
+                              props.onSetDoorKind('door', [], { position: 'top', ratio: 0.26 })
+                            }
+                            className={`h-8 rounded-lg border text-[13px] font-bold ${
+                              selectedDoor.kind === 'door' && selectedDoor.drawerBand?.position === 'top'
+                                ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                                : 'bg-white border-slate-200 text-slate-700'
+                            }`}
+                          >
+                            تک کشو بالا
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              props.onSetDoorKind('door', [], { position: 'bottom', ratio: 0.26 })
+                            }
+                            className={`h-8 rounded-lg border text-[13px] font-bold ${
+                              selectedDoor.kind === 'door' && selectedDoor.drawerBand?.position === 'bottom'
+                                ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                                : 'bg-white border-slate-200 text-slate-700'
+                            }`}
+                          >
+                            تک کشو پایین
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => props.onSetDoorKind('lift', [], null)}
                             className={`h-8 rounded-lg border text-[13px] font-bold ${
                               selectedDoor.kind === 'lift'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
@@ -1297,7 +1327,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => props.onSetDoorKind('open', [])}
+                            onClick={() => props.onSetDoorKind('open', [], null)}
                             className={`h-8 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 ${
                               selectedDoor.kind === 'open'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
@@ -1309,7 +1339,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => props.onSetDoorKind('rail', [])}
+                            onClick={() => props.onSetDoorKind('rail', [], null)}
                             className={`h-8 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 ${
                               selectedDoor.kind === 'rail'
                                 ? 'bg-indigo-50 border-indigo-600 text-indigo-700'

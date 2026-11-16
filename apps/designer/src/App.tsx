@@ -13,6 +13,7 @@ import {
 } from './cad/constants';
 import {
   alignApplianceOnBoxFront,
+  alignWallAndBaseDoorSeams,
   applyDoorDrawerBand,
   applyDoorStyleToDoors,
   applyFullBoxFrame,
@@ -20,9 +21,12 @@ import {
   autoUnitizeBoxForHandles,
   carveBoxesForPlacedBox,
   clearHoodUnitForGas,
+  compactDisconnectedDoorsInBox,
   createEmptyBox,
   deleteApplianceHierarchically,
   deleteBoxHierarchically,
+  ensurePairedDoorUnitDividers,
+  equalizeDoorsAndFillGaps,
   equalizeHorizontalInBox,
   equalizeVerticalDoorsInBox,
   eraseDoorWithRule,
@@ -1123,15 +1127,29 @@ export default function App() {
     [activeBox, doorTargetWidth]
   );
 
-  const handleSetDoorKind = (kind: DoorKind, drawerRatios: number[] = []) => {
-    if (!selectedDoor || !activeBox) return;
+  const handleSetDoorKind = (
+    kind: DoorKind,
+    drawerRatios: number[] = [],
+    drawerBand?: { position: 'top' | 'bottom'; ratio: number } | null
+  ) => {
+    if (!selectedDoor || !activeBox || !activeWall) return;
+    const blockedZones = getCornerBlockedZonesForWall(activeWall, project.walls, project.cornerOwners);
     mutateActiveWall((w) => {
       const b = w.boxes.find((x) => x.id === activeBox.id);
       const d = b?.doors.find((x) => x.id === selectedDoor.id);
-      if (!d) return;
+      if (!d || !b) return;
       d.kind = kind;
       d.drawerRatios = [...drawerRatios];
-      if (b) b.handles = b.handles.filter((h) => h.doorId !== d.id);
+      if (drawerBand) {
+        d.drawerBand = { ...drawerBand };
+      } else {
+        delete d.drawerBand;
+      }
+      b.handles = b.handles.filter((h) => h.doorId !== d.id);
+      d.hingeSide = undefined;
+      if (kind === 'door') {
+        ensurePairedDoorUnitDividers(b, blockedZones);
+      }
     }, true);
   };
 
@@ -1287,6 +1305,59 @@ export default function App() {
     const b = w?.boxes.find((x) => x.id === activeBox.id);
     if (!w || !b) return;
     const res = equalizeHorizontalInBox(b, selectedDoor?.id || null);
+    if (!res.ok) {
+      showToast(res.message);
+      return;
+    }
+    commitState(next, true);
+    showToast(res.message);
+  };
+
+  const handleEqualizeAndFill = () => {
+    if (!activeWall || !activeBox) return;
+    const next = cloneProject(project);
+    const w = next.walls.find((x) => x.id === activeWall.id);
+    const b = w?.boxes.find((x) => x.id === activeBox.id);
+    if (!w || !b) return;
+    const blocked = getCornerBlockedZonesForWall(w, next.walls, next.cornerOwners);
+    const res = equalizeDoorsAndFillGaps(
+      b,
+      blocked,
+      w,
+      next.walls,
+      next.cornerOwners,
+      next.selectedDoorId
+    );
+    if (!res.ok) {
+      showToast(res.message);
+      return;
+    }
+    commitState(next, true);
+    showToast(res.message);
+  };
+
+  const handleCompactDoorsAndAppliances = () => {
+    if (!activeWall || !activeBox) return;
+    const next = cloneProject(project);
+    const w = next.walls.find((x) => x.id === activeWall.id);
+    const b = w?.boxes.find((x) => x.id === activeBox.id);
+    if (!w || !b) return;
+    const blocked = getCornerBlockedZonesForWall(w, next.walls, next.cornerOwners);
+    const res = compactDisconnectedDoorsInBox(b, blocked, w, next.walls, next.cornerOwners);
+    if (!res.ok) {
+      showToast(res.message);
+      return;
+    }
+    commitState(next, true);
+    showToast(res.message);
+  };
+
+  const handleAlignWallAndBaseDoors = () => {
+    if (!activeWall) return;
+    const next = cloneProject(project);
+    const w = next.walls.find((x) => x.id === activeWall.id);
+    if (!w) return;
+    const res = alignWallAndBaseDoorSeams(w, next.walls, next.cornerOwners);
     if (!res.ok) {
       showToast(res.message);
       return;
@@ -2100,7 +2171,9 @@ export default function App() {
       };
       const name = preset
         ? `${labelMap[preset]} #${projects.length + 1}`
-        : `پروژه AR #${projects.length + 1}`;
+        : mode === 'ar'
+        ? `پروژه AR #${projects.length + 1}`
+        : `پروژه جدید #${projects.length + 1}`;
       const rec = createProjectRecord(name, mode, preset);
       const updated = [rec, ...projects];
       setProjects(updated);
@@ -2242,6 +2315,11 @@ export default function App() {
         hasActiveBox={Boolean(activeBox)}
         hasSelectedUnit={Boolean(project.selectedUnit)}
         hasSelectedAppliance={Boolean(selectedAppliance)}
+        hasBaseAndWallBoxes={Boolean(
+          activeWall &&
+            activeWall.boxes.some((b) => b.type === 'base') &&
+            activeWall.boxes.some((b) => b.type === 'wall' || b.type === 'wall-deep')
+        )}
         selectedApplianceName={
           selectedAppliance
             ? selectedAppliance.kind === 'gas'
@@ -2266,6 +2344,9 @@ export default function App() {
         onImportProject={handleImportProject}
         onEqualizeVertical={handleEqualizeVertical}
         onEqualizeHorizontal={handleEqualizeHorizontal}
+        onEqualizeDoorsAndFill={handleEqualizeAndFill}
+        onCompactDoorsAndAppliances={handleCompactDoorsAndAppliances}
+        onAlignWallAndBaseDoors={handleAlignWallAndBaseDoors}
         onMirrorBox={handleMirrorBox}
         onAlignBox={handleAlignBox}
         onMoveUnit={handleMoveUnit}
@@ -2284,6 +2365,19 @@ export default function App() {
             applianceKind={applianceKind}
             hoodKind={hoodKind}
             openingKind={openingKind}
+            handleStyle={handleStyle}
+            handleOrient={handleOrient}
+            drawBoxKind={drawBoxKind}
+            onSelectDrawBoxKind={setDrawBoxKind}
+            onHandleStyleChange={setHandleStyle}
+            onHandleOrientChange={setHandleOrient}
+            onFridgeModelChange={setFridgeModel}
+            onSinkModelChange={setSinkModel}
+            onGasWidthChange={setGasWidth}
+            onApplianceKindChange={setApplianceKind}
+            onOpeningKindChange={setOpeningKind}
+            onMoveBox={handleMoveBox}
+            onMoveAppliance={handleMoveAppliance}
             sessionKillSignal={arSessionKillSignal}
             onSwitchViewMode={handleSwitchViewMode}
             onToast={showToast}
@@ -2794,6 +2888,7 @@ export default function App() {
                 frameWidthCm={frameWidthCm}
                 onFrameWidthCmChange={setFrameWidthCm}
                 handleStyle={handleStyle}
+                onHandleStyleChange={setHandleStyle}
                 handleOrient={handleOrient}
                 onHandleOrientChange={setHandleOrient}
                 fridgeModel={fridgeModel}

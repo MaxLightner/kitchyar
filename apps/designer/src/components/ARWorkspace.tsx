@@ -11,13 +11,14 @@ import {
   DoorClosed,
   DoorOpen,
   Droplets,
-  MousePointer2,
   Flame,
-  PanelTop,
   Frame,
+  GripHorizontal,
   Layers,
   Lock,
   LockOpen,
+  MousePointer2,
+  PanelTop,
   RectangleHorizontal,
   Refrigerator,
   RotateCcw,
@@ -28,7 +29,7 @@ import {
 import {
   buildArScannedWall,
   computeScaleFromRealDistanceCm,
-  fitCalibrationDragB,
+  fitCalibrationDragABWithScale,
   projectArPointOntoWalls,
   XZPoint,
 } from '../ar/arCalibration';
@@ -39,11 +40,28 @@ import {
   OCCLUSION_STATUS_LABEL,
   OcclusionStatus,
 } from '../ar/nearOcclusion';
-import { BOX_PRESETS, DEFAULT_PROJECT_SETTINGS, FRIDGE_MODELS, OPENING_DEFAULTS, SINK_MODELS } from '../cad/constants';
+import {
+  APPLIANCE_CONFIGS,
+  BOX_PRESETS,
+  DEFAULT_PROJECT_SETTINGS,
+  FRIDGE_FRAME_CM,
+  FRIDGE_MODELS,
+  FRIDGE_MODEL_ORDER,
+  GAS_WIDTH_OPTIONS,
+  OPENING_DEFAULTS,
+  SINK_MODELS,
+  SINK_MODEL_ORDER,
+} from '../cad/constants';
+
+const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'tall'];
+const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
+const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
+const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 import { getCornerBlockedZonesForWall, getWallVectors } from '../cad/cornerLogic';
 import {
   addShelvesWithMinGap,
   applyDoorBrushPreview,
+  autoUnitizeBoxForHandles,
   carveBoxesForPlacedBox,
   computeDoorBrushPreview,
   createEmptyBox,
@@ -54,9 +72,11 @@ import {
   placeFridgeOnWall,
 } from '../cad/doorRules';
 import { createWallOpening } from '../cad/openingRules';
-import { CursorToolPreview } from './CursorToolPreview';
+import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
+import { PacedGestureStepper } from '../utils/gesturePacing';
 import {
   applyAnimatedDoorProgress,
+  buildHandleMesh,
   buildKitchen3DScene,
   BuiltKitchenScene,
   detectSoftwareWebGL,
@@ -67,10 +87,11 @@ import {
   ApplianceKind,
   BoxKind,
   FridgeModel,
+  HandleStyle,
   OpeningKind,
+  Orientation,
   ProjectState,
   SinkModel,
-  Wall,
   ToolId,
 } from '../cad/types';
 
@@ -88,6 +109,7 @@ export type ArToolId =
   | 'appliance'
   | 'opening'
   | 'doors'
+  | 'handle'
   | 'shelf'
   | 'frame';
 
@@ -101,6 +123,19 @@ interface ARWorkspaceProps {
   applianceKind: ApplianceKind;
   hoodKind: 'hidden' | 'chimney';
   openingKind: OpeningKind;
+  handleStyle?: HandleStyle;
+  handleOrient?: Orientation;
+  drawBoxKind?: BoxKind;
+  onSelectDrawBoxKind?: (kind: BoxKind) => void;
+  onHandleStyleChange?: (style: HandleStyle) => void;
+  onHandleOrientChange?: (orient: Orientation) => void;
+  onFridgeModelChange?: (model: FridgeModel) => void;
+  onSinkModelChange?: (model: SinkModel) => void;
+  onGasWidthChange?: (w: number) => void;
+  onApplianceKindChange?: (k: ApplianceKind) => void;
+  onOpeningKindChange?: (k: OpeningKind) => void;
+  onMoveBox?: (wallId: string, boxId: string, desiredOffsetX: number, commit: boolean, sessionId?: string) => void;
+  onMoveAppliance?: (wallId: string, appId: string, desiredOffsetX: number, commit: boolean, sessionId?: string) => void;
   onUpdateProject: (updater: (prev: ProjectState) => ProjectState, toastMsg?: string) => void;
   onSwitchViewMode: (mode: '2d' | '3d' | 'ar') => void;
   onToast: (msg: string) => void;
@@ -120,20 +155,76 @@ interface StoredAnchorEntry {
   reference: { x: number; y: number; z: number };
 }
 
-function makeCalibrationPin(colorHex: number, label: string): THREE.Group {
+type ArDragState =
+  | { kind: 'drag-a'; startWorld: XZPoint; moved: boolean }
+  | { kind: 'drag-b'; anchorA: XZPoint; moved: boolean }
+  | {
+      kind: 'move-box';
+      wallId: string;
+      boxId: string;
+      origX: number;
+      startDot: number;
+      lastTargetX: number;
+      sessionId: string;
+      moved: boolean;
+    }
+  | {
+      kind: 'move-app';
+      wallId: string;
+      appId: string;
+      origX: number;
+      startDot: number;
+      lastTargetX: number;
+      sessionId: string;
+      moved: boolean;
+    };
+
+// Offset rays & floor-net shader ported from MaxLightner/kitchyar (apps/preview/floor-ar.js + surfaces.js)
+const FLOOR_SCAN_RAYS: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [0, 0.08],
+  [0, -0.08],
+  [-0.08, 0],
+  [0.08, 0],
+  [-0.055, 0.055],
+  [0.055, 0.055],
+  [0, -0.15],
+];
+const FLOOR_RAY_TILT = -0.35;
+const MAX_SCAN_CROSSES = 36;
+const DOOR_ANIM_DURATION_S = 0.58;
+
+function makeCalibrationPin(colorHex: number, label: string, handleKind: 'a' | 'b'): THREE.Group {
   const group = new THREE.Group();
   const disc = new THREE.Mesh(
-    new THREE.RingGeometry(0.06, 0.095, 28),
-    new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide })
+    new THREE.RingGeometry(0.075, 0.125, 32),
+    new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.95 })
   );
   disc.rotation.x = -Math.PI / 2;
-  disc.position.y = 0.008;
+  disc.position.y = 0.015;
+  disc.renderOrder = 14;
+
+  const halo = new THREE.Mesh(
+    new THREE.CircleGeometry(0.075, 24),
+    new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.24, depthTest: false })
+  );
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = 0.014;
+  halo.renderOrder = 14;
 
   const pole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.01, 0.01, 0.28, 12),
-    new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.35 })
+    new THREE.CylinderGeometry(0.014, 0.014, 0.34, 14),
+    new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.3 })
   );
-  pole.position.y = 0.14;
+  pole.position.y = 0.17;
+  pole.renderOrder = 14;
+
+  const hitSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18, 12, 10),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  hitSphere.position.y = 0.16;
+  hitSphere.userData = { arCalibHandle: handleKind };
 
   const canvas = document.createElement('canvas');
   canvas.width = 96;
@@ -144,8 +235,11 @@ function makeCalibrationPin(colorHex: number, label: string): THREE.Group {
     ctx.beginPath();
     ctx.arc(48, 48, 42, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 6;
+    ctx.stroke();
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 52px sans-serif';
+    ctx.font = 'bold 48px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, 48, 50);
@@ -157,14 +251,74 @@ function makeCalibrationPin(colorHex: number, label: string): THREE.Group {
       transparent: true,
     })
   );
-  sprite.position.set(0, 0.34, 0);
-  sprite.scale.set(0.16, 0.16, 1);
+  sprite.position.set(0, 0.4, 0);
+  sprite.scale.set(0.2, 0.2, 1);
+  sprite.renderOrder = 16;
 
-  group.add(disc, pole, sprite);
+  group.add(disc, halo, pole, hitSphere, sprite);
+  group.userData = { arCalibHandle: handleKind };
   return group;
 }
 
-const DOOR_ANIM_DURATION_S = 0.58;
+function createFloorNetMesh(): {
+  mesh: THREE.Mesh;
+  uniforms: { uTime: { value: number }; uCenter: { value: THREE.Vector2 }; uOpacity: { value: number } };
+} {
+  const uniforms = {
+    uTime: { value: 0 },
+    uCenter: { value: new THREE.Vector2(0, 0) },
+    uOpacity: { value: 0.9 },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexShader: `
+      varying vec3 vLocal;
+      void main() {
+        vLocal = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec2 uCenter;
+      uniform float uOpacity;
+      varying vec3 vLocal;
+      void main() {
+        vec2 p = vLocal.xz;
+        float d = length(p - uCenter);
+        float radius = clamp(1.0 - smoothstep(0.35, 3.2, d), 0.0, 1.0);
+        vec2 grid = abs(fract(p * 3.0 - 0.5) - 0.5) / fwidth(p * 3.0);
+        float line = 1.0 - min(min(grid.x, grid.y), 1.0);
+        float wave = 0.55 + 0.45 * sin(d * 5.0 - uTime * 3.6);
+        float alpha = line * radius * wave * uOpacity * 0.72;
+        if (alpha < 0.01) discard;
+        gl_FragColor = vec4(0.06, 0.85, 0.58, alpha);
+      }
+    `,
+  });
+  const geo = new THREE.PlaneGeometry(7.2, 7.2, 1, 1);
+  geo.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = 0.004;
+  mesh.renderOrder = 2;
+  return { mesh, uniforms };
+}
+
+function createCrossMarker(): THREE.Group {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: 0x83ffe3, side: THREE.DoubleSide, depthTest: false });
+  const a = new THREE.Mesh(new THREE.PlaneGeometry(0.055, 0.011), mat);
+  a.rotation.x = -Math.PI / 2;
+  const b = new THREE.Mesh(new THREE.PlaneGeometry(0.011, 0.055), mat);
+  b.rotation.x = -Math.PI / 2;
+  g.add(a, b);
+  g.userData.mat = mat;
+  g.visible = false;
+  return g;
+}
 
 function resolveHitDoorId(obj: THREE.Object3D | null): string | undefined {
   let cur: THREE.Object3D | null = obj;
@@ -174,6 +328,34 @@ function resolveHitDoorId(obj: THREE.Object3D | null): string | undefined {
     cur = cur.parent;
   }
   return undefined;
+}
+
+function buildAbRulerTickPoints(vA: THREE.Vector3, vB: THREE.Vector3): THREE.Vector3[] {
+  const dx = vB.x - vA.x;
+  const dz = vB.z - vA.z;
+  const len = Math.hypot(dx, dz);
+  const pts: THREE.Vector3[] = [];
+  if (len < 0.08) return pts;
+  const tx = dx / len;
+  const tz = dz / len;
+  const nx = -tz;
+  const nz = tx;
+  const y = 0.024;
+  const steps = Math.floor(len / 0.1);
+  for (let i = 0; i <= steps; i++) {
+    const dist = i * 0.1;
+    const isMajor = i % 5 === 0;
+    const halfW = isMajor ? 0.065 : 0.03;
+    const cx = vA.x + tx * dist;
+    const cz = vA.z + tz * dist;
+    pts.push(new THREE.Vector3(cx - nx * halfW, y, cz - nz * halfW));
+    pts.push(new THREE.Vector3(cx + nx * halfW, y, cz + nz * halfW));
+  }
+  return pts;
+}
+
+function uid(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
@@ -186,6 +368,19 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   applianceKind,
   hoodKind,
   openingKind,
+  handleStyle = 'simple',
+  handleOrient = 'vertical',
+  drawBoxKind = 'base',
+  onSelectDrawBoxKind,
+  onHandleStyleChange,
+  onHandleOrientChange,
+  onFridgeModelChange,
+  onSinkModelChange,
+  onGasWidthChange,
+  onApplianceKindChange,
+  onOpeningKindChange,
+  onMoveBox,
+  onMoveAppliance,
   onUpdateProject,
   onSwitchViewMode,
   onToast,
@@ -197,22 +392,73 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [xrActive, setXrActive] = useState(false);
   const [floorLocked, setFloorLocked] = useState(false);
   const [scanReady, setScanReady] = useState(false);
-  const [scanHitsCount, setScanHitsCount] = useState(0);
   const [occlusionEnabled, setOcclusionEnabled] = useState(true);
   const [occlusionStatus, setOcclusionStatus] = useState<OcclusionStatus>('idle');
   const [doorsOpen, setDoorsOpen] = useState(false);
+  const [reticleEnabled, setReticleEnabled] = useState(true);
 
-  const [arTool, setArTool] = useState<ArToolId>('wall');
-  const [cursorPreview, setCursorPreview] = useState<{ x: number; y: number; valid: boolean } | null>(null);
+  const [arTool, setArTool] = useState<ArToolId>('select');
+  const [cursorPreview, setCursorPreview] = useState<{ x: number; y: number; status: CursorTargetStatus } | null>(null);
   const lastPreviewTouchRef = useRef(0);
-  const modelChoiceRef = useRef({ fridgeModel, sinkModel, gasWidth, applianceKind, openingKind });
-  modelChoiceRef.current = { fridgeModel, sinkModel, gasWidth, applianceKind, openingKind };
+  const lastHoverCoordsRef = useRef<{ x: number; y: number } | null>(null);
+
+  const propsRef = useRef({
+    fridgeModel,
+    sinkModel,
+    gasWidth,
+    applianceKind,
+    hoodKind,
+    openingKind,
+    handleStyle,
+    handleOrient,
+    drawBoxKind,
+    onSelectDrawBoxKind,
+    onHandleStyleChange,
+    onHandleOrientChange,
+    onFridgeModelChange,
+    onSinkModelChange,
+    onGasWidthChange,
+    onApplianceKindChange,
+    onOpeningKindChange,
+    onMoveBox,
+    onMoveAppliance,
+  });
+  propsRef.current = {
+    fridgeModel,
+    sinkModel,
+    gasWidth,
+    applianceKind,
+    hoodKind,
+    openingKind,
+    handleStyle,
+    handleOrient,
+    drawBoxKind,
+    onSelectDrawBoxKind,
+    onHandleStyleChange,
+    onHandleOrientChange,
+    onFridgeModelChange,
+    onSinkModelChange,
+    onGasWidthChange,
+    onApplianceKindChange,
+    onOpeningKindChange,
+    onMoveBox,
+    onMoveAppliance,
+  };
+
   const lastSelectTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const toggleXrDoorAtPointRef = useRef<(x: number, y: number) => boolean>(() => false);
-  const pickAtClientRef = useRef<(x: number, y: number) => Scene3DHitData | null>(() => null);
-  const detailedPickAtClientRef = useRef<(x: number, y: number) => { data: Scene3DHitData; point: THREE.Vector3 } | null>(() => null);
+  const detailedPickAtClientRef = useRef<
+    (x: number, y: number) => { data: Scene3DHitData; point: THREE.Vector3 } | null
+  >(() => null);
   const floorPointAtClientRef = useRef<(x: number, y: number) => THREE.Vector3 | null>(() => null);
-  const updateArGhostRef = useRef<(local: THREE.Vector3) => void>(() => {});
+  const updateArGhostRef = useRef<
+    (local: THREE.Vector3, clientX?: number, clientY?: number) => CursorTargetStatus
+  >(() => 'neutral');
+  const projectArPointerOntoWallRef = useRef<
+    (wallId: string, clientX: number, clientY: number) => { xCm: number; yCm: number } | null
+  >(() => null);
+  const pickCalibrationHandleRef = useRef<(clientX: number, clientY: number) => 'a' | 'b' | null>(() => null);
+
   const [pendingWallStart, setPendingWallStart] = useState<XZPoint | null>(null);
 
   const [pointA, setPointA] = useState<XZPoint>(() => project.arCalibration?.a || { x: -1.2, z: -0.9 });
@@ -247,13 +493,17 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   occlusionEnabledRef.current = occlusionEnabled;
   const doorsOpenRef = useRef(doorsOpen);
   doorsOpenRef.current = doorsOpen;
+  const reticleEnabledRef = useRef(reticleEnabled);
+  reticleEnabledRef.current = reticleEnabled;
 
   const xrSessionRef = useRef<XRSession | null>(null);
   const floorScannerRef = useRef(new FloorScanner());
   const anchorStabilizerRef = useRef(new AnchorStabilizer());
   const anchorsRef = useRef<StoredAnchorEntry[]>([]);
+  const pendingAnchorCreateRef = useRef(false);
   const basePoseRef = useRef<{ x: number; y: number; z: number; yaw: number } | null>(null);
-  const hitTestSourceRef = useRef<XRHitTestSource | null>(null);
+  const hitTestSourcesRef = useRef<XRHitTestSource[]>([]);
+  const lowerHitSourceRef = useRef<XRHitTestSource | null>(null);
   const transientHitSourceRef = useRef<XRTransientInputHitTestSource | null>(null);
 
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -262,18 +512,30 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const controlsRef = useRef<OrbitControls | null>(null);
   const floorGroupRef = useRef<THREE.Group | null>(null);
   const kitchenMountRef = useRef<THREE.Group | null>(null);
+  const floorNetUniformsRef = useRef<{ uTime: { value: number }; uCenter: { value: THREE.Vector2 }; uOpacity: { value: number } } | null>(null);
+  const floorNetMeshRef = useRef<THREE.Mesh | null>(null);
+  const crossesPoolRef = useRef<THREE.Group[]>([]);
   const reticleRef = useRef<THREE.Mesh | null>(null);
   const wallGhostRef = useRef<THREE.Mesh | null>(null);
   const placementGhostRef = useRef<THREE.Mesh | null>(null);
+  const handleGhostGroupRef = useRef<THREE.Group | null>(null);
   const wallStartMarkerRef = useRef<THREE.Mesh | null>(null);
   const pinARef = useRef<THREE.Group | null>(null);
   const pinBRef = useRef<THREE.Group | null>(null);
   const lineABRef = useRef<THREE.Line | null>(null);
+  const rulerTicksRef = useRef<THREE.LineSegments | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const occlusionRef = useRef<NearRealOcclusion | null>(null);
   const builtSceneRef = useRef<BuiltKitchenScene | null>(null);
   const doorStatesRef = useRef<Map<string, { cur: number; target: number }>>(new Map());
   const renderOnceRef = useRef<() => void>(() => {});
+  const arDragRef = useRef<ArDragState | null>(null);
+  const dragDownClientRef = useRef<{ x: number; y: number } | null>(null);
+  const gestureStepperRef = useRef(new PacedGestureStepper());
+
+  // Latest action callbacks stored in refs so native DOM listeners always invoke fresh state
+  const applyFloorActionRef = useRef<(pt: THREE.Vector3, clientX?: number, clientY?: number) => void>(() => {});
+  const handleArDetailActionRef = useRef<(x: number, y: number) => void>(() => {});
 
   // Check WebXR immersive-ar support once
   useEffect(() => {
@@ -295,7 +557,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     };
   }, []);
 
-  // End XR session if parent signals explicit exit (e.g., going back to Welcome/Projects)
+  // End XR session if parent signals explicit exit
   useEffect(() => {
     if (sessionKillSignal > 0 && xrSessionRef.current) {
       xrSessionRef.current.end().catch(() => {});
@@ -361,9 +623,22 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     scene.add(floorGroup);
     floorGroupRef.current = floorGroup;
 
+    const { mesh: floorNetMesh, uniforms: floorNetUniforms } = createFloorNetMesh();
+    floorGroup.add(floorNetMesh);
+    floorNetMeshRef.current = floorNetMesh;
+    floorNetUniformsRef.current = floorNetUniforms;
+
+    const crosses: THREE.Group[] = [];
+    for (let i = 0; i < MAX_SCAN_CROSSES; i++) {
+      const c = createCrossMarker();
+      scene.add(c);
+      crosses.push(c);
+    }
+    crossesPoolRef.current = crosses;
+
     const grid = new THREE.GridHelper(10, 20, 0x10b981, 0x94a3b8);
     (grid.material as THREE.Material).transparent = true;
-    (grid.material as THREE.Material).opacity = 0.32;
+    (grid.material as THREE.Material).opacity = 0.28;
     floorGroup.add(grid);
     gridHelperRef.current = grid;
 
@@ -372,56 +647,89 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     kitchenMountRef.current = kitchenMount;
 
     const reticle = new THREE.Mesh(
-      new THREE.RingGeometry(0.08, 0.12, 32),
-      new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide })
+      new THREE.RingGeometry(0.08, 0.125, 32),
+      new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, depthTest: false })
     );
     reticle.rotation.x = -Math.PI / 2;
-    reticle.position.y = 0.01;
+    reticle.position.y = 0.012;
+    reticle.renderOrder = 10;
     reticle.visible = true;
     floorGroup.add(reticle);
     reticleRef.current = reticle;
 
-    const wallGhost = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.28, depthWrite: false })
-    );
+    const wallGhostMat = new THREE.MeshBasicMaterial({
+      color: 0x10b981,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+    });
+    const wallGhost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), wallGhostMat);
     wallGhost.visible = false;
     wallGhost.renderOrder = 9;
     floorGroup.add(wallGhost);
     wallGhostRef.current = wallGhost;
-    const placementGhost = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshBasicMaterial({ color: 0x2563eb, transparent: true, opacity: 0.23, depthWrite: false })
-    );
+
+    const placementGhostMat = new THREE.MeshBasicMaterial({
+      color: 0x2563eb,
+      transparent: true,
+      opacity: 0.26,
+      depthWrite: false,
+    });
+    const placementGhost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), placementGhostMat);
     placementGhost.visible = false;
     placementGhost.renderOrder = 9;
     floorGroup.add(placementGhost);
     placementGhostRef.current = placementGhost;
 
+    const handleGhostGroup = new THREE.Group();
+    handleGhostGroup.renderOrder = 14;
+    floorGroup.add(handleGhostGroup);
+    handleGhostGroupRef.current = handleGhostGroup;
+
     const wallStartMarker = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.045, 0.14, 16),
+      new THREE.CylinderGeometry(0.045, 0.045, 0.16, 16),
       new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 })
     );
     wallStartMarker.visible = false;
     floorGroup.add(wallStartMarker);
     wallStartMarkerRef.current = wallStartMarker;
 
-    const pinA = makeCalibrationPin(0x4f46e5, 'A');
-    const pinB = makeCalibrationPin(0x059669, 'B');
+    const pinA = makeCalibrationPin(0x4f46e5, 'A', 'a');
+    const pinB = makeCalibrationPin(0x059669, 'B', 'b');
     floorGroup.add(pinA, pinB);
     pinARef.current = pinA;
     pinBRef.current = pinB;
 
     const lineGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0.02, 0),
-      new THREE.Vector3(1, 0.02, 0),
+      new THREE.Vector3(-1.2, 0.024, -0.9),
+      new THREE.Vector3(1.2, 0.024, -0.9),
     ]);
     const lineAB = new THREE.Line(
       lineGeo,
-      new THREE.LineBasicMaterial({ color: 0x059669, transparent: true, opacity: 0.85 })
+      new THREE.LineBasicMaterial({
+        color: 0x10b981,
+        transparent: true,
+        opacity: 0.96,
+        depthTest: false,
+      })
     );
+    lineAB.renderOrder = 15;
     floorGroup.add(lineAB);
     lineABRef.current = lineAB;
+
+    const rulerGeo = new THREE.BufferGeometry();
+    const rulerTicks = new THREE.LineSegments(
+      rulerGeo,
+      new THREE.LineBasicMaterial({
+        color: 0x059669,
+        transparent: true,
+        opacity: 0.85,
+        depthTest: false,
+      })
+    );
+    rulerTicks.renderOrder = 15;
+    floorGroup.add(rulerTicks);
+    rulerTicksRef.current = rulerTicks;
 
     const occlusion = new NearRealOcclusion(scene);
     occlusionRef.current = occlusion;
@@ -437,10 +745,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         if (!st) continue;
         const diff = st.target - st.cur;
         if (Math.abs(diff) > 0.001) {
-          st.cur =
-            Math.abs(diff) <= step
-              ? st.target
-              : st.cur + Math.sign(diff) * step;
+          st.cur = Math.abs(diff) <= step ? st.target : st.cur + Math.sign(diff) * step;
           applyAnimatedDoorProgress(h, st.cur);
           if (Math.abs(st.target - st.cur) > 0.001) {
             anyMoving = true;
@@ -458,6 +763,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const now = performance.now();
       const dt = (now - lastAnimTs) / 1000;
       lastAnimTs = now;
+      if (floorNetUniformsRef.current) {
+        floorNetUniformsRef.current.uTime.value = now / 1000;
+      }
       const doorsMoving = stepDoorAnimations(dt);
       const ctrlChanged = controls.update();
       renderer.render(scene, camera);
@@ -473,7 +781,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
     };
     renderOnceRef.current = requestPreviewRender;
-
     controls.addEventListener('change', requestPreviewRender);
 
     const raycaster = new THREE.Raycaster();
@@ -485,8 +792,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         -((clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
       );
     };
-    // Use the current XR eye camera for touch picking; the desktop camera does not
-    // match the live device pose and the center-reticle ray does not match a finger.
     const pickingCamera = (): THREE.Camera => {
       if (!xrSessionRef.current) return camera;
       const xrCamera = renderer.xr.getCamera();
@@ -496,6 +801,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       raycaster.setFromCamera(pointerNdc(clientX, clientY), pickingCamera());
       return raycaster.ray;
     };
+
     detailedPickAtClientRef.current = (clientX, clientY) => {
       if (!builtSceneRef.current) return null;
       builtSceneRef.current.root.updateWorldMatrix(true, true);
@@ -511,7 +817,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
       return null;
     };
-    pickAtClientRef.current = (x, y) => detailedPickAtClientRef.current(x, y)?.data || null;
+
     floorPointAtClientRef.current = (clientX, clientY) => {
       const group = floorGroupRef.current;
       if (!group) return null;
@@ -522,98 +828,291 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       if (!getPointerRay(clientX, clientY).intersectPlane(plane, worldHit)) return null;
       return group.worldToLocal(worldHit);
     };
-    updateArGhostRef.current = (localPt: THREE.Vector3) => {
+
+    projectArPointerOntoWallRef.current = (wallId, clientX, clientY) => {
+      const built = builtSceneRef.current;
+      const mount = kitchenMountRef.current;
+      if (!built || !mount) return null;
+      const tr = built.wallTransforms.get(wallId);
+      if (!tr) return null;
+      mount.updateWorldMatrix(true, true);
+      const wallNormalWorld = tr.normal.clone().transformDirection(mount.matrixWorld).normalize();
+      const wallOriginWorld = tr.origin.clone().applyMatrix4(mount.matrixWorld);
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(wallNormalWorld, wallOriginWorld);
+      const worldHit = new THREE.Vector3();
+      if (!getPointerRay(clientX, clientY).intersectPlane(plane, worldHit)) return null;
+      const modelHit = mount.worldToLocal(worldHit);
+      const rel = modelHit.clone().sub(tr.origin);
+      return {
+        xCm: rel.dot(tr.tangent) * 100,
+        yCm: modelHit.y * 100,
+      };
+    };
+
+    pickCalibrationHandleRef.current = (clientX, clientY) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const cam = pickingCamera();
+      const checkPin = (pin: THREE.Group | null): number => {
+        if (!pin || !pin.visible) return Infinity;
+        pin.updateWorldMatrix(true, false);
+        const sampleHeights = [0.02, 0.17, 0.4];
+        let best = Infinity;
+        for (const h of sampleHeights) {
+          const p = new THREE.Vector3(0, h, 0);
+          pin.localToWorld(p);
+          p.project(cam);
+          if (p.z > 1 || p.z < -1) continue;
+          const sx = rect.left + ((p.x + 1) / 2) * rect.width;
+          const sy = rect.top + ((-p.y + 1) / 2) * rect.height;
+          best = Math.min(best, Math.hypot(sx - clientX, sy - clientY));
+        }
+        return best;
+      };
+      const dA = checkPin(pinARef.current);
+      const dB = checkPin(pinBRef.current);
+      if (Math.min(dA, dB) <= 75) {
+        return dA <= dB ? 'a' : 'b';
+      }
+      return null;
+    };
+
+    const clearHandleGhost = () => {
+      const hGrp = handleGhostGroupRef.current;
+      if (!hGrp) return;
+      while (hGrp.children.length > 0) {
+        const ch = hGrp.children[0];
+        hGrp.remove(ch);
+        disposeObject3D(ch);
+      }
+    };
+
+    updateArGhostRef.current = (localPt: THREE.Vector3, clientX?: number, clientY?: number) => {
       const wallGhost = wallGhostRef.current;
       const placement = placementGhostRef.current;
-      if (!wallGhost || !placement) return;
+      if (!wallGhost || !placement) return 'neutral';
       wallGhost.visible = false;
       placement.visible = false;
+      clearHandleGhost();
 
       const tool = arToolRef.current;
+      if (tool === 'select' || tool.startsWith('calibrate-')) return 'neutral';
+
       const al = alignmentRef.current;
       const c = Math.cos(al.yaw);
       const sn = Math.sin(al.yaw);
+
       if (tool === 'wall') {
         const start = pendingWallStartRef.current;
-        if (!start) return;
+        if (!start) return 'neutral';
         const sx = al.x + al.scale * (start.x * c + start.z * sn);
         const sz = al.z + al.scale * (-start.x * sn + start.z * c);
         const dx = localPt.x - sx;
         const dz = localPt.z - sz;
         const len = Math.hypot(dx, dz);
-        if (len < 0.03) return;
+        if (len < 0.03) return 'invalid';
         const h = (projectRef.current.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm) / 100;
-        wallGhost.position.set(sx + dx / 2, h / 2, sz + dz / 2);
+        wallGhost.position.set(sx + dx / 2, (h * al.scale) / 2, sz + dz / 2);
         wallGhost.rotation.y = -Math.atan2(dz, dx);
-        wallGhost.scale.set(len, h, 0.1);
+        wallGhost.scale.set(len, h * al.scale, 0.1 * al.scale);
         wallGhost.visible = true;
-        return;
+        return len >= 0.4 * al.scale ? 'valid' : 'invalid';
       }
 
-      const choices = modelChoiceRef.current;
+      const choices = propsRef.current;
+
+      // For cabinet-front tools ('handle', 'doors', 'shelf', 'frame'), prefer direct raycast onto cabinet mesh
+      if ((tool === 'handle' || tool === 'doors' || tool === 'shelf' || tool === 'frame') && clientX !== undefined && clientY !== undefined) {
+        const picked = detailedPickAtClientRef.current(clientX, clientY);
+        const mount = kitchenMountRef.current;
+        const built = builtSceneRef.current;
+        if (!picked?.data.boxId || !mount || !built) return 'invalid';
+        const wall = projectRef.current.walls.find((x) => x.id === picked.data.wallId);
+        const box = wall?.boxes.find((b) => b.id === picked.data.boxId);
+        const tr = built.wallTransforms.get(picked.data.wallId);
+        if (!wall || !box || !tr || box.type === 'fridge') return 'invalid';
+
+        mount.updateWorldMatrix(true, true);
+        const modelPt = mount.worldToLocal(picked.point.clone());
+        const rel = modelPt.clone().sub(tr.origin);
+        const hitXCm = rel.dot(tr.tangent) * 100;
+        const hitYCm = modelPt.y * 100;
+        const localX = Math.max(0, Math.min(box.width, hitXCm - box.offsetX));
+        const v = getWallVectors(wall);
+
+        if (tool === 'handle') {
+          const door =
+            (picked.data.doorId ? box.doors.find((d) => d.id === picked.data.doorId) : undefined) ||
+            box.doors.find((d) => localX >= d.startCm - 0.5 && localX <= d.startCm + d.widthCm + 0.5);
+          if (!door || door.kind === 'fridge') return 'invalid';
+
+          const innerBot = box.elevY + box.plinth;
+          const innerH = Math.max(10, box.height - box.plinth - box.countertopCm);
+          const normY = Math.max(0, Math.min(1, 1 - (hitYCm - innerBot) / innerH));
+          let rowCenterNorm = 0.5;
+          let rowH = innerH;
+          if ((door.kind === 'drawer' || door.kind === 'lift') && door.drawerRatios.length > 0) {
+            const pts = [0, ...door.drawerRatios, 1];
+            for (let ri = 0; ri < pts.length - 1; ri++) {
+              if (normY >= pts[ri] && normY <= pts[ri + 1]) {
+                rowCenterNorm = (pts[ri] + pts[ri + 1]) / 2;
+                rowH = (pts[ri + 1] - pts[ri]) * innerH;
+                break;
+              }
+            }
+          } else if (door.kind === 'door' && door.doorStyle !== 'pantry') {
+            rowCenterNorm = box.type === 'wall' || box.type === 'wall-deep' ? 0.82 : 0.18;
+          }
+          let xRatio = 0.5;
+          if (door.kind === 'door' && door.doorStyle !== 'pantry') {
+            xRatio = localX >= door.startCm + door.widthCm / 2 ? 0.86 : 0.14;
+          }
+
+          const handleCenterXCm = box.offsetX + door.startCm + xRatio * door.widthCm;
+          const handleCenterYCm = innerBot + (1 - rowCenterNorm) * innerH;
+          const matGhost = new THREE.MeshBasicMaterial({ color: 0x0d9488, transparent: true, opacity: 0.78 });
+          const hMesh = buildHandleMesh(
+            choices.handleStyle,
+            choices.handleOrient,
+            16,
+            door.widthCm * 0.01,
+            rowH * 0.01,
+            0.02,
+            1,
+            matGhost,
+            matGhost
+          );
+          const px = (wall.x1Cm + handleCenterXCm * v.tx + (box.depth + 2.5) * v.nx) / 100;
+          const pz = (wall.y1Cm + handleCenterXCm * v.ty + (box.depth + 2.5) * v.ny) / 100;
+          const hGrp = handleGhostGroupRef.current;
+          if (hGrp) {
+            hGrp.add(hMesh);
+            hMesh.position.set(
+              al.x + al.scale * (px * c + pz * sn),
+              handleCenterYCm * 0.01 * al.scale,
+              al.z + al.scale * (-px * sn + pz * c)
+            );
+            hMesh.rotation.y = -Math.atan2(v.ty, v.tx) + al.yaw;
+            hMesh.scale.setScalar(al.scale);
+          }
+          return 'valid';
+        }
+
+        if (tool === 'doors') {
+          const zones = getCornerBlockedZonesForWall(wall, projectRef.current.walls, projectRef.current.cornerOwners);
+          const prev = computeDoorBrushPreview(box, localX, 'vertical', 1, 1, 0, zones, 60);
+          if (!prev.ok) return 'invalid';
+          const firstItem = prev.items[0];
+          const centerCm = box.offsetX + firstItem.startCm + firstItem.widthCm / 2;
+          const px = (wall.x1Cm + centerCm * v.tx + (box.depth + 1.5) * v.nx) / 100;
+          const pz = (wall.y1Cm + centerCm * v.ty + (box.depth + 1.5) * v.ny) / 100;
+          placement.position.set(
+            al.x + al.scale * (px * c + pz * sn),
+            (box.elevY + box.height / 2) * 0.01 * al.scale,
+            al.z + al.scale * (-px * sn + pz * c)
+          );
+          placement.rotation.y = -Math.atan2(v.ty, v.tx) + al.yaw;
+          placement.scale.set(
+            firstItem.widthCm * 0.01 * al.scale,
+            Math.max(0.2, (box.height - box.plinth - box.countertopCm) * 0.01 * al.scale),
+            0.03 * al.scale
+          );
+          placement.visible = true;
+          return 'valid';
+        }
+
+        return 'valid';
+      }
+
       const dx = (localPt.x - al.x) / al.scale;
       const dz = (localPt.z - al.z) / al.scale;
       const modelX = dx * c - dz * sn;
       const modelZ = dx * sn + dz * c;
       const result = projectArPointOntoWalls({ x: modelX, z: modelZ }, projectRef.current.walls);
-      if (!result) return;
+      if (!result) return 'invalid';
       const w = result.wall;
       const v = getWallVectors(w);
       let width = 0;
       let height = 0;
       let depth = 0;
       let elev = 0;
+      let forwardOffsetCm = 0;
       let startX = result.offsetCm;
+
       if (tool === 'cab-base' || tool === 'cab-wall' || tool === 'cab-tall') {
         const cfg = BOX_PRESETS[tool === 'cab-base' ? 'base' : tool === 'cab-wall' ? 'wall' : 'tall'];
         width = Math.min(120, Math.max(60, w.length - startX));
         height = cfg.height;
         depth = cfg.depth;
         elev = cfg.elevY;
+        forwardOffsetCm = depth / 2;
         startX = Math.max(0, Math.min(w.length - width, startX));
       } else if (tool === 'fridge') {
         const cfg = FRIDGE_MODELS[choices.fridgeModel];
-        width = cfg.width + 10;
-        height = cfg.height;
-        depth = 70;
+        width = cfg.width + FRIDGE_FRAME_CM * 2;
+        height = cfg.height + FRIDGE_FRAME_CM;
+        depth = cfg.depth;
+        forwardOffsetCm = depth / 2;
         startX = Math.max(0, Math.min(w.length - width, startX - width / 2));
       } else if (tool === 'gas' || tool === 'sink' || tool === 'appliance') {
-        width = tool === 'gas' ? choices.gasWidth : tool === 'sink' ? SINK_MODELS[choices.sinkModel].width : 60;
-        height = 8;
-        depth = 42;
-        elev = 85;
-        startX = Math.max(0, Math.min(w.length - width, startX - width / 2));
-        // Only preview equipment on an existing lower cabinet, never on an empty wall.
-        if (!w.boxes.some(b => b.type === 'base' && startX >= b.offsetX - 3 && startX + width <= b.offsetX + b.width + 3)) return;
+        const baseBox = w.boxes.find(
+          (b) => b.type === 'base' && startX >= b.offsetX - 5 && startX <= b.offsetX + b.width + 5
+        );
+        if (!baseBox) return 'invalid';
+        const kind = tool === 'sink' ? 'sink' : tool === 'gas' ? 'gas' : choices.applianceKind;
+        width = tool === 'gas' ? choices.gasWidth : tool === 'sink' ? SINK_MODELS[choices.sinkModel].width : APPLIANCE_CONFIGS[kind].width;
+        startX = Math.max(baseBox.offsetX, Math.min(baseBox.offsetX + baseBox.width - width, startX - width / 2));
+        if (tool === 'gas' || tool === 'sink') {
+          // Sit flush right on the countertop!
+          height = tool === 'gas' ? 5 : 4;
+          depth = tool === 'gas' ? 48 : 50;
+          elev = baseBox.elevY + baseBox.height;
+          forwardOffsetCm = Math.max(2, (baseBox.depth - depth) / 2) + depth / 2;
+        } else {
+          height = baseBox.height - baseBox.countertopCm - baseBox.plinth;
+          depth = baseBox.depth + 2;
+          elev = baseBox.plinth;
+          forwardOffsetCm = depth / 2;
+        }
       } else if (tool === 'opening') {
         const cfg = OPENING_DEFAULTS[choices.openingKind];
         width = cfg.width;
         height = cfg.height;
-        depth = 12;
+        depth = 14;
         elev = choices.openingKind === 'window' ? 90 : 0;
+        // Centered cleanly in the wall thickness plane
+        forwardOffsetCm = -6;
         startX = Math.max(0, Math.min(w.length - width, startX - width / 2));
-      } else return;
-      if (width <= 0 || w.length < width) return;
+      } else {
+        return 'neutral';
+      }
+      if (width <= 0 || w.length < width) return 'invalid';
 
-      // CAD wall-space -> AR floor-local, using the same registration as kitchenMount.
       const centreCm = startX + width / 2;
-      const px = (w.x1Cm + centreCm * v.tx + (depth / 2) * v.nx) / 100;
-      const pz = (w.y1Cm + centreCm * v.ty + (depth / 2) * v.ny) / 100;
-      placement.position.set(al.x + al.scale * (px * c + pz * sn),
+      const px = (w.x1Cm + centreCm * v.tx + forwardOffsetCm * v.nx) / 100;
+      const pz = (w.y1Cm + centreCm * v.ty + forwardOffsetCm * v.ny) / 100;
+      placement.position.set(
+        al.x + al.scale * (px * c + pz * sn),
         (elev + height / 2) * 0.01 * al.scale,
-        al.z + al.scale * (-px * sn + pz * c));
+        al.z + al.scale * (-px * sn + pz * c)
+      );
       placement.rotation.y = -Math.atan2(v.ty, v.tx) + al.yaw;
       placement.scale.set(width * 0.01 * al.scale, height * 0.01 * al.scale, depth * 0.01 * al.scale);
       placement.visible = true;
+      return 'valid';
     };
+
     const toggleDoorByRay = (ndc: THREE.Vector2, viewCamera: THREE.Camera): boolean => {
       if (!activeRef.current || !builtSceneRef.current) return false;
       builtSceneRef.current.root.updateWorldMatrix(true, true);
       raycaster.setFromCamera(ndc, viewCamera);
       const hits = raycaster.intersectObjects(builtSceneRef.current.interactables, false);
-      // Only the frontmost touched surface may react; never open a door behind a wall.
       const partId = hits[0] ? resolveHitDoorId(hits[0].object) : undefined;
       if (!partId) return false;
+      const isOpenable = builtSceneRef.current.animatedDoors.some((h) => h.doorId === partId);
+      if (!isOpenable) {
+        onToast('تا روی این درب دستگیره قرار ندهید درب باز نمی‌شود');
+        return false;
+      }
       const states = doorStatesRef.current;
       const st = states.get(partId) || { cur: 0, target: 0 };
       states.set(partId, { cur: st.cur, target: st.target > 0.5 ? 0 : 1 });
@@ -623,16 +1122,361 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     };
     toggleXrDoorAtPointRef.current = (clientX, clientY) =>
       toggleDoorByRay(pointerNdc(clientX, clientY), pickingCamera());
+
+    const dom = renderer.domElement;
+
     const onDblClick = (e: MouseEvent) => {
       if (!activeRef.current || xrSessionRef.current || !builtSceneRef.current) return;
-      const rect = renderer.domElement.getBoundingClientRect();
+      const rect = dom.getBoundingClientRect();
       ndcVec.set(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       );
       toggleDoorByRay(ndcVec, camera);
     };
-    renderer.domElement.addEventListener('dblclick', onDblClick);
+
+    // Native capture-phase pointerdown intercepts A/B handles & base/wall/tall cabinets BEFORE OrbitControls!
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (e.button !== 0 || !activeRef.current) return;
+      if (xrSessionRef.current && !floorLockedRef.current) {
+        onToast('اسکن کف هنوز در حال تثبیت است');
+        return;
+      }
+
+      const toolNow = arToolRef.current;
+      dragDownClientRef.current = { x: e.clientX, y: e.clientY };
+
+      // 1) Direct A/B calibration handle grab (works in select AND calibrate-a/calibrate-b!)
+      const calibHandle = pickCalibrationHandleRef.current(e.clientX, e.clientY);
+      if (calibHandle && (toolNow === 'select' || toolNow === 'calibrate-a' || toolNow === 'calibrate-b')) {
+        const floorPt = floorPointAtClientRef.current(e.clientX, e.clientY);
+        if (floorPt) {
+          e.stopPropagation();
+          controls.enabled = false;
+          try { dom.setPointerCapture(e.pointerId); } catch {}
+          if (calibHandle === 'a') {
+            arDragRef.current = { kind: 'drag-a', startWorld: { x: floorPt.x, z: floorPt.z }, moved: false };
+          } else {
+            const a = pointARef.current;
+            const al = alignmentRef.current;
+            const cos = Math.cos(al.yaw);
+            const sin = Math.sin(al.yaw);
+            arDragRef.current = {
+              kind: 'drag-b',
+              anchorA: {
+                x: al.x + al.scale * (a.x * cos + a.z * sin),
+                z: al.z + al.scale * (-a.x * sin + a.z * cos),
+              },
+              moved: false,
+            };
+          }
+          return;
+        }
+      }
+
+      if (toolNow === 'select') {
+        const picked = detailedPickAtClientRef.current(e.clientX, e.clientY);
+        const now = performance.now();
+        const prev = lastSelectTapRef.current;
+        const repeated = Boolean(
+          prev && now - prev.time < 380 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 44
+        );
+        lastSelectTapRef.current = repeated ? null : { time: now, x: e.clientX, y: e.clientY };
+
+        if (repeated && toggleXrDoorAtPointRef.current(e.clientX, e.clientY)) {
+          e.preventDefault();
+          e.stopPropagation();
+          onToast('درب انتخاب‌شده باز یا بسته شد');
+          return;
+        }
+
+        if (picked) {
+          const data = picked.data;
+          onUpdateProject((prevProject) => ({
+            ...prevProject,
+            activeWallId: data.wallId,
+            activeBoxId: data.boxId || null,
+            selectedDoorId: data.doorId || null,
+            selectedApplianceId: data.appId || null,
+            selectedOpeningId: data.openingId || null,
+          }));
+
+          const wall = projectRef.current.walls.find((x) => x.id === data.wallId);
+          if (wall && data.appId) {
+            const app = wall.appliances.find((a) => a.id === data.appId);
+            const proj = projectArPointerOntoWallRef.current(data.wallId, e.clientX, e.clientY);
+            if (app && proj) {
+              e.stopPropagation();
+              controls.enabled = false;
+              try { dom.setPointerCapture(e.pointerId); } catch {}
+              arDragRef.current = {
+                kind: 'move-app',
+                wallId: data.wallId,
+                appId: app.id,
+                origX: app.offsetX,
+                startDot: proj.xCm,
+                lastTargetX: app.offsetX,
+                sessionId: `ar_app_${Date.now()}`,
+                moved: false,
+              };
+              return;
+            }
+          }
+
+          if (wall && data.boxId) {
+            const box = wall.boxes.find((b) => b.id === data.boxId);
+            const proj = projectArPointerOntoWallRef.current(data.wallId, e.clientX, e.clientY);
+            if (box && proj) {
+              e.stopPropagation();
+              controls.enabled = false;
+              try { dom.setPointerCapture(e.pointerId); } catch {}
+              arDragRef.current = {
+                kind: 'move-box',
+                wallId: data.wallId,
+                boxId: box.id,
+                origX: box.offsetX,
+                startDot: proj.xCm,
+                lastTargetX: box.offsetX,
+                sessionId: `ar_box_${Date.now()}`,
+                moved: false,
+              };
+              return;
+            }
+          }
+        }
+        return;
+      }
+
+      lastSelectTapRef.current = null;
+      if (toolNow === 'doors' || toolNow === 'handle' || toolNow === 'shelf' || toolNow === 'frame') {
+        handleArDetailActionRef.current(e.clientX, e.clientY);
+        return;
+      }
+
+      const local = floorPointAtClientRef.current(e.clientX, e.clientY);
+      if (!local) {
+        onToast('روی سطح کف یا کابینت معتبر لمس کنید');
+        return;
+      }
+      if (reticleRef.current) reticleRef.current.position.set(local.x, 0.012, local.z);
+      updateArGhostRef.current(local, e.clientX, e.clientY);
+      applyFloorActionRef.current(local, e.clientX, e.clientY);
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!activeRef.current) return;
+      const dr = arDragRef.current;
+      if (dr) {
+        const dc = dragDownClientRef.current;
+        const movedPx = dc ? Math.hypot(e.clientX - dc.x, e.clientY - dc.y) : 999;
+        if (dr.kind === 'drag-a') {
+          const floorPt = floorPointAtClientRef.current(e.clientX, e.clientY);
+          if (!floorPt) return;
+          if (!dr.moved && movedPx < 4) return;
+          dr.moved = true;
+          const a = pointARef.current;
+          const al = alignmentRef.current;
+          const cos = Math.cos(al.yaw);
+          const sin = Math.sin(al.yaw);
+          const nextX = floorPt.x - al.scale * (a.x * cos + a.z * sin);
+          const nextZ = floorPt.z - al.scale * (-a.x * sin + a.z * cos);
+          setAlignment((prev) => ({ ...prev, x: nextX, z: nextZ }));
+          requestPreviewRender();
+          return;
+        }
+        if (dr.kind === 'drag-b') {
+          const floorPt = floorPointAtClientRef.current(e.clientX, e.clientY);
+          if (!floorPt) return;
+          if (!dr.moved && movedPx < 4) return;
+          dr.moved = true;
+          const a = pointARef.current;
+          const b = pointBRef.current;
+          const sol = fitCalibrationDragABWithScale(a, b, dr.anchorA, { x: floorPt.x, z: floorPt.z });
+          if (sol) {
+            setAlignment({ x: sol.x, z: sol.z, yaw: sol.yaw, scale: sol.scale });
+            const distCm = Math.round(Math.hypot(b.x - a.x, b.z - a.z) * sol.scale * 100);
+            setRealDistanceInput(String(distCm));
+            requestPreviewRender();
+          }
+          return;
+        }
+        if (dr.kind === 'move-box') {
+          const proj = projectArPointerOntoWallRef.current(dr.wallId, e.clientX, e.clientY);
+          if (!proj) return;
+          if (!dr.moved && movedPx < 5 && Math.abs(proj.xCm - dr.startDot) < 2.5) return;
+          dr.moved = true;
+          const dx = Math.round((proj.xCm - dr.startDot) / 5) * 5;
+          const target = dr.origX + dx;
+          if (target !== dr.lastTargetX) {
+            dr.lastTargetX = target;
+            propsRef.current.onMoveBox?.(dr.wallId, dr.boxId, target, false, dr.sessionId);
+          }
+          return;
+        }
+        if (dr.kind === 'move-app') {
+          const proj = projectArPointerOntoWallRef.current(dr.wallId, e.clientX, e.clientY);
+          if (!proj) return;
+          if (!dr.moved && movedPx < 5 && Math.abs(proj.xCm - dr.startDot) < 2.5) return;
+          dr.moved = true;
+          const dx = Math.round((proj.xCm - dr.startDot) / 5) * 5;
+          const target = dr.origX + dx;
+          if (target !== dr.lastTargetX) {
+            dr.lastTargetX = target;
+            propsRef.current.onMoveAppliance?.(dr.wallId, dr.appId, target, false, dr.sessionId);
+          }
+          return;
+        }
+      }
+
+      lastHoverCoordsRef.current = { x: e.clientX, y: e.clientY };
+      const toolNow = arToolRef.current;
+      if (toolNow === 'select' || toolNow.startsWith('calibrate-')) {
+        setCursorPreview(null);
+        return;
+      }
+      const floor = floorPointAtClientRef.current(e.clientX, e.clientY);
+      if (!floor) {
+        setCursorPreview({ x: e.clientX, y: e.clientY, status: 'invalid' });
+        return;
+      }
+      lastPreviewTouchRef.current = performance.now();
+      if (reticleRef.current) reticleRef.current.position.set(floor.x, 0.012, floor.z);
+      const status = updateArGhostRef.current(floor, e.clientX, e.clientY);
+      setCursorPreview({ x: e.clientX, y: e.clientY, status });
+      renderOnceRef.current();
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      const dr = arDragRef.current;
+      arDragRef.current = null;
+      dragDownClientRef.current = null;
+      if (!xrSessionRef.current) controls.enabled = true;
+      try {
+        if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
+      } catch {}
+
+      if (dr?.kind === 'move-box' && dr.moved && dr.lastTargetX !== dr.origX) {
+        propsRef.current.onMoveBox?.(dr.wallId, dr.boxId, dr.lastTargetX, true, dr.sessionId);
+      } else if (dr?.kind === 'move-app' && dr.moved && dr.lastTargetX !== dr.origX) {
+        propsRef.current.onMoveAppliance?.(dr.wallId, dr.appId, dr.lastTargetX, true, dr.sessionId);
+      } else if (dr?.kind === 'drag-b' && dr.moved) {
+        const a = pointARef.current;
+        const b = pointBRef.current;
+        const distCm = Math.round(Math.hypot(b.x - a.x, b.z - a.z) * alignmentRef.current.scale * 100);
+        onUpdateProject((prev) => ({
+          ...prev,
+          arCalibration: { a, b, realDistanceCm: distCm },
+        }));
+      }
+    };
+
+    // Two-finger vertical drag anywhere in AR cycles models cleanly
+    const stepToolOption = (dir: 1 | -1) => {
+      const cur = propsRef.current;
+      const toolNow = arToolRef.current;
+      if (toolNow === 'handle') {
+        const idx = Math.max(0, HANDLE_STYLE_ORDER.indexOf(cur.handleStyle));
+        const nxt = HANDLE_STYLE_ORDER[(idx + (dir > 0 ? 1 : HANDLE_STYLE_ORDER.length - 1)) % HANDLE_STYLE_ORDER.length];
+        cur.onHandleStyleChange?.(nxt);
+        onToast(`دستگیره: ${nxt === 'knob' ? 'دکمه‌ای' : nxt === 'hidden' ? 'مخفی' : 'میله‌ای'}`);
+      } else if (toolNow === 'fridge') {
+        const idx = Math.max(0, FRIDGE_MODEL_ORDER.indexOf(cur.fridgeModel));
+        const nxt = FRIDGE_MODEL_ORDER[(idx + (dir > 0 ? 1 : FRIDGE_MODEL_ORDER.length - 1)) % FRIDGE_MODEL_ORDER.length];
+        cur.onFridgeModelChange?.(nxt);
+        onToast(`یخچال: ${FRIDGE_MODELS[nxt].shortLabel}`);
+      } else if (toolNow === 'sink') {
+        const idx = Math.max(0, SINK_MODEL_ORDER.indexOf(cur.sinkModel));
+        const nxt = SINK_MODEL_ORDER[(idx + (dir > 0 ? 1 : SINK_MODEL_ORDER.length - 1)) % SINK_MODEL_ORDER.length];
+        cur.onSinkModelChange?.(nxt);
+        onToast(`سینک: ${SINK_MODELS[nxt].shortLabel}`);
+      } else if (toolNow === 'gas') {
+        const widths = [...GAS_WIDTH_OPTIONS];
+        const idx = Math.max(0, widths.indexOf(cur.gasWidth as (typeof GAS_WIDTH_OPTIONS)[number]));
+        const nxt = widths[(idx + (dir > 0 ? 1 : widths.length - 1)) % widths.length];
+        cur.onGasWidthChange?.(nxt);
+        onToast(`گاز: ${nxt}cm`);
+      } else if (toolNow === 'appliance') {
+        const idx = Math.max(0, APPLIANCE_ORDER.indexOf(cur.applianceKind));
+        const nxt = APPLIANCE_ORDER[(idx + (dir > 0 ? 1 : APPLIANCE_ORDER.length - 1)) % APPLIANCE_ORDER.length];
+        cur.onApplianceKindChange?.(nxt);
+        onToast(`تجهیز: ${APPLIANCE_CONFIGS[nxt].shortLabel}`);
+      } else if (toolNow === 'opening') {
+        const idx = Math.max(0, OPENING_ORDER.indexOf(cur.openingKind));
+        const nxt = OPENING_ORDER[(idx + (dir > 0 ? 1 : OPENING_ORDER.length - 1)) % OPENING_ORDER.length];
+        cur.onOpeningKindChange?.(nxt);
+        onToast(`بازشو: ${OPENING_DEFAULTS[nxt].label}`);
+      } else if (toolNow === 'cab-base' || toolNow === 'cab-wall' || toolNow === 'cab-tall') {
+        const idx = Math.max(0, CAB_DRAW_KIND_ORDER.indexOf(cur.drawBoxKind));
+        const nxt = CAB_DRAW_KIND_ORDER[(idx + (dir > 0 ? 1 : CAB_DRAW_KIND_ORDER.length - 1)) % CAB_DRAW_KIND_ORDER.length];
+        cur.onSelectDrawBoxKind?.(nxt);
+        setArTool(nxt === 'wall' ? 'cab-wall' : nxt === 'tall' ? 'cab-tall' : 'cab-base');
+      }
+    };
+
+    let twoFingerMidY: number | null = null;
+    const isArCyclableTool = (t: ArToolId): boolean =>
+      t !== 'select' && t !== 'wall' && !t.startsWith('calibrate-');
+
+    const updateTouchPreview = (midX: number, midY: number) => {
+      lastHoverCoordsRef.current = { x: midX, y: midY };
+      const floor = floorPointAtClientRef.current(midX, midY);
+      const status = floor ? updateArGhostRef.current(floor, midX, midY) : 'invalid';
+      setCursorPreview({ x: midX, y: midY, status });
+      renderOnceRef.current();
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2 && arToolRef.current !== 'select' && !arToolRef.current.startsWith('calibrate-')) {
+        controls.enabled = false;
+        gestureStepperRef.current.resetTouch();
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        twoFingerMidY = midY;
+        updateTouchPreview(midX, midY);
+      } else {
+        twoFingerMidY = null;
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || twoFingerMidY === null) return;
+      e.preventDefault();
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const deltaY = midY - twoFingerMidY;
+      twoFingerMidY = midY;
+      const pacedDir = gestureStepperRef.current.consumeTouchDelta(deltaY);
+      if (pacedDir !== 0) {
+        stepToolOption(pacedDir);
+      }
+      updateTouchPreview(midX, midY);
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        twoFingerMidY = null;
+        gestureStepperRef.current.resetTouch();
+        if (!arDragRef.current && !xrSessionRef.current) controls.enabled = true;
+      }
+    };
+    const onWheelCapture = (e: WheelEvent) => {
+      if (!activeRef.current || e.ctrlKey || !isArCyclableTool(arToolRef.current)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      lastHoverCoordsRef.current = { x: e.clientX, y: e.clientY };
+      const pacedDir = gestureStepperRef.current.consumeWheelDelta(e.deltaY, e.deltaMode);
+      if (pacedDir !== 0) {
+        stepToolOption(pacedDir);
+      }
+      updateTouchPreview(e.clientX, e.clientY);
+    };
+
+    dom.addEventListener('pointerdown', onPointerDownCapture, { capture: true });
+    dom.addEventListener('wheel', onWheelCapture as EventListener, { passive: false, capture: true });
+    dom.addEventListener('dblclick', onDblClick);
+    dom.addEventListener('touchstart', onTouchStart, { passive: true });
+    dom.addEventListener('touchmove', onTouchMove, { passive: false });
+    dom.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
 
     const onResize = () => {
       const w = container.clientWidth || 800;
@@ -648,12 +1492,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
-      renderer.domElement.removeEventListener('dblclick', onDblClick);
-      toggleXrDoorAtPointRef.current = () => false;
-      pickAtClientRef.current = () => null;
-      detailedPickAtClientRef.current = () => null;
-      floorPointAtClientRef.current = () => null;
-      updateArGhostRef.current = () => {};
+      dom.removeEventListener('pointerdown', onPointerDownCapture, { capture: true });
+      dom.removeEventListener('wheel', onWheelCapture as EventListener, { capture: true });
+      dom.removeEventListener('dblclick', onDblClick);
+      dom.removeEventListener('touchstart', onTouchStart);
+      dom.removeEventListener('touchmove', onTouchMove);
+      dom.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
       ro.disconnect();
       controls.dispose();
       occlusion.dispose();
@@ -669,6 +1515,20 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     };
   }, []);
 
+  // Keep CursorToolPreview updated immediately on tool or option switch (even without moving mouse)
+  useEffect(() => {
+    if (!active || arTool === 'select' || arTool.startsWith('calibrate-')) {
+      setCursorPreview(null);
+      return;
+    }
+    if (lastHoverCoordsRef.current) {
+      const pt = lastHoverCoordsRef.current;
+      const floor = floorPointAtClientRef.current(pt.x, pt.y);
+      const status = floor ? updateArGhostRef.current(floor, pt.x, pt.y) : 'invalid';
+      setCursorPreview({ x: pt.x, y: pt.y, status });
+    }
+  }, [active, arTool, fridgeModel, sinkModel, gasWidth, applianceKind, openingKind, handleStyle, handleOrient]);
+
   // Update 3D kitchen meshes inside AR floor group whenever project/alignment/doorsOpen updates
   useEffect(() => {
     const mount = kitchenMountRef.current;
@@ -683,14 +1543,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const built = buildKitchen3DScene(project, {
       doorOpenProgress: 0,
-      // After two walls define the floor, show the same 1m tile polygon in AR,
-      // semi-transparent so the real floor remains visible to the installer.
       hideFloor: false,
       floorOpacity: 0.72,
     });
     builtSceneRef.current = built;
 
-    // Reapply soft-close per-door animation states across scene rebuilds
     const validIds = new Set(built.animatedDoors.map((d) => d.doorId));
     for (const k of Array.from(doorStatesRef.current.keys())) {
       if (!validIds.has(k)) doorStatesRef.current.delete(k);
@@ -710,32 +1567,36 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     mount.rotation.y = alignment.yaw;
     mount.scale.setScalar(alignment.scale);
 
-    // Sync calibration A/B pins & ruler line in aligned space
-    if (pinARef.current && pinBRef.current && lineABRef.current) {
+    // Sync calibration A/B pins, connected lineAB, AND perpendicular ruler ticks
+    if (pinARef.current && pinBRef.current && lineABRef.current && rulerTicksRef.current) {
       const toAligned = (p: XZPoint) => {
-        const c = Math.cos(alignment.yaw);
-        const s = Math.sin(alignment.yaw);
+        const cos = Math.cos(alignment.yaw);
+        const sin = Math.sin(alignment.yaw);
         return new THREE.Vector3(
-          alignment.x + alignment.scale * (p.x * c + p.z * s),
-          0.015,
-          alignment.z + alignment.scale * (-p.x * s + p.z * c)
+          alignment.x + alignment.scale * (p.x * cos + p.z * sin),
+          0.022,
+          alignment.z + alignment.scale * (-p.x * sin + p.z * cos)
         );
       };
       const vA = toAligned(pointA);
       const vB = toAligned(pointB);
       pinARef.current.position.set(vA.x, 0, vA.z);
       pinBRef.current.position.set(vB.x, 0, vB.z);
-      lineABRef.current.geometry.setFromPoints([vA, vB]);
+      lineABRef.current.geometry.dispose();
+      lineABRef.current.geometry = new THREE.BufferGeometry().setFromPoints([vA, vB]);
+      const tickPts = buildAbRulerTickPoints(vA, vB);
+      rulerTicksRef.current.geometry.dispose();
+      rulerTicksRef.current.geometry = new THREE.BufferGeometry().setFromPoints(tickPts);
     }
 
     if (wallStartMarkerRef.current) {
       if (pendingWallStart) {
-        const c = Math.cos(alignment.yaw);
-        const s = Math.sin(alignment.yaw);
+        const cos = Math.cos(alignment.yaw);
+        const sin = Math.sin(alignment.yaw);
         wallStartMarkerRef.current.position.set(
-          alignment.x + alignment.scale * (pendingWallStart.x * c + pendingWallStart.z * s),
-          0.07,
-          alignment.z + alignment.scale * (-pendingWallStart.x * s + pendingWallStart.z * c)
+          alignment.x + alignment.scale * (pendingWallStart.x * cos + pendingWallStart.z * sin),
+          0.08,
+          alignment.z + alignment.scale * (-pendingWallStart.x * sin + pendingWallStart.z * cos)
         );
         wallStartMarkerRef.current.visible = true;
       } else {
@@ -743,43 +1604,50 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
     }
 
+    if (floorNetMeshRef.current && floorNetUniformsRef.current) {
+      floorNetMeshRef.current.visible = !floorLocked;
+      floorNetUniformsRef.current.uOpacity.value = xrActive ? 0.95 : 0.45;
+    }
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = !xrActive || !floorLocked;
     }
+    if (reticleRef.current) {
+      reticleRef.current.visible = reticleEnabled || (xrActive && !floorLocked);
+    }
     if (wallGhostRef.current && !pendingWallStart) wallGhostRef.current.visible = false;
-    if (placementGhostRef.current && (!active || !floorLocked && xrActive)) placementGhostRef.current.visible = false;
+    if (placementGhostRef.current && (!active || (!floorLocked && xrActive))) placementGhostRef.current.visible = false;
 
     renderOnceRef.current();
-  }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, active]);
+  }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, active, reticleEnabled]);
 
-  // Helper: convert a point in floorGroup-local coordinates into aligned CAD-space meters
   const floorLocalToModelXZ = (localPt: THREE.Vector3): XZPoint => {
     const al = alignmentRef.current;
     const dx = (localPt.x - al.x) / al.scale;
     const dz = (localPt.z - al.z) / al.scale;
-    const c = Math.cos(al.yaw);
-    const s = Math.sin(al.yaw);
+    const cos = Math.cos(al.yaw);
+    const sin = Math.sin(al.yaw);
     return {
-      x: +(dx * c - dz * s).toFixed(3),
-      z: +(dx * s + dz * c).toFixed(3),
+      x: +(dx * cos - dz * sin).toFixed(3),
+      z: +(dx * sin + dz * cos).toFixed(3),
     };
   };
 
-  const applyArFloorActionAt = (floorLocalPt: THREE.Vector3) => {
+  const applyArFloorActionAt = (floorLocalPt: THREE.Vector3, _clientX?: number, _clientY?: number) => {
     const modelPt = floorLocalToModelXZ(floorLocalPt);
     const toolNow = arToolRef.current;
+    const choices = propsRef.current;
 
     if (toolNow === 'select') return;
 
     if (toolNow === 'calibrate-a') {
       const curA = pointARef.current;
       const al = alignmentRef.current;
-      const c = Math.cos(al.yaw);
-      const s = Math.sin(al.yaw);
-      const nextX = floorLocalPt.x - al.scale * (curA.x * c + curA.z * s);
-      const nextZ = floorLocalPt.z - al.scale * (-curA.x * s + curA.z * c);
+      const cos = Math.cos(al.yaw);
+      const sin = Math.sin(al.yaw);
+      const nextX = floorLocalPt.x - al.scale * (curA.x * cos + curA.z * sin);
+      const nextZ = floorLocalPt.z - al.scale * (-curA.x * sin + curA.z * cos);
       setAlignment((prev) => ({ ...prev, x: nextX, z: nextZ }));
-      onToast('نقطه مرجع A روی کف تنظیم شد');
+      onToast('کل صحنه بر اساس نقطه مرجع A جابجا شد');
       return;
     }
 
@@ -787,26 +1655,25 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const a = pointARef.current;
       const b = pointBRef.current;
       const al = alignmentRef.current;
-      const c = Math.cos(al.yaw);
-      const s = Math.sin(al.yaw);
+      const cos = Math.cos(al.yaw);
+      const sin = Math.sin(al.yaw);
       const anchorA = {
-        x: al.x + al.scale * (a.x * c + a.z * s),
-        z: al.z + al.scale * (-a.x * s + a.z * c),
+        x: al.x + al.scale * (a.x * cos + a.z * sin),
+        z: al.z + al.scale * (-a.x * sin + a.z * cos),
       };
-      const sol = fitCalibrationDragB(a, b, anchorA, { x: floorLocalPt.x, z: floorLocalPt.z }, al.scale);
+      const sol = fitCalibrationDragABWithScale(a, b, anchorA, { x: floorLocalPt.x, z: floorLocalPt.z });
       if (!sol) {
         onToast('فاصله نقاط A و B باید حداقل ۱۰ سانتی‌متر باشد');
         return;
       }
-      setPointB(sol.b);
-      setAlignment((prev) => ({ ...prev, x: sol.x, z: sol.z, yaw: sol.yaw }));
-      const distCm = Math.round(Math.hypot(sol.b.x - a.x, sol.b.z - a.z) * al.scale * 100);
+      setAlignment({ x: sol.x, z: sol.z, yaw: sol.yaw, scale: sol.scale });
+      const distCm = Math.round(Math.hypot(b.x - a.x, b.z - a.z) * sol.scale * 100);
       setRealDistanceInput(String(distCm));
       onUpdateProject((prev) => ({
         ...prev,
-        arCalibration: { a, b: sol.b, realDistanceCm: distCm },
+        arCalibration: { a, b, realDistanceCm: distCm },
       }));
-      onToast(`زاویه و مرجع B هم‌جهت شد (${distCm} cm)`);
+      onToast(`چرخش و مقیاس کل صحنه روی ${distCm}cm تنظیم شد`);
       return;
     }
 
@@ -814,7 +1681,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const start = pendingWallStartRef.current;
       if (!start) {
         setPendingWallStart(modelPt);
-        onToast('نقطه شروع دیوار ثبت شد — نقطه انتها را روی کف بزنید');
+        onToast('نقطه شروع دیوار ثبت شد — نقطه بعدی را انتخاب یا تأیید کنید');
         return;
       }
       const distCm = Math.hypot(modelPt.x - start.x, modelPt.z - start.z) * 100;
@@ -825,25 +1692,22 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       onUpdateProject((prev) => {
         const wallH = prev.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm;
         const newWall = buildArScannedWall(prev.walls, start, modelPt, wallH);
-        const walls = [...prev.walls, newWall];
         return {
           ...prev,
-          walls,
+          walls: [...prev.walls, newWall],
           activeWallId: newWall.id,
           activeBoxId: null,
           selectedDoorId: null,
         };
       }, 'دیوار جدید روی کف AR ثبت شد');
-      // Continue drawing a connected wall chain, exactly like the 2D and 3D editors.
       setPendingWallStart(modelPt);
       return;
     }
 
-    // All cabinet / appliance / opening AR tools project cleanly onto nearest scanned wall!
     const proj = projectRef.current;
     const hitWall = projectArPointOntoWalls(modelPt, proj.walls);
     if (!hitWall) {
-      onToast('ابتدا نزدیک یک دیوار کلیک کنید یا دیوار جدید بکشید');
+      onToast('ابتدا نزدیک یک دیوار لمس کنید یا دیوار جدید بکشید');
       return;
     }
 
@@ -873,8 +1737,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
         const w = next.walls.find((x) => x.id === hitWall.wall.id);
         if (!w) return prev;
-        const wCenter = hitWall.offsetCm - (FRIDGE_MODELS[fridgeModel].width + 10) / 2;
-        const res = placeFridgeOnWall(w, next.walls, fridgeModel, wCenter, next.cornerOwners, true, next.settings);
+        const wCenter = hitWall.offsetCm - (FRIDGE_MODELS[choices.fridgeModel].width + 10) / 2;
+        const res = placeFridgeOnWall(w, next.walls, choices.fridgeModel, wCenter, next.cornerOwners, true, next.settings);
         if (!res.ok) {
           onToast(res.message);
           return prev;
@@ -882,7 +1746,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         next.activeWallId = w.id;
         next.activeBoxId = res.fridgeId || null;
         return next;
-      }, `یخچال ${FRIDGE_MODELS[fridgeModel].shortLabel} در AR نصب شد`);
+      }, `یخچال ${FRIDGE_MODELS[choices.fridgeModel].shortLabel} در AR نصب شد`);
       return;
     }
 
@@ -891,9 +1755,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
         const w = next.walls.find((x) => x.id === hitWall.wall.id);
         if (!w) return prev;
-        const cfg = OPENING_DEFAULTS[openingKind];
+        const cfg = OPENING_DEFAULTS[choices.openingKind];
         const op = createWallOpening(
-          openingKind,
+          choices.openingKind,
           Math.max(0, Math.min(w.length - cfg.width, hitWall.offsetCm - cfg.width / 2)),
           w
         );
@@ -902,7 +1766,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         next.activeWallId = w.id;
         next.selectedOpeningId = op.id;
         return next;
-      }, `${OPENING_DEFAULTS[openingKind].label} روی دیوار ثبت شد`);
+      }, `${OPENING_DEFAULTS[choices.openingKind].label} روی دیوار ثبت شد`);
       return;
     }
 
@@ -922,9 +1786,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           return prev;
         }
         const kind: ApplianceKind =
-          toolNow === 'sink' ? 'sink' : toolNow === 'gas' ? 'gas' : applianceKind;
+          toolNow === 'sink' ? 'sink' : toolNow === 'gas' ? 'gas' : choices.applianceKind;
         const appW =
-          kind === 'sink' ? SINK_MODELS[sinkModel].width : kind === 'gas' ? gasWidth : 60;
+          kind === 'sink'
+            ? SINK_MODELS[choices.sinkModel].width
+            : kind === 'gas'
+            ? choices.gasWidth
+            : APPLIANCE_CONFIGS[kind].width;
         const res = placeApplianceWithCabinetRules(
           w,
           next.walls,
@@ -932,8 +1800,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           baseBox,
           hitWall.offsetCm - appW / 2,
           next.cornerOwners,
-          hoodKind,
-          { sinkModel, customWidth: kind === 'gas' ? gasWidth : undefined }
+          choices.hoodKind,
+          { sinkModel: choices.sinkModel, customWidth: kind === 'gas' ? choices.gasWidth : undefined }
         );
         if (!res.ok) {
           onToast(res.message);
@@ -946,14 +1814,229 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       });
     }
   };
+  applyFloorActionRef.current = applyArFloorActionAt;
 
-  // Start / Resume WebXR session (NEVER auto-closes on viewMode switch!)
+  const handleArDetailAction = (clientX: number, clientY: number) => {
+    const picked = detailedPickAtClientRef.current(clientX, clientY);
+    const mount = kitchenMountRef.current;
+    const built = builtSceneRef.current;
+    const choices = propsRef.current;
+    const toolNow = arToolRef.current;
+
+    if (!picked?.data.boxId || !mount || !built) {
+      if (toolNow === 'handle') {
+        const nxt: Orientation = choices.handleOrient === 'vertical' ? 'horizontal' : 'vertical';
+        choices.onHandleOrientChange?.(nxt);
+        onToast(`جهت دستگیره: ${nxt === 'vertical' ? 'عمودی' : 'افقی'}`);
+      } else {
+        onToast('ابتدا روی قسمت معتبر یک کابینت لمس کنید');
+      }
+      return;
+    }
+
+    const transform = built.wallTransforms.get(picked.data.wallId);
+    if (!transform) return;
+    mount.updateWorldMatrix(true, true);
+    const modelPt = mount.worldToLocal(picked.point.clone());
+    const distance = modelPt.clone().sub(transform.origin);
+    const xCm = distance.dot(transform.tangent) * 100;
+    const yCm = modelPt.y * 100;
+
+    let feedback = '';
+    onUpdateProject((prev) => {
+      const next: ProjectState = JSON.parse(JSON.stringify(prev));
+      const w = next.walls.find((x) => x.id === picked.data.wallId);
+      const box = w?.boxes.find((b) => b.id === picked.data.boxId);
+      if (!w || !box) return prev;
+      const localX = Math.max(0, Math.min(box.width, xCm - box.offsetX));
+      const zones = getCornerBlockedZonesForWall(w, next.walls, next.cornerOwners);
+
+      if (toolNow === 'handle') {
+        const door =
+          (picked.data.doorId ? box.doors.find((d) => d.id === picked.data.doorId) : undefined) ||
+          box.doors.find((d) => localX >= d.startCm - 0.5 && localX <= d.startCm + d.widthCm + 0.5);
+        if (!door || door.kind === 'fridge') {
+          feedback = 'ابتدا روی یک درب کابینت لمس کنید';
+          return prev;
+        }
+        autoUnitizeBoxForHandles(box, zones);
+        const targetDoor = box.doors.find((d) => d.id === door.id);
+        if (!targetDoor) return prev;
+
+        const innerBot = box.elevY + box.plinth;
+        const innerH = Math.max(10, box.height - box.plinth - box.countertopCm);
+        const normY = Math.max(0, Math.min(1, 1 - (yCm - innerBot) / innerH));
+        let rowIndex = 0;
+        let yRatio = box.type === 'wall' || box.type === 'wall-deep' ? 0.82 : 0.18;
+        if ((targetDoor.kind === 'drawer' || targetDoor.kind === 'lift') && targetDoor.drawerRatios.length > 0) {
+          const pts = [0, ...targetDoor.drawerRatios, 1];
+          for (let ri = 0; ri < pts.length - 1; ri++) {
+            if (normY >= pts[ri] && normY <= pts[ri + 1]) {
+              rowIndex = ri;
+              yRatio = 0.5;
+              break;
+            }
+          }
+        } else if (targetDoor.kind === 'door' && targetDoor.doorStyle === 'pantry') {
+          yRatio = 0.5;
+        }
+
+        let xRatio = 0.5;
+        if (targetDoor.kind === 'door' && targetDoor.doorStyle !== 'pantry') {
+          const isRightEdge = localX >= targetDoor.startCm + targetDoor.widthCm / 2;
+          xRatio = isRightEdge ? 0.86 : 0.14;
+          targetDoor.hingeSide = isRightEdge ? 'left' : 'right';
+        }
+
+        box.handles = box.handles.filter(
+          (h) => !(h.doorId === targetDoor.id && (h.rowIndex ?? 0) === rowIndex)
+        );
+        const hId = uid('hnd');
+        box.handles.push({
+          id: hId,
+          doorId: targetDoor.id,
+          style: choices.handleStyle,
+          orient: choices.handleOrient,
+          lengthCm: 16,
+          xRatio,
+          yRatio,
+          rowIndex,
+        });
+        next.activeWallId = w.id;
+        next.activeBoxId = box.id;
+        next.selectedDoorId = targetDoor.id;
+        next.selectedHandleId = hId;
+        feedback = 'دستگیره روی درب نصب شد و جهت بازشو مشخص گردید';
+      } else if (toolNow === 'doors') {
+        const preview = computeDoorBrushPreview(box, localX, 'vertical', 1, 1, 0, zones, 60);
+        const res = applyDoorBrushPreview(box, localX, preview, zones);
+        if (!res.ok) {
+          feedback = res.message || 'امکان درج درب در این محل نیست';
+          return prev;
+        }
+        next.selectedDoorId = res.selectedDoorId;
+        next.activeBoxId = box.id;
+        next.activeWallId = w.id;
+        feedback = 'درب ثبت شد (برای تعیین جهت لولا دستگیره بگذارید)';
+      } else if (toolNow === 'shelf') {
+        const unit = getUnitsInBox(box, zones).find((u) => localX >= u.startCm && localX <= u.endCm);
+        if (!unit || !unit.canHaveShelves) {
+          feedback = unit?.blockedReason || 'این یونیت ظرفیت طبقه جدید ندارد';
+          return prev;
+        }
+        const innerH = Math.max(1, box.height - box.plinth - box.countertopCm);
+        const yRatio = Math.max(0, Math.min(1, 1 - (yCm - box.elevY - box.plinth) / innerH));
+        const res = addShelvesWithMinGap(box, unit.startCm, unit.endCm, 1, yRatio);
+        if (!res.ok) {
+          feedback = res.message;
+          return prev;
+        }
+        next.activeBoxId = box.id;
+        next.activeWallId = w.id;
+        feedback = 'طبقه با حداقل فاصله ۲۵cm اضافه شد';
+      } else if (toolNow === 'frame') {
+        const yLocal = yCm - box.elevY;
+        const margin = 8;
+        const side =
+          localX <= margin
+            ? 'left'
+            : localX >= box.width - margin
+            ? 'right'
+            : yLocal >= box.height - margin
+            ? 'top'
+            : yLocal <= margin
+            ? 'bottom'
+            : null;
+        if (!side) {
+          feedback = 'برای نصب فریم روی لبه باکس لمس کنید';
+          return prev;
+        }
+        const exposure = getBoxSideExposure(box, w, next.walls, next.cornerOwners, zones);
+        const res = placeFrameOnBox(box, side, 5, undefined, exposure);
+        if (!res.ok) {
+          feedback = res.message;
+          return prev;
+        }
+        next.activeBoxId = box.id;
+        next.activeWallId = w.id;
+        next.selectedFrameId = res.frame?.id || null;
+        feedback = res.message;
+      } else {
+        return prev;
+      }
+      return next;
+    });
+
+    if (feedback) onToast(feedback);
+  };
+  handleArDetailActionRef.current = handleArDetailAction;
+
+  // Triggered by floating Confirm (تأیید) button in AR
+  const handleConfirmAction = () => {
+    const renderer = rendererRef.current;
+    if (xrActive && !floorLocked) {
+      handleLockFloor();
+      return;
+    }
+    if (arToolRef.current === 'wall' && pendingWallStartRef.current && renderer) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const centerLocal = floorPointAtClientRef.current(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2
+      );
+      if (centerLocal) {
+        const pt = floorLocalToModelXZ(centerLocal);
+        const distCm = Math.hypot(pt.x - pendingWallStartRef.current.x, pt.z - pendingWallStartRef.current.z) * 100;
+        if (distCm >= 40) {
+          applyFloorActionRef.current(centerLocal);
+        }
+      }
+      setPendingWallStart(null);
+      if (wallGhostRef.current) wallGhostRef.current.visible = false;
+      onToast('ترسیم دیوار تأیید و تکمیل شد');
+      return;
+    }
+    if (renderer) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      if (
+        arToolRef.current === 'doors' ||
+        arToolRef.current === 'handle' ||
+        arToolRef.current === 'shelf' ||
+        arToolRef.current === 'frame'
+      ) {
+        handleArDetailAction(cx, cy);
+        return;
+      }
+      const centerLocal = floorPointAtClientRef.current(cx, cy);
+      if (centerLocal) {
+        applyFloorActionRef.current(centerLocal, cx, cy);
+      }
+    }
+  };
+
+  // Triggered by floating Cancel (لغو) button in AR
+  const handleCancelAction = () => {
+    setPendingWallStart(null);
+    arDragRef.current = null;
+    if (wallGhostRef.current) wallGhostRef.current.visible = false;
+    if (placementGhostRef.current) placementGhostRef.current.visible = false;
+    if (arTool !== 'select') {
+      setArTool('select');
+      onToast('عملیات لغو شد و به حالت انتخاب برگشتید');
+    } else {
+      onToast('لغو شد');
+    }
+  };
+
+  // Start / Resume WebXR session with full MaxLightner/kitchyar multi-ray + plane hit-test & anchors!
   const startWebXrSession = async () => {
     const xr = (navigator as unknown as { xr?: XRSystem }).xr;
     const renderer = rendererRef.current;
     const overlayRoot = overlayRootRef.current;
     if (!xr || !renderer || !overlayRoot) {
-      onToast('این مرورگر یا دستگاه از WebXR AR پشتیبانی نمی‌کند (حالت شبیه‌سازی فعال است)');
+      onToast('این مرورگر یا دستگاه از WebXR AR پشتیبانی نمی‌کند (پیش‌نمایش کالیبراسیون فعال است)');
       return;
     }
 
@@ -968,13 +2051,20 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setXrActive(true);
       if (controlsRef.current) controlsRef.current.enabled = false;
       floorScannerRef.current.reset();
+      anchorsRef.current = [];
+      pendingAnchorCreateRef.current = false;
       setFloorLocked(false);
 
       session.addEventListener('end', () => {
-        // Release the XR animation loop before returning to the desktop preview.
         renderer.setAnimationLoop(null);
         xrSessionRef.current = null;
-        hitTestSourceRef.current = null;
+        for (const s of hitTestSourcesRef.current) {
+          try { s.cancel(); } catch {}
+        }
+        hitTestSourcesRef.current = [];
+        try { lowerHitSourceRef.current?.cancel(); } catch {}
+        lowerHitSourceRef.current = null;
+        try { transientHitSourceRef.current?.cancel(); } catch {}
         transientHitSourceRef.current = null;
         setXrActive(false);
         setFloorLocked(false);
@@ -992,8 +2082,38 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         await session.requestReferenceSpace('local');
       }
       const viewerSpace = await session.requestReferenceSpace('viewer');
-      hitTestSourceRef.current =
-        (await session.requestHitTestSource?.({ space: viewerSpace })) || null;
+
+      // Port MaxLightner/kitchyar multi-ray hit test source setup (with plane preference fallback)
+      const requestSource = async (space: XRReferenceSpace): Promise<XRHitTestSource | null> => {
+        if (!session.requestHitTestSource) return null;
+        try {
+          return (await session.requestHitTestSource({ space, entityTypes: ['plane'] as XRHitTestTrackableType[] })) ?? null;
+        } catch {
+          return (await session.requestHitTestSource({ space })) ?? null;
+        }
+      };
+
+      const sources: XRHitTestSource[] = [];
+      for (const [rx, ry] of FLOOR_SCAN_RAYS) {
+        let offsetSpace = viewerSpace;
+        if ((rx !== 0 || ry !== 0) && viewerSpace.getOffsetReferenceSpace) {
+          offsetSpace = viewerSpace.getOffsetReferenceSpace(new XRRigidTransform({ x: rx, y: ry, z: 0 }));
+        }
+        const src = await requestSource(offsetSpace);
+        if (src) sources.push(src);
+      }
+      hitTestSourcesRef.current = sources;
+
+      if (viewerSpace.getOffsetReferenceSpace) {
+        const lowerSpace = viewerSpace.getOffsetReferenceSpace(
+          new XRRigidTransform(
+            { x: 0, y: 0, z: 0 },
+            { x: Math.sin(FLOOR_RAY_TILT / 2), y: 0, z: 0, w: Math.cos(FLOOR_RAY_TILT / 2) }
+          )
+        );
+        lowerHitSourceRef.current = await requestSource(lowerSpace);
+      }
+
       transientHitSourceRef.current =
         (await session.requestHitTestSourceForTransientInput?.({
           profile: 'generic-touchscreen',
@@ -1010,7 +2130,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const pose = frame.getViewerPose(space);
         if (!pose) return;
 
-        // If user switched to 2D/3D, keep XRSession alive passively without heavy depth copies!
         if (!activeRef.current) {
           occlusionRef.current?.update(frame, pose, rendererRef.current, session, {
             enabled: occlusionEnabledRef.current,
@@ -1019,14 +2138,41 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           return;
         }
 
+        if (floorNetUniformsRef.current) {
+          floorNetUniformsRef.current.uTime.value = time / 1000;
+        }
+
         occlusionRef.current?.update(frame, pose, rendererRef.current, session, {
           enabled: occlusionEnabledRef.current,
           ar: true,
         });
         if (occlusionRef.current) setOcclusionStatus(occlusionRef.current.status);
 
-        // Update XR anchor stabilizer when floor is locked
+        // Create XRAnchors asynchronously on the first XR frame after floor lock
+        if (pendingAnchorCreateRef.current && floorGroupRef.current && typeof frame.createAnchor === 'function') {
+          pendingAnchorCreateRef.current = false;
+          const observations = floorScannerRef.current.observations.slice(0, 5);
+          const groupOrigin = floorGroupRef.current.position.clone();
+          observations.forEach((obs, i) => {
+            const xform = new XRRigidTransform({ x: obs.x, y: obs.y, z: obs.z });
+            frame.createAnchor!(xform, space)
+              .then((anchor) => {
+                anchorsRef.current.push({
+                  id: `anchor_${i}`,
+                  anchor,
+                  reference: {
+                    x: obs.x - groupOrigin.x,
+                    y: obs.y - groupOrigin.y,
+                    z: obs.z - groupOrigin.z,
+                  },
+                });
+              })
+              .catch(() => {});
+          });
+        }
+
         if (floorLockedRef.current && anchorsRef.current.length > 0) {
+          for (const c of crossesPoolRef.current) c.visible = false;
           const samples: AnchorSample[] = [];
           for (const entry of anchorsRef.current) {
             const ap = frame.getPose(entry.anchor.anchorSpace, space);
@@ -1049,14 +2195,21 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             }
           }
         } else if (!floorLockedRef.current) {
-          const centerResults = hitTestSourceRef.current
-            ? frame.getHitTestResults(hitTestSourceRef.current)
-            : [];
-          const transResults = transientHitSourceRef.current
-            ? frame
-                .getHitTestResultsForTransientInput(transientHitSourceRef.current)
-                .flatMap((t) => [...t.results])
-            : [];
+          const allSources = hitTestSourcesRef.current;
+          const centerResults = allSources[0] ? frame.getHitTestResults(allSources[0]) : [];
+          const extraResults: XRHitTestResult[] = [];
+          for (let i = 1; i < allSources.length; i++) {
+            extraResults.push(...frame.getHitTestResults(allSources[i]));
+          }
+          if (lowerHitSourceRef.current) {
+            extraResults.push(...frame.getHitTestResults(lowerHitSourceRef.current));
+          }
+          if (transientHitSourceRef.current) {
+            for (const t of frame.getHitTestResultsForTransientInput(transientHitSourceRef.current)) {
+              extraResults.push(...t.results);
+            }
+          }
+
           const viewPos = new THREE.Vector3(
             pose.views[0].transform.position.x,
             pose.views[0].transform.position.y,
@@ -1072,28 +2225,48 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           );
           const pt = floorScannerRef.current.update(
             centerResults,
-            transResults,
+            extraResults,
             space,
             viewPos,
             time,
             forward
           );
           setScanReady(floorScannerRef.current.ready);
-          setScanHitsCount(floorScannerRef.current.observations.length);
           if (pt && reticleRef.current && floorGroupRef.current) {
             floorGroupRef.current.position.set(pt.x, pt.y, pt.z);
-            reticleRef.current.position.set(0, 0.01, 0);
+            reticleRef.current.position.set(0, 0.012, 0);
+          }
+
+          // Render FloorScanner diagnostic crosses (0x83ffe3 accepted vs 0xff6b61 rejected)
+          const hits = floorScannerRef.current.currentHits;
+          crossesPoolRef.current.forEach((c, idx) => {
+            const h = hits[idx];
+            if (!h) {
+              c.visible = false;
+              return;
+            }
+            c.visible = true;
+            c.position.set(h.point.x, h.point.y + 0.006, h.point.z);
+            const mat = c.userData.mat as THREE.MeshBasicMaterial | undefined;
+            if (mat) mat.color.setHex(h.accepted ? 0x83ffe3 : 0xff6b61);
+          });
+        }
+
+        if (
+          floorLockedRef.current &&
+          reticleEnabledRef.current &&
+          performance.now() - lastPreviewTouchRef.current > 450
+        ) {
+          const rect = renderer.domElement.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          const local = floorPointAtClientRef.current(cx, cy);
+          if (local) {
+            if (reticleRef.current) reticleRef.current.position.set(local.x, 0.012, local.z);
+            updateArGhostRef.current(local, cx, cy);
           }
         }
 
-        // Keep the AR wall ghost attached to the real center reticle when the user
-        // is not currently dragging a finger across the live camera image.
-        if (floorLockedRef.current &&
-            performance.now() - lastPreviewTouchRef.current > 450) {
-          const rect = renderer.domElement.getBoundingClientRect();
-          const local = floorPointAtClientRef.current(rect.left + rect.width / 2, rect.top + rect.height / 2);
-          if (local) updateArGhostRef.current(local);
-        }
         const built = builtSceneRef.current;
         const elapsed = lastXrFrameTime ? (time - lastXrFrameTime) / 1000 : 0.016;
         lastXrFrameTime = time;
@@ -1114,38 +2287,40 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         rendererRef.current.render(sceneRef.current, xrCam);
       });
 
-      onToast('سشن WebXR AR فعال شد — دوربین را آرام روی کف حرکت دهید');
+      onToast('اسکن خودکار کف فعال شد — دوربین را رو به کف نگه دارید');
     } catch {
-      // A session may exist even if reference-space or hit-test initialization fails.
-      // Roll back every partial allocation so the user can retry AR without reloading.
       const partialSession = xrSessionRef.current;
       xrSessionRef.current = null;
       if (partialSession) partialSession.end().catch(() => {});
       renderer.setAnimationLoop(null);
-      hitTestSourceRef.current = null;
+      hitTestSourcesRef.current = [];
+      lowerHitSourceRef.current = null;
       transientHitSourceRef.current = null;
       setXrActive(false);
       setFloorLocked(false);
       setScanReady(false);
       if (controlsRef.current) controlsRef.current.enabled = true;
       renderOnceRef.current();
-      onToast('امکان باز کردن دوربین AR در این مرورگر وجود نداشت؛ شبیه‌سازی کف فعال است');
+      onToast('امکان باز کردن دوربین AR در این مرورگر وجود نداشت؛ پیش‌نمایش کالیبراسیون فعال است');
     }
   };
 
   const handleLockFloor = () => {
     if (xrActive && !floorScannerRef.current.ready) {
-      onToast('اسکن هنوز پایدار نیست؛ دوربین را روی بخش‌های بیشتری از کف حرکت دهید');
+      onToast('در حال تکمیل تشخیص سطح کف؛ لحظه‌ای دوربین را روی کف ثابت نگه دارید');
       return;
     }
     const pt = floorScannerRef.current.point;
     if (xrActive && pt && floorGroupRef.current) {
       basePoseRef.current = { x: pt.x, y: pt.y, z: pt.z, yaw: 0 };
       floorGroupRef.current.position.set(pt.x, pt.y, pt.z);
+      anchorsRef.current = [];
+      pendingAnchorCreateRef.current = true;
     }
+    for (const c of crossesPoolRef.current) c.visible = false;
     setFloorLocked(true);
-    setArTool('wall');
-    onToast('کف تأیید شد؛ اکنون دیوارها و کابینت‌ها را روی کف رسم کنید');
+    setArTool('select');
+    onToast('کف قفل شد؛ باکس‌ها و نقاط A/B را بکشید یا ابزار دلخواه را انتخاب کنید');
   };
 
   const handleApplyRealDistance = () => {
@@ -1163,141 +2338,18 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onToast(`مقیاس AR روی فاصله واقعی ${cm}cm تنظیم شد (ضریب ${nextScale})`);
   };
 
-  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (arToolRef.current === 'select' || arToolRef.current.startsWith('calibrate-')) {
-      setCursorPreview(null);
-      return;
-    }
-    const floor = floorPointAtClientRef.current(e.clientX, e.clientY);
-    if (!floor) {
-      setCursorPreview({ x: e.clientX, y: e.clientY, valid: false });
-      return;
-    }
-    lastPreviewTouchRef.current = performance.now();
-    setCursorPreview({ x: e.clientX, y: e.clientY, valid: true });
-    if (reticleRef.current) reticleRef.current.position.set(floor.x, 0.01, floor.z);
-    updateArGhostRef.current(floor);
-    renderOnceRef.current();
-  };
-
-  const handleArDetailAction = (clientX: number, clientY: number) => {
-    const picked = detailedPickAtClientRef.current(clientX, clientY);
-    const mount = kitchenMountRef.current;
-    const built = builtSceneRef.current;
-    if (!picked?.data.boxId || !mount || !built) {
-      onToast('ابتدا روی قسمت معتبر یک کابینت لمس کنید');
-      return;
-    }
-    const transform = built.wallTransforms.get(picked.data.wallId);
-    if (!transform) return;
-    // Transform the true world hit point into CAD coordinates. This must use the
-    // same registered kitchen mount as the visual scene, not the floor reticle.
-    mount.updateWorldMatrix(true, true);
-    const modelPt = mount.worldToLocal(picked.point.clone());
-    const distance = modelPt.clone().sub(transform.origin);
-    const xCm = distance.dot(transform.tangent) * 100;
-    const yCm = modelPt.y * 100;
-    const toolNow = arToolRef.current;
-    let feedback = '';
-    onUpdateProject(prev => {
-      const next: ProjectState = JSON.parse(JSON.stringify(prev));
-      const w = next.walls.find(w => w.id === picked.data.wallId);
-      const box = w?.boxes.find(b => b.id === picked.data.boxId);
-      if (!w || !box) return prev;
-      const localX = Math.max(0, Math.min(box.width, xCm - box.offsetX));
-      const zones = getCornerBlockedZonesForWall(w, next.walls, next.cornerOwners);
-      if (toolNow === 'doors') {
-        const preview = computeDoorBrushPreview(box, localX, 'vertical', 1, 1, 0, zones, 60);
-        const res = applyDoorBrushPreview(box, localX, preview);
-        if (!res.ok) { feedback = res.message || 'امکان درج درب در این محل نیست'; return prev; }
-        next.selectedDoorId = res.selectedDoorId;
-        next.activeBoxId = box.id;
-        next.activeWallId = w.id;
-        feedback = 'درب با رعایت قوانین Solver ثبت شد';
-      } else if (toolNow === 'shelf') {
-        const unit = getUnitsInBox(box, zones).find(u => localX >= u.startCm && localX <= u.endCm);
-        if (!unit || !unit.canHaveShelves) {
-          feedback = unit?.blockedReason || 'این یونیت ظرفیت طبقه جدید ندارد';
-          return prev;
-        }
-        const innerH = Math.max(1, box.height - box.plinth - box.countertopCm);
-        const yRatio = Math.max(0, Math.min(1, 1 - (yCm - box.elevY - box.plinth) / innerH));
-        const res = addShelvesWithMinGap(box, unit.startCm, unit.endCm, 1, yRatio);
-        if (!res.ok) { feedback = res.message; return prev; }
-        next.activeBoxId = box.id;
-        next.activeWallId = w.id;
-        feedback = 'طبقه با حداقل فاصله ۲۵cm اضافه شد';
-      } else if (toolNow === 'frame') {
-        const yLocal = yCm - box.elevY;
-        const margin = 8;
-        const side =
-          localX <= margin ? 'left' :
-          localX >= box.width - margin ? 'right' :
-          yLocal >= box.height - margin ? 'top' :
-          yLocal <= margin ? 'bottom' : null;
-        if (!side) { feedback = 'برای نصب فریم روی لبه باکس لمس کنید'; return prev; }
-        const exposure = getBoxSideExposure(box, w, next.walls, next.cornerOwners, zones);
-        const res = placeFrameOnBox(box, side, 5, undefined, exposure);
-        if (!res.ok) { feedback = res.message; return prev; }
-        next.activeBoxId = box.id;
-        next.activeWallId = w.id;
-        next.selectedFrameId = res.frame?.id || null;
-        feedback = res.message;
-      } else return prev;
-      return next;
-    });
-    if (feedback) onToast(feedback);
-  };
-
-  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || !containerRef.current || !cameraRef.current || !floorGroupRef.current) return;
-    if (xrActive && !floorLocked) {
-      onToast('ابتدا اسکن را تکمیل و کف را تأیید کنید');
-      return;
-    }
-    if (arToolRef.current === 'select') {
-      const data = pickAtClientRef.current(e.clientX, e.clientY);
-      const now = performance.now();
-      const prev = lastSelectTapRef.current;
-      const repeated = Boolean(prev && now - prev.time < 380 &&
-        Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 44);
-      lastSelectTapRef.current = repeated ? null : { time: now, x: e.clientX, y: e.clientY };
-      if (repeated) {
-        if (toggleXrDoorAtPointRef.current(e.clientX, e.clientY)) {
-          e.preventDefault();
-          onToast('درب انتخاب‌شده باز یا بسته شد');
-        }
-      } else if (data) {
-        onUpdateProject(prevProject => ({
-          ...prevProject,
-          activeWallId: data.wallId,
-          activeBoxId: data.boxId || null,
-          selectedDoorId: data.doorId || null,
-          selectedApplianceId: data.appId || null,
-          selectedOpeningId: data.openingId || null,
-        }));
-      }
-      return;
-    }
-    lastSelectTapRef.current = null;
-    if (arToolRef.current === 'doors' || arToolRef.current === 'shelf' || arToolRef.current === 'frame') {
-      handleArDetailAction(e.clientX, e.clientY);
-      return;
-    }
-    const local = floorPointAtClientRef.current(e.clientX, e.clientY);
-    if (!local) {
-      onToast('روی سطح کف یا کابینت معتبر لمس کنید');
-      return;
-    }
-    if (reticleRef.current) reticleRef.current.position.set(local.x, 0.01, local.z);
-    updateArGhostRef.current(local);
-    applyArFloorActionAt(local);
-  };
-
   const abDistanceCm = useMemo(
     () => Math.round(Math.hypot(pointB.x - pointA.x, pointB.z - pointA.z) * alignment.scale * 100),
     [pointA, pointB, alignment.scale]
   );
+
+  const previewToolId: ToolId = arTool.startsWith('cab-')
+    ? 'cab-draw'
+    : arTool === 'shelf'
+    ? 'pencil'
+    : (arTool as ToolId);
+  const previewBoxKind: BoxKind =
+    arTool === 'cab-wall' ? 'wall' : arTool === 'cab-tall' ? 'tall' : drawBoxKind;
 
   return (
     <section
@@ -1310,16 +2362,31 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         active ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
       }`}
     >
-      {/* Background gradient in preview/desktop mode; pure transparent in real WebXR AR */}
       <div
         ref={containerRef}
-        onPointerDown={handleCanvasPointerDown}
-        onPointerMove={handleCanvasPointerMove}
-        onPointerLeave={() => setCursorPreview(null)}
+        onPointerLeave={() => {
+          lastHoverCoordsRef.current = null;
+          setCursorPreview(null);
+        }}
         className={`flex-1 relative cursor-crosshair ${
           xrActive ? 'bg-transparent' : 'bg-gradient-to-b from-slate-200 via-slate-100 to-slate-200'
         }`}
       />
+
+      {/* Aiming Reticle overlay for precise AR aiming */}
+      {reticleEnabled && (
+        <div
+          data-testid="ar-reticle-overlay"
+          className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center"
+        >
+          <div className="relative w-12 h-12 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full border-2 border-emerald-500/80 shadow-sm" />
+            <div className="absolute w-2 h-2 rounded-full bg-emerald-600" />
+            <div className="absolute inset-x-0 h-[1.5px] bg-emerald-500/45" />
+            <div className="absolute inset-y-0 w-[1.5px] bg-emerald-500/45" />
+          </div>
+        </div>
+      )}
 
       {/* Top Floating AR Status & Calibration Card */}
       <div className="absolute top-2.5 right-2.5 left-2.5 flex flex-wrap items-start justify-between gap-2 pointer-events-none z-20">
@@ -1352,14 +2419,19 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               }`}
             >
               <Lock className="w-3.5 h-3.5" />
-              <span>{scanReady ? 'تأیید کف و شروع طراحی' : `در حال اسکن کف (${scanHitsCount}/3)`}</span>
+              <span>{scanReady ? 'تأیید کف و شروع طراحی' : 'در حال تشخیص خودکار کف...'}</span>
             </button>
           )}
 
           {floorLocked && (
             <button
               type="button"
-              onClick={() => setFloorLocked(false)}
+              onClick={() => {
+                floorScannerRef.current.reset();
+                anchorsRef.current = [];
+                setFloorLocked(false);
+                setScanReady(false);
+              }}
               className="h-8 px-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold inline-flex items-center gap-1"
             >
               <LockOpen className="w-3.5 h-3.5" />
@@ -1369,11 +2441,30 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
           <button
             type="button"
+            data-testid="ar-toggle-reticle-btn"
+            onClick={() => setReticleEnabled((v) => !v)}
+            aria-pressed={reticleEnabled}
+            className={`h-8 px-2.5 rounded-lg border font-bold inline-flex items-center gap-1 ${
+              reticleEnabled
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                : 'bg-white border-slate-300 text-slate-700'
+            }`}
+          >
+            <Crosshair className="w-3.5 h-3.5" />
+            <span>نشانگر</span>
+          </button>
+
+          <button
+            type="button"
             data-testid="ar-toggle-doors-btn"
             onClick={() => {
               const nextOpen = !doorsOpen;
-              setDoorsOpen(nextOpen);
               const built = builtSceneRef.current;
+              if (nextOpen && (!built || built.animatedDoors.length === 0)) {
+                onToast('برای باز شدن درب‌ها ابتدا روی آن‌ها دستگیره قرار دهید');
+                return;
+              }
+              setDoorsOpen(nextOpen);
               if (built) {
                 for (const h of built.animatedDoors) {
                   const prev = doorStatesRef.current.get(h.doorId);
@@ -1460,7 +2551,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
                   }`}
                 >
                   <Crosshair className="w-3.5 h-3.5" />
-                  <span>تنظیم جهت B</span>
+                  <span>چرخش و مقیاس B</span>
                 </button>
               </div>
 
@@ -1504,14 +2595,38 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               </div>
 
               <div className="text-[13px] text-slate-500">
-                فاصله فعلی در صحنه: <b className="tabular-nums">{abDistanceCm} cm</b> • برای رسم دیوار یا باکس روی کف کلیک کنید
+                فاصله فعلی صحنه: <b className="tabular-nums">{abDistanceCm} cm</b> • نقطه A یا B و باکس‌ها قابل کشیدن هستند
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Same two-level tool arrangement as 2D/3D, with AR-specific controls kept separate. */}
+      {/* Confirm (تأیید) and Cancel (لغو) floating AR editing actions */}
+      {(arTool !== 'select' || pendingWallStart || (xrActive && !floorLocked)) && (
+        <div className="absolute bottom-[118px] left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2.5 py-1.5">
+          <button
+            type="button"
+            data-testid="ar-confirm-btn"
+            onClick={handleConfirmAction}
+            className="h-9 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-black inline-flex items-center gap-1.5 transition active:scale-95"
+          >
+            <Check className="w-4 h-4" />
+            <span>تأیید</span>
+          </button>
+          <button
+            type="button"
+            data-testid="ar-cancel-btn"
+            onClick={handleCancelAction}
+            className="h-9 px-3.5 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[13px] font-black inline-flex items-center gap-1.5 transition active:scale-95"
+          >
+            <X className="w-4 h-4" />
+            <span>لغو</span>
+          </button>
+        </div>
+      )}
+
+      {/* Two-level AR tool dock */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[96vw] z-20 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2 py-1.5 flex flex-col items-stretch gap-1.5">
         {([
           [
@@ -1522,69 +2637,79 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             { id: 'fridge', label: 'یخچال', icon: Refrigerator },
           ],
           [
-            { id: 'select', label: 'انتخاب / درب', icon: MousePointer2 },
+            { id: 'select', label: 'انتخاب / جابجایی', icon: MousePointer2 },
             { id: 'sink', label: 'سینک', icon: Droplets },
             { id: 'gas', label: 'گاز', icon: Flame },
             { id: 'appliance', label: 'تجهیزات', icon: WashingMachine },
             { id: 'opening', label: 'بازشو / ستون', icon: AppWindow },
             { id: 'doors', label: 'درب', icon: DoorClosed },
+            { id: 'handle', label: 'دستگیره', icon: GripHorizontal },
             { id: 'shelf', label: 'طبقه', icon: PanelTop },
             { id: 'frame', label: 'فریم', icon: Frame },
           ],
         ] as const).map((items, idx) => (
-          <div key={idx} className="flex items-center justify-start gap-1.5 overflow-x-auto no-scrollbar w-full border-b last:border-b-0 border-slate-200 pb-1 last:pb-0">
-            {items.map(item => {
+          <div
+            key={idx}
+            className="flex items-center justify-start gap-1.5 overflow-x-auto no-scrollbar w-full border-b last:border-b-0 border-slate-200 pb-1 last:pb-0"
+          >
+            {items.map((item) => {
               const Icon = item.icon;
               const isAct = arTool === item.id;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => { setArTool(item.id); if (item.id !== 'wall') setPendingWallStart(null); }}
+                  data-testid={`ar-tool-${item.id}`}
+                  onClick={() => {
+                    setArTool(item.id);
+                    if (item.id !== 'wall') setPendingWallStart(null);
+                  }}
                   aria-pressed={isAct}
-                  className={`h-11 px-2.5 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 whitespace-nowrap shrink-0 transition ${isAct
-                    ? 'bg-emerald-600 border-emerald-600 text-white'
-                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                  className={`h-11 px-2.5 rounded-lg border text-[13px] font-bold inline-flex items-center justify-center gap-1 whitespace-nowrap shrink-0 transition ${
+                    isAct
+                      ? 'bg-emerald-600 border-emerald-600 text-white'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  }`}
                 >
                   <Icon className="w-4 h-4" />
                   <span>{item.label}</span>
                 </button>
               );
             })}
-            {idx === 1 && pendingWallStart && (
-              <button type="button" onClick={() => setPendingWallStart(null)}
-                className="h-11 px-2 rounded-lg bg-amber-100 text-amber-800 text-[13px] font-bold whitespace-nowrap shrink-0">
-                پایان دیوار
-              </button>
-            )}
           </div>
         ))}
       </div>
-      {cursorPreview && cursorPreview.valid && (
-        <>
-          {arTool === 'wall' ? (
-            <div className="fixed z-50 pointer-events-none bg-white/95 border border-emerald-300 shadow-lg rounded-lg px-3 py-1.5 text-[13px] font-bold text-slate-900"
-              style={{ left: cursorPreview.x + 18, top: cursorPreview.y - 55 }}>
-              {pendingWallStart ? 'پیش‌نمایش دیوار • نقطه بعدی' : 'نقطه شروع دیوار'}
-            </div>
-          ) : (
-            <CursorToolPreview
-              visible={true}
-              clientX={cursorPreview.x}
-              clientY={cursorPreview.y}
-              tool={arTool.startsWith('cab-') ? 'cab-draw' : arTool === 'shelf' ? 'pencil' : arTool as ToolId}
-              drawBoxKind={arTool === 'cab-wall' ? 'wall' : arTool === 'cab-tall' ? 'tall' : 'base'}
-              sinkModel={sinkModel} gasWidth={gasWidth} hoodKind={hoodKind}
-              applianceKind={applianceKind} fridgeModel={fridgeModel} openingKind={openingKind}
-              doorOrient="vertical" doorTargetWidth={60} doorVertCount={1}
-              drawerPatIdx={1} liftPatIdx={0} doorStyleBrush="flat"
-              cabinetFinishBrush="warm-white" backsplashBrush="calacatta-marble"
-              countertopBrush="dark-quartz" frameWidthCm={5} shelfCount={1}
-              testId="cursor-preview-ar"
-              interactionHint="لمس برای ثبت یا ویرایش"
-            />
-          )}
-        </>
+
+      {/* Strictly image-only CursorToolPreview persisting across ALL active placement/edit tools */}
+      {cursorPreview && (
+        <CursorToolPreview
+          visible={true}
+          clientX={cursorPreview.x}
+          clientY={cursorPreview.y}
+          tool={previewToolId}
+          drawBoxKind={previewBoxKind}
+          targetStatus={cursorPreview.status}
+          sinkModel={sinkModel}
+          gasWidth={gasWidth}
+          hoodKind={hoodKind}
+          applianceKind={applianceKind}
+          fridgeModel={fridgeModel}
+          openingKind={openingKind}
+          doorOrient="vertical"
+          doorTargetWidth={60}
+          doorVertCount={1}
+          drawerPatIdx={1}
+          liftPatIdx={0}
+          doorStyleBrush="flat"
+          cabinetFinishBrush="warm-white"
+          backsplashBrush="calacatta-marble"
+          countertopBrush="dark-quartz"
+          frameWidthCm={5}
+          shelfCount={1}
+          handleStyle={handleStyle}
+          handleOrient={handleOrient}
+          testId="cursor-preview-ar"
+        />
       )}
     </section>
   );

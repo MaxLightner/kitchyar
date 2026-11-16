@@ -80,11 +80,13 @@ import {
   Wall,
   WallOpening,
 } from '../cad/types';
-import { CursorToolPreview } from './CursorToolPreview';
+import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
+import { PacedGestureStepper } from '../utils/gesturePacing';
 
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
+const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
 
 interface FrontCanvasProps {
   wall: Wall | null;
@@ -150,6 +152,7 @@ interface FrontCanvasProps {
   frameWidthCm: number;
   onFrameWidthCmChange: (w: number) => void;
   handleStyle: HandleStyle;
+  onHandleStyleChange?: (s: HandleStyle) => void;
   handleOrient: Orientation;
   onHandleOrientChange: (o: Orientation) => void;
   fridgeModel: FridgeModel;
@@ -365,6 +368,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   frameWidthCm,
   onFrameWidthCmChange,
   handleStyle,
+  onHandleStyleChange,
   handleOrient,
   onHandleOrientChange,
   fridgeModel,
@@ -403,17 +407,20 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const paneRef = useRef<HTMLElement | null>(null);
+  const gestureStepperRef = useRef(new PacedGestureStepper());
 
   const [cursorPt, setCursorPt] = useState<{ x: number; y: number } | null>(null);
   const [hoverClientPt, setHoverClientPt] = useState<{ x: number; y: number } | null>(null);
   const [hoverFinishTarget, setHoverFinishTarget] = useState<
-    'cabinet' | 'backsplash' | 'countertop' | null
+    'cabinet' | 'backsplash' | 'countertop' | 'wall' | null
   >(null);
+  const [frontHoverStatus, setFrontHoverStatus] = useState<CursorTargetStatus>('neutral');
 
   useEffect(() => {
     const clearHover = () => {
       setHoverClientPt(null);
       setHoverFinishTarget(null);
+      setFrontHoverStatus('neutral');
     };
     window.addEventListener('resize', clearHover);
     window.addEventListener('blur', clearHover);
@@ -480,6 +487,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   } | null>(null);
 
   const dragOp = useRef<DragOp | null>(null);
+  const activePointersRef = useRef<Set<number>>(new Set());
+  const lastMultiTouchMsRef = useRef(0);
+  const lastPlaceTapRef = useRef<{ ts: number; x: number; y: number; tool: ToolId } | null>(null);
   const touchPinch = useRef<{
     dist: number;
     midX: number;
@@ -845,12 +855,13 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     contextBox: CabinetBox | null,
     overWallArea: boolean,
     overBacksplash = false,
-    overCountertop = false
+    overCountertop = false,
+    anywhere = false
   ): boolean => {
-    if (tool === 'doors' && contextBox && contextBox.type !== 'fridge') {
+    if (tool === 'doors' && (anywhere || (contextBox && contextBox.type !== 'fridge'))) {
       if (doorOrient === 'vertical') {
         onDoorVertCountChange(Math.max(1, Math.min(4, doorVertCount + dir)));
-      } else if (contextBox.type === 'wall' || contextBox.type === 'wall-deep') {
+      } else if (contextBox && (contextBox.type === 'wall' || contextBox.type === 'wall-deep')) {
         onLiftPatIdxChange((liftPatIdx + (dir > 0 ? 1 : LIFT_PATTERNS.length - 1)) % LIFT_PATTERNS.length);
       } else {
         onDrawerPatIdxChange(
@@ -859,48 +870,55 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       }
       return true;
     }
-    if (tool === 'sink' && contextBox && contextBox.type === 'base') {
+    if (tool === 'handle' && (anywhere || (contextBox && contextBox.type !== 'fridge')) && onHandleStyleChange) {
+      const idx = Math.max(0, HANDLE_STYLE_ORDER.indexOf(handleStyle));
+      const nxt = HANDLE_STYLE_ORDER[(idx + (dir > 0 ? 1 : HANDLE_STYLE_ORDER.length - 1)) % HANDLE_STYLE_ORDER.length];
+      onHandleStyleChange(nxt);
+      onToast(`مدل دستگیره: ${nxt === 'knob' ? 'دکمه‌ای' : nxt === 'hidden' ? 'مخفی' : 'میله‌ای'}`);
+      return true;
+    }
+    if (tool === 'sink' && (anywhere || (contextBox && contextBox.type === 'base'))) {
       const idx = SINK_MODEL_ORDER.indexOf(sinkModel);
       onSinkModelChange(
         SINK_MODEL_ORDER[(idx + (dir > 0 ? 1 : SINK_MODEL_ORDER.length - 1)) % SINK_MODEL_ORDER.length]
       );
       return true;
     }
-    if (tool === 'gas' && contextBox && contextBox.type === 'base') {
+    if (tool === 'gas' && (anywhere || (contextBox && contextBox.type === 'base'))) {
       const widths = [...GAS_WIDTH_OPTIONS];
       const idx = Math.max(0, widths.indexOf(gasWidth as (typeof GAS_WIDTH_OPTIONS)[number]));
       onGasWidthChange(widths[(idx + (dir > 0 ? 1 : widths.length - 1)) % widths.length]);
       return true;
     }
-    if (tool === 'appliance' && contextBox && contextBox.type === 'base') {
+    if (tool === 'appliance' && (anywhere || (contextBox && contextBox.type === 'base'))) {
       const idx = Math.max(0, APPLIANCE_ORDER.indexOf(applianceKind));
       onApplianceKindChange(
         APPLIANCE_ORDER[(idx + (dir > 0 ? 1 : APPLIANCE_ORDER.length - 1)) % APPLIANCE_ORDER.length]
       );
       return true;
     }
-    if (tool === 'fridge' && overWallArea) {
+    if (tool === 'fridge' && (anywhere || overWallArea)) {
       const idx = FRIDGE_MODEL_ORDER.indexOf(fridgeModel);
       onFridgeModelChange(
         FRIDGE_MODEL_ORDER[(idx + (dir > 0 ? 1 : FRIDGE_MODEL_ORDER.length - 1)) % FRIDGE_MODEL_ORDER.length]
       );
       return true;
     }
-    if (tool === 'opening' && overWallArea) {
+    if (tool === 'opening' && (anywhere || overWallArea)) {
       const idx = OPENING_ORDER.indexOf(openingKind);
       onOpeningKindChange(
         OPENING_ORDER[(idx + (dir > 0 ? 1 : OPENING_ORDER.length - 1)) % OPENING_ORDER.length]
       );
       return true;
     }
-    if (tool === 'door-style' && (contextBox || overWallArea)) {
+    if (tool === 'door-style' && (anywhere || contextBox || overWallArea)) {
       const idx = Math.max(0, DOOR_STYLE_ORDER.indexOf(doorStyleBrush));
       const next = DOOR_STYLE_ORDER[(idx + (dir > 0 ? 1 : DOOR_STYLE_ORDER.length - 1)) % DOOR_STYLE_ORDER.length];
       onDoorStyleBrushChange(next);
       onToast(`مدل درب: ${DOOR_STYLE_META[next].label}`);
       return true;
     }
-    if (tool === 'finish' && (contextBox || overBacksplash || overCountertop || overWallArea)) {
+    if (tool === 'finish' && (anywhere || contextBox || overBacksplash || overCountertop || overWallArea)) {
       if (overCountertop) {
         const idx = Math.max(0, COUNTERTOP_FINISH_ORDER.indexOf(countertopBrush));
         const next = COUNTERTOP_FINISH_ORDER[(idx + (dir > 0 ? 1 : COUNTERTOP_FINISH_ORDER.length - 1)) % COUNTERTOP_FINISH_ORDER.length];
@@ -921,17 +939,17 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       onToast(`رنگ کابینت: ${CABINET_FINISHES[next].label}`);
       return true;
     }
-    if (tool === 'door-pencil' && contextBox && contextBox.type !== 'fridge') {
+    if (tool === 'door-pencil' && (anywhere || (contextBox && contextBox.type !== 'fridge'))) {
       const nxt = doorBandPos === 'top' ? 'bottom' : 'top';
       onDoorBandPosChange?.(nxt);
       onToast(`موقعیت کشو: ${nxt === 'top' ? 'بالای درب' : 'پایین درب'}`);
       return true;
     }
-    if ((tool === 'pencil' || tool === 'skeleton') && contextBox && contextBox.type !== 'fridge') {
+    if ((tool === 'pencil' || tool === 'skeleton') && (anywhere || (contextBox && contextBox.type !== 'fridge'))) {
       onShelfCountChange(Math.max(1, Math.min(4, shelfCount + dir)));
       return true;
     }
-    if (tool === 'cab-draw' && overWallArea && onDrawBoxKindChange) {
+    if (tool === 'cab-draw' && (anywhere || overWallArea) && onDrawBoxKindChange) {
       const idx = Math.max(0, CAB_DRAW_KIND_ORDER.indexOf(drawBoxKind));
       const next =
         CAB_DRAW_KIND_ORDER[
@@ -941,7 +959,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       onToast(`مدل باکس: ${BOX_PRESETS[next].name}`);
       return true;
     }
-    if (tool === 'frame' && (contextBox || overWallArea)) {
+    if (tool === 'frame' && (anywhere || contextBox || overWallArea)) {
       const idx = Math.max(0, FRAME_WIDTH_OPTIONS.indexOf(frameWidthCm as (typeof FRAME_WIDTH_OPTIONS)[number]));
       const nextIdx = Math.max(0, Math.min(FRAME_WIDTH_OPTIONS.length - 1, idx + dir));
       onFrameWidthCmChange(FRAME_WIDTH_OPTIONS[nextIdx]);
@@ -958,25 +976,23 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     const overCountertop = isPointOverCountertop(pt);
     const overWallArea =
       !!wall && pt.x >= originX && pt.x <= originX + wallW && pt.y >= floorY - wallH && pt.y <= floorY;
-    const dir = e.deltaY < 0 ? 1 : -1;
+    const isCyclableTool = tool !== 'select' && tool !== 'wall' && tool !== 'eraser';
 
-    if (e.shiftKey) {
-      if (tool === 'doors') {
-        const isWallTarget = boxHit?.box.type === 'wall' || boxHit?.box.type === 'wall-deep';
-        if (doorOrient === 'horizontal' && isWallTarget) {
-          onLiftPatIdxChange((liftPatIdx + (dir > 0 ? 1 : LIFT_PATTERNS.length - 1)) % LIFT_PATTERNS.length);
+    if (!e.ctrlKey && isCyclableTool) {
+      setHoverClientPt({ x: e.clientX, y: e.clientY });
+      const pacedDir = gestureStepperRef.current.consumeWheelDelta(e.deltaY, e.deltaMode);
+      if (pacedDir !== 0) {
+        if (e.shiftKey && tool === 'doors') {
+          const isWallTarget = boxHit?.box.type === 'wall' || boxHit?.box.type === 'wall-deep';
+          if (doorOrient === 'horizontal' && isWallTarget) {
+            onLiftPatIdxChange((liftPatIdx + (pacedDir > 0 ? 1 : LIFT_PATTERNS.length - 1)) % LIFT_PATTERNS.length);
+          } else {
+            onDoorVertCountChange(Math.max(1, Math.min(4, doorVertCount + pacedDir)));
+          }
         } else {
-          onDoorVertCountChange(Math.max(1, Math.min(4, doorVertCount + dir)));
+          stepToolOption(pacedDir, boxHit?.box || null, overWallArea, overBacksplash, overCountertop, true);
         }
-        return;
       }
-      if (tool === 'fridge') {
-        stepToolOption(dir, boxHit?.box || null, true);
-        return;
-      }
-    }
-
-    if (stepToolOption(dir, boxHit?.box || null, overWallArea, overBacksplash, overCountertop)) {
       return;
     }
 
@@ -996,7 +1012,11 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   };
 
   const handleTouchStart = (e: React.TouchEvent<SVGSVGElement>) => {
-    if (e.touches.length === 2) {
+    if (e.touches.length >= 2) {
+      lastMultiTouchMsRef.current = performance.now();
+      lastPlaceTapRef.current = null;
+      dragOp.current = null;
+      gestureStepperRef.current.resetTouch();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
@@ -1005,24 +1025,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       const boxHit = hitTestBox(pt);
       const overWallArea =
         !!wall && pt.x >= originX && pt.x <= originX + wallW && pt.y >= floorY - wallH && pt.y <= floorY;
-      const overContext =
-        ((tool === 'doors' ||
-          tool === 'door-pencil' ||
-          tool === 'door-style' ||
-          tool === 'finish' ||
-          tool === 'pencil' ||
-          tool === 'skeleton' ||
-          tool === 'frame') &&
-          !!boxHit &&
-          boxHit.box.type !== 'fridge') ||
-        ((tool === 'sink' || tool === 'gas' || tool === 'appliance') && boxHit?.box.type === 'base') ||
-        ((tool === 'cab-draw' ||
-          tool === 'fridge' ||
-          tool === 'opening' ||
-          tool === 'frame' ||
-          tool === 'door-style' ||
-          tool === 'finish') &&
-          overWallArea);
 
       touchPinch.current = {
         dist: Math.hypot(dx, dy),
@@ -1031,7 +1033,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         lastStepY: midY,
         origScale: pxPerCm,
         origPan: { ...pan },
-        overContext,
+        overContext: true,
         contextBox: boxHit?.box || null,
         overWallArea,
       };
@@ -1041,6 +1043,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   touchMoveHandlerRef.current = (e: TouchEvent) => {
     if (e.touches.length === 2 && touchPinch.current) {
       e.preventDefault();
+      lastMultiTouchMsRef.current = performance.now();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.hypot(dx, dy);
@@ -1048,24 +1051,32 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
 
       const distDelta = Math.abs(dist - touchPinch.current.dist);
-      if (distDelta > 16) {
+      if (distDelta > 22) {
         const ratio = dist / Math.max(10, touchPinch.current.dist);
         const nextS = +Math.max(0.6, Math.min(5.2, touchPinch.current.origScale * ratio)).toFixed(2);
         onZoomAndPanChange(nextS, {
           x: touchPinch.current.origPan.x + (midX - touchPinch.current.midX),
           y: touchPinch.current.origPan.y + (midY - touchPinch.current.midY),
         });
-      } else if (touchPinch.current.overContext) {
-        const stepDelta = midY - touchPinch.current.lastStepY;
-        if (Math.abs(stepDelta) >= 30) {
-          stepToolOption(
-            stepDelta < 0 ? 1 : -1,
-            touchPinch.current.contextBox,
-            touchPinch.current.overWallArea
-          );
-          touchPinch.current.lastStepY = midY;
-        }
       } else {
+        const isCyclableTool = tool !== 'select' && tool !== 'wall' && tool !== 'eraser';
+        const stepDelta = midY - touchPinch.current.lastStepY;
+        touchPinch.current.lastStepY = midY;
+        if (isCyclableTool) {
+          setHoverClientPt({ x: midX, y: midY });
+          const pacedDir = gestureStepperRef.current.consumeTouchDelta(stepDelta);
+          if (pacedDir !== 0) {
+            stepToolOption(
+              pacedDir,
+              touchPinch.current.contextBox,
+              touchPinch.current.overWallArea,
+              false,
+              false,
+              true
+            );
+          }
+          return;
+        }
         onPanChange({
           x: touchPinch.current.origPan.x + (midX - touchPinch.current.midX),
           y: touchPinch.current.origPan.y + (midY - touchPinch.current.midY),
@@ -1243,8 +1254,42 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     };
   };
 
+  const isSpacedDoublePlacement = (e: React.PointerEvent<SVGSVGElement>, toolId: ToolId): boolean => {
+    const now = performance.now();
+    if (now - lastMultiTouchMsRef.current < 420 || activePointersRef.current.size > 1) {
+      lastPlaceTapRef.current = null;
+      return false;
+    }
+    const prev = lastPlaceTapRef.current;
+    const minGap = e.pointerType === 'touch' ? 75 : 0;
+    if (
+      prev &&
+      prev.tool === toolId &&
+      now - prev.ts >= minGap &&
+      now - prev.ts <= 750 &&
+      Math.hypot(e.clientX - prev.x, e.clientY - prev.y) <= 38
+    ) {
+      lastPlaceTapRef.current = null;
+      return true;
+    }
+    lastPlaceTapRef.current = { ts: now, x: e.clientX, y: e.clientY, tool: toolId };
+    return false;
+  };
+
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button === 2 || !wall) return;
+    activePointersRef.current.add(e.pointerId);
+    if (
+      (e.pointerType === 'touch' && activePointersRef.current.size >= 2) ||
+      performance.now() - lastMultiTouchMsRef.current < 420
+    ) {
+      if (e.pointerType === 'touch' && activePointersRef.current.size >= 2) {
+        lastMultiTouchMsRef.current = performance.now();
+      }
+      lastPlaceTapRef.current = null;
+      dragOp.current = null;
+      return;
+    }
 
     // Middle-click or Space + Left-click always pans cleanly in ANY tool!
     if (e.button === 1 || spaceDown) {
@@ -1286,7 +1331,14 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         if (bId && hId) {
           onMutateWall((w) => {
             const b = w.boxes.find((x) => x.id === bId);
-            if (b) b.handles = b.handles.filter((h) => h.id !== hId);
+            if (b) {
+              const removed = b.handles.find((h) => h.id === hId);
+              b.handles = b.handles.filter((h) => h.id !== hId);
+              if (removed && !b.handles.some((h) => h.doorId === removed.doorId)) {
+                const affDoor = b.doors.find((d) => d.id === removed.doorId);
+                if (affDoor) affDoor.hingeSide = undefined;
+              }
+            }
           }, true, 'دستگیره حذف شد');
           return;
         }
@@ -1518,6 +1570,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     // 5. Handle Tool
     if (tool === 'handle') {
       if (!hit) {
+        if (!isSpacedDoublePlacement(e, 'handle')) return;
         onHandleOrientChange(handleOrient === 'vertical' ? 'horizontal' : 'vertical');
         onToast(`جهت دستگیره: ${handleOrient === 'vertical' ? 'افقی' : 'عمودی'}`);
         return;
@@ -1543,6 +1596,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
       const spotEl = target.closest('[data-hand-spot]');
       if (spotEl) {
+        if (!isSpacedDoublePlacement(e, 'handle')) return;
         const sp = computedSpots.find(
           (x) => x.spotId === spotEl.getAttribute('data-hand-spot')
         );
@@ -1620,17 +1674,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           }
 
           executePlace();
-          if (!isBatch) {
-            e.currentTarget.setPointerCapture(e.pointerId);
-            dragOp.current = {
-              mode: 'stretch-handle',
-              boxId: sp.boxId,
-              handleId: sp.doorId, // dragOp stretches last handle in door if created synchronously; handled below cleanly
-              orient: handleOrient,
-              startPt: pt,
-              origLen: 16,
-            };
-          }
           return;
         }
       }
@@ -1650,6 +1693,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 5a. Door Model Brush (`door-style`)
     if (tool === 'door-style') {
+      if (!isSpacedDoublePlacement(e, 'door-style')) return;
       if (!hit || hit.box.type === 'fridge') {
         const idx = Math.max(0, DOOR_STYLE_ORDER.indexOf(doorStyleBrush));
         const next = DOOR_STYLE_ORDER[(idx + 1) % DOOR_STYLE_ORDER.length];
@@ -1686,6 +1730,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 5a-2. Finish / Color Brush (`finish`)
     if (tool === 'finish') {
+      if (!isSpacedDoublePlacement(e, 'finish')) return;
       if (isPointOverCountertop(pt) || target.closest('[data-countertop-zone]')) {
         onApplyFinish('countertop', wall.id);
         return;
@@ -1706,11 +1751,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       return;
     }
 
-    // 5b. Frame Tool (`frame`) — click edge or seam & drag
+    // 5b. Frame Tool (`frame`) — spaced double-click edge or seam & drag
     if (tool === 'frame') {
+      if (!isSpacedDoublePlacement(e, 'frame')) return;
       const fTarget = resolveFrameTargetAtPoint(pt);
       if (!fTarget) {
-        onToast('برای فریم‌کشی روی لبه آزاد یا درز بین درب‌ها کلیک کنید');
+        onToast('برای فریم‌کشی روی لبه آزاد یا درز بین درب‌ها دابل‌کلیک کنید');
         return;
       }
       if (fTarget.side === 'invalid') {
@@ -1894,12 +1940,13 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       return;
     }
 
-    // 7. Door Brush Mode (`doors`)
+    // 7. Door Brush Mode (`doors`) — spaced double-click/tap required
     if (tool === 'doors') {
       if (doorsLocked) {
         onToast('درب‌ها قفل هستند؛ برای تغییر درب قفل را باز کنید');
         return;
       }
+      if (!isSpacedDoublePlacement(e, 'doors')) return;
       if (!hit) {
         const next = doorOrient === 'vertical' ? 'horizontal' : 'vertical';
         onDoorOrientChange(next);
@@ -1925,25 +1972,27 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       onMutateWall((w) => {
         const b = w.boxes.find((x) => x.id === hit.box.id);
         if (!b) return;
-        const res = applyDoorBrushPreview(b, cursorCm, prev);
+        const res = applyDoorBrushPreview(b, cursorCm, prev, blockedZones);
         newSelDoorId = res.selectedDoorId;
       }, true);
       onSelectBoxAndDoor(hit.box.id, newSelDoorId);
       return;
     }
 
-    // 7b. Smart Door Drawer-Band Pencil (`door-pencil`) — click or horizontal drag across vertical doors
+    // 7b. Smart Door Drawer-Band Pencil (`door-pencil`) — horizontal drag across doors OR spaced double-click
     if (tool === 'door-pencil') {
       if (doorsLocked) {
         onToast('درب‌ها قفل هستند؛ ابتدا قفل را باز کنید');
         return;
       }
       if (!hit || hit.box.type === 'fridge') {
+        if (!isSpacedDoublePlacement(e, 'door-pencil')) return;
         const nxt = doorBandPos === 'top' ? 'bottom' : 'top';
         onDoorBandPosChange?.(nxt);
         onToast(`موقعیت کشو: ${nxt === 'top' ? 'بالای درب' : 'پایین درب'}`);
         return;
       }
+      const isDoubleTapSpot = isSpacedDoublePlacement(e, 'door-pencil');
       const insets = getEffectiveBoxInsets(hit.box);
       const scaleX = Math.max(
         0.2,
@@ -1971,13 +2020,15 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         currCm: clickCm,
         pos: clickPos,
         ratio: doorBandRatio,
-      };
+        allowSingleTapCommit: isDoubleTapSpot,
+      } as DragOp;
       return;
     }
 
-    // 8. Pencil / Skeleton Mode
+    // 8. Pencil / Skeleton Mode (spaced double-click/tap required)
     if (tool === 'pencil' || tool === 'skeleton') {
       if (!hit) return;
+      if (!isSpacedDoublePlacement(e, tool)) return;
       onSelectBoxAndDoor(hit.box.id, null);
       const insets = getEffectiveBoxInsets(hit.box);
       const scaleX = Math.max(
@@ -2049,8 +2100,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       return;
     }
 
-    // 9. Sink / Gas / Appliance Tool
+    // 9. Sink / Gas / Appliance Tool (spaced double-click/tap required)
     if (tool === 'sink' || tool === 'gas' || tool === 'appliance') {
+      if (!isSpacedDoublePlacement(e, tool)) return;
       const clickXCm = (pt.x - originX) / s;
       let targetBase: CabinetBox | undefined = hit && hit.box.type === 'base' ? hit.box : undefined;
 
@@ -2094,21 +2146,23 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onPlaceAppliance(targetBase.id, desiredOffset, targetKind);
         setAppHover(null);
       } else {
-        onToast('لطفاً روی یک باکس زمینی کلیک کنید');
+        onToast('لطفاً روی یک باکس زمینی دابل‌کلیک کنید');
       }
       return;
     }
 
-    // 10. Fridge Placement directly in Front view
+    // 10. Fridge Placement directly in Front view (spaced double-click/tap required)
     if (tool === 'fridge') {
+      if (!isSpacedDoublePlacement(e, 'fridge')) return;
       const cfg = FRIDGE_MODELS[fridgeModel];
       const desiredOffset = (pt.x - originX) / s - cfg.width / 2;
       onPlaceFridge(desiredOffset);
       return;
     }
 
-    // 11. Opening Placement directly in Front view
+    // 11. Opening Placement directly in Front view (spaced double-click/tap required)
     if (tool === 'opening') {
+      if (!isSpacedDoublePlacement(e, 'opening')) return;
       const def = OPENING_DEFAULTS[openingKind];
       const desiredOffset = (pt.x - originX) / s - def.width / 2;
       const desiredElev =
@@ -2131,10 +2185,10 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    setHoverClientPt({ x: e.clientX, y: e.clientY });
     if (!wall) return;
     const pt = clientToSvg(e.clientX, e.clientY);
     setCursorPt(pt);
-    setHoverClientPt({ x: e.clientX, y: e.clientY });
 
     if (!dragOp.current) {
       if (tool === 'finish') {
@@ -2142,24 +2196,37 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         const boxHit = overCt ? null : hitTestBox(pt);
         const overBs = !overCt && !boxHit && isPointOverBacksplash(pt);
         setHoverFinishTarget(overCt ? 'countertop' : boxHit ? 'cabinet' : overBs ? 'backsplash' : null);
-      } else if (hoverFinishTarget !== null) {
-        setHoverFinishTarget(null);
-      }
-
-      if (tool === 'doors' && !doorsLocked) {
+        setFrontHoverStatus(overCt || boxHit || overBs ? 'valid' : 'neutral');
+      } else if (tool === 'doors') {
         const hit = hitTestBox(pt);
-        if (hit && hit.box.type !== 'fridge') {
+        const isWallTarget = hit && (hit.box.type === 'wall' || hit.box.type === 'wall-deep');
+        setHoverFinishTarget(isWallTarget ? 'wall' : null);
+        if (!doorsLocked && hit && hit.box.type !== 'fridge') {
+          const cursorCm = (pt.x - hit.bx) / s;
           setDoorHover({
             boxId: hit.box.id,
-            cursorCmInBox: (pt.x - hit.bx) / s,
+            cursorCmInBox: cursorCm,
           });
+          const check = computeDoorBrushPreview(
+            hit.box,
+            cursorCm,
+            doorOrient,
+            doorVertCount,
+            drawerPatIdx,
+            liftPatIdx,
+            blockedZones,
+            doorTargetWidth
+          );
+          setFrontHoverStatus(check.ok ? 'valid' : 'invalid');
         } else {
           setDoorHover(null);
+          setFrontHoverStatus(hit ? 'invalid' : 'neutral');
         }
         if (pencilHover) setPencilHover(null);
         if (appHover) setAppHover(null);
         if (frameHover) setFrameHover(null);
       } else if (tool === 'pencil' || tool === 'skeleton') {
+        if (hoverFinishTarget !== null) setHoverFinishTarget(null);
         const hit = hitTestBox(pt);
         if (hit && hit.box.type !== 'fridge') {
           const insets = getEffectiveBoxInsets(hit.box);
@@ -2188,6 +2255,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               seamCm: seamVal,
               hasExistingDivider,
             });
+            setFrontHoverStatus('valid');
           } else {
             const units = getUnitsInBox(hit.box, blockedZones);
             const targetUnit = units.find(
@@ -2200,6 +2268,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                 cursorCm: clickCm,
                 blockedReason: targetUnit?.blockedReason || 'محدوده کنج',
               });
+              setFrontHoverStatus('invalid');
             } else {
               const rawRatio = Math.max(
                 0.08,
@@ -2219,6 +2288,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     cursorCm: clickCm,
                     blockedReason: check.reason,
                   });
+                  setFrontHoverStatus('invalid');
                 } else {
                   setPencilHover({
                     boxId: hit.box.id,
@@ -2227,6 +2297,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     endCm: targetUnit.endCm,
                     yRatio: check.ratio,
                   });
+                  setFrontHoverStatus('valid');
                 }
               } else {
                 const probeBox = {
@@ -2247,6 +2318,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     cursorCm: clickCm,
                     blockedReason: multiCheck.message,
                   });
+                  setFrontHoverStatus('invalid');
                 } else {
                   setPencilHover({
                     boxId: hit.box.id,
@@ -2255,22 +2327,28 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     endCm: targetUnit.endCm,
                     yRatio: rawRatio,
                   });
+                  setFrontHoverStatus('valid');
                 }
               }
             }
           }
         } else {
           setPencilHover(null);
+          setFrontHoverStatus('neutral');
         }
         if (doorHover) setDoorHover(null);
         if (appHover) setAppHover(null);
         if (frameHover) setFrameHover(null);
       } else if (tool === 'sink' || tool === 'gas' || tool === 'appliance') {
-        setAppHover(resolveApplianceHover(pt));
+        if (hoverFinishTarget !== null) setHoverFinishTarget(null);
+        const nextApp = resolveApplianceHover(pt);
+        setAppHover(nextApp);
+        setFrontHoverStatus(nextApp ? (nextApp.valid ? 'valid' : 'invalid') : 'neutral');
         if (doorHover) setDoorHover(null);
         if (pencilHover) setPencilHover(null);
         if (frameHover) setFrameHover(null);
       } else if (tool === 'frame') {
+        if (hoverFinishTarget !== null) setHoverFinishTarget(null);
         const fT = resolveFrameTargetAtPoint(pt);
         setFrameHover(
           fT
@@ -2282,10 +2360,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               }
             : null
         );
+        setFrontHoverStatus(fT ? (fT.side !== 'invalid' ? 'valid' : 'invalid') : 'neutral');
         if (doorHover) setDoorHover(null);
         if (pencilHover) setPencilHover(null);
         if (appHover) setAppHover(null);
       } else if (tool === 'door-pencil' && !doorsLocked) {
+        if (hoverFinishTarget !== null) setHoverFinishTarget(null);
         const hit = hitTestBox(pt);
         if (hit && hit.box.type !== 'fridge') {
           const insets = getEffectiveBoxInsets(hit.box);
@@ -2302,19 +2382,42 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           const pos: 'top' | 'bottom' = pt.y <= bodyTop + bodyHInner * 0.5 ? 'top' : 'bottom';
           const ids = getDoorsInHorizontalRange(hit.box, cm, cm).map((d) => d.id);
           setDoorPencilHover(ids.length > 0 ? { boxId: hit.box.id, doorIds: ids, pos } : null);
+          setFrontHoverStatus(ids.length > 0 ? 'valid' : 'neutral');
         } else {
           setDoorPencilHover(null);
+          setFrontHoverStatus('neutral');
         }
         if (doorHover) setDoorHover(null);
         if (pencilHover) setPencilHover(null);
         if (appHover) setAppHover(null);
         if (frameHover) setFrameHover(null);
       } else {
+        if (hoverFinishTarget !== null) setHoverFinishTarget(null);
         if (doorHover) setDoorHover(null);
         if (pencilHover) setPencilHover(null);
         if (appHover) setAppHover(null);
         if (frameHover) setFrameHover(null);
         if (doorPencilHover) setDoorPencilHover(null);
+
+        if (tool === 'handle') {
+          const domTarget = e.target as Element | null;
+          const overSpot = Boolean(domTarget?.closest('[data-hand-spot]') || domTarget?.closest('[data-handle-id]'));
+          const hit = hitTestBox(pt);
+          setFrontHoverStatus(overSpot || (hit && hit.box.doors.length > 0) ? 'valid' : 'neutral');
+        } else if (tool === 'door-style') {
+          const domTarget = e.target as Element | null;
+          const overDoor = Boolean(domTarget?.closest('[data-door-id]'));
+          setFrontHoverStatus(overDoor ? 'valid' : 'neutral');
+        } else if (tool === 'fridge' || tool === 'opening') {
+          const overWallRect =
+            pt.x >= originX - 8 &&
+            pt.x <= originX + wall.length * s + 8 &&
+            pt.y >= floorY - wall.height * s - 12 &&
+            pt.y <= floorY + 12;
+          setFrontHoverStatus(overWallRect ? 'valid' : 'neutral');
+        } else {
+          setFrontHoverStatus('neutral');
+        }
       }
       return;
     }
@@ -2524,6 +2627,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   };
 
   const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    activePointersRef.current.delete(e.pointerId);
     if (!dragOp.current) return;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -2636,12 +2740,15 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       if (!wall) return;
       const liveBox = wall.boxes.find((x) => x.id === op.boxId);
       if (!liveBox) return;
+      const wasDragged = Math.abs(op.currCm - op.startCm) >= 3;
+      const allowCommit = wasDragged || Boolean((op as { allowSingleTapCommit?: boolean }).allowSingleTapCommit);
+      if (!allowCommit) return;
       const targetIds = getDoorsInHorizontalRange(liveBox, op.startCm, op.currCm).map((d) => d.id);
       if (targetIds.length === 0) {
-        onToast('روی درب‌های عمودی کلیک یا درگ افقی کنید');
+        onToast('روی درب‌های عمودی دابل‌کلیک یا درگ افقی کنید');
         return;
       }
-      const isSingleClick = Math.abs(op.currCm - op.startCm) < 3 && targetIds.length === 1;
+      const isSingleClick = !wasDragged && targetIds.length === 1;
       const singleDoor = isSingleClick
         ? liveBox.doors.find((d) => d.id === targetIds[0])
         : undefined;
@@ -2689,15 +2796,15 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     const widthText = Number.isInteger(effectiveW) ? String(effectiveW) : effectiveW.toFixed(1);
     const dStyle: DoorStyle = door.doorStyle || 'flat';
 
-    // Determine architectural hinge edge for swing indicator
+    // Determine architectural hinge edge ONLY AFTER at least one handle is installed on this door!
     const firstHand = box.handles.find((h) => h.doorId === door.id);
     const inferredHinge: 'left' | 'right' | null =
-      door.kind !== 'door' || dStyle === 'pantry'
+      !firstHand || door.kind !== 'door' || dStyle === 'pantry'
         ? null
         : door.hingeSide ||
-          (firstHand && firstHand.xRatio <= 0.35
+          (firstHand.xRatio <= 0.35
             ? 'right'
-            : firstHand && firstHand.xRatio >= 0.65
+            : firstHand.xRatio >= 0.65
             ? 'left'
             : null);
 
@@ -3007,7 +3114,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                         strokeWidth={isDoorSel ? 1.8 : 1.3}
                       />
                       {renderDoorStyleOverlay(dx, sy, dw, sh)}
-                      {pts.length <= 2 && sh > 20 && (
+                      {firstHand && pts.length <= 2 && sh > 20 && (
                         <polyline
                           points={`${dx + 3},${sy + sh - 3} ${dx + dw / 2},${sy + 4} ${dx + dw - 3},${sy + sh - 3}`}
                           fill="none"
@@ -3267,6 +3374,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onTouchStart={handleTouchStart}
         onTouchEnd={() => {
           touchPinch.current = null;
+          gestureStepperRef.current.resetTouch();
+          lastMultiTouchMsRef.current = performance.now();
         }}
         onPointerLeave={() => {
           setDoorHover(null);
@@ -3280,6 +3389,10 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={(e) => {
+          activePointersRef.current.delete(e.pointerId);
+          dragOp.current = null;
+        }}
       >
         <defs>
           <linearGradient id="fridge-metal-grad" x1="0%" y1="0%" x2="100%" y2="15%">
@@ -4709,6 +4822,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   const gh = (doorOrient === 'vertical' ? 72 : 42) * s;
                   const gx = cursorPt.x - gw / 2;
                   const gy = cursorPt.y - gh / 2;
+                  const activeDrawerPat = DRAWER_PATTERNS[drawerPatIdx % DRAWER_PATTERNS.length];
                   return (
                     <>
                       <rect
@@ -4722,14 +4836,43 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                         strokeWidth={1.4}
                         strokeDasharray="5,3"
                       />
-                      {doorOrient === 'horizontal' && (
-                        <>
-                          <line x1={gx} y1={gy + gh * 0.33} x2={gx + gw} y2={gy + gh * 0.33} stroke="#4f46e5" strokeWidth={1} strokeDasharray="3,2" />
-                          <line x1={gx} y1={gy + gh * 0.66} x2={gx + gw} y2={gy + gh * 0.66} stroke="#4f46e5" strokeWidth={1} strokeDasharray="3,2" />
-                        </>
-                      )}
+                      {doorOrient === 'horizontal' &&
+                        (activeDrawerPat?.drawerBand ? (
+                          <line
+                            x1={gx}
+                            y1={
+                              activeDrawerPat.drawerBand.position === 'top'
+                                ? gy + gh * activeDrawerPat.drawerBand.ratio
+                                : gy + gh * (1 - activeDrawerPat.drawerBand.ratio)
+                            }
+                            x2={gx + gw}
+                            y2={
+                              activeDrawerPat.drawerBand.position === 'top'
+                                ? gy + gh * activeDrawerPat.drawerBand.ratio
+                                : gy + gh * (1 - activeDrawerPat.drawerBand.ratio)
+                            }
+                            stroke="#4f46e5"
+                            strokeWidth={1.3}
+                            strokeDasharray="3,2"
+                          />
+                        ) : (
+                          activeDrawerPat?.ratios || [0.33, 0.66]
+                        ).map((r, ri) => (
+                          <line
+                            key={ri}
+                            x1={gx}
+                            y1={gy + gh * r}
+                            x2={gx + gw}
+                            y2={gy + gh * r}
+                            stroke="#4f46e5"
+                            strokeWidth={1}
+                            strokeDasharray="3,2"
+                          />
+                        )))}
                       <text x={cursorPt.x} y={cursorPt.y + 3} fontSize={13} fontWeight={800} fill="#4338ca" textAnchor="middle">
-                        {doorOrient === 'vertical' ? `درب ${doorTargetWidth}cm` : `کشو/افقی ${doorTargetWidth}cm`}
+                        {doorOrient === 'vertical'
+                          ? `درب ${doorTargetWidth}cm`
+                          : `${activeDrawerPat?.shortLabel || 'کشو/افقی'} ${doorTargetWidth}cm`}
                       </text>
                     </>
                   );
@@ -4986,6 +5129,25 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                             strokeDasharray="4,3"
                           />
                         ))}
+                        {it.drawerBand && (
+                          <line
+                            x1={px}
+                            y1={
+                              it.drawerBand.position === 'top'
+                                ? py + phPx * it.drawerBand.ratio
+                                : py + phPx * (1 - it.drawerBand.ratio)
+                            }
+                            x2={px + pwPx}
+                            y2={
+                              it.drawerBand.position === 'top'
+                                ? py + phPx * it.drawerBand.ratio
+                                : py + phPx * (1 - it.drawerBand.ratio)
+                            }
+                            stroke="#0f766e"
+                            strokeWidth={1.8}
+                            strokeDasharray="4,3"
+                          />
+                        )}
                         <text
                           x={px + pwPx / 2}
                           y={py + phPx / 2 + 4}
@@ -5129,6 +5291,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           clientY={hoverClientPt.y}
           tool={tool}
           hoverTarget={hoverFinishTarget}
+          targetStatus={frontHoverStatus}
           sinkModel={sinkModel}
           gasWidth={gasWidth}
           hoodKind={hoodKind}
@@ -5148,6 +5311,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           countertopBrush={countertopBrush}
           frameWidthCm={frameWidthCm}
           shelfCount={shelfCount}
+          handleStyle={handleStyle}
+          handleOrient={handleOrient}
           drawBoxKind={drawBoxKind}
           testId="cursor-preview-2d"
         />
