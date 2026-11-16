@@ -2173,10 +2173,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       renderer.xr.setReferenceSpaceType('local');
       await renderer.xr.setSession(session);
       const viewerSpace = await session.requestReferenceSpace('viewer');
+      if (!session.requestHitTestSource) {
+        throw new DOMException('Chido floor scanning requires WebXR hit-test', 'NotSupportedError');
+      }
       const central = await session.requestHitTestSource({
         space: viewerSpace,
         entityTypes: ['plane'],
       });
+      if (!central) throw new DOMException('Chido central plane hit test unavailable', 'NotSupportedError');
       hitTestSourcesRef.current = [central];
       for (const [rx, ry] of CHIDO_SCAN_RAYS) {
         try {
@@ -2194,6 +2198,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             space: raySpace,
             entityTypes: ['plane'],
           });
+          if (!hit) break;
           if (xrSessionRef.current !== session) {
             hit.cancel();
             break;
@@ -2300,8 +2305,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
           const samples: AnchorSample[] = [];
           for (const node of anchorsRef.current) {
-            let candidatePose: XRPose | null = null;
-            try { candidatePose = frame.getPose(node.anchor.anchorSpace, space); } catch {}
+            let candidatePose: XRPose | undefined;
+            try { candidatePose = frame.getPose(node.anchor.anchorSpace, space) || undefined; } catch {}
             if (!candidatePose) continue;
             const pos = candidatePose.transform.position;
             const observed: ChidoVec3 = [pos.x, pos.y, pos.z];
