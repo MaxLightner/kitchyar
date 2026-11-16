@@ -1590,6 +1590,14 @@ export default function App() {
       return;
     }
 
+    // Structural unit boundaries are not a free-moving door/appliance.
+    // Do not accidentally move the entire parent cabinet when a unit is
+    // selected. This protects the cabinetry/dividers until a safe unit
+    // translation rule is explicitly requested.
+    if (project.selectedUnit && !project.multiSelection?.boxIds.length) {
+      showToast('یونیت ساختاری انتخاب شده است؛ برای تراز، درب، کشو، تجهیز یا باکس را انتخاب کنید');
+      return;
+    }
     const boxes = project.multiSelection?.boxIds.length
       ? project.multiSelection.boxIds
       : project.activeBoxId ? [project.activeBoxId] : [];
