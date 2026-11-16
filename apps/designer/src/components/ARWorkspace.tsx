@@ -2338,7 +2338,15 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           wideCamera.fov = wideViewVerticalFov(wideViewModeRef.current, wideCamera.aspect);
           wideCamera.updateProjectionMatrix();
           wideCamera.updateMatrixWorld(true);
-          wideRenderer.render(sceneRef.current, wideCamera);
+          try {
+            wideRenderer.render(sceneRef.current, wideCamera);
+          } catch {
+            // A tablet can lose its secondary WebGL context under memory pressure.
+            // Return to the tracked physical camera rather than breaking the XR loop.
+            trackedWideRendererRef.current = null;
+            setWideViewMode('normal');
+            onToast('نمای واید در این دستگاه پشتیبانی نشد؛ دوربین واقعی فعال ماند');
+          }
         }
       });
 
@@ -2356,7 +2364,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setScanReady(false);
       if (controlsRef.current) controlsRef.current.enabled = true;
       renderOnceRef.current();
-      onToast('امکان باز کردن دوربین AR در این مرورگر وجود نداشت؛ پیش‌نمایش کالیبراسیون فعال است');
+      onToast('شروع دوربین واقعی WebXR ناموفق بود؛ مجوز دوربین و پشتیبانی ARCore را بررسی کنید');
+      if (embeddedIn3D) onSessionEnded?.();
     }
   };
 
