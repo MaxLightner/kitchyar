@@ -2252,7 +2252,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         updateGhostAndHoverRef.current(last.x, last.y);
       }
     }
-  }, [tool, drawBoxKind, props.scanMode]);
+  }, [tool, props.drawBoxKind, props.scanMode]);
 
   useEffect(() => {
     const scene = sceneRef.current;
