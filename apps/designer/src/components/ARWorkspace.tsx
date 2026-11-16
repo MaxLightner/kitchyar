@@ -2454,6 +2454,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           </div>
         </div>
       ) : (
+        <>
       {/* Top Floating AR Status & Calibration Card */}
       <div className="absolute top-2.5 right-2.5 left-2.5 flex flex-wrap items-start justify-between gap-2 pointer-events-none z-20">
         <div className="pointer-events-auto bg-white/95 border border-slate-200 rounded-xl shadow-md px-3 py-2 flex flex-wrap items-center gap-2 text-[13px]">
@@ -2667,7 +2668,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           )}
         </div>
       </div>
-
+        </>
       )}
 
       {/* Confirm (تأیید) and Cancel (لغو) floating AR editing actions */}
@@ -2696,6 +2697,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       {/* Only standalone legacy AR owns its toolbar; unified 3D uses BottomDock. */}
       {!embeddedIn3D && (
+        <>
       {/* Two-level AR tool dock */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[96vw] z-20 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2 py-1.5 flex flex-col items-stretch gap-1.5">
         {([
@@ -2750,6 +2752,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         ))}
       </div>
 
+        </>
       )}
 
       {/* Strictly image-only CursorToolPreview persisting across ALL active placement/edit tools */}
