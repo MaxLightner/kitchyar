@@ -1238,16 +1238,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const dom = renderer.domElement;
 
-    const onDblClick = (e: MouseEvent) => {
-      if (!activeRef.current || xrSessionRef.current || !builtSceneRef.current) return;
-      const rect = dom.getBoundingClientRect();
-      ndcVec.set(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1
-      );
-      toggleDoorByRay(ndcVec, camera);
-    };
-
     // Native capture-phase pointerdown intercepts A/B handles & base/wall/tall cabinets BEFORE OrbitControls!
     const onPointerDownCapture = (e: PointerEvent) => {
       if (e.button !== 0 || !activeRef.current) return;
@@ -1292,7 +1282,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const now = performance.now();
         const prev = lastSelectTapRef.current;
         const repeated = Boolean(
-          prev && now - prev.time < 380 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 44
+          e.pointerType === 'touch' && prev && now - prev.time < 380 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 44
         );
         lastSelectTapRef.current = repeated ? null : { time: now, x: e.clientX, y: e.clientY };
 
@@ -1313,6 +1303,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             selectedApplianceId: data.appId || null,
             selectedOpeningId: data.openingId || null,
           }));
+          if ((e.pointerType === 'mouse' || e.pointerType === 'pen') &&
+              data.doorId && toggleXrDoorAtPointRef.current(e.clientX, e.clientY)) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
 
           const wall = projectRef.current.walls.find((x) => x.id === data.wallId);
           if (wall && data.appId) {
@@ -1584,7 +1580,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     dom.addEventListener('pointerdown', onPointerDownCapture, { capture: true });
     dom.addEventListener('wheel', onWheelCapture as EventListener, { passive: false, capture: true });
-    dom.addEventListener('dblclick', onDblClick);
     dom.addEventListener('touchstart', onTouchStart, { passive: true });
     dom.addEventListener('touchmove', onTouchMove, { passive: false });
     dom.addEventListener('touchend', onTouchEnd);
@@ -1607,7 +1602,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       if (rafId !== null) cancelAnimationFrame(rafId);
       dom.removeEventListener('pointerdown', onPointerDownCapture, { capture: true });
       dom.removeEventListener('wheel', onWheelCapture as EventListener, { capture: true });
-      dom.removeEventListener('dblclick', onDblClick);
       dom.removeEventListener('touchstart', onTouchStart);
       dom.removeEventListener('touchmove', onTouchMove);
       dom.removeEventListener('touchend', onTouchEnd);
