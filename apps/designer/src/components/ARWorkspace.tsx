@@ -2597,7 +2597,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         space: viewerSpace,
         entityTypes: ['point'],
       })).then(source => {
-        if (xrSessionRef.current === session) lowerHitSourceRef.current = source;
+        if (source && xrSessionRef.current === session) lowerHitSourceRef.current = source;
         else source?.cancel();
       }).catch(error => console.debug('[Kitchyar XR] optional point hit test unavailable', error));
       // The previous implementation awaited all eight auxiliary hit sources
