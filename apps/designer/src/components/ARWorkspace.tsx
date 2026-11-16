@@ -81,6 +81,7 @@ import { wideViewVerticalFov, WideViewMode } from '../ar/wideView';
 import {
   applyAnimatedDoorProgress,
   buildHandleMesh,
+  attachSelectedHandlePreviews,
   buildKitchen3DScene,
   BuiltKitchenScene,
   detectSoftwareWebGL,
@@ -1734,6 +1735,22 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     renderOnceRef.current();
   }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, active, reticleEnabled]);
+
+  // Show the exact handle placement on selected 3D doors in tracked AR too.
+  // Ghost handles follow moving door panels and do not modify saved objects.
+  useEffect(() => {
+    const built = builtSceneRef.current;
+    if (!built || arTool !== 'handle') return;
+    const previews = attachSelectedHandlePreviews(built, project, handleStyle, handleOrient);
+    renderOnceRef.current();
+    return () => {
+      for (const preview of previews) {
+        preview.parent?.remove(preview);
+        disposeObject3D(preview);
+      }
+      renderOnceRef.current();
+    };
+  }, [project, arTool, handleStyle, handleOrient]);
 
   const floorLocalToModelXZ = (localPt: THREE.Vector3): XZPoint => {
     const al = alignmentRef.current;
