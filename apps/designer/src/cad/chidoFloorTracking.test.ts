@@ -23,7 +23,7 @@ test('the live floor scanner is the exact Chido surfaces blob with only the engi
 });
 
 test('Chido registers only plane providers sequentially and cancels a late auxiliary source', async () => {
-  const previous = globalThis.XRRigidTransform;
+  const previous = Reflect.get(globalThis, 'XRRigidTransform');
   Object.defineProperty(globalThis, 'XRRigidTransform', {configurable:true,writable:true,value:class {}});
   try {
     let calls = 0, concurrent = 0, peak = 0;
@@ -65,7 +65,7 @@ test('Chido registers only plane providers sequentially and cancels a late auxil
     assert.equal(tracker.hitSource,null);
     assert.equal(tracker.extraHitSources.length,0);
   } finally {
-    if(previous) globalThis.XRRigidTransform=previous;
+    if(previous) Reflect.set(globalThis, 'XRRigidTransform', previous);
     else Reflect.deleteProperty(globalThis,'XRRigidTransform');
   }
 });
