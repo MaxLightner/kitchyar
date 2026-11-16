@@ -95,6 +95,7 @@ import {
   Wall,
 } from './cad/types';
 import { ARWorkspace } from './components/ARWorkspace';
+import { nearDepthSessionOptions } from './ar/nearOcclusion';
 import { BottomDock } from './components/BottomDock';
 import { FrontCanvas } from './components/FrontCanvas';
 import { PlanCanvas } from './components/PlanCanvas';
@@ -251,7 +252,8 @@ export default function App() {
 
   const [tool, setTool] = useState<ToolId>('doors');
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
-  const [arMounted, setArMounted] = useState(false);
+  const [floorScanActive, setFloorScanActive] = useState(false);
+  const [initialXrSession, setInitialXrSession] = useState<Promise<XRSession> | null>(null);
   const [arSessionKillSignal, setArSessionKillSignal] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -2129,16 +2131,47 @@ export default function App() {
     }
   };
 
+  /** Start immersive AR in the SAME user click, before React rerenders the 3D editor.
+   * WebXR requires transient user activation: requesting it from an effect or after
+   * opening an intermediate page would be rejected by tablet browsers. */
+  const beginTrackedFloorScan = useCallback(() => {
+    const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
+    if (!xr || typeof xr.requestSession !== 'function') {
+      showToast('مرورگر WebXR AR ندارد؛ اسکن واقعی کف به Chrome/ARCore نیاز دارد');
+      setFloorScanActive(false);
+      return;
+    }
+    try {
+      const requested = xr.requestSession('immersive-ar', nearDepthSessionOptions(document.body));
+      // Attach a rejection handler immediately, before the scanner mounts.
+      void requested.catch(() => {});
+      setInitialXrSession(requested);
+      setFloorScanActive(true);
+      setViewMode('3d');
+      setTool('wall');
+    } catch {
+      showToast('شروع مستقیم دوربین AR ممکن نشد؛ دسترسی دوربین یا WebXR را بررسی کنید');
+      setFloorScanActive(false);
+    }
+  }, [showToast]);
+
   const handleSwitchViewMode = useCallback(
     (nextMode: ViewMode) => {
-      if (nextMode === 'ar') setArMounted(true);
-      setViewMode(nextMode);
+      if (nextMode === 'ar') {
+        beginTrackedFloorScan();
+        return;
+      }
       if (nextMode === '2d') {
+        setFloorScanActive(false);
+        setInitialXrSession(null);
         const w = project.walls.find((x) => x.id === project.activeWallId) || project.walls[0] || null;
         window.setTimeout(() => fitWallToView(w), 60);
       }
+      // 3D remains the same workspace; entering 3D never silently starts OrbitControls
+      // while the live tracked WebXR floor scan is active.
+      setViewMode(nextMode);
     },
-    [project.walls, project.activeWallId, fitWallToView]
+    [project.walls, project.activeWallId, fitWallToView, beginTrackedFloorScan]
   );
 
   const handleLoadRecordIntoEditor = useCallback(
@@ -2152,13 +2185,14 @@ export default function App() {
       setHistory([snap]);
       setHistoryIdx(0);
       setHoodKind(normalized.settings?.defaultHoodKind || 'chimney');
-      if (mode === 'ar') setArMounted(true);
-      setViewMode(mode);
+      if (mode === 'ar') beginTrackedFloorScan();
+      else { setFloorScanActive(false); setInitialXrSession(null); }
+      setViewMode(mode === 'ar' ? '3d' : mode);
       setScreen('editor');
       setTool(normalized.walls.length === 0 ? 'wall' : 'doors');
       window.setTimeout(() => fitWallToView(normalized.walls[0] || null), 80);
     },
-    [fitWallToView]
+    [fitWallToView, beginTrackedFloorScan]
   );
 
   const handleCreateAndOpenProject = useCallback(
@@ -2197,7 +2231,8 @@ export default function App() {
 
   const handleExitEditorTo = useCallback((target: 'welcome' | 'projects') => {
     setArSessionKillSignal((n) => n + 1);
-    setArMounted(false);
+    setFloorScanActive(false);
+    setInitialXrSession(null);
     setScreen(target);
   }, []);
 
@@ -2339,6 +2374,11 @@ export default function App() {
         onUndo={handleUndo}
         onRedo={handleRedo}
         onSelectViewMode={handleSwitchViewMode}
+        floorScanActive={floorScanActive}
+        onToggleFloorScan={() => {
+          if (floorScanActive) { setFloorScanActive(false); setInitialXrSession(null); }
+          else beginTrackedFloorScan();
+        }}
         onOpenSettings={() => setSettingsOpen(true)}
         onExportProject={handleExportProject}
         onImportProject={handleImportProject}
@@ -2353,44 +2393,6 @@ export default function App() {
       />
 
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Persistent AR Canvas + HUD mounted once AR is entered so WebXR XRSession NEVER closes on 2D/3D switches */}
-        {arMounted && (
-          <ARWorkspace
-            active={viewMode === 'ar'}
-            overlayRootRef={editorOverlayRef}
-            project={project}
-            fridgeModel={fridgeModel}
-            sinkModel={sinkModel}
-            gasWidth={gasWidth}
-            applianceKind={applianceKind}
-            hoodKind={hoodKind}
-            openingKind={openingKind}
-            handleStyle={handleStyle}
-            handleOrient={handleOrient}
-            drawBoxKind={drawBoxKind}
-            onSelectDrawBoxKind={setDrawBoxKind}
-            onHandleStyleChange={setHandleStyle}
-            onHandleOrientChange={setHandleOrient}
-            onFridgeModelChange={setFridgeModel}
-            onSinkModelChange={setSinkModel}
-            onGasWidthChange={setGasWidth}
-            onApplianceKindChange={setApplianceKind}
-            onOpeningKindChange={setOpeningKind}
-            onMoveBox={handleMoveBox}
-            onMoveAppliance={handleMoveAppliance}
-            sessionKillSignal={arSessionKillSignal}
-            onSwitchViewMode={handleSwitchViewMode}
-            onToast={showToast}
-            onUpdateProject={(updater, toastMsg) => {
-              const next = updater(project);
-              if (next !== project) {
-                commitState(next, true);
-              }
-              if (toastMsg) showToast(toastMsg);
-            }}
-          />
-        )}
-
         {viewMode !== 'ar' && (
           <div className="flex-1 flex overflow-hidden relative z-20 bg-slate-50">
             <SideInspector
@@ -2514,6 +2516,47 @@ export default function App() {
               }}
             >
               {viewMode === '3d' ? (
+                floorScanActive ? (
+                  <ARWorkspace
+            active={true}
+            embeddedIn3D={true}
+            sharedTool={tool}
+            initialSession={initialXrSession}
+            onSessionEnded={() => { setFloorScanActive(false); setInitialXrSession(null); }}
+            onFloorConfirmed={() => setTool('wall')}
+            overlayRootRef={editorOverlayRef}
+            project={project}
+            fridgeModel={fridgeModel}
+            sinkModel={sinkModel}
+            gasWidth={gasWidth}
+            applianceKind={applianceKind}
+            hoodKind={hoodKind}
+            openingKind={openingKind}
+            handleStyle={handleStyle}
+            handleOrient={handleOrient}
+            drawBoxKind={drawBoxKind}
+            onSelectDrawBoxKind={setDrawBoxKind}
+            onHandleStyleChange={setHandleStyle}
+            onHandleOrientChange={setHandleOrient}
+            onFridgeModelChange={setFridgeModel}
+            onSinkModelChange={setSinkModel}
+            onGasWidthChange={setGasWidth}
+            onApplianceKindChange={setApplianceKind}
+            onOpeningKindChange={setOpeningKind}
+            onMoveBox={handleMoveBox}
+            onMoveAppliance={handleMoveAppliance}
+            sessionKillSignal={arSessionKillSignal}
+            onSwitchViewMode={handleSwitchViewMode}
+            onToast={showToast}
+            onUpdateProject={(updater, toastMsg) => {
+              const next = updater(project);
+              if (next !== project) {
+                commitState(next, true);
+              }
+              if (toastMsg) showToast(toastMsg);
+            }}
+          />
+                ) : (
                 <Scene3DCanvas
               project={project}
               tool={tool}
@@ -2706,6 +2749,7 @@ export default function App() {
               onExitToSelect={handleExitToSelect}
               onToast={showToast}
             />
+                )
           ) : (
             <>
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
