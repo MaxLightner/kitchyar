@@ -586,6 +586,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const xrSessionRef = useRef<XRSession | null>(null);
   const skipEndNotificationRef = useRef(false);
   const floorScannerRef = useRef(new FloorScanner());
+  const fallbackLocalSpaceRef = useRef<XRReferenceSpace | null>(null);
+  const xrFrameCountRef = useRef(0);
+  const xrStartTimeRef = useRef(0);
+  const xrLastFrameTimeRef = useRef(0);
+  const xrLastPoseTimeRef = useRef(0);
+  const xrTrackingWarningRef = useRef(false);
+
   const anchorStabilizerRef = useRef(new AnchorStabilizer());
   const anchorsRef = useRef<StoredAnchorEntry[]>([]);
   const anchorCandidatesRef = useRef<THREE.Vector3[]>([]);
@@ -2202,6 +2209,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setXrActive(true);
       if (controlsRef.current) controlsRef.current.enabled = false;
       floorScannerRef.current.reset();
+      fallbackLocalSpaceRef.current = null;
+      xrFrameCountRef.current = 0;
+      xrStartTimeRef.current = performance.now();
+      xrLastFrameTimeRef.current = 0;
+      xrLastPoseTimeRef.current = 0;
+      xrTrackingWarningRef.current = false;
       floorRevealStartRef.current = null;
       anchorsRef.current = [];
       anchorCandidatesRef.current = [];
@@ -2226,6 +2239,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         setXrActive(false);
         setFloorLocked(false);
         setScanReady(false);
+        fallbackLocalSpaceRef.current = null;
+        xrFrameCountRef.current = 0;
+        xrStartTimeRef.current = 0;
+        xrTrackingWarningRef.current = false;
         setOcclusionStatus('idle');
         if (skipEndNotificationRef.current) {
           skipEndNotificationRef.current = false;
@@ -2241,70 +2258,44 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // rather than moving their origin sideways (the old Kitchyar bug).
       renderer.xr.setReferenceSpaceType('local');
       await withXRStartupTimeout(renderer.xr.setSession(session), 'موتور WebXR', 15000);
-      // Chido keeps an XR render loop alive even while hit-test providers are
-      // being initialized. Without this the camera/scanner looks frozen until
-      // as many as nine async hit sources finish opening.
-      renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
-        if (frame && sceneRef.current && rendererRef.current === renderer) {
-          renderer.render(sceneRef.current, renderer.xr.getCamera());
-        }
-      });
-      setXrStarting(false);
-      const viewerSpace = await withXRStartupTimeout(session.requestReferenceSpace('viewer'), 'ردیابی دوربین', 15000);
-      if (!session.requestHitTestSource) {
-        throw new DOMException('Chido floor scanning requires WebXR hit-test', 'NotSupportedError');
-      }
-      const central = await withXRStartupTimeout(Promise.resolve(session.requestHitTestSource({
-        space: viewerSpace,
-        entityTypes: ['plane'],
-      })), 'تشخیص سطح مرکزی', 15000);
-      if (!central) throw new DOMException('Chido central plane hit test unavailable', 'NotSupportedError');
-      hitTestSourcesRef.current = [central];
-      // The previous implementation awaited all eight auxiliary hit sources
-      // one by one BEFORE starting the real scan loop. On Android, even one
-      // unresolved request left the reticle and floor scan frozen. Start the
-      // central scanner immediately, and add angled rays asynchronously.
-      for (const [rx, ry] of CHIDO_SCAN_RAYS) {
-        void (async () => {
-          try {
-            const direction = new THREE.Vector3(rx, ry, -1).normalize();
-            const rotation = new THREE.Quaternion().setFromUnitVectors(
-              new THREE.Vector3(0, 0, -1), direction
-            );
-            const raySpace = viewerSpace.getOffsetReferenceSpace(
-              new XRRigidTransform({}, {
-                x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w,
-              })
-            );
-            const hit = await session.requestHitTestSource!({
-              space: raySpace,
-              entityTypes: ['plane'],
-            });
-            if (!hit) return;
-            if (xrSessionRef.current === session) hitTestSourcesRef.current.push(hit);
-            else hit.cancel();
-          } catch (error) {
-            // One unsupported extra ray must never block central scanning.
-            console.debug('[Kitchyar XR] optional angled ray unavailable', error);
-          }
-        })();
-      }
-      if (!session.domOverlayState) {
-        throw new DOMException('Chido needs WebXR DOM Overlay for floor confirmation', 'NotSupportedError');
-      }
-      if (floorNetMeshRef.current) floorNetMeshRef.current.visible = false;
+      // Install the REAL Chido-style tracking loop as soon as setSession
+      // succeeds, not after each optional hit-test provider responds.
+      // It stays alive for both scanning and the confirmed-floor state.
+      void session.requestReferenceSpace('local').then(local => {
+        if (xrSessionRef.current === session) fallbackLocalSpaceRef.current = local;
+      }).catch(error => console.warn('[Kitchyar XR] local reference space unavailable', error));
       let lastXrFrameTime = 0;
       renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
-        if (!frame || !rendererRef.current || !sceneRef.current || !cameraRef.current) return;
-        const space = rendererRef.current.xr.getReferenceSpace();
-        if (!space) return;
-        const pose = frame.getViewerPose(space);
+        if (!frame || rendererRef.current !== renderer || !sceneRef.current || !cameraRef.current) return;
+        xrFrameCountRef.current += 1;
+        xrLastFrameTimeRef.current = performance.now();
+        // Chido's runtime calls getViewerPose every XRFrame using its local
+        // reference space. Three's XRManager may briefly expose null before
+        // the first frame, so also retain the session's own local space.
+        const space = renderer.xr.getReferenceSpace() || fallbackLocalSpaceRef.current;
+        let pose: XRViewerPose | null = null;
+        if (space) {
+          try { pose = frame.getViewerPose(space); }
+          catch (error) { console.warn('[Kitchyar XR] viewer pose rejected', error); }
+        }
         if (!pose) {
           if (time - lastScanReportMsRef.current > 300) {
             lastScanReportMsRef.current = time;
             setScanDiagnostics({ tracking: false, rawHits: 0, validHits: 0 });
           }
+          // Keep the immersive camera rendering even when ARCore momentarily
+          // loses its 6DoF pose; do not freeze the camera on the last frame.
+          renderer.render(sceneRef.current, renderer.xr.getCamera());
           return;
+        }
+        xrLastPoseTimeRef.current = performance.now();
+        if (xrTrackingWarningRef.current) {
+          xrTrackingWarningRef.current = false;
+          setXrStartError(null);
+        }
+        if (time - lastScanReportMsRef.current > 300) {
+          lastScanReportMsRef.current = time;
+          setScanDiagnostics(prev => prev.tracking ? prev : {...prev, tracking: true});
         }
 
         if (!activeRef.current) {
@@ -2568,6 +2559,51 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
         }
       });
+      setXrStarting(false);
+      const viewerSpace = await withXRStartupTimeout(session.requestReferenceSpace('viewer'), 'ردیابی دوربین', 15000);
+      if (!session.requestHitTestSource) {
+        throw new DOMException('Chido floor scanning requires WebXR hit-test', 'NotSupportedError');
+      }
+      const central = await withXRStartupTimeout(Promise.resolve(session.requestHitTestSource({
+        space: viewerSpace,
+        entityTypes: ['plane'],
+      })), 'تشخیص سطح مرکزی', 15000);
+      if (!central) throw new DOMException('Chido central plane hit test unavailable', 'NotSupportedError');
+      hitTestSourcesRef.current = [central];
+      // The previous implementation awaited all eight auxiliary hit sources
+      // one by one BEFORE starting the real scan loop. On Android, even one
+      // unresolved request left the reticle and floor scan frozen. Start the
+      // central scanner immediately, and add angled rays asynchronously.
+      for (const [rx, ry] of CHIDO_SCAN_RAYS) {
+        void (async () => {
+          try {
+            const direction = new THREE.Vector3(rx, ry, -1).normalize();
+            const rotation = new THREE.Quaternion().setFromUnitVectors(
+              new THREE.Vector3(0, 0, -1), direction
+            );
+            const raySpace = viewerSpace.getOffsetReferenceSpace(
+              new XRRigidTransform({}, {
+                x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w,
+              })
+            );
+            const hit = await session.requestHitTestSource!({
+              space: raySpace,
+              entityTypes: ['plane'],
+            });
+            if (!hit) return;
+            if (xrSessionRef.current === session) hitTestSourcesRef.current.push(hit);
+            else hit.cancel();
+          } catch (error) {
+            // One unsupported extra ray must never block central scanning.
+            console.debug('[Kitchyar XR] optional angled ray unavailable', error);
+          }
+        })();
+      }
+      if (!session.domOverlayState) {
+        throw new DOMException('Chido needs WebXR DOM Overlay for floor confirmation', 'NotSupportedError');
+      }
+      if (floorNetMeshRef.current) floorNetMeshRef.current.visible = false;
+
 
       setXrStarting(false);
       onToast('اسکن کف چیدو فعال شد؛ دوربین را آرام به چپ و راست حرکت دهید');
