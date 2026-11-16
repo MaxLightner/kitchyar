@@ -2593,10 +2593,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // Preserve Chido's plane-only central ray. On ARCore versions that
       // discover feature points before a stable plane, also sample points as
       // a strictly optional source; FloorScanner still accepts ONLY level hits.
-      void session.requestHitTestSource!({
+      void Promise.resolve(session.requestHitTestSource!({
         space: viewerSpace,
         entityTypes: ['point'],
-      }).then(source => {
+      })).then(source => {
         if (xrSessionRef.current === session) lowerHitSourceRef.current = source;
         else source?.cancel();
       }).catch(error => console.debug('[Kitchyar XR] optional point hit test unavailable', error));
