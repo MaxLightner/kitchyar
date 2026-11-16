@@ -325,17 +325,24 @@ function createFloorNetMesh(): {
   return {mesh, uniforms};
 }
 
+// Chido Studio.scanCrosses: 32mm crossed line segments, not filled quads.
 function createCrossMarker(): THREE.Group {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshBasicMaterial({ color: 0x83ffe3, side: THREE.DoubleSide, depthTest: false });
-  const a = new THREE.Mesh(new THREE.PlaneGeometry(0.055, 0.011), mat);
-  a.rotation.x = -Math.PI / 2;
-  const b = new THREE.Mesh(new THREE.PlaneGeometry(0.011, 0.055), mat);
-  b.rotation.x = -Math.PI / 2;
-  g.add(a, b);
-  g.userData.mat = mat;
-  g.visible = false;
-  return g;
+  const group = new THREE.Group();
+  const geometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-0.016, 0, -0.016),
+    new THREE.Vector3(0.016, 0, 0.016),
+    new THREE.Vector3(-0.016, 0, 0.016),
+    new THREE.Vector3(0.016, 0, -0.016),
+  ]);
+  const material = new THREE.LineBasicMaterial({
+    color: 0x83ffe3, transparent: true, opacity: 0.94, depthTest: false,
+  });
+  const cross = new THREE.LineSegments(geometry, material);
+  cross.renderOrder = 10;
+  group.add(cross);
+  group.userData.mat = material;
+  group.visible = false;
+  return group;
 }
 
 function resolveHitDoorId(obj: THREE.Object3D | null): string | undefined {
@@ -2083,16 +2090,19 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         rect.left + rect.width / 2,
         rect.top + rect.height / 2
       );
-      if (centerLocal) {
-        const pt = floorLocalToModelXZ(centerLocal);
-        const distCm = Math.hypot(pt.x - pendingWallStartRef.current.x, pt.z - pendingWallStartRef.current.z) * 100;
-        if (distCm >= 40) {
-          applyFloorActionRef.current(centerLocal);
-        }
+      if (!centerLocal) {
+        onToast('نشانگر روی کف نیست؛ دوربین را به سمت کف بگیرید');
+        return;
       }
-      // Preserve endpoint so the next wall continues from the same corner.
-      // Cancelling or changing the tool ends the connected wall chain.
-      onToast('دیوار تأیید شد؛ نشانگر را به گوشه بعدی ببرید و دوباره تأیید بزنید');
+      const pt = floorLocalToModelXZ(centerLocal);
+      const distCm = Math.hypot(pt.x - pendingWallStartRef.current.x, pt.z - pendingWallStartRef.current.z) * 100;
+      if (distCm < 40) {
+        onToast('طول دیوار باید حداقل ۴۰ سانتی‌متر باشد');
+        return;
+      }
+      applyFloorActionRef.current(centerLocal);
+      // Next segment stays connected to this one; only Cancel breaks the chain.
+      onToast('دیوار ثبت شد؛ نشانگر را به گوشه بعدی ببرید و دوباره تأیید بزنید');
       return;
     }
     if (renderer) {
@@ -2538,14 +2548,22 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
   const handleLockFloor = () => {
     if (xrActive && !floorScannerRef.current.ready) {
-      onToast('در حال تکمیل تشخیص سطح کف؛ لحظه‌ای دوربین را روی کف ثابت نگه دارید');
+      onToast('چیدو هنوز سه نقطه مستقل هم‌ارتفاع روی کف پیدا نکرده؛ دوربین را آرام روی کف حرکت دهید');
       return;
     }
     const pt = floorScannerRef.current.point;
     if (xrActive && pt && floorGroupRef.current) {
       basePoseRef.current = { x: pt.x, y: pt.y, z: pt.z, yaw: 0 };
       floorGroupRef.current.position.set(pt.x, pt.y, pt.z);
+      for (const entry of anchorsRef.current) {
+        try { entry.anchor.delete(); } catch {}
+      }
       anchorsRef.current = [];
+      anchorCandidatesRef.current = [];
+      anchorGenerationRef.current++;
+      anchorPendingRef.current = false;
+      anchorStabilizerRef.current = new AnchorStabilizer();
+      anchorLastTimeRef.current = 0;
       pendingAnchorCreateRef.current = true;
       floorRevealStartRef.current = performance.now();
     }
