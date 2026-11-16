@@ -1272,7 +1272,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
 
       const toolNow = arToolRef.current;
-      if(e.pointerType==='touch' && toolNow!=='select' && !toolNow.startsWith('calibrate-')) {
+      const pinnedScreen=surfaceCursorRef.current.screen(pickingCamera(),dom);
+      const nearCursor=pinnedScreen && Math.hypot(e.clientX-pinnedScreen.x,e.clientY-pinnedScreen.y)<34;
+      if(e.pointerType==='touch' && toolNow==='select' && !surfaceCursorRef.current.point)pinSurfaceCursor(e.clientX,e.clientY);
+      if(e.pointerType==='touch' && (toolNow!=='select'||nearCursor) && !toolNow.startsWith('calibrate-')) {
         e.preventDefault();e.stopImmediatePropagation();controls.enabled=false;
         surfaceCursorRef.current.begin(e.pointerId,e.clientX,e.clientY);
         if(!surfaceCursorRef.current.point)pinSurfaceCursor(e.clientX,e.clientY);
@@ -1406,7 +1409,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const onPointerMove = (e: PointerEvent) => {
       if (!activeRef.current) return;
-      if(e.pointerType==='touch' && surfaceCursorRef.current.dragging && arToolRef.current!=='select') {
+      if(e.pointerType==='touch' && surfaceCursorRef.current.dragging) {
         if(surfaceCursorRef.current.moving(e.pointerId,e.clientX,e.clientY))pinSurfaceCursor(e.clientX,e.clientY);
         return;
       }
@@ -1493,8 +1496,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const onPointerUp = (e: PointerEvent) => {
       if(!activeRef.current)return;
-      if(e.pointerType==='touch' && arToolRef.current!=='select' && !arToolRef.current.startsWith('calibrate-')) {
-        if(surfaceCursorRef.current.end(e.pointerId))confirmActionRef.current();
+      if(e.pointerType==='touch' && (arToolRef.current!=='select'||surfaceCursorRef.current.dragging) && !arToolRef.current.startsWith('calibrate-')) {
+        if(surfaceCursorRef.current.end(e.pointerId)&&arToolRef.current!=='select')confirmActionRef.current();
         return;
       }
       const dr = arDragRef.current;

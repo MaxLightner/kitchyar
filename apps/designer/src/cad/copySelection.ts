@@ -75,7 +75,7 @@ export function copySelection(project:ProjectState):{next:ProjectState|null;mess
     }));
     if(delta===undefined)return{next:null,message:'فضای آزاد برای کپی باکس و اجزای وابسته وجود ندارد'};
     const copied=clone({boxes:group,appliances:apps});
-    for(const b of copied.boxes){b.offsetX+=delta;b.name+=' (کپی)';}
+    for(const b of copied.boxes){b.offsetX+=delta;b.name+=' (کپی)';if(b.linkedToBoxId&&!copied.boxes.some(parent=>parent.id===b.linkedToBoxId))delete b.linkedToBoxId;}
     for(const a of copied.appliances)a.offsetX+=delta;
     wall.boxes.push(...copied.boxes);wall.appliances.push(...copied.appliances);
     clearSelection();next.activeBoxId=copied.boxes[0].id;

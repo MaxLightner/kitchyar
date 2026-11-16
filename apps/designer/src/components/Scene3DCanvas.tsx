@@ -1155,7 +1155,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const cursorScreen = (x:number,y:number) => surfaceCursorRef.current.screen(camera,renderer.domElement) || {x,y};
 
     const onPointerDown = (e: PointerEvent) => {
-      if(e.pointerType === 'touch' && propsRef.current.tool !== 'select') {
+      const pinnedScreen=surfaceCursorRef.current.screen(camera,renderer.domElement);
+      const nearCursor=pinnedScreen && Math.hypot(e.clientX-pinnedScreen.x,e.clientY-pinnedScreen.y)<34;
+      if(e.pointerType==='touch' && propsRef.current.tool==='select' && !surfaceCursorRef.current.point)pinSurfaceCursor(e.clientX,e.clientY);
+      if(e.pointerType === 'touch' && (propsRef.current.tool !== 'select' || nearCursor)) {
         e.preventDefault();e.stopImmediatePropagation();controls.enabled=false;
         surfaceCursorRef.current.begin(e.pointerId,e.clientX,e.clientY);
         if(!surfaceCursorRef.current.point)pinSurfaceCursor(e.clientX,e.clientY);
@@ -1307,7 +1310,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if(e.pointerType === 'touch' && surfaceCursorRef.current.dragging && propsRef.current.tool !== 'select') {
+      if(e.pointerType === 'touch' && surfaceCursorRef.current.dragging) {
         if(surfaceCursorRef.current.moving(e.pointerId,e.clientX,e.clientY))pinSurfaceCursor(e.clientX,e.clientY);
         return;
       }
@@ -1433,10 +1436,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     const onPointerUp = (e: PointerEvent) => {
       let actionX=e.clientX, actionY=e.clientY;
-      if(e.pointerType==='touch' && propsRef.current.tool!=='select') {
+      if(e.pointerType==='touch' && (propsRef.current.tool!=='select' || surfaceCursorRef.current.dragging)) {
         const commit=surfaceCursorRef.current.end(e.pointerId);
         controls.enabled=propsRef.current.tool!=='wall'&&propsRef.current.tool!=='cab-draw';
-        if(!commit)return;
+        if(!commit||propsRef.current.tool==='select')return;
         const pinned=cursorScreen(actionX,actionY);
         actionX=pinned.x;actionY=pinned.y;
         downClientRef.current={x:actionX,y:actionY};
@@ -2169,9 +2172,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         e.stopImmediatePropagation();
         const pacedDir = gestureStepperRef.current.consumeWheelDelta(e.deltaY, e.deltaMode);
         if (pacedDir !== 0) {
-          step3DToolOption(pacedDir, e.clientX, e.clientY);
+          const target=cursorScreen(e.clientX,e.clientY);
+          step3DToolOption(pacedDir, target.x, target.y);
         }
-        requestAnimationFrame(() => updateGhostAndHover(e.clientX, e.clientY));
+        const target=cursorScreen(e.clientX,e.clientY);
+        requestAnimationFrame(() => updateGhostAndHover(target.x,target.y));
       }
     };
 
