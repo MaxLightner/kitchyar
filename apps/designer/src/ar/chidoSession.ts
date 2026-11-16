@@ -6,11 +6,11 @@ export function isHandheldARDevice(
   primaryTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches,
 ): boolean {
   // Android's "Desktop site" may omit Android from the UA. Combine Linux,
-  // multitouch and the primary pointer, rather than treating screen size as AR.
+  // touch and the primary pointer, rather than treating screen size as AR.
   // A Windows touchscreen laptop or Linux laptop with a mouse stays desktop.
   return /Android|iPhone|iPad|iPod/i.test(nav.userAgent) ||
     (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1) ||
-    (/Linux/i.test(nav.platform + ' ' + nav.userAgent) && nav.maxTouchPoints > 1 && primaryTouch);
+    (/Linux/i.test(nav.platform + ' ' + nav.userAgent) && nav.maxTouchPoints > 0 && primaryTouch);
 }
 
 export function chidoSessionOptions(root: HTMLElement): XRSessionInit {

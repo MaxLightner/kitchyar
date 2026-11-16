@@ -48,6 +48,7 @@ test('AR device eligibility is independent of touch and viewport size', () => {
 test('Android desktop-site tablets remain eligible while touch laptops remain desktop', () => {
   const desktopUA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36';
   assert.equal(isHandheldARDevice({userAgent: desktopUA, platform:'Linux aarch64', maxTouchPoints:5}, true), true);
+  assert.equal(isHandheldARDevice({userAgent: desktopUA, platform:'Linux aarch64', maxTouchPoints:1}, true), true);
   assert.equal(isHandheldARDevice({userAgent: desktopUA, platform:'Linux x86_64', maxTouchPoints:10}, false), false);
   assert.equal(isHandheldARDevice({userAgent: desktopUA, platform:'Linux x86_64', maxTouchPoints:0}, true), false);
   assert.equal(isHandheldARDevice({userAgent:'Windows NT 10.0', platform:'Win32', maxTouchPoints:10}, true), false);
