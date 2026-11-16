@@ -2,7 +2,7 @@ name: Browser smoke — Chido floor scan from Welcome
 
 on:
   push:
-    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16']
+    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16']
     paths:
       - 'apps/designer/**'
       - '.github/workflows/scan-ui-smoke.yml'
@@ -104,6 +104,28 @@ jobs:
             await page.getByRole('button',{name:'اسکن کف AR'}).waitFor({timeout:10000});
             console.log('PASS: Home button returns directly to Welcome without losing project UI.');
             if(errors.length) throw Error('Browser errors: '+errors.join('; '));
+            // Separate clean browser context: its default L kitchen has a
+            // selected cabinet and a realistic group of doors/drawers.
+            const designPage = await browser.newPage({viewport:{width:1100,height:740}});
+            const designErrors=[];
+            designPage.on('pageerror',err=>designErrors.push(err.message));
+            await designPage.goto('http://127.0.0.1:4173/?autostart=1',{waitUntil:'networkidle'});
+            const alignToolbar=designPage.getByTestId('selection-align-toolbar');
+            await alignToolbar.waitFor({timeout:15000});
+            const alignIds=await alignToolbar.locator('button[data-testid]').evaluateAll(
+              buttons=>buttons.map(b=>b.getAttribute('data-testid'))
+            );
+            assert.deepEqual(alignIds,[
+              'align-selected-left','align-selected-right','align-selected-center',
+              'align-selected-vertical-widths','align-selected-horizontal-heights',
+            ],'Exactly the five requested Align tools must remain');
+            assert.equal(await designPage.getByTestId('align-selected-vertical-widths').isDisabled(),true,
+              'Equal-width must require multiple selected vertical doors');
+            assert.equal(await designPage.getByTestId('align-selected-horizontal-heights').isDisabled(),true,
+              'Equal-height must require multiple selected drawer groups');
+            await designPage.getByTestId('align-selected-center').click();
+            assert.equal(designErrors.length,0,'Align actions must not crash browser: '+designErrors.join('; '));
+            console.log('PASS: Exactly five Align tools appear, equal-size require multi-selection and center-click works.');
             await browser.close();
           })().catch(e=>{console.error(e);process.exitCode=1;});
           JS
