@@ -2,7 +2,7 @@ name: Browser smoke — Chido floor scan from Welcome
 
 on:
   push:
-    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16', 'fix/unified-xr-session-2026-11-16']
+    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16', 'fix/unified-xr-session-2026-11-16', 'fix/tablet-scan-entry-20261116']
     paths:
       - 'apps/designer/**'
       - '.github/workflows/scan-ui-smoke.yml'
@@ -54,6 +54,63 @@ jobs:
             await page.getByTestId('scene-3d-canvas').waitFor({timeout:15000});
             assert.equal(await page.getByTestId('toggle-floor-scan-3d').isDisabled(),true);
             console.log('PASS: desktop AR disabled; normal 3D canvas available.');
+
+
+            // A preflight result is advisory: the tap must reach requestSession.
+            for (const profile of [
+              {name:'Android negative preflight', probe:'false'},
+              {name:'Android rejected preflight', probe:'reject'},
+              {name:'Android pending preflight', probe:'pending'},
+              {name:'Android desktop-site UA', probe:'false', desktopUA:true},
+            ]) {
+              const ctx = await browser.newContext({
+                viewport:{width:1024,height:768}, hasTouch:true, isMobile:true,
+                userAgent:profile.desktopUA
+                  ? 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'
+                  : 'Mozilla/5.0 (Linux; Android 14; Tablet) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'
+              });
+              await ctx.addInitScript(({probe}) => {
+                Object.defineProperty(navigator,'platform',{configurable:true,value:'Linux aarch64'});
+                window.__xrCalls=0;
+                window.__xrActivation=[];
+                Object.defineProperty(navigator,'xr',{configurable:true,value:{
+                  isSessionSupported:()=>probe==='pending' ? new Promise(()=>{})
+                    : probe==='reject' ? Promise.reject(new Error('preflight unavailable')) : Promise.resolve(false),
+                  requestSession:()=>{
+                    window.__xrCalls++;
+                    window.__xrActivation.push(navigator.userActivation.isActive);
+                    return Promise.reject(new DOMException('entry regression fixture','NotAllowedError'));
+                  }
+                }});
+              },profile);
+              const p=await ctx.newPage();
+              p.on('pageerror', error => errors.push(error.message));
+              for (const entry of ['welcome','new project','saved project','2d toolbar','3d toolbar']) {
+                await p.goto('http://127.0.0.1:4173/',{waitUntil:'networkidle'});
+                let button=p.getByRole('button',{name:'اسکن کف AR',exact:true});
+                if(entry!=='welcome') {
+                  await p.getByRole('button',{name:/پروژه‌های من/}).click();
+                  if(entry==='new project') button=p.getByTestId('new-project-card').getByRole('button',{name:'اسکن کف',exact:true});
+                  if(entry==='saved project') button=p.locator('article').filter({hasNot:p.getByTestId('new-project-card')}).getByRole('button',{name:'اسکن کف',exact:true}).last();
+                  if(entry==='2d toolbar'||entry==='3d toolbar') {
+                    await p.getByTestId('new-project-card').getByRole('button',{name:entry==='2d toolbar'?'2D':'3D',exact:true}).click();
+                    button=p.getByTestId('toggle-floor-scan-3d');
+                  }
+                }
+                assert.equal(await button.isEnabled(),true,profile.name+' '+entry+' scan must accept a tap');
+                await button.tap();
+                await p.getByTestId('chido-floor-scan-readiness').waitFor({timeout:15000});
+                await p.getByText(/entry regression fixture/).first().waitFor();
+                assert.equal(await p.evaluate(()=>window.__xrCalls),1,entry+' launches one request');
+                assert.equal(await p.evaluate(()=>window.__xrActivation.every(Boolean)),true,'XR request retains tap activation');
+                const retry=p.getByTestId('chido-start-camera');
+                assert.equal(await retry.isEnabled(),true,'preflight must not disable retry');
+                await retry.tap();
+                await p.waitForFunction(()=>window.__xrCalls===2);
+              }
+              await ctx.close();
+              console.log('PASS: all scan entry taps and retry — '+profile.name);
+            }
 
             const tablet = await browser.newPage({
               viewport:{width:1024,height:768}, hasTouch:true,
