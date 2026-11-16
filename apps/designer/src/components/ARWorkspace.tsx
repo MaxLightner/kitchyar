@@ -2260,10 +2260,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       if (!session.requestHitTestSource) {
         throw new DOMException('Chido floor scanning requires WebXR hit-test', 'NotSupportedError');
       }
-      const central = await withXRStartupTimeout(session.requestHitTestSource({
+      const central = await withXRStartupTimeout(Promise.resolve(session.requestHitTestSource({
         space: viewerSpace,
         entityTypes: ['plane'],
-      }), 'تشخیص سطح مرکزی', 15000);
+      })), 'تشخیص سطح مرکزی', 15000);
       if (!central) throw new DOMException('Chido central plane hit test unavailable', 'NotSupportedError');
       hitTestSourcesRef.current = [central];
       // The previous implementation awaited all eight auxiliary hit sources
