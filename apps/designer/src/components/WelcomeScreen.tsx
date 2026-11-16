@@ -48,7 +48,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-[13px] font-bold">
             <Camera className="w-3.5 h-3.5 text-slate-500" />
-            <span>مدل‌سازی متریک سر پروژه با WebXR و انتقال بی‌درنگ به 2D / 3D</span>
+            <span>طراحی یکپارچه سه‌بعدی با اسکن کف و دوربین واقعی WebXR</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-slate-900 leading-tight">
@@ -90,7 +90,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
             <button
               type="button"
-              onClick={onOpenProjects}
+              onClick={() => onStartMode('ar')}
               className="h-14 px-5 rounded-xl border border-emerald-200/70 bg-emerald-50/40 hover:bg-emerald-50/80 text-slate-800 text-sm font-black inline-flex items-center justify-center gap-2.5 transition active:scale-95"
             >
               <Camera className="w-4 h-4 text-emerald-600" />
