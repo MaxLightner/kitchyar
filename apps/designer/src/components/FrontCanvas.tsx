@@ -1260,6 +1260,14 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       lastPlaceTapRef.current = null;
       return false;
     }
+    // All mouse/pen design actions are ONE click: inserting door, handle,
+    // appliance, frame and clicking empty space to switch orientation.
+    // Keep existing deliberate double-tap semantics only on touch screens
+    // to avoid accidental painting while zooming/panning.
+    if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
+      lastPlaceTapRef.current = null;
+      return true;
+    }
     const prev = lastPlaceTapRef.current;
     const minGap = e.pointerType === 'touch' ? 75 : 0;
     if (
@@ -1756,7 +1764,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       if (!isSpacedDoublePlacement(e, 'frame')) return;
       const fTarget = resolveFrameTargetAtPoint(pt);
       if (!fTarget) {
-        onToast('برای فریم‌کشی روی لبه آزاد یا درز بین درب‌ها دابل‌کلیک کنید');
+        onToast('برای فریم‌کشی روی لبه آزاد یا درز بین درب‌ها کلیک کنید');
         return;
       }
       if (fTarget.side === 'invalid') {
@@ -2146,7 +2154,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onPlaceAppliance(targetBase.id, desiredOffset, targetKind);
         setAppHover(null);
       } else {
-        onToast('لطفاً روی یک باکس زمینی دابل‌کلیک کنید');
+        onToast('لطفاً روی یک باکس زمینی کلیک کنید');
       }
       return;
     }
