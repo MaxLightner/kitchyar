@@ -2477,7 +2477,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       {reticleEnabled && (
         <div
           data-testid="ar-reticle-overlay"
-          className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center"
+          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
         >
           <div className="relative w-12 h-12 flex items-center justify-center">
             <div className="w-10 h-10 rounded-full border-2 border-emerald-500/80 shadow-sm" />
