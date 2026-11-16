@@ -2596,7 +2596,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // Preserve Chido's plane-only central ray. On ARCore versions that
       // discover feature points before a stable plane, also sample points as
       // a strictly optional source; FloorScanner still accepts ONLY level hits.
-      void session.requestHitTestSource({
+      void session.requestHitTestSource!({
         space: viewerSpace,
         entityTypes: ['point'],
       }).then(source => {
