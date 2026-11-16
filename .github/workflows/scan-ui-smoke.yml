@@ -91,7 +91,7 @@ jobs:
                 if(entry!=='welcome') {
                   await p.getByRole('button',{name:/پروژه‌های من/}).click();
                   if(entry==='new project') button=p.getByTestId('new-project-card').getByRole('button',{name:'اسکن کف',exact:true});
-                  if(entry==='saved project') button=p.locator('article').filter({hasNot:p.getByTestId('new-project-card')}).getByRole('button',{name:'اسکن کف',exact:true}).last();
+                  if(entry==='saved project') button=p.locator('article:not([data-testid="new-project-card"])').getByRole('button',{name:'اسکن کف',exact:true}).last();
                   if(entry==='2d toolbar'||entry==='3d toolbar') {
                     await p.getByTestId('new-project-card').getByRole('button',{name:entry==='2d toolbar'?'2D':'3D',exact:true}).click();
                     button=p.getByTestId('toggle-floor-scan-3d');

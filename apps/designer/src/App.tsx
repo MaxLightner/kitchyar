@@ -255,17 +255,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
   const [floorScanActive, setFloorScanActive] = useState(false);
   const [trackedFloorConfirmed, setTrackedFloorConfirmed] = useState(false);
-  const [arAvailable, setArAvailable] = useState(false);
-  useEffect(() => {
-    let disposed = false;
-    const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
-    if (isHandheldARDevice() && window.isSecureContext && xr?.isSessionSupported) {
-      void xr.isSessionSupported('immersive-ar').then(ok => {
-        if (!disposed) setArAvailable(Boolean(ok));
-      }).catch(() => { if (!disposed) setArAvailable(false); });
-    }
-    return () => { disposed = true; };
-  }, []);
+  // Eligibility controls the entry button; only requestSession in the tap can
+  // determine actual AR availability. A false/hanging preflight must not lock it.
+  const [arAvailable] = useState(() => isHandheldARDevice());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sharedWideMode, setSharedWideMode] = useState<'normal' | 'wide' | 'ultra'>('normal');
   const [initialXrSession, setInitialXrSession] = useState<Promise<XRSession> | null>(null);

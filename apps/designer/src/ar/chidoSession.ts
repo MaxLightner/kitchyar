@@ -1,10 +1,16 @@
 /** One immersive session owns the camera, floor tracking and DOM tools. */
 export const CHIDO_REFERENCE_SPACE = 'local';
 
-export function isHandheldARDevice(nav: Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'> = navigator): boolean {
-  // iPadOS may identify as a Mac. A touchscreen Windows laptop remains desktop.
+export function isHandheldARDevice(
+  nav: Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'> = navigator,
+  primaryTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches,
+): boolean {
+  // Android's "Desktop site" may omit Android from the UA. Combine Linux,
+  // multitouch and the primary pointer, rather than treating screen size as AR.
+  // A Windows touchscreen laptop or Linux laptop with a mouse stays desktop.
   return /Android|iPhone|iPad|iPod/i.test(nav.userAgent) ||
-    (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
+    (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1) ||
+    (/Linux/i.test(nav.platform + ' ' + nav.userAgent) && nav.maxTouchPoints > 1 && primaryTouch);
 }
 
 export function chidoSessionOptions(root: HTMLElement): XRSessionInit {
