@@ -105,7 +105,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
             className="h-9 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-bold inline-flex items-center gap-1.5"
           >
             <Camera className="w-4 h-4" />
-            <span>پروژه جدید AR</span>
+            <span>پروژه جدید با اسکن کف</span>
           </button>
         </div>
       </header>
@@ -154,7 +154,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                 className="h-8 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[13px] font-bold inline-flex items-center justify-center gap-1"
               >
                 <Camera className="w-3.5 h-3.5" />
-                <span>AR</span>
+                <span>اسکن کف</span>
               </button>
             </div>
           </article>
@@ -276,7 +276,7 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                     className="h-8 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[13px] font-bold inline-flex items-center justify-center gap-1"
                   >
                     <Camera className="w-3.5 h-3.5" />
-                    <span>AR</span>
+                    <span>اسکن کف</span>
                   </button>
                 </div>
               </article>
