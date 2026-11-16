@@ -2142,23 +2142,28 @@ export default function App() {
    * WebXR requires transient user activation: requesting it from an effect or after
    * opening an intermediate page would be rejected by tablet browsers. */
   const beginTrackedFloorScan = useCallback(() => {
+    // Chido's scan UI must appear IMMEDIATELY, including when WebXR cannot
+    // start. It is the scan screen itself that reports the actual XR failure.
+    // A failed permission request must never silently replace scanning with
+    // the ordinary 3D editor (regression from the earlier implementation).
+    setViewMode('3d');
+    setTool('wall');
+    setFloorScanActive(true);
+    setInitialXrSession(null);
     const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
     if (!xr || typeof xr.requestSession !== 'function') {
-      showToast('مرورگر WebXR AR ندارد؛ اسکن واقعی کف به Chrome/ARCore نیاز دارد');
-      setFloorScanActive(false);
+      showToast('اسکن کف باز شد؛ این مرورگر WebXR ندارد. برای دوربین واقعی از Chrome اندروید با ARCore استفاده کنید.');
       return;
     }
     try {
+      // Call requestSession synchronously within the Welcome/Projects tap:
+      // waiting for a React mount loses the user activation needed by WebXR.
       const requested = xr.requestSession('immersive-ar', chidoSessionOptions(document.body));
-      // Attach a rejection handler immediately, before the scanner mounts.
-      void requested.catch(() => {});
+      void requested.catch(() => {}); // The scanner displays the actual error.
       setInitialXrSession(requested);
-      setFloorScanActive(true);
-      setViewMode('3d');
-      setTool('wall');
-    } catch {
-      showToast('شروع مستقیم دوربین AR ممکن نشد؛ دسترسی دوربین یا WebXR را بررسی کنید');
-      setFloorScanActive(false);
+    } catch (error) {
+      console.warn('[Kitchyar XR] synchronous session request failed:', error);
+      showToast('اسکن کف باز شد، ولی شروع دوربین رد شد. دلیل دقیق داخل پنل اسکن نمایش داده می‌شود.');
     }
   }, [showToast]);
 
