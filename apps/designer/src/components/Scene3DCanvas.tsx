@@ -1353,6 +1353,44 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     };
 
+    const onDoorSingleClick = (e: PointerEvent) => {
+      if (!builtRef.current) return;
+      raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
+      const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
+      if (!hits.length) return;
+      const data = resolveHitData(hits[0].object);
+      if (!data?.doorId || !data.boxId) return;
+
+      const cur = propsRef.current;
+      const wall = cur.project.walls.find((x) => x.id === data.wallId);
+      const box = wall?.boxes.find((b) => b.id === data.boxId);
+      const door = box?.doors.find((d) => d.id === data.doorId);
+      if (!box || !door) return;
+
+      let rowIdx: number | undefined;
+      if (data.animationId && data.animationId.includes(':row:')) {
+        const raw = Number(data.animationId.split(':row:')[1]);
+        if (!Number.isNaN(raw)) rowIdx = raw;
+      }
+
+      if (!canDoorOpenIn3D(box, door, rowIdx)) {
+        cur.onToast('تا روی این درب دستگیره قرار ندهید درب باز نمی‌شود');
+        return;
+      }
+
+      const partId = data.animationId || data.doorId;
+
+      const states = doorStatesRef.current;
+      const curSt = states.get(partId) || {
+        cur: doorsOpenRef.current ? 1 : 0,
+        target: doorsOpenRef.current ? 1 : 0,
+      };
+      curSt.target = curSt.target > 0.5 ? 0 : 1;
+      states.set(partId, curSt);
+      requestRender();
+    };
+
+
     const onPointerUp = (e: PointerEvent) => {
       const dr = drag3DRef.current;
       drag3DRef.current = null;
@@ -1363,6 +1401,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
       const cur = propsRef.current;
       if (dr) {
+        if (dr.kind === 'move-box' && !dr.moved && cur.tool === 'select') onDoorSingleClick(e);
         if (dr.kind === 'move-box' && dr.moved && dr.lastTargetX !== dr.origX) {
           cur.onMoveBox(dr.wallId, dr.boxId, dr.lastTargetX, true, dr.sessionId);
         } else if (dr.kind === 'move-app' && dr.moved && dr.lastTargetX !== dr.origX) {
@@ -1382,6 +1421,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const dc = downClientRef.current;
       downClientRef.current = null;
       if (!dc || Math.hypot(e.clientX - dc.x, e.clientY - dc.y) > 8 || !builtRef.current) return;
+      if (cur.tool === 'select') onDoorSingleClick(e);
 
       if (cur.tool === 'wall') {
         const pt = raycastFloorPointCm(e.clientX, e.clientY);
@@ -2077,43 +2117,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     };
 
-    const onDoubleClick = (e: MouseEvent) => {
-      if (!builtRef.current) return;
-      raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
-      const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
-      if (!hits.length) return;
-      const data = resolveHitData(hits[0].object);
-      if (!data?.doorId || !data.boxId) return;
-
-      const cur = propsRef.current;
-      const wall = cur.project.walls.find((x) => x.id === data.wallId);
-      const box = wall?.boxes.find((b) => b.id === data.boxId);
-      const door = box?.doors.find((d) => d.id === data.doorId);
-      if (!box || !door) return;
-
-      let rowIdx: number | undefined;
-      if (data.animationId && data.animationId.includes(':row:')) {
-        const raw = Number(data.animationId.split(':row:')[1]);
-        if (!Number.isNaN(raw)) rowIdx = raw;
-      }
-
-      if (!canDoorOpenIn3D(box, door, rowIdx)) {
-        cur.onToast('تا روی این درب دستگیره قرار ندهید درب باز نمی‌شود');
-        return;
-      }
-
-      const partId = data.animationId || data.doorId;
-
-      const states = doorStatesRef.current;
-      const curSt = states.get(partId) || {
-        cur: doorsOpenRef.current ? 1 : 0,
-        target: doorsOpenRef.current ? 1 : 0,
-      };
-      curSt.target = curSt.target > 0.5 ? 0 : 1;
-      states.set(partId, curSt);
-      requestRender();
-    };
-
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       rightDownClientRef.current = null;
@@ -2183,7 +2186,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const dom = renderer.domElement;
     dom.addEventListener('wheel', onWheelCapture, { passive: false, capture: true });
     dom.addEventListener('pointerdown', onPointerDown, { capture: true });
-    dom.addEventListener('dblclick', onDoubleClick);
     dom.addEventListener('contextmenu', onContextMenu);
     dom.addEventListener('touchstart', onTouchStart, { passive: true });
     dom.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -2199,7 +2201,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       ro.disconnect();
       dom.removeEventListener('wheel', onWheelCapture, { capture: true });
       dom.removeEventListener('pointerdown', onPointerDown, { capture: true });
-      dom.removeEventListener('dblclick', onDoubleClick);
       dom.removeEventListener('contextmenu', onContextMenu);
       dom.removeEventListener('touchstart', onTouchStart);
       dom.removeEventListener('touchmove', onTouchMove);
