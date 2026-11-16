@@ -36,6 +36,7 @@ import {
 import { FloorScanner } from '../ar/floorScanner';
 import { AnchorSample, AnchorStabilizer, ChidoVec3, transformPoint as chidoTransformPoint } from '../ar/chidoAnchorRig';
 import { chidoSessionOptions } from '../ar/chidoSession';
+import { chidoScanReadiness } from '../ar/chidoScanReadiness';
 import {
   NearRealOcclusion,
   OCCLUSION_STATUS_LABEL,
@@ -424,6 +425,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [xrActive, setXrActive] = useState(false);
   const [floorLocked, setFloorLocked] = useState(false);
   const [scanReady, setScanReady] = useState(false);
+  const [xrStarting, setXrStarting] = useState(false);
+  const [xrStartError, setXrStartError] = useState<string | null>(null);
+  const [scanDiagnostics, setScanDiagnostics] = useState({
+    tracking: false,
+    rawHits: 0,
+    validHits: 0,
+  });
+  const lastScanReportMsRef = useRef(0);
   const [occlusionEnabled, setOcclusionEnabled] = useState(true);
   const [occlusionStatus, setOcclusionStatus] = useState<OcclusionStatus>('idle');
   const [doorsOpen, setDoorsOpen] = useState(false);
@@ -555,6 +564,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   reticleEnabledRef.current = reticleEnabled;
 
   const xrSessionRef = useRef<XRSession | null>(null);
+  const skipEndNotificationRef = useRef(false);
   const floorScannerRef = useRef(new FloorScanner());
   const anchorStabilizerRef = useRef(new AnchorStabilizer());
   const anchorsRef = useRef<StoredAnchorEntry[]>([]);
@@ -2142,12 +2152,20 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
   // Start / Resume WebXR session with full MaxLightner/kitchyar multi-ray + plane hit-test & anchors!
   const startWebXrSession = async (pendingSession?: Promise<XRSession> | null) => {
+    setXrStarting(true);
+    setXrStartError(null);
+    setScanDiagnostics({ tracking: false, rawHits: 0, validHits: 0 });
     const xr = (navigator as unknown as { xr?: XRSystem }).xr;
     const renderer = rendererRef.current;
     // A pre-requested session uses document.body as its persistent DOM overlay.
     const overlayRoot = overlayRootRef.current || document.body;
     if ((!xr && !pendingSession) || !renderer || !overlayRoot) {
-      onToast('این مرورگر یا دستگاه از WebXR AR پشتیبانی نمی‌کند (پیش‌نمایش کالیبراسیون فعال است)');
+      const message = !xr && !pendingSession
+        ? 'WebXR در این مرورگر فعال نیست. اسکن واقعی کف به Chrome اندروید و ARCore نیاز دارد.'
+        : 'موتور اسکن هنوز آماده نشده است؛ دوباره شروع دوربین را بزنید.';
+      setXrStartError(message);
+      setXrStarting(false);
+      onToast(message);
       return;
     }
 
@@ -2158,6 +2176,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     try {
       const session = await (pendingSession || xr!.requestSession('immersive-ar', chidoSessionOptions(overlayRoot)));
+      if (rendererRef.current !== renderer) {
+        await session.end().catch(() => {});
+        return;
+      }
+      skipEndNotificationRef.current = false;
       xrSessionRef.current = session;
       setXrActive(true);
       if (controlsRef.current) controlsRef.current.enabled = false;
@@ -2187,7 +2210,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         setFloorLocked(false);
         setScanReady(false);
         setOcclusionStatus('idle');
-        onSessionEnded?.();
+        if (skipEndNotificationRef.current) {
+          skipEndNotificationRef.current = false;
+        } else {
+          onSessionEnded?.();
+        }
         if (controlsRef.current) controlsRef.current.enabled = true;
         renderOnceRef.current();
       });
@@ -2197,6 +2224,15 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // rather than moving their origin sideways (the old Kitchyar bug).
       renderer.xr.setReferenceSpaceType('local');
       await renderer.xr.setSession(session);
+      // Chido keeps an XR render loop alive even while hit-test providers are
+      // being initialized. Without this the camera/scanner looks frozen until
+      // as many as nine async hit sources finish opening.
+      renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
+        if (frame && sceneRef.current && rendererRef.current === renderer) {
+          renderer.render(sceneRef.current, renderer.xr.getCamera());
+        }
+      });
+      setXrStarting(false);
       const viewerSpace = await session.requestReferenceSpace('viewer');
       if (!session.requestHitTestSource) {
         throw new DOMException('Chido floor scanning requires WebXR hit-test', 'NotSupportedError');
@@ -2500,8 +2536,21 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }
       });
 
-      onToast('اسکن خودکار کف فعال شد — دوربین را رو به کف نگه دارید');
-    } catch {
+      setXrStarting(false);
+      onToast('اسکن کف چیدو فعال شد؛ دوربین را آرام به چپ و راست حرکت دهید');
+    } catch (error) {
+      const err = error as { name?: string; message?: string } | null;
+      const name = err?.name || 'Error';
+      const details = err?.message || String(error);
+      console.error('[Kitchyar Chido Floor Scan] WebXR launch failed', { name, details, error });
+      const message = name === 'NotAllowedError' || name === 'SecurityError'
+        ? 'اجازه دوربین داده نشد؛ صفحه را در Chrome اندروید باز کنید و مجوز AR را تأیید کنید'
+        : name === 'NotSupportedError'
+        ? 'مرورگر از WebXR، تشخیص کف و DOM Overlay به‌صورت هم‌زمان پشتیبانی نمی‌کند'
+        : `شروع اسکن متوقف شد: ${name} — ${details}`;
+      skipEndNotificationRef.current = true;
+      setXrStartError(message);
+      setXrStarting(false);
       const partialSession = xrSessionRef.current;
       xrSessionRef.current = null;
       if (partialSession) partialSession.end().catch(() => {});
@@ -2514,8 +2563,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setScanReady(false);
       if (controlsRef.current) controlsRef.current.enabled = true;
       renderOnceRef.current();
-      onToast('شروع دوربین واقعی WebXR ناموفق بود؛ مجوز دوربین و پشتیبانی ARCore را بررسی کنید');
-      if (embeddedIn3D) onSessionEnded?.();
+      onToast(message);
+      // Keep the Chido scanner visible with its error and retry button.
+      // The previous implementation silently hid this entire screen.
     }
   };
 
