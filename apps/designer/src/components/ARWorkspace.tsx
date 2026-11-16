@@ -2256,12 +2256,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // Exact Chido orientation: a local reference space and a true forward
       // viewer-space plane hit test. Additional rays ROTATE their direction,
       // rather than moving their origin sideways (the old Kitchyar bug).
-      renderer.xr.setReferenceSpaceType('local');
+      renderer.xr.setReferenceSpaceType('local-floor');
       await withXRStartupTimeout(renderer.xr.setSession(session), 'موتور WebXR', 15000);
       // Install the REAL Chido-style tracking loop as soon as setSession
       // succeeds, not after each optional hit-test provider responds.
       // It stays alive for both scanning and the confirmed-floor state.
-      void session.requestReferenceSpace('local').then(local => {
+      void session.requestReferenceSpace('local-floor').then(local => {
         if (xrSessionRef.current === session) fallbackLocalSpaceRef.current = local;
       }).catch(error => console.warn('[Kitchyar XR] local reference space unavailable', error));
       let lastXrFrameTime = 0;
@@ -2576,6 +2576,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       })), 'تشخیص سطح مرکزی', 15000);
       if (!central) throw new DOMException('Chido central plane hit test unavailable', 'NotSupportedError');
       hitTestSourcesRef.current = [central];
+      // Preserve Chido's plane-only central ray. On ARCore versions that
+      // discover feature points before a stable plane, also sample points as
+      // a strictly optional source; FloorScanner still accepts ONLY level hits.
+      void session.requestHitTestSource({
+        space: viewerSpace,
+        entityTypes: ['point'],
+      }).then(source => {
+        if (xrSessionRef.current === session) lowerHitSourceRef.current = source;
+        else source?.cancel();
+      }).catch(error => console.debug('[Kitchyar XR] optional point hit test unavailable', error));
       // The previous implementation awaited all eight auxiliary hit sources
       // one by one BEFORE starting the real scan loop. On Android, even one
       // unresolved request left the reticle and floor scan frozen. Start the
