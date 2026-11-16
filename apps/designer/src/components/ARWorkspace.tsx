@@ -35,7 +35,7 @@ import {
 } from '../ar/arCalibration';
 import { FloorScanner } from '../ar/floorScanner';
 import { AnchorSample, AnchorStabilizer, ChidoVec3, transformPoint as chidoTransformPoint } from '../ar/chidoAnchorRig';
-import { chidoSessionOptions } from '../ar/chidoSession';
+import { CHIDO_REFERENCE_SPACE, requestChidoSession, xrLaunchError } from '../ar/chidoSession';
 import { chidoScanReadiness } from '../ar/chidoScanReadiness';
 import {
   NearRealOcclusion,
@@ -447,6 +447,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [floorLocked, setFloorLocked] = useState(false);
   const [scanReady, setScanReady] = useState(false);
   const [xrStarting, setXrStarting] = useState(false);
+  const startupPendingRef = useRef(false);
   const [xrStartError, setXrStartError] = useState<string | null>(null);
   const [scanDiagnostics, setScanDiagnostics] = useState({
     tracking: false,
@@ -2190,6 +2191,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
   // Start / Resume WebXR session with full MaxLightner/kitchyar multi-ray + plane hit-test & anchors!
   const startWebXrSession = async (pendingSession?: Promise<XRSession> | null) => {
+    if (startupPendingRef.current || xrSessionRef.current) return;
+    startupPendingRef.current = true;
+    let startupStage = 'درخواست نشست AR';
+    let sessionRequest: Promise<XRSession> | null = null;
     setXrStarting(true);
     setXrStartError(null);
     setScanDiagnostics({ tracking: false, rawHits: 0, validHits: 0 });
@@ -2203,18 +2208,15 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         : 'موتور اسکن هنوز آماده نشده است؛ دوباره شروع دوربین را بزنید.';
       setXrStartError(message);
       setXrStarting(false);
+      startupPendingRef.current = false;
       onToast(message);
       return;
     }
 
-    if (xrSessionRef.current) {
-      setXrActive(true);
-      return;
-    }
-
     try {
+      sessionRequest = pendingSession || requestChidoSession(xr!, overlayRoot);
       const session = await withXRStartupTimeout(
-        pendingSession || xr!.requestSession('immersive-ar', chidoSessionOptions(overlayRoot)),
+        sessionRequest,
         'دوربین WebXR', 30000
       );
       if (rendererRef.current !== renderer) {
@@ -2273,12 +2275,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // Exact Chido orientation: a local reference space and a true forward
       // viewer-space plane hit test. Additional rays ROTATE their direction,
       // rather than moving their origin sideways (the old Kitchyar bug).
-      renderer.xr.setReferenceSpaceType('local-floor');
+      startupStage = 'اتصال موتور به فضای ردیابی local';
+      renderer.xr.setReferenceSpaceType(CHIDO_REFERENCE_SPACE);
       await withXRStartupTimeout(renderer.xr.setSession(session), 'موتور WebXR', 15000);
       // Install the REAL Chido-style tracking loop as soon as setSession
       // succeeds, not after each optional hit-test provider responds.
       // It stays alive for both scanning and the confirmed-floor state.
-      void session.requestReferenceSpace('local-floor').then(local => {
+      void session.requestReferenceSpace(CHIDO_REFERENCE_SPACE).then(local => {
         if (xrSessionRef.current === session) fallbackLocalSpaceRef.current = local;
       }).catch(error => console.warn('[Kitchyar XR] local reference space unavailable', error));
       let lastXrFrameTime = 0;
@@ -2580,10 +2583,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }
       });
       setXrStarting(false);
+      startupStage = 'فضای دید دوربین';
       const viewerSpace = await withXRStartupTimeout(session.requestReferenceSpace('viewer'), 'ردیابی دوربین', 15000);
       if (!session.requestHitTestSource) {
         throw new DOMException('Chido floor scanning requires WebXR hit-test', 'NotSupportedError');
       }
+      startupStage = 'تشخیص کف (hit-test)';
       const central = await withXRStartupTimeout(Promise.resolve(session.requestHitTestSource({
         space: viewerSpace,
         entityTypes: ['plane'],
@@ -2629,6 +2634,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
         })();
       }
+      startupStage = 'نمایش ابزارها (DOM Overlay)';
       if (!session.domOverlayState) {
         throw new DOMException('Chido needs WebXR DOM Overlay for floor confirmation', 'NotSupportedError');
       }
@@ -2642,19 +2648,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const name = err?.name || 'Error';
       const details = err?.message || String(error);
       console.error('[Kitchyar Chido Floor Scan] WebXR launch failed', { name, details, error });
-      const message = name === 'NotAllowedError' || name === 'SecurityError'
-        ? 'اجازه دوربین داده نشد؛ صفحه را در Chrome اندروید باز کنید و مجوز AR را تأیید کنید'
-        : name === 'NotSupportedError'
-        ? 'مرورگر از WebXR، تشخیص کف و DOM Overlay به‌صورت هم‌زمان پشتیبانی نمی‌کند'
-        : name === 'TimeoutError'
-        ? details
-        : `شروع اسکن متوقف شد: ${name} — ${details}`;
+      const message = xrLaunchError(error, startupStage);
       skipEndNotificationRef.current = true;
       setXrStartError(message);
       setXrStarting(false);
       const partialSession = xrSessionRef.current;
       xrSessionRef.current = null;
       if (partialSession) partialSession.end().catch(() => {});
+      // A permission dialog can resolve after our timeout. Release that late
+      // session too, so retry never competes with a camera we no longer own.
+      else if (sessionRequest) void sessionRequest.then(session => session.end()).catch(() => {});
       renderer.setAnimationLoop(null);
       hitTestSourcesRef.current = [];
       lowerHitSourceRef.current = null;
@@ -2667,6 +2670,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       onToast(message);
       // Keep the Chido scanner visible with its error and retry button.
       // The previous implementation silently hid this entire screen.
+    } finally {
+      startupPendingRef.current = false;
+      setXrStarting(false);
     }
   };
 

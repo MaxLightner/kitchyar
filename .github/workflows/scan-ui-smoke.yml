@@ -2,7 +2,7 @@ name: Browser smoke — Chido floor scan from Welcome
 
 on:
   push:
-    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16']
+    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16', 'fix/unified-xr-session-2026-11-16']
     paths:
       - 'apps/designer/**'
       - '.github/workflows/scan-ui-smoke.yml'
@@ -21,12 +21,14 @@ jobs:
         working-directory: apps/designer
         run: |
           bun install --frozen-lockfile
+          bun run lint
+          bun run test
           bun run build
       - name: Install isolated browser test runtime
         run: |
           npm install --no-save --no-package-lock --prefix /tmp/kitchyar-smoke playwright@1.58.0
           /tmp/kitchyar-smoke/node_modules/.bin/playwright install chromium --with-deps
-      - name: Exercise Welcome scan in Chromium without WebXR
+      - name: Exercise desktop gating and tablet launch failure in Chromium
         working-directory: apps/designer
         shell: bash
         run: |
@@ -45,32 +47,51 @@ jobs:
             const errors = [];
             page.on('pageerror', error => errors.push(error.message));
             await page.goto('http://127.0.0.1:4173/', {waitUntil:'networkidle'});
-            await page.getByRole('button',{name:'اسکن کف AR'}).click();
-            const scanner = page.getByTestId('chido-floor-scan-readiness');
-            await scanner.waitFor({timeout:15000});
-            assert.equal(await scanner.isVisible(), true, 'Chido scanner must be shown immediately from Welcome');
-            const label = await page.getByTestId('chido-scan-stage').textContent();
-            assert.match(label, /WebXR|دوربین|اسکن/, 'Scanner must report its actual XR state');
-            assert.equal(await page.getByTestId('chido-scan-progress').count(), 1);
-            assert.equal(await page.getByTestId('3d-fov-normal').isVisible(), true, '3D toolbar must be preserved');
-            assert.equal(await page.getByTestId('scene-3d-canvas').count(), 0, 'Do not allocate competing WebGL canvas during XR');
-            console.log('PASS: Welcome opens Chido scanner, shows diagnosis and preserves 3D toolbar:',label);
-            await page.getByTestId('toggle-floor-scan-3d').click();
+            assert.equal(await page.getByRole('button',{name:'اسکن کف AR'}).isDisabled(), true,
+              'Desktop browser must not offer AR even at tablet viewport size');
+            await page.goto('http://127.0.0.1:4173/?autostart=1', {waitUntil:'networkidle'});
+            await page.getByRole('button',{name:'نمای سه‌بعدی',exact:true}).click();
             await page.getByTestId('scene-3d-canvas').waitFor({timeout:15000});
-            console.log('PASS: Turning scan off restores normal 3D canvas.');
+            assert.equal(await page.getByTestId('toggle-floor-scan-3d').isDisabled(),true);
+            console.log('PASS: desktop AR disabled; normal 3D canvas available.');
 
-            // Scanner marker and Chido overlay must be ABOVE the preserved 3D
-            // toolbar canvas, not hidden under its stacking context.
-            await page.getByTestId('toggle-floor-scan-3d').click();
-            await page.getByTestId('ar-reticle-overlay').waitFor({timeout:10000});
-            const scanLayers = await page.evaluate(() => ({
+            const tablet = await browser.newPage({
+              viewport:{width:1024,height:768}, hasTouch:true,
+              userAgent:'Mozilla/5.0 (Linux; Android 14; Tablet) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'
+            });
+            tablet.on('pageerror', error => errors.push(error.message));
+            await tablet.addInitScript(() => {
+              window.__xrCalls=0;
+              Object.defineProperty(navigator,'xr',{configurable:true,value:{
+                isSessionSupported:async()=>true,
+                requestSession:()=>{ window.__xrCalls++; return new Promise((resolve,reject)=>{window.__rejectXR=reject;}); }
+              }});
+            });
+            await tablet.goto('http://127.0.0.1:4173/', {waitUntil:'networkidle'});
+            await tablet.getByRole('button',{name:'اسکن کف AR'}).click();
+            const scanner=tablet.getByTestId('chido-floor-scan-readiness');
+            await scanner.waitFor({timeout:15000});
+            assert.equal(await tablet.getByTestId('scene-3d-canvas').count(),0,
+              'Do not allocate competing WebGL canvas while tracking');
+            await tablet.getByTestId('toggle-floor-scan-3d').click();
+            assert.equal(await tablet.evaluate(()=>window.__xrCalls),1,
+              'Repeated camera tap must reuse pending request');
+            await tablet.evaluate(()=>window.__rejectXR(new DOMException('fixture capability unavailable','NotSupportedError')));
+            await tablet.getByText(/fixture capability unavailable/).first().waitFor();
+            assert.equal(await scanner.isVisible(),true,'Failed launch remains visible with actual error');
+            assert.equal(await tablet.getByText(/به‌صورت هم‌زمان پشتیبانی/).count(),0,
+              'Do not invent a DOM-overlay conflict from NotSupportedError');
+            await tablet.getByRole('button',{name:'شروع مجدد دوربین'}).click();
+            assert.equal(await tablet.evaluate(()=>window.__xrCalls),2,'Failed request must allow explicit retry');
+            await tablet.evaluate(()=>window.__rejectXR(new DOMException('fixture retry rejected','NotAllowedError')));
+            await tablet.getByText(/fixture retry rejected/).first().waitFor();
+            const scanLayers = await tablet.evaluate(() => ({
               ar: Number(getComputedStyle(document.querySelector('[data-testid="ar-workspace"]')).zIndex),
               scene: Number(getComputedStyle(document.querySelector('[data-testid="scene-3d-root"]')).zIndex)
             }));
-            assert.ok(scanLayers.ar > scanLayers.scene,
-              'Chido scanner must be above 3D viewport: '+JSON.stringify(scanLayers));
-            await page.getByTestId('toggle-floor-scan-3d').click();
-            console.log('PASS: Chido pointer/reticle overlay is layered above 3D.');
+            assert.ok(scanLayers.ar > scanLayers.scene);
+            await tablet.close();
+            console.log('PASS: supported tablet entry, single request, real failure diagnosis and retry.');
 
             async function assertDockVisible(width,height) {
               await page.setViewportSize({width,height});

@@ -26,6 +26,7 @@ import { DesignStyle } from '../cad/types';
 export type ViewMode = '2d' | '3d' | 'ar';
 
 interface TopBarProps {
+  arAvailable?: boolean;
   canUndo: boolean;
   canRedo: boolean;
   viewMode: ViewMode;
@@ -70,6 +71,7 @@ const subIconBtn =
   'h-7 w-7 rounded-md border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-35 disabled:cursor-not-allowed active:scale-95 text-slate-700 inline-flex items-center justify-center shrink-0 transition';
 
 export const TopBar: React.FC<TopBarProps> = ({
+  arAvailable = false,
   canUndo,
   canRedo,
   viewMode,
@@ -304,15 +306,16 @@ export const TopBar: React.FC<TopBarProps> = ({
                 type="button"
                 data-testid="toggle-floor-scan-3d"
                 onClick={onToggleFloorScan}
+                disabled={!arAvailable}
                 aria-pressed={floorScanActive}
-                aria-label={floorScanActive ? 'پایان اسکن کف' : 'اسکن کف با دوربین واقعی'}
-                title={floorScanActive ? 'بازگشت به نمای سه‌بعدی آزاد' : 'اسکن کف در همین محیط سه‌بعدی'}
+                aria-label={floorScanActive ? 'نمای AR با ردیابی زنده' : 'اسکن کف با دوربین واقعی'}
+                title={!arAvailable ? 'AR روی این دستگاه در دسترس نیست' : floorScanActive ? 'بازگشت به تصویر واقعی با حفظ ردیابی' : 'اسکن کف در همین محیط سه‌بعدی'}
                 className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${floorScanActive
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'text-emerald-700 hover:bg-white'}`}
               >
                 <Camera className="w-3.5 h-3.5" />
-                <span>{floorScanActive ? 'دوربین فعال' : 'اسکن کف'}</span>
+                <span>{floorScanActive ? 'نمای AR' : 'اسکن کف'}</span>
               </button>
             )}
           </div>

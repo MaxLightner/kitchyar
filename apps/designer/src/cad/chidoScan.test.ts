@@ -63,6 +63,6 @@ test('Chido WebXR session features are exact and DOM overlay is required', () =>
   const root = {} as HTMLElement;
   const options = chidoSessionOptions(root);
   assert.deepEqual(options.requiredFeatures, ['hit-test', 'dom-overlay']);
-  assert.deepEqual(options.optionalFeatures, ['anchors', 'plane-detection', 'camera-access']);
+  assert.deepEqual(options.optionalFeatures, ['anchors', 'plane-detection']);
   assert.equal(options.domOverlay?.root, root);
 });

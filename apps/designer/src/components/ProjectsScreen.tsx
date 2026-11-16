@@ -16,6 +16,7 @@ import { PresetMode } from '../cad/presets';
 import { SavedProjectRecord } from '../cad/projectStorage';
 
 interface ProjectsScreenProps {
+  arAvailable?: boolean;
   projects: SavedProjectRecord[];
   activeProjectId: string | null;
   onBackToWelcome: () => void;
@@ -29,6 +30,7 @@ interface ProjectsScreenProps {
 }
 
 export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
+  arAvailable = false,
   projects,
   activeProjectId,
   onBackToWelcome,
@@ -102,6 +104,8 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
           <button
             type="button"
             onClick={() => onCreateProject('ar')}
+              disabled={!arAvailable}
+              title={!arAvailable ? "AR روی این دستگاه در دسترس نیست" : "اسکن کف با دوربین"}
             className="h-9 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-bold inline-flex items-center gap-1.5"
           >
             <Camera className="w-4 h-4" />
@@ -151,6 +155,8 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
               <button
                 type="button"
                 onClick={() => onCreateProject('ar')}
+              disabled={!arAvailable}
+              title={!arAvailable ? "AR روی این دستگاه در دسترس نیست" : "اسکن کف با دوربین"}
                 className="h-8 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[13px] font-bold inline-flex items-center justify-center gap-1"
               >
                 <Camera className="w-3.5 h-3.5" />
@@ -273,6 +279,8 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenProject(rec.id, 'ar')}
+              disabled={!arAvailable}
+              title={!arAvailable ? "AR روی این دستگاه در دسترس نیست" : "اسکن کف با دوربین"}
                     className="h-8 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[13px] font-bold inline-flex items-center justify-center gap-1"
                   >
                     <Camera className="w-3.5 h-3.5" />
