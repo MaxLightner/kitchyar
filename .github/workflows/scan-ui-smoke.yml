@@ -205,5 +205,5 @@ jobs:
             assert.equal(designErrors.length,0,'Align actions must not crash browser: '+designErrors.join('; '));
             console.log('PASS: Exactly five Align tools appear, equal-size require multi-selection and center-click works.');
             await browser.close();
-          })().catch(e=>{console.error(e);process.exitCode=1;});
+          })().catch(e=>{console.error(e);process.exit(1);});
           JS
