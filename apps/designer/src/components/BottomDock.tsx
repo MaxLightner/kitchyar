@@ -67,7 +67,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
     }`;
 
   return (
-    <div className="relative shrink-0 z-30 bg-white border-t border-slate-200">
+    <div data-testid="bottom-dock" className="relative shrink-0 z-30 bg-white border-t border-slate-200">
       <nav
         aria-label="ابزارهای درج و طراحی"
         className="flex flex-col divide-y divide-slate-100"
