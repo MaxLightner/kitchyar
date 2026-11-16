@@ -148,6 +148,8 @@ interface ARWorkspaceProps {
   sharedTool?: ToolId;
   onSessionEnded?: () => void;
   onFloorConfirmed?: () => void;
+  wideViewModeExternal?: WideViewMode;
+  onWideViewModeChange?: (mode: WideViewMode) => void;
 }
 
 interface AlignmentState {
@@ -398,6 +400,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   sharedTool,
   onSessionEnded,
   onFloorConfirmed,
+  wideViewModeExternal,
+  onWideViewModeChange,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -409,7 +413,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [occlusionStatus, setOcclusionStatus] = useState<OcclusionStatus>('idle');
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [reticleEnabled, setReticleEnabled] = useState(true);
-  const [wideViewMode, setWideViewMode] = useState<WideViewMode>('normal');
+  const [localWideViewMode, setLocalWideViewMode] = useState<WideViewMode>('normal');
+  const wideViewMode = wideViewModeExternal ?? localWideViewMode;
+  const setWideViewMode = (mode: WideViewMode) => {
+    setLocalWideViewMode(mode);
+    onWideViewModeChange?.(mode);
+  };
   const wideViewModeRef = useRef<WideViewMode>('normal');
   wideViewModeRef.current = wideViewMode;
 
@@ -2469,7 +2478,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           setCursorPreview(null);
         }}
         className={`flex-1 relative cursor-crosshair ${
-          xrActive ? 'bg-transparent' : 'bg-gradient-to-b from-slate-200 via-slate-100 to-slate-200'
+          xrActive || embeddedIn3D ? 'bg-transparent' : 'bg-gradient-to-b from-slate-200 via-slate-100 to-slate-200'
         }`}
       />
 
@@ -2488,53 +2497,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         </div>
       )}
 
-      {embeddedIn3D && (
-        <div className="absolute top-2.5 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
-          <div className="pointer-events-auto flex items-center gap-1 bg-white/95 border border-slate-300 rounded-xl p-1 shadow-sm">
-            <button type="button" aria-pressed={true} className="h-7 px-2.5 rounded-lg bg-indigo-600 text-white text-[13px] font-bold">سه‌بعدی</button>
-            <button type="button" disabled title="کنترل دوربین اکنون با حرکت تبلت است"
-              className="h-7 px-2.5 rounded-lg text-[13px] font-bold text-slate-400">روبروی دیوار</button>
-            <button type="button" disabled title="در اسکن فعال، زاویه دوربین با تبلت کنترل می‌شود"
-              className="h-7 px-2.5 rounded-lg text-[13px] font-bold text-slate-400">بالا (پلان)</button>
-            <div className="w-px h-4 bg-slate-200 mx-0.5" />
-            {(['normal', 'wide', 'ultra'] as const).map((mode) => (
-              <button key={mode} type="button" data-testid={`tracked-3d-fov-${mode}`}
-                onClick={() => setWideViewMode(mode)} aria-pressed={wideViewMode === mode}
-                className={`h-7 px-2 rounded-lg text-[13px] font-bold ${wideViewMode === mode
-                  ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
-              >{mode === 'normal' ? 'عادی' : mode === 'wide' ? 'واید' : 'اولترا'}</button>
-            ))}
-            <div className="w-px h-4 bg-slate-200 mx-0.5" />
-            <button type="button" data-testid="toggle-3d-doors-btn" aria-pressed={doorsOpen}
-              onClick={() => {
-                const next = !doorsOpen;
-                const built = builtSceneRef.current;
-                if (next && (!built || !built.animatedDoors.length)) {
-                  onToast('ابتدا برای درب‌ها دستگیره قرار دهید');
-                  return;
-                }
-                setDoorsOpen(next);
-                for (const h of built?.animatedDoors || []) {
-                  const st = doorStatesRef.current.get(h.doorId);
-                  doorStatesRef.current.set(h.doorId, {cur: st?.cur || 0, target: next ? 1 : 0});
-                }
-              }} className="h-7 px-2 rounded-lg text-[13px] font-bold text-slate-700 hover:bg-slate-100">
-              {doorsOpen ? 'درب‌ها باز' : 'درب‌ها بسته'}
-            </button>
-          </div>
-          <div className="pointer-events-auto flex items-center gap-1 bg-white/95 border border-slate-300 rounded-xl p-1 shadow-sm max-w-full overflow-x-auto">
-            <Layers className="w-3.5 h-3.5 text-slate-500" />
-            {project.walls.map(w => (
-              <button key={w.id} type="button" aria-pressed={project.activeWallId === w.id}
-                onClick={() => onUpdateProject(prev => ({...prev, activeWallId: w.id, activeBoxId: null}))}
-                className={`h-7 px-2 rounded-lg text-[13px] font-bold whitespace-nowrap ${project.activeWallId === w.id ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}>
-                {w.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
+      {/* The original Scene3DCanvas owns every 3D camera and wall-selector button.
+          No duplicate scanner toolbar: XR provides only its camera and floor UI. */}
       {/* The scanned camera is only a layer of the existing 3D editor. */}
       {embeddedIn3D ? (
         <div className="absolute top-[58px] left-2.5 right-2.5 z-20 pointer-events-none flex justify-center">
