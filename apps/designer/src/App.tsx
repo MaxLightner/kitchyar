@@ -253,6 +253,7 @@ export default function App() {
   const [tool, setTool] = useState<ToolId>('doors');
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
   const [floorScanActive, setFloorScanActive] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [sharedWideMode, setSharedWideMode] = useState<'normal' | 'wide' | 'ultra'>('normal');
   const [initialXrSession, setInitialXrSession] = useState<Promise<XRSession> | null>(null);
   const [arSessionKillSignal, setArSessionKillSignal] = useState(0);
@@ -326,6 +327,48 @@ export default function App() {
     document.documentElement.classList.toggle('kitchiyar-xr-passthrough', floorScanActive);
     return () => document.documentElement.classList.remove('kitchiyar-xr-passthrough');
   }, [floorScanActive]);
+
+  // The visible page height changes with Android Chrome's address/navigation
+  // bars, orientation, split-screen and fullscreen transitions. 100vh is the
+  // *layout* viewport and can clip the two rows of tools at the bottom.
+  useEffect(() => {
+    if (screen !== 'editor') return;
+    const shell = editorOverlayRef.current;
+    if (!shell) return;
+    const updateViewport = () => {
+      const height = window.visualViewport?.height || window.innerHeight;
+      if (height > 0) shell.style.setProperty('--kitchiyar-visual-height', `${Math.round(height)}px`);
+    };
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    window.addEventListener('orientationchange', updateViewport);
+    window.visualViewport?.addEventListener('resize', updateViewport);
+    return () => {
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('orientationchange', updateViewport);
+      window.visualViewport?.removeEventListener('resize', updateViewport);
+    };
+  }, [screen]);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onChange);
+    onChange();
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const handleToggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => showToast('خروج از تمام‌صفحه انجام نشد'));
+      return;
+    }
+    const root = editorOverlayRef.current;
+    if (!root?.requestFullscreen) {
+      showToast('تمام‌صفحه در این مرورگر در دسترس نیست؛ ابزارها در حالت معمولی هم باید دیده شوند');
+      return;
+    }
+    void root.requestFullscreen().catch(() => showToast('مرورگر اجازه تمام‌صفحه را نداد'));
+  }, [showToast]);
 
   const triggerAutoUnitHighlight = useCallback((boxId: string) => {
     setAutoUnitHighlightBoxId(boxId);
@@ -2245,6 +2288,8 @@ export default function App() {
     setArSessionKillSignal((n) => n + 1);
     setFloorScanActive(false);
     setInitialXrSession(null);
+    // Leaving the editor must also release fullscreen and its viewport insets.
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     setScreen(target);
   }, []);
 
@@ -2350,7 +2395,8 @@ export default function App() {
   return (
     <div
       ref={editorOverlayRef}
-      className={`kichiyar-safe-root w-screen h-screen flex flex-col overflow-hidden relative text-slate-900 ${
+      data-testid="editor-shell"
+      className={`kichiyar-safe-root kitchiyar-editor-shell w-full flex flex-col overflow-hidden relative text-slate-900 ${
         floorScanActive || viewMode === 'ar' ? 'bg-transparent' : 'bg-slate-50'
       }`}
     >
@@ -2381,6 +2427,9 @@ export default function App() {
         activeBoxName={activeBox?.name}
         projectName={activeProjectRecord?.name}
         onOpenProjects={() => handleExitEditorTo('projects')}
+        onOpenWelcome={() => handleExitEditorTo('welcome')}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
         onOpenStyles={() => setStyleGalleryOpen(true)}
         onNewProject={handleNewProject}
         onUndo={handleUndo}
@@ -2404,9 +2453,9 @@ export default function App() {
         onMoveUnit={handleMoveUnit}
       />
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="kitchiyar-editor-main flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
         {viewMode !== 'ar' && (
-          <div className={`flex-1 flex overflow-hidden relative z-20 ${floorScanActive ? 'bg-transparent' : 'bg-slate-50'}`}>
+          <div className={`flex-1 min-h-0 min-w-0 flex overflow-hidden relative z-20 ${floorScanActive ? 'bg-transparent' : 'bg-slate-50'}`}>
             <SideInspector
               activeTool={tool}
               onSelectTool={handleSelectTool}
@@ -2516,7 +2565,7 @@ export default function App() {
 
             <main
               ref={workspaceRef}
-              className="flex-1 flex flex-col overflow-hidden relative"
+              className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden relative"
               onPointerMove={(e) => {
                 if (!splitDragging.current || !workspaceRef.current) return;
                 const rect = workspaceRef.current.getBoundingClientRect();
