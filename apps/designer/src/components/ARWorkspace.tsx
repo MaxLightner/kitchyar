@@ -2193,50 +2193,96 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         });
         if (occlusionRef.current) setOcclusionStatus(occlusionRef.current.status);
 
-        // Create XRAnchors asynchronously on the first XR frame after floor lock
-        if (pendingAnchorCreateRef.current && floorGroupRef.current && typeof frame.createAnchor === 'function') {
-          pendingAnchorCreateRef.current = false;
-          const observations = floorScannerRef.current.observations.slice(0, 5);
-          const groupOrigin = floorGroupRef.current.position.clone();
-          observations.forEach((obs, i) => {
-            const xform = new XRRigidTransform({ x: obs.x, y: obs.y, z: obs.z });
-            frame.createAnchor!(xform, space)
-              .then((anchor) => {
-                anchorsRef.current.push({
-                  id: `anchor_${i}`,
-                  anchor,
-                  reference: {
-                    x: obs.x - groupOrigin.x,
-                    y: obs.y - groupOrigin.y,
-                    z: obs.z - groupOrigin.z,
-                  },
-                });
-              })
-              .catch(() => {});
-          });
-        }
-
-        if (floorLockedRef.current && anchorsRef.current.length > 0) {
-          for (const c of crossesPoolRef.current) c.visible = false;
-          const samples: AnchorSample[] = [];
-          for (const entry of anchorsRef.current) {
-            const ap = frame.getPose(entry.anchor.anchorSpace, space);
-            if (!ap) continue;
-            samples.push({
-              id: entry.id,
-              reference: entry.reference,
-              observed: {
-                x: ap.transform.position.x,
-                y: ap.transform.position.y,
-                z: ap.transform.position.z,
-              },
-            });
+        // Exact Chido Studio.updateAnchor strategy: sequential anchors (up to
+        // five), 42-cm separation, 5.5-cm level filter, robust pose estimation.
+        if (floorLockedRef.current) {
+          if (pendingAnchorCreateRef.current) {
+            pendingAnchorCreateRef.current = false;
+            anchorCandidatesRef.current = [
+              ...floorScannerRef.current.observations.map(p => p.clone()),
+              ...(floorScannerRef.current.point ? [floorScannerRef.current.point.clone()] : []),
+            ];
           }
-          if (samples.length >= 3) {
-            const snap = anchorStabilizerRef.current.update(samples);
-            if (floorGroupRef.current && basePoseRef.current) {
-              floorGroupRef.current.position.set(snap.pose.x, snap.pose.y, snap.pose.z);
-              floorGroupRef.current.rotation.y = snap.pose.yaw;
+          for (const cross of crossesPoolRef.current) cross.visible = false;
+          const origin = basePoseRef.current;
+          if (origin && typeof frame.createAnchor === 'function' && anchorsRef.current.length + Number(anchorPendingRef.current) < 5) {
+            const centralSource = hitTestSourcesRef.current[0];
+            if (centralSource) {
+              for (const hit of frame.getHitTestResults(centralSource)) {
+                const candidatePose = hit.getPose(space);
+                if (!candidatePose) continue;
+                const pt = new THREE.Vector3(
+                  candidatePose.transform.position.x,
+                  candidatePose.transform.position.y,
+                  candidatePose.transform.position.z,
+                );
+                if (Math.abs(pt.y - origin.y) > 0.055) continue;
+                if (anchorCandidatesRef.current.every(p => p.distanceTo(pt) > 0.42)) {
+                  anchorCandidatesRef.current.push(pt);
+                }
+              }
+            }
+            if (!anchorPendingRef.current && anchorsRef.current.length < 5) {
+              const next = anchorCandidatesRef.current.find(p =>
+                anchorsRef.current.every(node => node.requested.distanceTo(p) > 0.42)
+              );
+              if (next) {
+                const generation = anchorGenerationRef.current;
+                anchorPendingRef.current = true;
+                try {
+                  void frame.createAnchor(new XRRigidTransform({
+                    x: next.x, y: next.y, z: next.z,
+                  }), space).then(anchor => {
+                    if (generation !== anchorGenerationRef.current || xrSessionRef.current !== session) {
+                      try { anchor.delete(); } catch {}
+                      return;
+                    }
+                    anchorsRef.current.push({
+                      id: String(anchorsRef.current.length + 1),
+                      anchor,
+                      requested: next.clone(),
+                      reference: null,
+                    });
+                    anchorPendingRef.current = false;
+                  }, () => {
+                    if (generation === anchorGenerationRef.current) {
+                      anchorPendingRef.current = false;
+                      anchorCandidatesRef.current = anchorCandidatesRef.current.filter(p => p !== next);
+                    }
+                  });
+                } catch {
+                  anchorPendingRef.current = false;
+                  anchorCandidatesRef.current = anchorCandidatesRef.current.filter(p => p !== next);
+                }
+              }
+            }
+          }
+          const samples: AnchorSample[] = [];
+          for (const node of anchorsRef.current) {
+            let candidatePose: XRPose | null = null;
+            try { candidatePose = frame.getPose(node.anchor.anchorSpace, space); } catch {}
+            if (!candidatePose) continue;
+            const pos = candidatePose.transform.position;
+            const observed: ChidoVec3 = [pos.x, pos.y, pos.z];
+            if (!node.reference) node.reference = [...observed];
+            samples.push({ id: node.id, reference: node.reference, observed });
+          }
+          if (samples.length >= 3 && origin && floorGroupRef.current) {
+            const elapsed = anchorLastTimeRef.current
+              ? Math.max(0.001, (time - anchorLastTimeRef.current) / 1000) : 0.016;
+            anchorLastTimeRef.current = time;
+            const fitted = anchorStabilizerRef.current.update(samples, elapsed);
+            if (fitted.status !== 'insufficient') {
+              const floorPt = chidoTransformPoint([origin.x, origin.y, origin.z], fitted.pose);
+              floorGroupRef.current.position.set(...floorPt);
+              floorGroupRef.current.rotation.y = fitted.pose.yaw;
+            }
+          }
+          if (anchorsRef.current.length >= 5) {
+            const central = hitTestSourcesRef.current[0];
+            if (central) {
+              try { central.cancel(); } catch {}
+              hitTestSourcesRef.current.shift();
             }
           }
         } else if (!floorLockedRef.current) {
