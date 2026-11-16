@@ -2723,6 +2723,35 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSession]);
 
+  // Chido's tracking report is based on real XRFrame / getViewerPose data.
+  // Don't display an endless "starting tracking" stage when the hardware or
+  // reference-space pipeline has stalled: expose which stage failed.
+  useEffect(() => {
+    if (!xrActive || floorLocked) return;
+    const check = () => {
+      const started = xrStartTimeRef.current;
+      if (!started || !xrSessionRef.current || xrLastPoseTimeRef.current) return;
+      const elapsed = performance.now() - started;
+      if (elapsed < 9000 || xrTrackingWarningRef.current) return;
+      const spaceAvailable = Boolean(rendererRef.current?.xr.getReferenceSpace() || fallbackLocalSpaceRef.current);
+      const message = xrFrameCountRef.current === 0
+        ? 'جلسه WebXR باز است اما هیچ فریم دوربینی دریافت نشده؛ وضعیت ARCore و مجوز دوربین را بررسی کنید'
+        : !spaceAvailable
+        ? 'فریم دوربین دریافت شد ولی فضای ردیابی محلی آماده نشده؛ اسکن را دوباره راه‌اندازی کنید'
+        : 'فریم WebXR دریافت می‌شود ولی موقعیت مکانی دوربین (getViewerPose) در دسترس نیست؛ گوشی را به سطح دارای جزئیات بگیرید یا اسکن را دوباره شروع کنید';
+      xrTrackingWarningRef.current = true;
+      setXrStartError(message);
+      console.warn('[Kitchyar XR] tracking stall', {
+        elapsedMs: Math.round(elapsed),
+        frameCount: xrFrameCountRef.current,
+        localSpace: spaceAvailable,
+        sessionVisibility: xrSessionRef.current.visibilityState,
+      });
+    };
+    const timer = window.setInterval(check, 1500);
+    return () => window.clearInterval(timer);
+  }, [xrActive, floorLocked]);
+
   const chidoScanUi = chidoScanReadiness({
     xrAvailable: xrSupported,
     starting: xrStarting,
@@ -2818,6 +2847,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
                   max={100}
                   aria-label="آمادگی اسکن کف"
                 />
+                {xrActive && (
+                  <small data-testid="xr-frame-diagnostics"
+                    className="block mt-1 text-[11px] text-[#635f55] text-center tabular-nums">
+                    فریم WebXR: {xrFrameCountRef.current.toLocaleString('fa-IR')} •
+                    ردیابی: {scanDiagnostics.tracking ? 'فعال' : 'دریافت نشده'} •
+                    نقاط معتبر: {scanDiagnostics.validHits.toLocaleString('fa-IR')}
+                  </small>
+                )}
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <small className="text-[12px] text-[#887969]">
                     {xrActive
@@ -2826,7 +2863,23 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
                       ? 'دوربین واقعی فقط با WebXR / Chrome اندروید و ARCore فعال می‌شود'
                       : 'در حال راه‌اندازی دوربین و شناسایی سطح کف'}
                   </small>
-                  {xrActive ? (
+                  {xrActive && xrStartError ? (
+                    <button
+                      data-testid="chido-reset-tracking"
+                      type="button"
+                      onClick={() => {
+                        skipEndNotificationRef.current = true;
+                        const session = xrSessionRef.current;
+                        if (session) {
+                          void session.end().catch(error =>
+                            console.warn('[Kitchyar XR] failed to end stalled session', error));
+                        }
+                      }}
+                      className="h-10 px-4 rounded-lg bg-amber-700 text-white font-bold text-[14px]"
+                    >
+                      پایان جلسه و تلاش مجدد
+                    </button>
+                  ) : xrActive ? (
                     <button
                       data-testid="chido-confirm-floor"
                       type="button"
