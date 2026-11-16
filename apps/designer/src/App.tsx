@@ -253,6 +253,7 @@ export default function App() {
   const [tool, setTool] = useState<ToolId>('doors');
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
   const [floorScanActive, setFloorScanActive] = useState(false);
+  const [sharedWideMode, setSharedWideMode] = useState<'normal' | 'wide' | 'ultra'>('normal');
   const [initialXrSession, setInitialXrSession] = useState<Promise<XRSession> | null>(null);
   const [arSessionKillSignal, setArSessionKillSignal] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -319,6 +320,12 @@ export default function App() {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2400);
   }, []);
+
+  // Preserve transparent WebXR DOM overlay all the way to the page root.
+  useEffect(() => {
+    document.documentElement.classList.toggle('kitchiyar-xr-passthrough', floorScanActive);
+    return () => document.documentElement.classList.remove('kitchiyar-xr-passthrough');
+  }, [floorScanActive]);
 
   const triggerAutoUnitHighlight = useCallback((boxId: string) => {
     setAutoUnitHighlightBoxId(boxId);
@@ -2339,7 +2346,7 @@ export default function App() {
     <div
       ref={editorOverlayRef}
       className={`kichiyar-safe-root w-screen h-screen flex flex-col overflow-hidden relative text-slate-900 ${
-        viewMode === 'ar' ? 'bg-transparent' : 'bg-slate-50'
+        floorScanActive || viewMode === 'ar' ? 'bg-transparent' : 'bg-slate-50'
       }`}
     >
       <TopBar
@@ -2394,7 +2401,7 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden relative">
         {viewMode !== 'ar' && (
-          <div className="flex-1 flex overflow-hidden relative z-20 bg-slate-50">
+          <div className={`flex-1 flex overflow-hidden relative z-20 ${floorScanActive ? 'bg-transparent' : 'bg-slate-50'}`}>
             <SideInspector
               activeTool={tool}
               onSelectTool={handleSelectTool}
@@ -2516,48 +2523,11 @@ export default function App() {
               }}
             >
               {viewMode === '3d' ? (
-                floorScanActive ? (
-                  <ARWorkspace
-            active={true}
-            embeddedIn3D={true}
-            sharedTool={tool}
-            initialSession={initialXrSession}
-            onSessionEnded={() => { setFloorScanActive(false); setInitialXrSession(null); }}
-            onFloorConfirmed={() => setTool('wall')}
-            overlayRootRef={editorOverlayRef}
-            project={project}
-            fridgeModel={fridgeModel}
-            sinkModel={sinkModel}
-            gasWidth={gasWidth}
-            applianceKind={applianceKind}
-            hoodKind={hoodKind}
-            openingKind={openingKind}
-            handleStyle={handleStyle}
-            handleOrient={handleOrient}
-            drawBoxKind={drawBoxKind}
-            onSelectDrawBoxKind={setDrawBoxKind}
-            onHandleStyleChange={setHandleStyle}
-            onHandleOrientChange={setHandleOrient}
-            onFridgeModelChange={setFridgeModel}
-            onSinkModelChange={setSinkModel}
-            onGasWidthChange={setGasWidth}
-            onApplianceKindChange={setApplianceKind}
-            onOpeningKindChange={setOpeningKind}
-            onMoveBox={handleMoveBox}
-            onMoveAppliance={handleMoveAppliance}
-            sessionKillSignal={arSessionKillSignal}
-            onSwitchViewMode={handleSwitchViewMode}
-            onToast={showToast}
-            onUpdateProject={(updater, toastMsg) => {
-              const next = updater(project);
-              if (next !== project) {
-                commitState(next, true);
-              }
-              if (toastMsg) showToast(toastMsg);
-            }}
-          />
-                ) : (
+                <div className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
+              scanMode={floorScanActive}
+              wideViewModeExternal={sharedWideMode}
+              onWideViewModeChange={setSharedWideMode}
               project={project}
               tool={tool}
               selectionMode={selectionMode}
@@ -2749,8 +2719,51 @@ export default function App() {
               onExitToSelect={handleExitToSelect}
               onToast={showToast}
             />
-                )
-          ) : (
+                  {floorScanActive && (
+                  <ARWorkspace
+            active={true}
+            embeddedIn3D={true}
+            sharedTool={tool}
+            initialSession={initialXrSession}
+            onSessionEnded={() => { setFloorScanActive(false); setInitialXrSession(null); }}
+            onFloorConfirmed={() => setTool('wall')}
+            wideViewModeExternal={sharedWideMode}
+            onWideViewModeChange={setSharedWideMode}
+            overlayRootRef={editorOverlayRef}
+            project={project}
+            fridgeModel={fridgeModel}
+            sinkModel={sinkModel}
+            gasWidth={gasWidth}
+            applianceKind={applianceKind}
+            hoodKind={hoodKind}
+            openingKind={openingKind}
+            handleStyle={handleStyle}
+            handleOrient={handleOrient}
+            drawBoxKind={drawBoxKind}
+            onSelectDrawBoxKind={setDrawBoxKind}
+            onHandleStyleChange={setHandleStyle}
+            onHandleOrientChange={setHandleOrient}
+            onFridgeModelChange={setFridgeModel}
+            onSinkModelChange={setSinkModel}
+            onGasWidthChange={setGasWidth}
+            onApplianceKindChange={setApplianceKind}
+            onOpeningKindChange={setOpeningKind}
+            onMoveBox={handleMoveBox}
+            onMoveAppliance={handleMoveAppliance}
+            sessionKillSignal={arSessionKillSignal}
+            onSwitchViewMode={handleSwitchViewMode}
+            onToast={showToast}
+            onUpdateProject={(updater, toastMsg) => {
+              const next = updater(project);
+              if (next !== project) {
+                commitState(next, true);
+              }
+              if (toastMsg) showToast(toastMsg);
+            }}
+          />
+                  )}
+                </div>
+              ) : (
             <>
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
