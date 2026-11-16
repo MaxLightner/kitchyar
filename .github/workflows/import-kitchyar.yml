@@ -43,7 +43,7 @@ jobs:
                       member.issym() or member.islnk()):
                       raise RuntimeError(f"Untrusted archive path: {member.name}")
               archive.extractall(".", filter="data")
-          print(f"Applied {len(archive.getmembers())} designer files")
+          print("Applied the reviewed designer archive")
           PY
 
       - name: Commit update on existing main branch
