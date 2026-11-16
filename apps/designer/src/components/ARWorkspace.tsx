@@ -290,7 +290,6 @@ function createFloorNetMesh(): {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
-    extensions: { derivatives: true },
     vertexShader: `varying vec2 gridUv;
       void main() {
         gridUv = uv;
