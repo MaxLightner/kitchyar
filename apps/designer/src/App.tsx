@@ -95,7 +95,7 @@ import {
   Wall,
 } from './cad/types';
 import { ARWorkspace } from './components/ARWorkspace';
-import { nearDepthSessionOptions } from './ar/nearOcclusion';
+import { chidoSessionOptions } from './ar/chidoSession';
 import { BottomDock } from './components/BottomDock';
 import { FrontCanvas } from './components/FrontCanvas';
 import { PlanCanvas } from './components/PlanCanvas';
@@ -2149,7 +2149,7 @@ export default function App() {
       return;
     }
     try {
-      const requested = xr.requestSession('immersive-ar', nearDepthSessionOptions(document.body));
+      const requested = xr.requestSession('immersive-ar', chidoSessionOptions(document.body));
       // Attach a rejection handler immediately, before the scanner mounts.
       void requested.catch(() => {});
       setInitialXrSession(requested);
