@@ -26,29 +26,49 @@
   background-size: 24px 24px;
 }
 
-/* Keep controls outside the tablet status bar / camera cutout in fullscreen and XR overlays. */
-.kitchiyar-safe-root {
+/* Normal Chrome already excludes its status/address bar from the visual viewport.
+ * Do not charge an extra fake 24px in the non-fullscreen browser.
+ * Standalone/fullscreen uses explicit space for Android cutouts/clock. */
+html, body, #root { margin: 0; width: 100%; min-height: 0; }
+body { overscroll-behavior: none; }
+.kichiyar-safe-root {
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   box-sizing: border-box;
 }
-@media (display-mode: fullscreen) {
-  .kichiyar-safe-root { padding-top: max(28px, env(safe-area-inset-top, 0px)); }
+.kitchiyar-editor-shell {
+  height: 100vh; /* fallback for browsers without dvh */
+  height: 100dvh;
+  height: var(--kitchiyar-visual-height, 100dvh);
+  max-height: var(--kitchiyar-visual-height, 100dvh);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
+.kitchiyar-editor-shell > .kitchiyar-editor-main {
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 0%;
+  overflow: hidden;
+}
+.kitchiyar-editor-shell [data-testid="bottom-dock"] {
+  flex-shrink: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .kichiyar-safe-root {
+    padding-top: max(28px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  }
+}
+.kichiyar-safe-root:fullscreen,
 :fullscreen .kichiyar-safe-root {
   padding-top: max(28px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
 }
 /* Never reduce any tool text below 13px, even under compact layout breakpoints. */
 .kichiyar-safe-root button, .kichiyar-safe-root input, .kichiyar-safe-root select,
 .kichiyar-safe-root textarea { min-height: 34px; }
-
-/* Android tablets sometimes report zero safe-area inset while the status bar still overlays the app. */
-@media (pointer: coarse) and (max-width: 1280px) {
-  .kichiyar-safe-root { padding-top: max(24px, env(safe-area-inset-top, 0px)); }
-}
-@media (display-mode: standalone) {
-  .kichiyar-safe-root { padding-top: max(24px, env(safe-area-inset-top, 0px)); }
-}
 
 /* WebXR DOM Overlay is composited OVER the real camera. Every full-screen
    wrapper between <html> and the XR canvas must be transparent during a scan.
