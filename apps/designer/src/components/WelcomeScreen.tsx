@@ -4,6 +4,7 @@ import { PresetMode } from '../cad/presets';
 import { SavedProjectRecord } from '../cad/projectStorage';
 
 interface WelcomeScreenProps {
+  arAvailable?: boolean;
   projectsCount: number;
   latestProject: SavedProjectRecord | null;
   onStartMode: (mode: '2d' | '3d' | 'ar', preset?: PresetMode) => void;
@@ -13,6 +14,7 @@ interface WelcomeScreenProps {
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
+  arAvailable = false,
   projectsCount,
   latestProject,
   onStartMode,
@@ -91,6 +93,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             <button
               type="button"
               onClick={() => onStartMode('ar')}
+              disabled={!arAvailable}
+              title={!arAvailable ? "AR روی این دستگاه در دسترس نیست" : "اسکن کف با دوربین"}
               className="h-14 px-5 rounded-xl border border-emerald-200/70 bg-emerald-50/40 hover:bg-emerald-50/80 text-slate-800 text-sm font-black inline-flex items-center justify-center gap-2.5 transition active:scale-95"
             >
               <Camera className="w-4 h-4 text-emerald-600" />

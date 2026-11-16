@@ -95,7 +95,7 @@ import {
   Wall,
 } from './cad/types';
 import { ARWorkspace } from './components/ARWorkspace';
-import { chidoSessionOptions } from './ar/chidoSession';
+import { isHandheldARDevice, requestChidoSession } from './ar/chidoSession';
 import { alignSelectedDoorsInBox, equalizeSelectedVerticalWidths, equalizeSelectedDrawerHeights } from './cad/selectionAlign';
 import { BottomDock } from './components/BottomDock';
 import { FrontCanvas } from './components/FrontCanvas';
@@ -254,6 +254,18 @@ export default function App() {
   const [tool, setTool] = useState<ToolId>('doors');
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
   const [floorScanActive, setFloorScanActive] = useState(false);
+  const [trackedFloorConfirmed, setTrackedFloorConfirmed] = useState(false);
+  const [arAvailable, setArAvailable] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
+    if (isHandheldARDevice() && window.isSecureContext && xr?.isSessionSupported) {
+      void xr.isSessionSupported('immersive-ar').then(ok => {
+        if (!disposed) setArAvailable(Boolean(ok));
+      }).catch(() => { if (!disposed) setArAvailable(false); });
+    }
+    return () => { disposed = true; };
+  }, []);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sharedWideMode, setSharedWideMode] = useState<'normal' | 'wide' | 'ultra'>('normal');
   const [initialXrSession, setInitialXrSession] = useState<Promise<XRSession> | null>(null);
@@ -2217,6 +2229,17 @@ export default function App() {
    * WebXR requires transient user activation: requesting it from an effect or after
    * opening an intermediate page would be rejected by tablet browsers. */
   const beginTrackedFloorScan = useCallback(() => {
+    if (!arAvailable) {
+      showToast('AR فقط روی گوشی یا تبلت با مرورگر سازگار فعال است؛ نمای سه‌بعدی در دسترس است.');
+      return;
+    }
+    if (floorScanActive) {
+      setViewMode('3d');
+      setSharedWideMode('normal');
+      return;
+    }
+    setTrackedFloorConfirmed(false);
+    setSharedWideMode('normal');
     // Chido's scan UI must appear IMMEDIATELY, including when WebXR cannot
     // start. It is the scan screen itself that reports the actual XR failure.
     // A failed permission request must never silently replace scanning with
@@ -2233,20 +2256,27 @@ export default function App() {
     try {
       // Call requestSession synchronously within the Welcome/Projects tap:
       // waiting for a React mount loses the user activation needed by WebXR.
-      const requested = xr.requestSession('immersive-ar', chidoSessionOptions(document.body));
+      const requested = requestChidoSession(xr, document.body);
       void requested.catch(() => {}); // The scanner displays the actual error.
       setInitialXrSession(requested);
     } catch (error) {
       console.warn('[Kitchyar XR] synchronous session request failed:', error);
       showToast('اسکن کف باز شد، ولی شروع دوربین رد شد. دلیل دقیق داخل پنل اسکن نمایش داده می‌شود.');
     }
-  }, [showToast]);
+  }, [showToast, arAvailable, floorScanActive]);
 
   const handleSwitchViewMode = useCallback(
     (nextMode: ViewMode) => {
       if (nextMode === 'ar') {
         beginTrackedFloorScan();
         return;
+      }
+      if (nextMode === '3d' && floorScanActive) {
+        if (!trackedFloorConfirmed) {
+          showToast('ابتدا کف را تأیید کنید؛ دوربین در حال ردیابی است.');
+          return;
+        }
+        setSharedWideMode('wide');
       }
       if (nextMode === '2d') {
         setFloorScanActive(false);
@@ -2258,7 +2288,7 @@ export default function App() {
       // while the live tracked WebXR floor scan is active.
       setViewMode(nextMode);
     },
-    [project.walls, project.activeWallId, fitWallToView, beginTrackedFloorScan]
+    [project.walls, project.activeWallId, fitWallToView, beginTrackedFloorScan, floorScanActive, trackedFloorConfirmed, showToast]
   );
 
   const handleLoadRecordIntoEditor = useCallback(
@@ -2329,6 +2359,7 @@ export default function App() {
     return (
       <>
         <WelcomeScreen
+          arAvailable={arAvailable}
           projectsCount={projects.length}
           latestProject={activeProjectRecord}
           onStartMode={(mode, preset) => handleCreateAndOpenProject(mode, preset)}
@@ -2355,6 +2386,7 @@ export default function App() {
   if (screen === 'projects') {
     return (
       <ProjectsScreen
+        arAvailable={arAvailable}
         projects={projects}
         activeProjectId={activeProjectId}
         onBackToWelcome={() => setScreen('welcome')}
@@ -2467,10 +2499,10 @@ export default function App() {
         onUndo={handleUndo}
         onRedo={handleRedo}
         onSelectViewMode={handleSwitchViewMode}
+        arAvailable={arAvailable}
         floorScanActive={floorScanActive}
         onToggleFloorScan={() => {
-          if (floorScanActive) { setFloorScanActive(false); setInitialXrSession(null); }
-          else beginTrackedFloorScan();
+          beginTrackedFloorScan();
         }}
         onOpenSettings={() => setSettingsOpen(true)}
         onExportProject={handleExportProject}
@@ -2811,8 +2843,8 @@ export default function App() {
             embeddedIn3D={true}
             sharedTool={tool}
             initialSession={initialXrSession}
-            onSessionEnded={() => { setFloorScanActive(false); setInitialXrSession(null); }}
-            onFloorConfirmed={() => setTool('wall')}
+            onSessionEnded={() => { setFloorScanActive(false); setTrackedFloorConfirmed(false); setInitialXrSession(null); setSharedWideMode('normal'); }}
+            onFloorConfirmed={() => { setTrackedFloorConfirmed(true); setTool('wall'); }}
             wideViewModeExternal={sharedWideMode}
             onWideViewModeChange={setSharedWideMode}
             overlayRootRef={editorOverlayRef}
