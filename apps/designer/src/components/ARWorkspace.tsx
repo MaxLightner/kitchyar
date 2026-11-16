@@ -266,51 +266,64 @@ function makeCalibrationPin(colorHex: number, label: string, handleKind: 'a' | '
   return group;
 }
 
+// Direct geometry/shader port of Chido Studio.floorNet (2026-11-16).
+// The grid is a 6m square with 24 cells; radius/pulse are expanded on confirm.
 function createFloorNetMesh(): {
   mesh: THREE.Mesh;
-  uniforms: { uTime: { value: number }; uCenter: { value: THREE.Vector2 }; uOpacity: { value: number } };
+  uniforms: {
+    uTime: { value: number };
+    uCenter: { value: THREE.Vector2 };
+    uOpacity: { value: number };
+    uReveal: { value: number };
+    uPulse: { value: number };
+  };
 } {
   const uniforms = {
     uTime: { value: 0 },
-    uCenter: { value: new THREE.Vector2(0, 0) },
-    uOpacity: { value: 0.9 },
+    uCenter: { value: new THREE.Vector2() },
+    uOpacity: { value: 0.85 },
+    uReveal: { value: 0.65 },
+    uPulse: { value: 1 },
   };
-  const mat = new THREE.ShaderMaterial({
+  const material = new THREE.ShaderMaterial({
     uniforms,
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
-    vertexShader: `
-      varying vec3 vLocal;
+    extensions: { derivatives: true },
+    vertexShader: `varying vec2 gridUv;
       void main() {
-        vLocal = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform float uTime;
-      uniform vec2 uCenter;
+        gridUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      }`,
+    fragmentShader: `precision highp float;
+      varying vec2 gridUv;
       uniform float uOpacity;
-      varying vec3 vLocal;
+      uniform float uReveal;
+      uniform float uPulse;
       void main() {
-        vec2 p = vLocal.xz;
-        float d = length(p - uCenter);
-        float radius = clamp(1.0 - smoothstep(0.35, 3.2, d), 0.0, 1.0);
-        vec2 grid = abs(fract(p * 3.0 - 0.5) - 0.5) / fwidth(p * 3.0);
-        float line = 1.0 - min(min(grid.x, grid.y), 1.0);
-        float wave = 0.55 + 0.45 * sin(d * 5.0 - uTime * 3.6);
-        float alpha = line * radius * wave * uOpacity * 0.72;
-        if (alpha < 0.01) discard;
-        gl_FragColor = vec4(0.06, 0.85, 0.58, alpha);
-      }
-    `,
+        vec2 cells = gridUv * 24.0;
+        vec2 dx = max(fwidth(cells), vec2(0.0001));
+        vec2 line = abs(fract(cells + 0.5) - 0.5) / dx;
+        float px = min(line.x, line.y);
+        float core = 1.0 - smoothstep(0.7, 1.65, px);
+        float glow = 1.0 - smoothstep(1.2, 5.2, px);
+        float radius = length((gridUv - 0.5) * 6.0);
+        float edge = 1.0 - smoothstep(uReveal - 0.06, uReveal + 0.06, radius);
+        float rim = (1.0 - smoothstep(0.025, 0.11, abs(radius - uReveal))) *
+          (1.0 - step(2.95, uReveal));
+        float alpha = clamp((0.72 * core + 0.32 * glow) * uOpacity * edge +
+          rim * 0.65 * uPulse, 0.0, 0.95);
+        gl_FragColor = vec4(
+          mix(vec3(0.20,0.57,0.52), vec3(0.55,0.97,0.83), max(core,rim)), alpha);
+      }`,
   });
-  const geo = new THREE.PlaneGeometry(7.2, 7.2, 1, 1);
-  geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, mat);
+  const geometry = new THREE.PlaneGeometry(6, 6);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
   mesh.position.y = 0.004;
-  mesh.renderOrder = 2;
-  return { mesh, uniforms };
+  mesh.visible = false;
+  return {mesh, uniforms};
 }
 
 function createCrossMarker(): THREE.Group {
@@ -544,6 +557,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const anchorGenerationRef = useRef(0);
   const anchorLastTimeRef = useRef(0);
   const pendingAnchorCreateRef = useRef(false);
+  const floorRevealStartRef = useRef<number | null>(null);
   const basePoseRef = useRef<{ x: number; y: number; z: number; yaw: number } | null>(null);
   const hitTestSourcesRef = useRef<XRHitTestSource[]>([]);
   const lowerHitSourceRef = useRef<XRHitTestSource | null>(null);
@@ -559,7 +573,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const controlsRef = useRef<OrbitControls | null>(null);
   const floorGroupRef = useRef<THREE.Group | null>(null);
   const kitchenMountRef = useRef<THREE.Group | null>(null);
-  const floorNetUniformsRef = useRef<{ uTime: { value: number }; uCenter: { value: THREE.Vector2 }; uOpacity: { value: number } } | null>(null);
+  const floorNetUniformsRef = useRef<ReturnType<typeof createFloorNetMesh>['uniforms'] | null>(null);
   const floorNetMeshRef = useRef<THREE.Mesh | null>(null);
   const crossesPoolRef = useRef<THREE.Group[]>([]);
   const reticleRef = useRef<THREE.Mesh | null>(null);
@@ -1668,8 +1682,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     if (floorNetMeshRef.current && floorNetUniformsRef.current) {
-      floorNetMeshRef.current.visible = !floorLocked;
-      floorNetUniformsRef.current.uOpacity.value = xrActive ? 0.95 : 0.45;
+      floorNetMeshRef.current.visible = xrActive &&
+        (floorRevealStartRef.current !== null || (!floorLocked && Boolean(floorScannerRef.current.point)));
+      floorNetUniformsRef.current.uOpacity.value = 0.85;
     }
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = !xrActive || !floorLocked;
@@ -2138,6 +2153,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setXrActive(true);
       if (controlsRef.current) controlsRef.current.enabled = false;
       floorScannerRef.current.reset();
+      floorRevealStartRef.current = null;
       anchorsRef.current = [];
       anchorCandidatesRef.current = [];
       anchorPendingRef.current = false;
@@ -2250,6 +2266,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             ];
           }
           for (const cross of crossesPoolRef.current) cross.visible = false;
+          const revealStarted = floorRevealStartRef.current;
+          if (revealStarted !== null && floorNetUniformsRef.current) {
+            const t = Math.min(1, (performance.now() - revealStarted) / 750);
+            const eased = 1 - Math.pow(1 - t, 3);
+            floorNetUniformsRef.current.uReveal.value = 0.65 + 3.6 * eased;
+            floorNetUniformsRef.current.uPulse.value = 1 - eased;
+            floorNetUniformsRef.current.uOpacity.value = 0.85 - 0.46 * eased;
+            if (floorNetMeshRef.current) floorNetMeshRef.current.visible = t < 1;
+            if (t >= 1) floorRevealStartRef.current = null;
+          }
           const origin = basePoseRef.current;
           if (origin && typeof frame.createAnchor === 'function' && anchorsRef.current.length + Number(anchorPendingRef.current) < 5) {
             const centralSource = hitTestSourcesRef.current[0];
@@ -2372,6 +2398,19 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           if (pt && reticleRef.current && floorGroupRef.current) {
             floorGroupRef.current.position.set(pt.x, pt.y, pt.z);
             reticleRef.current.position.set(0, 0.012, 0);
+            const viewDistance = viewPos.distanceTo(pt);
+            const radius = THREE.MathUtils.clamp(
+              viewDistance * Math.tan(THREE.MathUtils.degToRad(48 / 2)) / 3,
+              0.28, 0.95
+            );
+            if (floorNetUniformsRef.current) {
+              floorNetUniformsRef.current.uReveal.value = radius;
+              floorNetUniformsRef.current.uPulse.value = 1;
+              floorNetUniformsRef.current.uOpacity.value = 0.85;
+            }
+            if (floorNetMeshRef.current) floorNetMeshRef.current.visible = true;
+          } else if (floorNetMeshRef.current) {
+            floorNetMeshRef.current.visible = false;
           }
 
           // Render FloorScanner diagnostic crosses (0x83ffe3 accepted vs 0xff6b61 rejected)
@@ -2509,6 +2548,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       floorGroupRef.current.position.set(pt.x, pt.y, pt.z);
       anchorsRef.current = [];
       pendingAnchorCreateRef.current = true;
+      floorRevealStartRef.current = performance.now();
     }
     for (const c of crossesPoolRef.current) c.visible = false;
     setFloorLocked(true);
