@@ -442,7 +442,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const [xrSupported, setXrSupported] = useState<boolean | null>(null);
+  // API presence only: an async support probe is not permission to start AR.
+  // Report the real requestSession result and keep explicit retry available.
+  const [xrSupported] = useState(() => Boolean(
+    (navigator as Navigator & { xr?: XRSystem }).xr?.requestSession
+  ));
   const [xrActive, setXrActive] = useState(false);
   const [floorLocked, setFloorLocked] = useState(false);
   const [scanReady, setScanReady] = useState(false);
@@ -642,26 +646,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   // Latest action callbacks stored in refs so native DOM listeners always invoke fresh state
   const applyFloorActionRef = useRef<(pt: THREE.Vector3, clientX?: number, clientY?: number) => void>(() => {});
   const handleArDetailActionRef = useRef<(x: number, y: number) => void>(() => {});
-
-  // Check WebXR immersive-ar support once
-  useEffect(() => {
-    let mounted = true;
-    const xr = (navigator as unknown as { xr?: XRSystem }).xr;
-    if (!xr || !xr.isSessionSupported) {
-      setXrSupported(false);
-      return;
-    }
-    xr.isSessionSupported('immersive-ar')
-      .then((ok) => {
-        if (mounted) setXrSupported(Boolean(ok));
-      })
-      .catch(() => {
-        if (mounted) setXrSupported(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   // End XR session if parent signals explicit exit
   useEffect(() => {
@@ -2929,7 +2913,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
                     <button
                       data-testid="chido-start-camera"
                       type="button"
-                      disabled={xrStarting || xrSupported === false}
+                      disabled={xrStarting}
                       onClick={() => void startWebXrSession()}
                       className="h-10 px-4 rounded-lg bg-[#3d735c] text-white font-bold text-[14px] disabled:bg-slate-300 disabled:text-slate-600"
                     >
