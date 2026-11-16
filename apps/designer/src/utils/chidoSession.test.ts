@@ -7,7 +7,7 @@ test('one camera request survives repeated taps and tracked-view changes until s
   const session = new EventTarget() as unknown as XRSession;
   let calls = 0;
   let resolve!: (session: XRSession) => void;
-  const xr = { requestSession: () => { calls++; return new Promise<XRSession>(done => { resolve = done; }); } } as XRSystem;
+  const xr = { requestSession: () => { calls++; return new Promise<XRSession>(done => { resolve = done; }); } } as unknown as XRSystem;
   const root = {} as HTMLElement;
   const first = own(xr, root);
   assert.equal(calls, 1, 'camera request starts inside the tap, before any await');
@@ -26,7 +26,7 @@ test('failed request releases ownership and preserves the actual failure stage',
   const own = createChidoSessionOwner();
   let calls = 0;
   const error = new DOMException('local-floor was not enabled', 'NotSupportedError');
-  const xr = { requestSession: () => { calls++; return Promise.reject(error); } } as XRSystem;
+  const xr = { requestSession: () => { calls++; return Promise.reject(error); } } as unknown as XRSystem;
   await assert.rejects(own(xr, {} as HTMLElement), error);
   await assert.rejects(own(xr, {} as HTMLElement), error);
   assert.equal(calls, 2);
