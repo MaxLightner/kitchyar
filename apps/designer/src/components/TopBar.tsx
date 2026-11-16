@@ -285,7 +285,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <Camera className="w-3.5 h-3.5" />
                 <span>{floorScanActive ? 'دوربین فعال' : 'اسکن کف'}</span>
               </button>
-            )}   </button>
+            )}
           </div>
         </div>
       </div>
