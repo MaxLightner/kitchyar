@@ -288,6 +288,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const pendingCabDraw3DRef = useRef<{ wallId: string; startXCm: number; boxKind: BoxKind } | null>(null);
   const clearWallPreviewRef = useRef<() => void>(() => {});
   const updateWallPreviewRef = useRef<(clientX: number, clientY: number) => void>(() => {});
+  const updateGhostAndHoverRef = useRef<(clientX: number, clientY: number) => void>(() => {});
 
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -1117,6 +1118,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       ghostGroup.visible = hasGhost;
       requestRender();
     };
+
+    updateGhostAndHoverRef.current = updateGhostAndHover;
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button === 2) {
@@ -2223,6 +2226,12 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   }, []);
 
   useEffect(() => {
+    // Mouse-only 3D mode: while a drawing tool is selected, clicking commits
+    // segments, not a camera orbit. The pointer preview stays attached to the
+    // cursor before the first click and while waiting for the second.
+    if (controlsRef.current) {
+      controlsRef.current.enabled = !props.scanMode && tool !== 'wall' && tool !== 'cab-draw';
+    }
     if (tool !== 'cab-draw') {
       pendingCabDraw3DRef.current = null;
     }
@@ -2235,7 +2244,15 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       clearWallPreviewRef.current();
       requestRenderRef.current();
     }
-  }, [tool]);
+    if (!props.scanMode && tool !== 'select') {
+      const last = lastHoverCheckRef.current;
+      const rect = rendererRef.current?.domElement.getBoundingClientRect();
+      if (rect && last.x >= rect.left && last.x <= rect.right &&
+          last.y >= rect.top && last.y <= rect.bottom) {
+        updateGhostAndHoverRef.current(last.x, last.y);
+      }
+    }
+  }, [tool, drawBoxKind, props.scanMode]);
 
   useEffect(() => {
     const scene = sceneRef.current;
