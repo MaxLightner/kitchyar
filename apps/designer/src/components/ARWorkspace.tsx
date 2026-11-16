@@ -2280,7 +2280,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const space = rendererRef.current.xr.getReferenceSpace();
         if (!space) return;
         const pose = frame.getViewerPose(space);
-        if (!pose) return;
+        if (!pose) {
+          if (time - lastScanReportMsRef.current > 300) {
+            lastScanReportMsRef.current = time;
+            setScanDiagnostics({ tracking: false, rawHits: 0, validHits: 0 });
+          }
+          return;
+        }
 
         if (!activeRef.current) {
           occlusionRef.current?.update(frame, pose, rendererRef.current, session, {
@@ -2440,6 +2446,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             forward
           );
           setScanReady(floorScannerRef.current.ready);
+          if (time - lastScanReportMsRef.current > 250 || floorScannerRef.current.ready) {
+            lastScanReportMsRef.current = time;
+            setScanDiagnostics({
+              tracking: true,
+              rawHits: floorScannerRef.current.rawHits,
+              validHits: floorScannerRef.current.validHits,
+            });
+          }
           if (pt && reticleRef.current && floorGroupRef.current) {
             floorGroupRef.current.position.set(pt.x, pt.y, pt.z);
             reticleRef.current.position.set(0, 0.012, 0);
@@ -2652,6 +2666,17 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSession]);
 
+  const chidoScanUi = chidoScanReadiness({
+    xrAvailable: xrSupported,
+    starting: xrStarting,
+    sessionActive: xrActive,
+    tracking: scanDiagnostics.tracking,
+    rawHits: scanDiagnostics.rawHits,
+    validHits: scanDiagnostics.validHits,
+    ready: scanReady,
+    error: xrStartError,
+  });
+
   const previewToolId: ToolId = arTool.startsWith('cab-')
     ? 'cab-draw'
     : arTool === 'shelf'
@@ -2701,32 +2726,89 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           No duplicate scanner toolbar: XR provides only its camera and floor UI. */}
       {/* The scanned camera is only a layer of the existing 3D editor. */}
       {embeddedIn3D ? (
-        <div className="absolute top-[58px] left-2.5 right-2.5 z-20 pointer-events-none flex justify-center">
-          <div className="pointer-events-auto bg-white/95 border border-emerald-300 rounded-xl shadow-lg px-3 py-2 flex items-center gap-2 text-[13px] font-bold">
-            {!xrActive ? (
-              <button type="button" onClick={() => void startWebXrSession()} className="h-10 px-3 rounded-lg bg-emerald-600 text-white">
-                شروع دوربین و اسکن کف
-              </button>
-            ) : !floorLocked ? (
+        <div className="absolute top-[58px] left-3 right-3 z-20 pointer-events-none flex justify-center" dir="rtl">
+          <section
+            data-testid="chido-floor-scan-readiness"
+            data-scan-stage={String(chidoScanUi.progress)}
+            data-camera-active={xrActive ? '1' : '0'}
+            data-tracking={scanDiagnostics.tracking ? '1' : '0'}
+            className="pointer-events-auto w-full max-w-[465px] rounded-[14px] border border-[#e9dbc8] bg-[#f8efe7ef] shadow-lg px-3 py-3 text-[#3b4c44]"
+            aria-label="اسکن کف چیدو"
+          >
+            {!floorLocked ? (
               <>
-                <span>{scanReady ? 'کف شناسایی شد' : 'دوربین را آرام روی کف حرکت دهید'}</span>
-                <button type="button" disabled={!scanReady} onClick={handleLockFloor}
-                  className="h-10 px-3 rounded-lg bg-indigo-600 text-white disabled:bg-slate-300 disabled:text-slate-600">
-                  تأیید کف
-                </button>
+                <div className="flex items-center justify-between gap-2 text-center">
+                  <span aria-hidden="true" className="text-[32px] font-bold leading-none text-[#357e63]">→</span>
+                  <div className="flex-1 flex flex-col items-center gap-0.5">
+                    <strong className="text-[15px] text-[#2c5341]">دستگاه را آرام به چپ و راست حرکت بده</strong>
+                    <small className="text-[13px] text-[#576d61]">دوربین را به سمت کف نگه دار</small>
+                  </div>
+                  <span aria-hidden="true" className="text-[32px] font-bold leading-none text-[#357e63]">←</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2 text-[13px]">
+                  <strong data-testid="chido-scan-stage" className="flex-1">{chidoScanUi.label}</strong>
+                  <span data-testid="chido-scan-percent" className="font-bold tabular-nums">
+                    {chidoScanUi.progress.toLocaleString('fa-IR')}٪
+                  </span>
+                </div>
+                <progress
+                  data-testid="chido-scan-progress"
+                  className="block mt-2 h-2 w-full rounded-full overflow-hidden accent-[#4c9481]"
+                  value={chidoScanUi.progress}
+                  max={100}
+                  aria-label="آمادگی اسکن کف"
+                />
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <small className="text-[12px] text-[#887969]">
+                    {xrActive
+                      ? 'این درصد از ردیابی و برخوردهای معتبر محاسبه می‌شود، نه درصد پیشرفت ARCore'
+                      : xrStartError || xrSupported === false
+                      ? 'دوربین واقعی فقط با WebXR / Chrome اندروید و ARCore فعال می‌شود'
+                      : 'در حال راه‌اندازی دوربین و شناسایی سطح کف'}
+                  </small>
+                  {xrActive ? (
+                    <button
+                      data-testid="chido-confirm-floor"
+                      type="button"
+                      disabled={!scanReady}
+                      onClick={handleLockFloor}
+                      className="h-10 px-4 rounded-lg bg-[#3d735c] text-white font-bold text-[14px] disabled:bg-slate-300 disabled:text-slate-600"
+                    >
+                      {scanReady ? 'تثبیت این کف' : 'در حال شناسایی کف…'}
+                    </button>
+                  ) : (
+                    <button
+                      data-testid="chido-start-camera"
+                      type="button"
+                      disabled={xrStarting || xrSupported === false}
+                      onClick={() => void startWebXrSession()}
+                      className="h-10 px-4 rounded-lg bg-[#3d735c] text-white font-bold text-[14px] disabled:bg-slate-300 disabled:text-slate-600"
+                    >
+                      {xrStarting ? 'در حال شروع دوربین…' : 'شروع مجدد دوربین'}
+                    </button>
+                  )}
+                </div>
               </>
             ) : (
-              <>
-                <span className="text-emerald-800">کف تأیید شد • نمای سه‌بعدی با دوربین تبلت</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[14px] font-bold">
+                <span className="text-emerald-800">کف تثبیت شد • ترسیم دیوار در همین سه‌بعدی فعال است</span>
                 <button type="button" onClick={() => {
                   floorScannerRef.current.reset();
+                  anchorGenerationRef.current++;
+                  for (const anchor of anchorsRef.current) {
+                    try { anchor.anchor.delete(); } catch {}
+                  }
                   anchorsRef.current = [];
+                  floorRevealStartRef.current = null;
                   setFloorLocked(false);
                   setScanReady(false);
-                }} className="h-9 px-2 rounded-lg border border-emerald-300 text-emerald-700">اسکن مجدد</button>
-              </>
+                  setScanDiagnostics({ tracking: false, rawHits: 0, validHits: 0 });
+                }} className="h-9 px-3 rounded-lg border border-emerald-300 text-emerald-700">
+                  اسکن مجدد ↻
+                </button>
+              </div>
             )}
-          </div>
+          </section>
         </div>
       ) : (
         <>
