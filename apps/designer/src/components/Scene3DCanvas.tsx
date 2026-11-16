@@ -376,7 +376,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
   useEffect(() => {
     const container = hostRef.current;
-    if (!container) return;
+    // Chido runs ONE WebXR renderer during floor scanning. Keeping a second
+    // hidden 3D WebGL context alive can exhaust GPU limits on Android devices
+    // and prevent the live camera from initializing. The Scene3DCanvas React
+    // component and every button remain mounted; only its renderer is paused.
+    if (!container || props.scanMode) return;
 
     const w = Math.max(320, container.clientWidth);
     const h = Math.max(240, container.clientHeight);
@@ -2222,8 +2226,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       pmrem.dispose();
       renderer.dispose();
       if (dom.parentNode === container) container.removeChild(dom);
+      if (rendererRef.current === renderer) rendererRef.current = null;
+      if (sceneRef.current === scene) sceneRef.current = null;
+      if (cameraRef.current === camera) cameraRef.current = null;
+      if (controlsRef.current === controls) controlsRef.current = null;
+      camInitDoneRef.current = false;
     };
-  }, []);
+  }, [props.scanMode]);
 
   useEffect(() => {
     // Mouse-only 3D mode: while a drawing tool is selected, clicking commits
@@ -2289,7 +2298,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     } else {
       requestRenderRef.current();
     }
-  }, [project]);
+  }, [project, props.scanMode]);
 
   const handleToggleAllDoors = () => {
     const nextOpen = !doorsOpen;
