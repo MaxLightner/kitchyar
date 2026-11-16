@@ -2243,32 +2243,34 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       });
       if (!central) throw new DOMException('Chido central plane hit test unavailable', 'NotSupportedError');
       hitTestSourcesRef.current = [central];
+      // The previous implementation awaited all eight auxiliary hit sources
+      // one by one BEFORE starting the real scan loop. On Android, even one
+      // unresolved request left the reticle and floor scan frozen. Start the
+      // central scanner immediately, and add angled rays asynchronously.
       for (const [rx, ry] of CHIDO_SCAN_RAYS) {
-        try {
-          const direction = new THREE.Vector3(rx, ry, -1).normalize();
-          const rotation = new THREE.Quaternion().setFromUnitVectors(
-            new THREE.Vector3(0, 0, -1), direction
-          );
-          const transformed = await session.requestReferenceSpace('viewer');
-          const raySpace = transformed.getOffsetReferenceSpace(
-            new XRRigidTransform({}, {
-              x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w,
-            })
-          );
-          const hit = await session.requestHitTestSource({
-            space: raySpace,
-            entityTypes: ['plane'],
-          });
-          if (!hit) break;
-          if (xrSessionRef.current !== session) {
-            hit.cancel();
-            break;
+        void (async () => {
+          try {
+            const direction = new THREE.Vector3(rx, ry, -1).normalize();
+            const rotation = new THREE.Quaternion().setFromUnitVectors(
+              new THREE.Vector3(0, 0, -1), direction
+            );
+            const raySpace = viewerSpace.getOffsetReferenceSpace(
+              new XRRigidTransform({}, {
+                x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w,
+              })
+            );
+            const hit = await session.requestHitTestSource!({
+              space: raySpace,
+              entityTypes: ['plane'],
+            });
+            if (!hit) return;
+            if (xrSessionRef.current === session) hitTestSourcesRef.current.push(hit);
+            else hit.cancel();
+          } catch (error) {
+            // One unsupported extra ray must never block central scanning.
+            console.debug('[Kitchyar XR] optional angled ray unavailable', error);
           }
-          hitTestSourcesRef.current.push(hit);
-        } catch {
-          // Chido keeps its central reticle if auxiliary rays are unsupported.
-          break;
-        }
+        })();
       }
       if (!session.domOverlayState) {
         throw new DOMException('Chido needs WebXR DOM Overlay for floor confirmation', 'NotSupportedError');
@@ -2692,8 +2694,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       data-xr-active={xrActive ? '1' : '0'}
       data-floor-locked={floorLocked ? '1' : '0'}
       data-ab-distance-cm={String(abDistanceCm)}
-      className={`absolute inset-0 z-10 flex flex-col transition-opacity ${
-        active ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      className={`absolute inset-0 flex flex-col transition-opacity ${
+        active ? (embeddedIn3D
+          ? 'opacity-100 z-40 pointer-events-none'
+          : 'opacity-100 z-40 pointer-events-auto')
+        : 'opacity-0 z-0 pointer-events-none'
       }`}
     >
       <div
@@ -2704,7 +2709,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }}
         className={`flex-1 relative cursor-crosshair ${
           xrActive || embeddedIn3D ? 'bg-transparent' : 'bg-gradient-to-b from-slate-200 via-slate-100 to-slate-200'
-        }`}
+        } ${embeddedIn3D ? 'pointer-events-none' : 'pointer-events-auto'}`}
       />
 
       {/* Aiming Reticle overlay for precise AR aiming */}
