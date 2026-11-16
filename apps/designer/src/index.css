@@ -49,3 +49,27 @@
 @media (display-mode: standalone) {
   .kichiyar-safe-root { padding-top: max(24px, env(safe-area-inset-top, 0px)); }
 }
+
+/* WebXR DOM Overlay is composited OVER the real camera. Every full-screen
+   wrapper between <html> and the XR canvas must be transparent during a scan.
+   Keep the toolbar/inspector cards opaque as localized floating UI only. */
+html.kitchiyar-xr-passthrough,
+html.kitchiyar-xr-passthrough body,
+html.kitchiyar-xr-passthrough #root,
+html.kitchiyar-xr-passthrough .kichiyar-safe-root,
+html.kitchiyar-xr-passthrough .kichiyar-safe-root > .flex-1,
+html.kitchiyar-xr-passthrough .kichiyar-safe-root > .flex-1 > div,
+html.kitchiyar-xr-passthrough main,
+html.kitchiyar-xr-passthrough [data-testid="scene-3d-root"],
+html.kitchiyar-xr-passthrough [data-testid="ar-workspace"],
+html.kitchiyar-xr-passthrough [data-testid="ar-workspace"] > div:first-child {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+/* The original 3D scene must never render an opaque surface over passthrough;
+   its floating controls remain present and interactive. */
+html.kitchiyar-xr-passthrough [data-testid="scene-3d-root"] > div:first-child canvas {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
