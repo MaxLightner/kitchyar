@@ -2273,11 +2273,17 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         // reference space. Three's XRManager may briefly expose null before
         // the first frame, so also retain the session's own local space.
         const space = renderer.xr.getReferenceSpace() || fallbackLocalSpaceRef.current;
-        let pose: XRViewerPose | null = null;
-        if (space) {
-          try { pose = frame.getViewerPose(space); }
-          catch (error) { console.warn('[Kitchyar XR] viewer pose rejected', error); }
+        if (!space) {
+          if (time - lastScanReportMsRef.current > 300) {
+            lastScanReportMsRef.current = time;
+            setScanDiagnostics({ tracking: false, rawHits: 0, validHits: 0 });
+          }
+          renderer.render(sceneRef.current, renderer.xr.getCamera());
+          return;
         }
+        let pose: XRViewerPose | undefined;
+        try { pose = frame.getViewerPose(space); }
+        catch (error) { console.warn('[Kitchyar XR] viewer pose rejected', error); }
         if (!pose) {
           if (time - lastScanReportMsRef.current > 300) {
             lastScanReportMsRef.current = time;
