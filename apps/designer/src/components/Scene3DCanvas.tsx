@@ -79,6 +79,7 @@ import {
 } from '../cad/types';
 import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
 import { PacedGestureStepper } from '../utils/gesturePacing';
+import { SurfaceCursor, createSurfaceCursorMarker, updateSurfaceCursorMarker } from '../utils/surfaceCursor';
 import { wideViewVerticalFov, WideViewMode } from '../ar/wideView';
 
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
@@ -257,6 +258,9 @@ function applySelectionMode3D(
 export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const { project, tool } = props;
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const surfaceCursorRef = useRef(new SurfaceCursor());
+  const commitPlacementRef = useRef<() => void>(()=>{});
+  const [hasPlacementCursor, setHasPlacementCursor] = useState(false);
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [camPreset, setCamPreset] = useState<'iso' | 'front' | 'top'>('iso');
   const [localWideViewMode, setLocalWideViewMode] = useState<WideViewMode>('normal');
@@ -529,6 +533,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     controls.maxDistance = 18;
     controlsRef.current = controls;
 
+    const surfaceMarker = createSurfaceCursorMarker();
+    scene.add(surfaceMarker);
     let rafId: number | null = null;
     let needsRender = true;
     let lastAnimTs = performance.now();
@@ -567,6 +573,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
       if (needsRender) {
         needsRender = false;
+        updateSurfaceCursorMarker(surfaceMarker, surfaceCursorRef.current);
         renderer.render(scene, camera);
       }
       if (anyDoorMoving) {
@@ -1126,7 +1133,35 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     updateGhostAndHoverRef.current = updateGhostAndHover;
 
+
+    const pinSurfaceCursor = (clientX:number,clientY:number) => {
+      raycaster.setFromCamera(setNdc(clientX,clientY),camera);
+      builtRef.current?.root.updateWorldMatrix(true,true);
+      const hit=builtRef.current ? raycaster.intersectObjects(builtRef.current.interactables,false)[0] : null;
+      if(hit) {
+        const normal=hit.face?.normal.clone().transformDirection(hit.object.matrixWorld) || new THREE.Vector3(0,1,0);
+        if(normal.dot(raycaster.ray.direction)>0)normal.negate();
+        surfaceCursorRef.current.pin(hit.point,normal);
+      } else {
+        const floor=new THREE.Vector3();
+        if(!raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),floor))return;
+        surfaceCursorRef.current.pin(floor);
+      }
+      setHasPlacementCursor(true);
+      updateSurfaceCursorMarker(surfaceMarker,surfaceCursorRef.current);
+      updateGhostAndHover(clientX,clientY);
+      requestRender();
+    };
+    const cursorScreen = (x:number,y:number) => surfaceCursorRef.current.screen(camera,renderer.domElement) || {x,y};
+
     const onPointerDown = (e: PointerEvent) => {
+      if(e.pointerType === 'touch' && propsRef.current.tool !== 'select') {
+        e.preventDefault();e.stopImmediatePropagation();controls.enabled=false;
+        surfaceCursorRef.current.begin(e.pointerId,e.clientX,e.clientY);
+        if(!surfaceCursorRef.current.point)pinSurfaceCursor(e.clientX,e.clientY);
+        try{renderer.domElement.setPointerCapture(e.pointerId);}catch{}
+        return;
+      }
       if (e.button === 2) {
         rightDownClientRef.current = { x: e.clientX, y: e.clientY };
         return;
@@ -1272,6 +1307,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if(e.pointerType === 'touch' && surfaceCursorRef.current.dragging && propsRef.current.tool !== 'select') {
+        if(surfaceCursorRef.current.moving(e.pointerId,e.clientX,e.clientY))pinSurfaceCursor(e.clientX,e.clientY);
+        return;
+      }
       const dr = drag3DRef.current;
       if (!dr) {
         if (e.buttons === 0 && e.target === renderer.domElement) {
@@ -1393,6 +1432,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
 
     const onPointerUp = (e: PointerEvent) => {
+      let actionX=e.clientX, actionY=e.clientY;
+      if(e.pointerType==='touch' && propsRef.current.tool!=='select') {
+        const commit=surfaceCursorRef.current.end(e.pointerId);
+        controls.enabled=propsRef.current.tool!=='wall'&&propsRef.current.tool!=='cab-draw';
+        if(!commit)return;
+        const pinned=cursorScreen(actionX,actionY);
+        actionX=pinned.x;actionY=pinned.y;
+        downClientRef.current={x:actionX,y:actionY};
+      }
+
       const dr = drag3DRef.current;
       drag3DRef.current = null;
       controls.enabled = true;
@@ -1421,16 +1470,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
       const dc = downClientRef.current;
       downClientRef.current = null;
-      if (!dc || Math.hypot(e.clientX - dc.x, e.clientY - dc.y) > 8 || !builtRef.current) return;
+      if (!dc || Math.hypot(actionX - dc.x, actionY - dc.y) > 8 || !builtRef.current) return;
       if (cur.tool === 'select') onDoorSingleClick(e);
 
       if (cur.tool === 'wall') {
-        const pt = raycastFloorPointCm(e.clientX, e.clientY);
+        const pt = raycastFloorPointCm(actionX, actionY);
         if (!pt) return;
         const start = pendingWallStart3DRef.current;
         if (!start) {
           pendingWallStart3DRef.current = pt;
-          updateWallFloorPreview(e.clientX, e.clientY);
+          updateWallFloorPreview(actionX, actionY);
           cur.onToast('نقطه شروع دیوار ثبت شد — نقطه بعدی را روی زمین کلیک کنید');
           return;
         }
@@ -1448,7 +1497,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         );
         cur.onAddWall?.(newWall);
         pendingWallStart3DRef.current = pt;
-        updateWallFloorPreview(e.clientX, e.clientY);
+        updateWallFloorPreview(actionX, actionY);
         cur.onToast(`دیوار (${lenCm}cm) رسم شد — نقطه بعدی یا راست‌کلیک برای پایان`);
         return;
       }
@@ -1459,7 +1508,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         const pWall = cur.project.walls.find((x) => x.id === pending.wallId);
         const pTr = builtRef.current.wallTransforms.get(pending.wallId);
         if (pWall && pTr) {
-          raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
+          raycaster.setFromCamera(setNdc(actionX, actionY), camera);
           const sweepHits = raycaster.intersectObjects(builtRef.current.interactables, false);
           const sameWallHit = sweepHits.find((h) => resolveHitData(h.object)?.wallId === pWall.id);
           let currXCm: number | null = null;
@@ -1467,7 +1516,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             scratchRel.copy(sameWallHit.point).sub(pTr.origin);
             currXCm = Math.max(0, Math.min(pWall.length, scratchRel.dot(pTr.tangent) / CM));
           } else {
-            const proj = projectPointerOntoWall(pWall.id, e.clientX, e.clientY);
+            const proj = projectPointerOntoWall(pWall.id, actionX, actionY);
             if (proj) currXCm = Math.max(0, Math.min(pWall.length, proj.xCm));
           }
           if (currXCm !== null) {
@@ -1499,7 +1548,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         clearGhost();
       }
 
-      raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
+      raycaster.setFromCamera(setNdc(actionX, actionY), camera);
       const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
       if (!hits.length) {
         if (cur.tool === 'doors') {
@@ -1540,7 +1589,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           startXCm,
           boxKind: cur.drawBoxKind,
         };
-        updateGhostAndHover(e.clientX, e.clientY);
+        updateGhostAndHover(actionX, actionY);
         cur.onToast('نقطه شروع باکس ثبت شد — موس را روی دیوار بکشید و با کلیک دوم تمام کنید');
         return;
       }
@@ -1973,6 +2022,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     };
 
+    commitPlacementRef.current = () => {
+      if(propsRef.current.tool==='select')return;
+      const pinned=surfaceCursorRef.current.screen(camera,renderer.domElement);
+      if(!pinned)return;
+      downClientRef.current={x:pinned.x,y:pinned.y};
+      onPointerUp(new PointerEvent('pointerup',{clientX:pinned.x,clientY:pinned.y,pointerType:'mouse',button:0}));
+    };
+
     const is3DCyclableTool = (t: ToolId): boolean =>
       t !== 'select' && t !== 'wall' && t !== 'eraser';
 
@@ -2140,12 +2197,15 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     let lastTwoFingerMidY: number | null = null;
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2 && is3DCyclableTool(propsRef.current.tool)) {
+        surfaceCursorRef.current.cancelGesture();
         controls.enabled = false;
         gestureStepperRef.current.resetTouch();
         const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
         lastTwoFingerMidY = midY;
-        updateGhostAndHover(midX, midY);
+        if(!surfaceCursorRef.current.point)pinSurfaceCursor(midX,midY);
+        const target=cursorScreen(midX,midY);
+        updateGhostAndHover(target.x,target.y);
       } else {
         lastTwoFingerMidY = null;
       }
@@ -2165,9 +2225,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       lastTwoFingerMidY = midY;
       const pacedDir = gestureStepperRef.current.consumeTouchDelta(deltaY);
       if (pacedDir !== 0) {
-        step3DToolOption(pacedDir, midX, midY);
+        const target=cursorScreen(midX,midY);
+        step3DToolOption(pacedDir, target.x, target.y);
       }
-      requestAnimationFrame(() => updateGhostAndHover(midX, midY));
+      const target=cursorScreen(midX,midY);
+      requestAnimationFrame(() => updateGhostAndHover(target.x,target.y));
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -2179,12 +2241,19 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onPointerLeave = () => {
+      if(surfaceCursorRef.current.point)return;
       clearGhost();
       clearWallFloorPreview();
       setHoverPreview(null);
     };
 
     const dom = renderer.domElement;
+    const onPlacementKey = (event:KeyboardEvent) => {
+      if(event.key==='Enter' && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target as HTMLElement)?.isContentEditable)) {
+        event.preventDefault();commitPlacementRef.current();
+      }
+    };
+    window.addEventListener('keydown',onPlacementKey);
     dom.addEventListener('wheel', onWheelCapture, { passive: false, capture: true });
     dom.addEventListener('pointerdown', onPointerDown, { capture: true });
     dom.addEventListener('contextmenu', onContextMenu);
@@ -2202,6 +2271,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       ro.disconnect();
       dom.removeEventListener('wheel', onWheelCapture, { capture: true });
       dom.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      window.removeEventListener('keydown',onPlacementKey);
+      disposeObject3D(surfaceMarker);
       dom.removeEventListener('contextmenu', onContextMenu);
       dom.removeEventListener('touchstart', onTouchStart);
       dom.removeEventListener('touchmove', onTouchMove);
@@ -2356,9 +2427,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   return (
     <div
       data-testid="scene-3d-root"
+      data-cursor-placed={hasPlacementCursor ? '1' : '0'}
+      data-cursor-x={surfaceCursorRef.current.point?.x}
+      data-cursor-y={surfaceCursorRef.current.point?.y}
+      data-cursor-z={surfaceCursorRef.current.point?.z}
       data-active-wall-id={project.activeWallId || ''}
       className={`relative w-full h-full overflow-hidden select-none ${props.scanMode
-        ? 'z-30 pointer-events-none bg-transparent'
+        ? 'z-50 pointer-events-none bg-transparent'
         : 'bg-slate-100'}`}
     >
       <div ref={hostRef} className={props.scanMode
@@ -2366,7 +2441,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         : 'w-full h-full'} />
 
       {/* نوار شناور بالای نمای سه‌بعدی (دوربین، باز شدن درها، انتخاب دیوار) */}
-      <div className="absolute top-2.5 right-3 left-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
+      <div className="absolute top-2.5 right-3 left-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-[60]">
         <div className="pointer-events-auto flex items-center gap-1 bg-white/95 border border-slate-300 rounded-xl p-1 shadow-sm">
           <button
             type="button"
@@ -2479,16 +2554,24 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           : 'موس روی دیوار = پیش‌نمایش و اسکرول تغییر مدل · راست‌کلیک = بازگشت به انتخاب'}
       </div>
 
-      {!props.scanMode && hoverPreview && !drag3DRef.current && (
+      {!props.scanMode && hasPlacementCursor && tool !== 'select' && (
+        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50 pointer-events-auto flex gap-2">
+          <button type="button" data-testid="scene-confirm-placement" onClick={()=>commitPlacementRef.current()}
+            className="h-11 rounded-xl px-5 bg-emerald-700 text-white font-bold">تأیید</button>
+          <button type="button" data-testid="scene-reset-cursor" onClick={()=>{surfaceCursorRef.current.clear();setHasPlacementCursor(false);requestRenderRef.current();}}
+            className="h-11 rounded-xl px-3 bg-white border border-slate-300">جابجایی نشانگر</button>
+        </div>
+      )}
+      {!props.scanMode && (hoverPreview || tool !== 'select') && !drag3DRef.current && (
         <CursorToolPreview
           visible={true}
-          clientX={hoverPreview.clientX}
-          clientY={hoverPreview.clientY}
+          clientX={hoverPreview?.clientX ?? 0}
+          clientY={hoverPreview?.clientY ?? 0}
           tool={tool}
           drawBoxKind={props.drawBoxKind}
-          activeCabWidthCm={hoverPreview.sweepWidthCm}
-          hoverTarget={hoverPreview.hoverTarget}
-          targetStatus={hoverPreview.targetStatus}
+          activeCabWidthCm={hoverPreview?.sweepWidthCm}
+          hoverTarget={hoverPreview?.hoverTarget}
+          targetStatus={hoverPreview?.targetStatus}
           sinkModel={props.sinkModel}
           gasWidth={props.gasWidth}
           hoodKind={props.hoodKind}

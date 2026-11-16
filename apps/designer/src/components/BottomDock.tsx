@@ -265,18 +265,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             <Eraser className="w-4 h-4" />
           </button>
 
-          {onDeleteSelection && (
-            <button
-              type="button"
-              onClick={onDeleteSelection}
-              disabled={!hasAnySelection}
-              aria-label="حذف مورد انتخاب‌شده"
-              title="حذف انتخاب‌شده (Delete)"
-              className={compactIconCls(false, 'danger')}
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
+
         </div>
       </nav>
     </div>

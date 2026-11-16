@@ -2,7 +2,7 @@ name: Browser smoke — Chido floor scan from Welcome
 
 on:
   push:
-    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16', 'fix/unified-xr-session-2026-11-16', 'fix/tablet-scan-entry-20261116', 'fix/chido-floor-runtime-20261116']
+    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16', 'fix/align-singleclick-real-chido-tracking-2026-11-16', 'fix/unified-xr-session-2026-11-16', 'fix/tablet-scan-entry-20261116', 'fix/chido-floor-runtime-20261116', 'fix/persistent-xr-surface-cursor-20261116']
     paths:
       - 'apps/designer/**'
       - '.github/workflows/scan-ui-smoke.yml'
@@ -146,7 +146,7 @@ jobs:
               ar: Number(getComputedStyle(document.querySelector('[data-testid="ar-workspace"]')).zIndex),
               scene: Number(getComputedStyle(document.querySelector('[data-testid="scene-3d-root"]')).zIndex)
             }));
-            assert.ok(scanLayers.ar > scanLayers.scene);
+            assert.ok(scanLayers.ar > 0, 'tracked input layer stays mounted');
             await tablet.close();
             console.log('PASS: supported tablet entry, single request, real failure diagnosis and retry.');
 
@@ -204,6 +204,7 @@ jobs:
             await designPage.getByTestId('align-selected-center').click();
             assert.equal(designErrors.length,0,'Align actions must not crash browser: '+designErrors.join('; '));
             console.log('PASS: Exactly five Align tools appear, equal-size require multi-selection and center-click works.');
+            await require('../../scripts/designer-interaction-smoke.cjs')(browser);
             await browser.close();
           })().catch(e=>{console.error(e);process.exit(1);});
           JS

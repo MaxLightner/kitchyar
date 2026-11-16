@@ -97,6 +97,7 @@ import {
 import { ARWorkspace } from './components/ARWorkspace';
 import { isHandheldARDevice, requestChidoSession } from './ar/chidoSession';
 import { alignSelectedDoorsInBox, equalizeSelectedVerticalWidths, equalizeSelectedDrawerHeights } from './cad/selectionAlign';
+import { copySelection } from './cad/copySelection';
 import { BottomDock } from './components/BottomDock';
 import { FrontCanvas } from './components/FrontCanvas';
 import { PlanCanvas } from './components/PlanCanvas';
@@ -251,7 +252,7 @@ export default function App() {
   const [history, setHistory] = useState<string[]>(() => [JSON.stringify(initialProject)]);
   const [historyIdx, setHistoryIdx] = useState<number>(0);
 
-  const [tool, setTool] = useState<ToolId>('doors');
+  const [tool, setTool] = useState<ToolId>('select');
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
   const [floorScanActive, setFloorScanActive] = useState(false);
   const [trackedFloorConfirmed, setTrackedFloorConfirmed] = useState(false);
@@ -329,9 +330,9 @@ export default function App() {
 
   // Preserve transparent WebXR DOM overlay all the way to the page root.
   useEffect(() => {
-    document.documentElement.classList.toggle('kitchiyar-xr-passthrough', floorScanActive);
+    document.documentElement.classList.toggle('kitchiyar-xr-passthrough', floorScanActive && viewMode === '3d');
     return () => document.documentElement.classList.remove('kitchiyar-xr-passthrough');
-  }, [floorScanActive]);
+  }, [floorScanActive, viewMode]);
 
   // The visible page height changes with Android Chrome's address/navigation
   // bars, orientation, split-screen and fullscreen transitions. 100vh is the
@@ -565,8 +566,8 @@ export default function App() {
     setProject(empty);
     setHistory([snap]);
     setHistoryIdx(0);
-    setTool('wall');
-    showToast('صفحه خالی شد؛ ابزار رسم دیوار فعال است');
+    setTool('select');
+    showToast('صفحه خالی شد؛ ابزار انتخاب فعال است');
   };
 
   const mutateWallById = useCallback(
@@ -2004,6 +2005,12 @@ export default function App() {
       activeWall
   );
 
+  const handleCopySelection = useCallback(() => {
+    const result=copySelection(project);
+    if(result.next)commitState(result.next,true);
+    showToast(result.message);
+  },[project,commitState,showToast]);
+
   const handleDeleteCurrentSelection = useCallback(() => {
     const ms = project.multiSelection;
     const hasMulti =
@@ -2089,7 +2096,9 @@ export default function App() {
       ) {
         return;
       }
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='d') {
+        e.preventDefault();handleCopySelection();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (handleDeleteCurrentSelection()) {
           e.preventDefault();
         }
@@ -2106,6 +2115,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
     handleDeleteCurrentSelection,
+    handleCopySelection,
     handleExitToSelect,
     handleMoveAppliance,
     activeWall,
@@ -2237,7 +2247,7 @@ export default function App() {
     // A failed permission request must never silently replace scanning with
     // the ordinary 3D editor (regression from the earlier implementation).
     setViewMode('3d');
-    setTool('wall');
+    setTool('select');
     setFloorScanActive(true);
     setInitialXrSession(null);
     const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
@@ -2264,15 +2274,9 @@ export default function App() {
         return;
       }
       if (nextMode === '3d' && floorScanActive) {
-        if (!trackedFloorConfirmed) {
-          showToast('ابتدا کف را تأیید کنید؛ دوربین در حال ردیابی است.');
-          return;
-        }
-        setSharedWideMode('wide');
+        setSharedWideMode(trackedFloorConfirmed ? 'wide' : 'normal');
       }
       if (nextMode === '2d') {
-        setFloorScanActive(false);
-        setInitialXrSession(null);
         const w = project.walls.find((x) => x.id === project.activeWallId) || project.walls[0] || null;
         window.setTimeout(() => fitWallToView(w), 60);
       }
@@ -2298,7 +2302,7 @@ export default function App() {
       else { setFloorScanActive(false); setInitialXrSession(null); }
       setViewMode(mode === 'ar' ? '3d' : mode);
       setScreen('editor');
-      setTool(normalized.walls.length === 0 ? 'wall' : 'doors');
+      setTool('select');
       window.setTimeout(() => fitWallToView(normalized.walls[0] || null), 80);
     },
     [fitWallToView, beginTrackedFloorScan]
@@ -2452,6 +2456,7 @@ export default function App() {
     <div
       ref={editorOverlayRef}
       data-testid="editor-shell"
+        data-active-tool={tool}
       className={`kichiyar-safe-root kitchiyar-editor-shell w-full flex flex-col overflow-hidden relative text-slate-900 ${
         floorScanActive || viewMode === 'ar' ? 'bg-transparent' : 'bg-slate-50'
       }`}
@@ -2616,6 +2621,7 @@ export default function App() {
               onBulkEqualizeDoors={handleBulkEqualizeDoors}
               onClearMultiSelection={() => handleSetMultiSelection(undefined)}
               onDeleteCurrentSelection={handleDeleteCurrentSelection}
+              onCopySelection={handleCopySelection}
               hasAnySelection={hasAnySelection}
             />
 
@@ -2632,8 +2638,8 @@ export default function App() {
                 splitDragging.current = false;
               }}
             >
-              {viewMode === '3d' ? (
-                <div className="relative flex-1 min-h-0 w-full overflow-hidden">
+              {(viewMode === '3d' || floorScanActive) && (
+                <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
               scanMode={floorScanActive}
               wideViewModeExternal={sharedWideMode}
@@ -2831,12 +2837,12 @@ export default function App() {
             />
                   {floorScanActive && (
                   <ARWorkspace
-            active={true}
+            active={viewMode === '3d'}
             embeddedIn3D={true}
             sharedTool={tool}
             initialSession={initialXrSession}
             onSessionEnded={() => { setFloorScanActive(false); setTrackedFloorConfirmed(false); setInitialXrSession(null); setSharedWideMode('normal'); }}
-            onFloorConfirmed={() => { setTrackedFloorConfirmed(true); setTool('wall'); }}
+            onFloorConfirmed={() => { setTrackedFloorConfirmed(true); setTool('select'); }}
             wideViewModeExternal={sharedWideMode}
             onWideViewModeChange={setSharedWideMode}
             overlayRootRef={editorOverlayRef}
@@ -2873,7 +2879,8 @@ export default function App() {
           />
                   )}
                 </div>
-              ) : (
+              )}
+              {viewMode !== '3d' && (
             <>
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
