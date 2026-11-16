@@ -13,6 +13,9 @@ import {
   FilePlus2,
   FlipHorizontal2,
   FolderOpen,
+  House,
+  Maximize2,
+  Minimize2,
   Layers,
   LayoutGrid,
   Redo2,
@@ -42,6 +45,9 @@ interface TopBarProps {
   activeBoxName?: string;
   projectName?: string;
   onOpenProjects?: () => void;
+  onOpenWelcome?: () => void;
+  onToggleFullscreen?: () => void;
+  isFullscreen?: boolean;
   onOpenStyles?: () => void;
   onNewProject: () => void;
   onUndo: () => void;
@@ -83,6 +89,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   activeBoxName,
   projectName,
   onOpenProjects,
+  onOpenWelcome,
+  onToggleFullscreen,
+  isFullscreen = false,
   onOpenStyles,
   onNewProject,
   onUndo,
@@ -107,8 +116,33 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <header className="bg-white border-b border-slate-200 flex flex-col shrink-0 z-30">
       <div className="h-11 flex flex-nowrap items-center justify-between px-2 sm:px-3 gap-1.5 overflow-x-auto no-scrollbar whitespace-nowrap">
-        {/* بخش راست: پروژه‌ها، تاریخچه و ابزارهای پروژه */}
+        {/* Home and fullscreen remain first/visible on narrow tablet screens. */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {onOpenWelcome && (
+            <button
+              type="button"
+              data-testid="go-welcome"
+              onClick={onOpenWelcome}
+              aria-label="بازگشت به صفحه خوش‌آمدگویی"
+              title="بازگشت به Welcome"
+              className={iconBtn}
+            >
+              <House className="w-4 h-4" />
+            </button>
+          )}
+          {onToggleFullscreen && (
+            <button
+              type="button"
+              data-testid="toggle-fullscreen"
+              onClick={onToggleFullscreen}
+              aria-label={isFullscreen ? 'خروج از تمام‌صفحه' : 'ورود به تمام‌صفحه'}
+              title={isFullscreen ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه'}
+              aria-pressed={isFullscreen}
+              className={iconBtn}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+          )}
           {onOpenProjects ? (
             <button
               type="button"
