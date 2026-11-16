@@ -95,18 +95,24 @@ export class FloorScanner {
     forward: THREE.Vector3 | null = null
   ): THREE.Vector3 | null {
     const rawCenter = floorCandidates(centerResults, space, viewer, true);
-    const center = rawCenter[0]?.point || null;
     const all = [...centerResults, ...additionalResults];
     this.rawHits = all.length;
     const allHits = floorCandidates(all, space, viewer, true);
+    // Chido's central ray is preferred, but ARCore often sees the floor first
+    // through an angled ray. Do not discard those valid hits when center is empty.
+    const center = (rawCenter.find((hit) => hit.level) ??
+      allHits.find((hit) => hit.level))?.point ?? null;
     this.currentHits = [];
     this.inlierHits = 0;
     this.validHits = 0;
     this.ready = false;
 
     if (!center) {
+      // Brief tracking gaps must not erase the independently observed floor.
+      // A fresh level hit is still required before the Confirm button enables.
       this.point = null;
-      this.history = [];
+      this.candidate = null;
+      this.history = this.history.filter((item) => time - item.seen <= MAX_HISTORY_AGE);
       return null;
     }
 
