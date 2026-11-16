@@ -72,8 +72,6 @@ export class FloorScanner {
   rawHits = 0;
   validHits = 0;
   inlierHits = 0;
-  private steadyFrames = 0;
-  private lastSteadyHeight: number | null = null;
 
   reset() {
     this.point = null;
@@ -86,8 +84,6 @@ export class FloorScanner {
     this.rawHits = 0;
     this.validHits = 0;
     this.inlierHits = 0;
-    this.steadyFrames = 0;
-    this.lastSteadyHeight = null;
   }
 
   update(
@@ -111,8 +107,6 @@ export class FloorScanner {
     if (!center) {
       this.point = null;
       this.history = [];
-      this.steadyFrames = 0;
-      this.lastSteadyHeight = null;
       return null;
     }
 
@@ -168,19 +162,7 @@ export class FloorScanner {
     if (!best) {
       this.point = null;
       this.candidate = null;
-      this.steadyFrames = 0;
-      this.lastSteadyHeight = null;
       return null;
-    }
-
-    if (
-      this.lastSteadyHeight !== null &&
-      Math.abs(best.height - this.lastSteadyHeight) <= FLOOR_HEIGHT_TOLERANCE
-    ) {
-      this.steadyFrames++;
-    } else {
-      this.lastSteadyHeight = best.height;
-      this.steadyFrames = 1;
     }
 
     this.height = best.height;
@@ -211,7 +193,8 @@ export class FloorScanner {
     origin.y = best.height;
     this.point = origin;
     this.candidate = matching[0] || null;
-    this.ready = best.group.length >= 3 || this.steadyFrames >= 10;
+    // Chido: only three independent, level-aligned spatial hits can certify a floor.
+    this.ready = best.group.length >= 3;
     return this.point.clone();
   }
 }
