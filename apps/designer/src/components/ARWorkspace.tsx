@@ -504,6 +504,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   // AR does not maintain an independent toolbar or an independent tool state.
   useEffect(() => {
     if (!embeddedIn3D || !sharedTool) return;
+    if (sharedTool !== 'wall') setPendingWallStart(null);
+    if (sharedTool !== 'cab-draw') setPendingCabSweep(null);
     const mapped: ArToolId = sharedTool === 'cab-draw'
       ? (drawBoxKind === 'wall' || drawBoxKind === 'wall-deep' ? 'cab-wall' : drawBoxKind === 'tall' ? 'cab-tall' : 'cab-base')
       : sharedTool === 'pencil' ? 'shelf'
@@ -1072,7 +1074,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const dz = (localPt.z - al.z) / al.scale;
       const modelX = dx * c - dz * sn;
       const modelZ = dx * sn + dz * c;
-      const result = projectArPointOntoWalls({ x: modelX, z: modelZ }, projectRef.current.walls);
+      const pendingSweep = pendingCabSweepRef.current;
+      const fixedWall = pendingSweep && projectRef.current.walls.find(w => w.id === pendingSweep.wallId);
+      const result = fixedWall ? {
+        wall: fixedWall,
+        offsetCm: Math.max(0, Math.min(fixedWall.length,
+          (modelX * 100 - fixedWall.x1Cm) * getWallVectors(fixedWall).tx +
+          (modelZ * 100 - fixedWall.y1Cm) * getWallVectors(fixedWall).ty)),
+      } : projectArPointOntoWalls({ x: modelX, z: modelZ }, projectRef.current.walls);
       if (!result) return 'invalid';
       const w = result.wall;
       const v = getWallVectors(w);
@@ -1084,13 +1093,22 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       let startX = result.offsetCm;
 
       if (tool === 'cab-base' || tool === 'cab-wall' || tool === 'cab-tall') {
-        const cfg = BOX_PRESETS[tool === 'cab-base' ? 'base' : tool === 'cab-wall' ? 'wall' : 'tall'];
-        width = Math.min(120, Math.max(60, w.length - startX));
+        // The first confirmation starts the sweep; this is ONLY the live ghost.
+        // The second confirmation creates the real box through the CAD engine.
+        const kind = tool === 'cab-base' ? 'base' : tool === 'cab-wall' ? 'wall' : 'tall';
+        const cfg = BOX_PRESETS[kind];
+        if (pendingSweep && pendingSweep.wallId === w.id) {
+          const sweep = computeCabinetSweepRange(pendingSweep.startCm, result.offsetCm, w.length, 30);
+          width = sweep.width;
+          startX = sweep.offsetX;
+        } else {
+          width = Math.min(120, Math.max(30, w.length - startX));
+          startX = Math.max(0, Math.min(w.length - width, startX));
+        }
         height = cfg.height;
         depth = cfg.depth;
         elev = cfg.elevY;
         forwardOffsetCm = depth / 2;
-        startX = Math.max(0, Math.min(w.length - width, startX));
       } else if (tool === 'fridge') {
         const cfg = FRIDGE_MODELS[choices.fridgeModel];
         width = cfg.width + FRIDGE_FRAME_CM * 2;
@@ -1750,30 +1768,52 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     const proj = projectRef.current;
-    const hitWall = projectArPointOntoWalls(modelPt, proj.walls);
+    const pendingSweep = pendingCabSweepRef.current;
+    const fixedWall = pendingSweep && proj.walls.find(w => w.id === pendingSweep.wallId);
+    const hitWall = fixedWall ? {
+      wall: fixedWall,
+      offsetCm: Math.max(0, Math.min(fixedWall.length,
+        (modelPt.x * 100 - fixedWall.x1Cm) * getWallVectors(fixedWall).tx +
+        (modelPt.z * 100 - fixedWall.y1Cm) * getWallVectors(fixedWall).ty)),
+    } : projectArPointOntoWalls(modelPt, proj.walls);
     if (!hitWall) {
-      onToast('ابتدا نزدیک یک دیوار لمس کنید یا دیوار جدید بکشید');
+      onToast('ابتدا نشانگر را نزدیک یک دیوار قرار دهید');
       return;
     }
 
     if (toolNow === 'cab-base' || toolNow === 'cab-wall' || toolNow === 'cab-tall') {
       const kind: BoxKind =
         toolNow === 'cab-base' ? 'base' : toolNow === 'cab-wall' ? 'wall' : 'tall';
+      if (!pendingSweep) {
+        // Never create a single fixed-width box on first tap.
+        setPendingCabSweep({ wallId: hitWall.wall.id, startCm: hitWall.offsetCm, kind });
+        onToast('شروع باکس ثبت شد؛ نشانگر را روی دیوار حرکت دهید و برای پایان تأیید بزنید');
+        return;
+      }
+      const travel = Math.abs(hitWall.offsetCm - pendingSweep.startCm);
+      if (travel < 30) {
+        onToast('برای رسم باکس، حداقل ۳۰ سانتی‌متر روی دیوار پیش بروید');
+        return;
+      }
+      const range = computeCabinetSweepRange(
+        pendingSweep.startCm, hitWall.offsetCm, hitWall.wall.length, 30
+      );
       onUpdateProject((prev) => {
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
-        const w = next.walls.find((x) => x.id === hitWall.wall.id);
+        const w = next.walls.find((x) => x.id === pendingSweep.wallId);
         if (!w) return prev;
-        const width = Math.min(120, Math.max(60, w.length - hitWall.offsetCm));
-        const clampedX = Math.max(0, Math.min(w.length - width, hitWall.offsetCm));
-        const box = createEmptyBox(kind, clampedX, width, { settings: next.settings });
+        // Only interaction changed: leave all intelligent CAD creation,
+        // hierarchy, corner carving and door optimizers untouched.
+        const box = createEmptyBox(pendingSweep.kind, range.offsetX, range.width, {
+          settings: next.settings,
+        });
         w.boxes.push(box);
-        if (kind === 'tall') {
-          carveBoxesForPlacedBox(w, box);
-        }
+        if (pendingSweep.kind === 'tall') carveBoxesForPlacedBox(w, box);
         next.activeWallId = w.id;
         next.activeBoxId = box.id;
         return next;
-      }, `باکس ${toolNow === 'cab-base' ? 'زمینی' : toolNow === 'cab-wall' ? 'هوایی' : 'قدی'} اضافه شد`);
+      }, `باکس ${Math.round(range.width)} سانتی‌متری رسم شد`);
+      setPendingCabSweep(null);
       return;
     }
 
@@ -2036,9 +2076,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           applyFloorActionRef.current(centerLocal);
         }
       }
-      setPendingWallStart(null);
-      if (wallGhostRef.current) wallGhostRef.current.visible = false;
-      onToast('ترسیم دیوار تأیید و تکمیل شد');
+      // Preserve endpoint so the next wall continues from the same corner.
+      // Cancelling or changing the tool ends the connected wall chain.
+      onToast('دیوار تأیید شد؛ نشانگر را به گوشه بعدی ببرید و دوباره تأیید بزنید');
       return;
     }
     if (renderer) {
@@ -2064,6 +2104,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   // Triggered by floating Cancel (لغو) button in AR
   const handleCancelAction = () => {
     setPendingWallStart(null);
+    setPendingCabSweep(null);
     arDragRef.current = null;
     if (wallGhostRef.current) wallGhostRef.current.visible = false;
     if (placementGhostRef.current) placementGhostRef.current.visible = false;
