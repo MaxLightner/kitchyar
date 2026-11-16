@@ -199,6 +199,26 @@ const CHIDO_SCAN_RAYS: ReadonlyArray<readonly [number, number]> = [
   [-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18],
 ];
 const MAX_SCAN_CROSSES = 20;
+
+/** Pending ARCore and hit-test promises cannot stall the scan indefinitely. */
+async function withXRStartupTimeout<T>(promise: Promise<T>, stage: string, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(`مهلت راه‌اندازی ${stage} تمام شد؛ اسکن را دوباره شروع کنید`);
+          error.name = 'TimeoutError';
+          reject(error);
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 const DOOR_ANIM_DURATION_S = 0.58;
 
 function makeCalibrationPin(colorHex: number, label: string, handleKind: 'a' | 'b'): THREE.Group {
@@ -2175,7 +2195,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     try {
-      const session = await (pendingSession || xr!.requestSession('immersive-ar', chidoSessionOptions(overlayRoot)));
+      const session = await withXRStartupTimeout(
+        pendingSession || xr!.requestSession('immersive-ar', chidoSessionOptions(overlayRoot)),
+        'دوربین WebXR', 30000
+      );
       if (rendererRef.current !== renderer) {
         await session.end().catch(() => {});
         return;
@@ -2223,7 +2246,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // viewer-space plane hit test. Additional rays ROTATE their direction,
       // rather than moving their origin sideways (the old Kitchyar bug).
       renderer.xr.setReferenceSpaceType('local');
-      await renderer.xr.setSession(session);
+      await withXRStartupTimeout(renderer.xr.setSession(session), 'موتور WebXR', 15000);
       // Chido keeps an XR render loop alive even while hit-test providers are
       // being initialized. Without this the camera/scanner looks frozen until
       // as many as nine async hit sources finish opening.
@@ -2233,14 +2256,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }
       });
       setXrStarting(false);
-      const viewerSpace = await session.requestReferenceSpace('viewer');
+      const viewerSpace = await withXRStartupTimeout(session.requestReferenceSpace('viewer'), 'ردیابی دوربین', 15000);
       if (!session.requestHitTestSource) {
         throw new DOMException('Chido floor scanning requires WebXR hit-test', 'NotSupportedError');
       }
-      const central = await session.requestHitTestSource({
+      const central = await withXRStartupTimeout(session.requestHitTestSource({
         space: viewerSpace,
         entityTypes: ['plane'],
-      });
+      }), 'تشخیص سطح مرکزی', 15000);
       if (!central) throw new DOMException('Chido central plane hit test unavailable', 'NotSupportedError');
       hitTestSourcesRef.current = [central];
       // The previous implementation awaited all eight auxiliary hit sources
@@ -2563,6 +2586,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         ? 'اجازه دوربین داده نشد؛ صفحه را در Chrome اندروید باز کنید و مجوز AR را تأیید کنید'
         : name === 'NotSupportedError'
         ? 'مرورگر از WebXR، تشخیص کف و DOM Overlay به‌صورت هم‌زمان پشتیبانی نمی‌کند'
+        : name === 'TimeoutError'
+        ? details
         : `شروع اسکن متوقف شد: ${name} — ${details}`;
       skipEndNotificationRef.current = true;
       setXrStartError(message);
