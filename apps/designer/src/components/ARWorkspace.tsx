@@ -33,9 +33,10 @@ import {
   projectArPointOntoWalls,
   XZPoint,
 } from '../ar/arCalibration';
-import { AnchorSample, AnchorStabilizer, FloorScanner } from '../ar/floorScanner';
+import { FloorScanner } from '../ar/floorScanner';
+import { AnchorSample, AnchorStabilizer, ChidoVec3, transformPoint as chidoTransformPoint } from '../ar/chidoAnchorRig';
+import { chidoSessionOptions } from '../ar/chidoSession';
 import {
-  nearDepthSessionOptions,
   NearRealOcclusion,
   OCCLUSION_STATUS_LABEL,
   OcclusionStatus,
@@ -64,6 +65,7 @@ import {
   autoUnitizeBoxForHandles,
   carveBoxesForPlacedBox,
   computeDoorBrushPreview,
+  computeCabinetSweepRange,
   createEmptyBox,
   getBoxSideExposure,
   getUnitsInBox,
@@ -162,7 +164,8 @@ interface AlignmentState {
 interface StoredAnchorEntry {
   id: string;
   anchor: XRAnchor;
-  reference: { x: number; y: number; z: number };
+  requested: THREE.Vector3;
+  reference: ChidoVec3 | null;
 }
 
 type ArDragState =
@@ -189,19 +192,12 @@ type ArDragState =
       moved: boolean;
     };
 
-// Offset rays & floor-net shader ported from MaxLightner/kitchyar (apps/preview/floor-ar.js + surfaces.js)
-const FLOOR_SCAN_RAYS: ReadonlyArray<readonly [number, number]> = [
-  [0, 0],
-  [0, 0.08],
-  [0, -0.08],
-  [-0.08, 0],
-  [0.08, 0],
-  [-0.055, 0.055],
-  [0.055, 0.055],
-  [0, -0.15],
+// Chido's central viewer ray plus eight rotated peripheral rays.
+const CHIDO_SCAN_RAYS: ReadonlyArray<readonly [number, number]> = [
+  [-0.24, 0], [0.24, 0], [0, -0.24], [0, 0.24],
+  [-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18],
 ];
-const FLOOR_RAY_TILT = -0.35;
-const MAX_SCAN_CROSSES = 36;
+const MAX_SCAN_CROSSES = 20;
 const DOOR_ANIM_DURATION_S = 0.58;
 
 function makeCalibrationPin(colorHex: number, label: string, handleKind: 'a' | 'b'): THREE.Group {
@@ -517,6 +513,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       : sharedTool;
     setArTool(mapped);
   }, [embeddedIn3D, sharedTool, drawBoxKind]);
+  const [pendingCabSweep, setPendingCabSweep] = useState<{wallId: string; startCm: number; kind: BoxKind} | null>(null);
+  const pendingCabSweepRef = useRef(pendingCabSweep);
+  pendingCabSweepRef.current = pendingCabSweep;
   const pendingWallStartRef = useRef(pendingWallStart);
   pendingWallStartRef.current = pendingWallStart;
   const pointARef = useRef(pointA);
@@ -538,6 +537,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const floorScannerRef = useRef(new FloorScanner());
   const anchorStabilizerRef = useRef(new AnchorStabilizer());
   const anchorsRef = useRef<StoredAnchorEntry[]>([]);
+  const anchorCandidatesRef = useRef<THREE.Vector3[]>([]);
+  const anchorPendingRef = useRef(false);
+  const anchorGenerationRef = useRef(0);
+  const anchorLastTimeRef = useRef(0);
   const pendingAnchorCreateRef = useRef(false);
   const basePoseRef = useRef<{ x: number; y: number; z: number; yaw: number } | null>(null);
   const hitTestSourcesRef = useRef<XRHitTestSource[]>([]);
@@ -2089,12 +2092,17 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     try {
-      const session = await (pendingSession || xr!.requestSession('immersive-ar', nearDepthSessionOptions(overlayRoot)));
+      const session = await (pendingSession || xr!.requestSession('immersive-ar', chidoSessionOptions(overlayRoot)));
       xrSessionRef.current = session;
       setXrActive(true);
       if (controlsRef.current) controlsRef.current.enabled = false;
       floorScannerRef.current.reset();
       anchorsRef.current = [];
+      anchorCandidatesRef.current = [];
+      anchorPendingRef.current = false;
+      anchorGenerationRef.current++;
+      anchorStabilizerRef.current = new AnchorStabilizer();
+      anchorLastTimeRef.current = 0;
       pendingAnchorCreateRef.current = false;
       setFloorLocked(false);
 
@@ -2118,54 +2126,47 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         renderOnceRef.current();
       });
 
-      let referenceSpaceType: 'local-floor' | 'local' = 'local-floor';
-      try {
-        await session.requestReferenceSpace('local-floor');
-      } catch {
-        referenceSpaceType = 'local';
-        await session.requestReferenceSpace('local');
-      }
-      const viewerSpace = await session.requestReferenceSpace('viewer');
-
-      // Port MaxLightner/kitchyar multi-ray hit test source setup (with plane preference fallback)
-      const requestSource = async (space: XRReferenceSpace): Promise<XRHitTestSource | null> => {
-        if (!session.requestHitTestSource) return null;
-        try {
-          return (await session.requestHitTestSource({ space, entityTypes: ['plane'] as XRHitTestTrackableType[] })) ?? null;
-        } catch {
-          return (await session.requestHitTestSource({ space })) ?? null;
-        }
-      };
-
-      const sources: XRHitTestSource[] = [];
-      for (const [rx, ry] of FLOOR_SCAN_RAYS) {
-        let offsetSpace = viewerSpace;
-        if ((rx !== 0 || ry !== 0) && viewerSpace.getOffsetReferenceSpace) {
-          offsetSpace = viewerSpace.getOffsetReferenceSpace(new XRRigidTransform({ x: rx, y: ry, z: 0 }));
-        }
-        const src = await requestSource(offsetSpace);
-        if (src) sources.push(src);
-      }
-      hitTestSourcesRef.current = sources;
-
-      if (viewerSpace.getOffsetReferenceSpace) {
-        const lowerSpace = viewerSpace.getOffsetReferenceSpace(
-          new XRRigidTransform(
-            { x: 0, y: 0, z: 0 },
-            { x: Math.sin(FLOOR_RAY_TILT / 2), y: 0, z: 0, w: Math.cos(FLOOR_RAY_TILT / 2) }
-          )
-        );
-        lowerHitSourceRef.current = await requestSource(lowerSpace);
-      }
-
-      transientHitSourceRef.current =
-        (await session.requestHitTestSourceForTransientInput?.({
-          profile: 'generic-touchscreen',
-        })) || null;
-
-      renderer.xr.setReferenceSpaceType(referenceSpaceType);
+      // Exact Chido orientation: a local reference space and a true forward
+      // viewer-space plane hit test. Additional rays ROTATE their direction,
+      // rather than moving their origin sideways (the old Kitchyar bug).
+      renderer.xr.setReferenceSpaceType('local');
       await renderer.xr.setSession(session);
-
+      const viewerSpace = await session.requestReferenceSpace('viewer');
+      const central = await session.requestHitTestSource({
+        space: viewerSpace,
+        entityTypes: ['plane'],
+      });
+      hitTestSourcesRef.current = [central];
+      for (const [rx, ry] of CHIDO_SCAN_RAYS) {
+        try {
+          const direction = new THREE.Vector3(rx, ry, -1).normalize();
+          const rotation = new THREE.Quaternion().setFromUnitVectors(
+            new THREE.Vector3(0, 0, -1), direction
+          );
+          const transformed = await session.requestReferenceSpace('viewer');
+          const raySpace = transformed.getOffsetReferenceSpace(
+            new XRRigidTransform({}, {
+              x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w,
+            })
+          );
+          const hit = await session.requestHitTestSource({
+            space: raySpace,
+            entityTypes: ['plane'],
+          });
+          if (xrSessionRef.current !== session) {
+            hit.cancel();
+            break;
+          }
+          hitTestSourcesRef.current.push(hit);
+        } catch {
+          // Chido keeps its central reticle if auxiliary rays are unsupported.
+          break;
+        }
+      }
+      if (!session.domOverlayState) {
+        throw new DOMException('Chido needs WebXR DOM Overlay for floor confirmation', 'NotSupportedError');
+      }
+      if (floorNetMeshRef.current) floorNetMeshRef.current.visible = false;
       let lastXrFrameTime = 0;
       renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
         if (!frame || !rendererRef.current || !sceneRef.current || !cameraRef.current) return;
