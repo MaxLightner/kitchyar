@@ -12,6 +12,7 @@ import {
   getWallVectors,
 } from './cornerLogic';
 import {
+  applyHandlesToBoxDoors,
   canDoorOpenIn3D,
   computeWallBacksplashSpans,
   doesFridgeTouchCabinet,
@@ -26,6 +27,8 @@ import {
   CabinetFinishId,
   DoorStyle,
   DoorUnit,
+  HandleStyle,
+  Orientation,
   ProjectState,
   Wall,
   WallOpening,
@@ -286,6 +289,88 @@ export function buildHandleMesh(
   }
   grp.add(p1, p2);
   return grp;
+}
+
+/**
+ * Preview the actual handle geometry at the exact positions the Install action
+ * would choose. Ghosts live on the rendered door leaves, so they inherit wall
+ * transforms and opening animations without modifying the saved project.
+ */
+export function attachSelectedHandlePreviews(
+  built: BuiltKitchenScene,
+  project: ProjectState,
+  style: HandleStyle,
+  orient: Orientation
+): THREE.Object3D[] {
+  if (project.doorsHidden) return [];
+  const selected = new Set(project.multiSelection?.doorIds ?? []);
+  if (project.selectedDoorId) selected.add(project.selectedDoorId);
+  if (selected.size === 0) return [];
+
+  const candidates = new Map<string, THREE.Mesh[]>();
+  for (const node of built.interactables) {
+    const data = node.userData as Scene3DHitData;
+    if (data.kind !== 'door' || !data.doorId || !selected.has(data.doorId)) continue;
+    if (!(node instanceof THREE.Mesh) || !(node.geometry instanceof THREE.BoxGeometry)) continue;
+    const key = `${data.wallId}:${data.boxId}:${data.doorId}`;
+    if (!candidates.has(key)) candidates.set(key, []);
+    candidates.get(key)!.push(node);
+  }
+
+  const previews: THREE.Object3D[] = [];
+  for (const wall of project.walls) {
+    for (const box of wall.boxes) {
+      const targetIds = box.doors.filter((door) => selected.has(door.id)).map((door) => door.id);
+      if (targetIds.length === 0) continue;
+      const previewBox: CabinetBox = {
+        ...box,
+        doors: box.doors.map((door) => ({ ...door })),
+        handles: [],
+      };
+      applyHandlesToBoxDoors(
+        previewBox, targetIds, style, orient, undefined,
+        getCornerBlockedZonesForWall(wall, project.walls, project.cornerOwners)
+      );
+      for (const handle of previewBox.handles) {
+        const key = `${wall.id}:${box.id}:${handle.doorId}`;
+        const panels = candidates.get(key) ?? [];
+        const rowKey = `${handle.doorId}:row:${handle.rowIndex ?? 0}`;
+        const rowPanels = panels.filter((panel) => panel.userData.animationId === rowKey);
+        const options = rowPanels.length > 0 ? rowPanels : panels;
+        const panel = options.reduce<THREE.Mesh | null>((best, node) => {
+          const size = (node.geometry as THREE.BoxGeometry).parameters;
+          const area = size.width * size.height;
+          if (!best) return node;
+          const old = (best.geometry as THREE.BoxGeometry).parameters;
+          return area > old.width * old.height ? node : best;
+        }, null);
+        if (!panel) continue;
+        const size = (panel.geometry as THREE.BoxGeometry).parameters;
+        const normalSign = built.wallTransforms.get(wall.id)?.normalSign ?? 1;
+        const material = new THREE.MeshStandardMaterial({
+          color: 0x0d9488,
+          metalness: 0.56,
+          roughness: 0.23,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        });
+        const preview = buildHandleMesh(
+          handle.style, handle.orient, handle.lengthCm || 16,
+          size.width, size.height, 0.018, normalSign, material, material
+        );
+        preview.position.set(
+          (handle.xRatio - 0.5) * size.width,
+          (0.5 - handle.yRatio) * size.height,
+          normalSign * 0.006
+        );
+        preview.userData = { previewOnly: true, doorId: handle.doorId };
+        panel.add(preview);
+        previews.push(preview);
+      }
+    }
+  }
+  return previews;
 }
 
 export function buildKitchen3DScene(
