@@ -2,7 +2,7 @@ name: Browser smoke — Chido floor scan from Welcome
 
 on:
   push:
-    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16']
+    branches: [main, 'fix/chido-scan-on-welcome-visibility-2026-11-16', 'fix/tablet-viewport-xr-startup-2026-11-16']
     paths:
       - 'apps/designer/**'
       - '.github/workflows/scan-ui-smoke.yml'
@@ -58,6 +58,51 @@ jobs:
             await page.getByTestId('toggle-floor-scan-3d').click();
             await page.getByTestId('scene-3d-canvas').waitFor({timeout:15000});
             console.log('PASS: Turning scan off restores normal 3D canvas.');
+
+            // Scanner marker and Chido overlay must be ABOVE the preserved 3D
+            // toolbar canvas, not hidden under its stacking context.
+            await page.getByTestId('toggle-floor-scan-3d').click();
+            await page.getByTestId('ar-reticle-overlay').waitFor({timeout:10000});
+            const scanLayers = await page.evaluate(() => ({
+              ar: Number(getComputedStyle(document.querySelector('[data-testid="ar-workspace"]')).zIndex),
+              scene: Number(getComputedStyle(document.querySelector('[data-testid="scene-3d-root"]')).zIndex)
+            }));
+            assert.ok(scanLayers.ar > scanLayers.scene,
+              'Chido scanner must be above 3D viewport: '+JSON.stringify(scanLayers));
+            await page.getByTestId('toggle-floor-scan-3d').click();
+            console.log('PASS: Chido pointer/reticle overlay is layered above 3D.');
+
+            async function assertDockVisible(width,height) {
+              await page.setViewportSize({width,height});
+              await page.waitForTimeout(250);
+              const dock = await page.getByTestId('bottom-dock').boundingBox();
+              const shell = await page.getByTestId('editor-shell').boundingBox();
+              const visual = await page.evaluate(() => window.visualViewport?.height || window.innerHeight);
+              assert.ok(dock && shell, 'Editor shell and bottom tools should exist');
+              assert.ok(dock.height >= 90, 'Both tool rows must be present: '+JSON.stringify(dock));
+              assert.ok(dock.y + dock.height <= visual + 2,
+                'Bottom toolbar clipped by browser viewport: '+JSON.stringify({width,height,visual,dock,shell}));
+              assert.ok(shell.height <= visual + 2,
+                'Editor must fit dynamic visual viewport: '+JSON.stringify({width,height,visual,shell}));
+            }
+            await assertDockVisible(900,380);
+            await assertDockVisible(390,650);
+            console.log('PASS: Both bottom tool rows fit in regular tablet landscape and portrait browser view.');
+
+            await page.setViewportSize({width:900,height:500});
+            await page.getByTestId('toggle-fullscreen').click();
+            await page.waitForFunction(() => Boolean(document.fullscreenElement),null,{timeout:5000});
+            await page.waitForTimeout(200);
+            const topPad = await page.getByTestId('editor-shell').evaluate(el=>parseFloat(getComputedStyle(el).paddingTop));
+            assert.ok(topPad >= 28,'Fullscreen must reserve room for Android status bar/cutout: '+topPad);
+            await page.getByTestId('toggle-fullscreen').click();
+            await page.waitForFunction(() => !document.fullscreenElement,null,{timeout:5000});
+            await assertDockVisible(900,500);
+            console.log('PASS: Enter/exit fullscreen preserves safe area and bottom toolbar.');
+
+            await page.getByTestId('go-welcome').click();
+            await page.getByRole('button',{name:'اسکن کف AR'}).waitFor({timeout:10000});
+            console.log('PASS: Home button returns directly to Welcome without losing project UI.');
             if(errors.length) throw Error('Browser errors: '+errors.join('; '));
             await browser.close();
           })().catch(e=>{console.error(e);process.exitCode=1;});
