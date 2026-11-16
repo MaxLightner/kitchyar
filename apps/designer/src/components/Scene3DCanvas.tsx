@@ -86,6 +86,11 @@ const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'cl
 const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
 
 interface Scene3DCanvasProps {
+  /** Keep the entire 3D editor mounted during scanning, without painting its
+   * virtual WebGL canvas over the real camera passthrough. */
+  scanMode?: boolean;
+  wideViewModeExternal?: WideViewMode;
+  onWideViewModeChange?: (mode: WideViewMode) => void;
   project: ProjectState;
   tool: ToolId;
   selectionMode: SelectionMode;
@@ -253,7 +258,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [camPreset, setCamPreset] = useState<'iso' | 'front' | 'top'>('iso');
-  const [wideViewMode, setWideViewMode] = useState<WideViewMode>('normal');
+  const [localWideViewMode, setLocalWideViewMode] = useState<WideViewMode>('normal');
+  const wideViewMode = props.wideViewModeExternal ?? localWideViewMode;
   const wideViewModeRef = useRef<WideViewMode>('normal');
   wideViewModeRef.current = wideViewMode;
   const [hoverPreview, setHoverPreview] = useState<{
@@ -2289,7 +2295,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
   const handleSetWideViewMode = (mode: WideViewMode) => {
     wideViewModeRef.current = mode;
-    setWideViewMode(mode);
+    setLocalWideViewMode(mode);
+    props.onWideViewModeChange?.(mode);
     if (cameraRef.current) {
       cameraRef.current.fov = wideViewVerticalFov(mode, cameraRef.current.aspect);
       cameraRef.current.updateProjectionMatrix();
@@ -2306,9 +2313,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     <div
       data-testid="scene-3d-root"
       data-active-wall-id={project.activeWallId || ''}
-      className="relative w-full h-full bg-slate-100 overflow-hidden select-none"
+      className={`relative w-full h-full overflow-hidden select-none ${props.scanMode
+        ? 'z-30 pointer-events-none bg-transparent'
+        : 'bg-slate-100'}`}
     >
-      <div ref={hostRef} className="w-full h-full" />
+      <div ref={hostRef} className={props.scanMode
+        ? 'w-full h-full invisible pointer-events-none'
+        : 'w-full h-full'} />
 
       {/* نوار شناور بالای نمای سه‌بعدی (دوربین، باز شدن درها، انتخاب دیوار) */}
       <div className="absolute top-2.5 right-3 left-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
@@ -2327,6 +2338,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           <button
             type="button"
             onClick={() => handleSetCamPreset('front')}
+            disabled={props.scanMode}
             className={`h-7 px-2.5 rounded-lg text-[13px] font-bold transition ${
               camPreset === 'front'
                 ? 'bg-indigo-600 text-white'
@@ -2338,6 +2350,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           <button
             type="button"
             onClick={() => handleSetCamPreset('top')}
+            disabled={props.scanMode}
             className={`h-7 px-2.5 rounded-lg text-[13px] font-bold transition ${
               camPreset === 'top'
                 ? 'bg-indigo-600 text-white'
@@ -2422,7 +2435,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           : 'موس روی دیوار = پیش‌نمایش و اسکرول تغییر مدل · راست‌کلیک = بازگشت به انتخاب'}
       </div>
 
-      {hoverPreview && !drag3DRef.current && (
+      {!props.scanMode && hoverPreview && !drag3DRef.current && (
         <CursorToolPreview
           visible={true}
           clientX={hoverPreview.clientX}
