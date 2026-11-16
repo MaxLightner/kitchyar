@@ -1750,7 +1750,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
       renderOnceRef.current();
     };
-  }, [project, arTool, handleStyle, handleOrient]);
+  }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, active, reticleEnabled, arTool, handleStyle, handleOrient]);
 
   const floorLocalToModelXZ = (localPt: THREE.Vector3): XZPoint => {
     const al = alignmentRef.current;
@@ -2434,13 +2434,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               floorGroupRef.current.rotation.y = fitted.pose.yaw;
             }
           }
-          if (anchorsRef.current.length >= 5) {
-            const central = hitTestSourcesRef.current[0];
-            if (central) {
-              try { central.cancel(); } catch {}
-              hitTestSourcesRef.current.shift();
-            }
-          }
+          // Keep the central hit-test source active: a user can press
+          // "Rescan floor" without restarting the immersive XR session.
+          // Canceling and shifting it here makes an angled ray the new
+          // central source and can stall subsequent floor detection.
         } else if (!floorLockedRef.current) {
           const allSources = hitTestSourcesRef.current;
           const centerResults = allSources[0] ? frame.getHitTestResults(allSources[0]) : [];
