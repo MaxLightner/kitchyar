@@ -78,6 +78,7 @@ import {
 } from '../cad/types';
 import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
 import { PacedGestureStepper } from '../utils/gesturePacing';
+import { wideViewVerticalFov, WideViewMode } from '../ar/wideView';
 
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
@@ -252,6 +253,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [camPreset, setCamPreset] = useState<'iso' | 'front' | 'top'>('iso');
+  const [wideViewMode, setWideViewMode] = useState<WideViewMode>('normal');
+  const wideViewModeRef = useRef<WideViewMode>('normal');
+  wideViewModeRef.current = wideViewMode;
   const [hoverPreview, setHoverPreview] = useState<{
     clientX: number;
     clientY: number;
@@ -501,7 +505,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
     clearWallPreviewRef.current = clearWallFloorPreview;
 
-    const camera = new THREE.PerspectiveCamera(44, w / h, 0.1, 80);
+    const camera = new THREE.PerspectiveCamera(wideViewVerticalFov(wideViewModeRef.current, w / h), w / h, 0.1, 80);
     camera.position.set(3.2, 2.5, 3.8);
     cameraRef.current = camera;
 
@@ -572,6 +576,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const cr = entries[0]?.contentRect;
       if (!cr || cr.width < 10 || cr.height < 10) return;
       camera.aspect = cr.width / cr.height;
+      camera.fov = wideViewVerticalFov(wideViewModeRef.current, camera.aspect);
       camera.updateProjectionMatrix();
       renderer.setSize(cr.width, cr.height);
       requestRender();
@@ -2282,6 +2287,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     requestRenderRef.current();
   };
 
+  const handleSetWideViewMode = (mode: WideViewMode) => {
+    wideViewModeRef.current = mode;
+    setWideViewMode(mode);
+    if (cameraRef.current) {
+      cameraRef.current.fov = wideViewVerticalFov(mode, cameraRef.current.aspect);
+      cameraRef.current.updateProjectionMatrix();
+      requestRenderRef.current();
+    }
+  };
+
   const handleSetCamPreset = (p: 'iso' | 'front' | 'top') => {
     setCamPreset(p);
     applyCameraPreset(p);
@@ -2332,6 +2347,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             بالا (پلان)
           </button>
 
+          <div className="w-px h-4 bg-slate-200 mx-0.5" />
+          {(['normal', 'wide', 'ultra'] as const).map((mode) => (
+            <button key={mode} type="button" data-testid={`3d-fov-${mode}`}
+              onClick={() => handleSetWideViewMode(mode)} aria-pressed={wideViewMode === mode}
+              className={`h-7 px-2 rounded-lg text-[13px] font-bold ${wideViewMode === mode
+                ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+            >{mode === 'normal' ? 'عادی' : mode === 'wide' ? 'واید' : 'اولترا'}</button>
+          ))}
           <div className="w-px h-4 bg-slate-200 mx-0.5" />
 
           <button
