@@ -1860,7 +1860,7 @@ test('fitCalibrationDragABWithScale anchors point A while rotating and uniformly
   assert.ok(Math.hypot(mappedB.x - targetB.x, mappedB.z - targetB.z) < 0.005);
 });
 
-test('FloorScanner marks floor ready on multi-ray detection OR steady single-ray scan without needing manual taps', () => {
+test('FloorScanner requires three distinct spatial hits, matching Chido (not repeated frames)', () => {
   const makeHit = (x: number, y: number, z: number): XRHitTestResult => {
     const m = new THREE.Matrix4().makeTranslation(x, y, z);
     return {
@@ -1881,12 +1881,12 @@ test('FloorScanner marks floor ready on multi-ray detection OR steady single-ray
   );
   assert.equal(scannerMulti.ready, true);
 
-  // 2) Single-ray fallback also reaches ready cleanly once steady for 10 frames (zero manual taps!)
+  // 2) One repeated hit never certifies a floor, even over multiple frames.
   const scannerSingle = new FloorScanner();
   for (let i = 0; i < 10; i++) {
     scannerSingle.update([makeHit(0, 0, -1)], [], space, viewer, 200 + i * 33);
   }
-  assert.equal(scannerSingle.ready, true);
+  assert.equal(scannerSingle.ready, false);
 });
 
 test('Drawer patterns include single top/bottom drawer + door and leave uncovered cabinet space empty', () => {
