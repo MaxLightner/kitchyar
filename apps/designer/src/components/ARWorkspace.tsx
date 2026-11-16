@@ -2461,7 +2461,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           {xrSupported && !xrActive ? (
             <button
               type="button"
-              onClick={startWebXrSession}
+              onClick={() => void startWebXrSession()}
               className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black inline-flex items-center gap-1.5"
             >
               <Camera className="w-4 h-4" />
