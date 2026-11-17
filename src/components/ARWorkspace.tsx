@@ -773,6 +773,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [showScaleDialog, setShowScaleDialog] = useState(false);
   const [aimStatus, setAimStatus] = useState<CursorTargetStatus>('neutral');
   const aimTapRef = useRef(new AimTap());
+  const updateAimSurfaceRef = useRef<(x:number,y:number)=>void>(()=>{});
   const placementPointAtClientRef = useRef<(x: number, y: number) => THREE.Vector3 | null>(() => null);
 
   const activeRef = useRef(active);
@@ -1181,6 +1182,19 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       return group.worldToLocal(worldHit);
     };
 
+    updateAimSurfaceRef.current = (x, y) => {
+      getPointerRay(x, y);
+      const built = builtSceneRef.current;
+      const hit = arToolRef.current !== 'wall' && built ? raycaster.intersectObjects(built.interactables, false)[0] : null;
+      if (hit) {
+        const normal = hit.face ? hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize() : new THREE.Vector3(0,1,0);
+        surfaceCursorRef.current.pin(hit.point, normal);
+      } else {
+        const local = floorPointAtClientRef.current(x,y);
+        if (local && floorGroupRef.current) surfaceCursorRef.current.pin(floorGroupRef.current.localToWorld(local.clone()));
+        else surfaceCursorRef.current.clear();
+      }
+    };
     placementPointAtClientRef.current = (x, y) => {
       if (arToolRef.current !== 'wall' && !arToolRef.current.startsWith('calibrate-')) {
         const hit = detailedPickAtClientRef.current(x, y);
@@ -2191,6 +2205,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     while (mount.children.length > 0) {
       const child = mount.children[0]; mount.remove(child); disposeObject3D(child);
     }
+    if (floorLocked) built.root.traverse(obj => {
+      if (obj.userData.kind !== 'floor' || !(obj instanceof THREE.Mesh)) return;
+      const pos = obj.geometry.getAttribute('position'), uv = obj.geometry.getAttribute('uv');
+      if (!pos || !uv) return;
+      const angle = Math.atan2(pointB.z - pointA.z, pointB.x - pointA.x), c = Math.cos(angle), sn = Math.sin(angle);
+      for (let i = 0; i < pos.count; i++) { const x = pos.getX(i) - pointA.x, z = pos.getZ(i) - pointA.z; uv.setXY(i, x*c+z*sn, -x*sn+z*c); }
+      uv.needsUpdate = true;
+    });
     builtSceneRef.current = built;
 
     const validIds = new Set(built.animatedDoors.map((d) => d.doorId));
@@ -2259,6 +2281,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = !xrActive || !floorLocked;
+      gridHelperRef.current.rotation.y = alignment.yaw - Math.atan2(pointB.z - pointA.z, pointB.x - pointA.x);
+      gridHelperRef.current.position.set(alignment.x + alignment.scale * (pointA.x * Math.cos(alignment.yaw) + pointA.z * Math.sin(alignment.yaw)), .005, alignment.z + alignment.scale * (-pointA.x * Math.sin(alignment.yaw) + pointA.z * Math.cos(alignment.yaw)));
     }
     if (reticleRef.current) {
       reticleRef.current.visible = !xrActive && reticleEnabled;
@@ -3312,6 +3336,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
         if (floorLockedRef.current && !arDragRef.current) {
           const { x: cx, y: cy } = aimCenter(renderer.domElement.getBoundingClientRect());
+          updateAimSurfaceRef.current(cx, cy);
           const local = placementPointAtClientRef.current(cx, cy);
           const result = local ? updateArGhostRef.current(local, cx, cy) : { status: 'invalid' as const };
           setAimStatus(previous => previous === result.status ? previous : result.status);
@@ -3338,7 +3363,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
         }
 
-        if(surfaceMarkerRef.current)surfaceMarkerRef.current.visible = false;
+        if(surfaceMarkerRef.current)updateSurfaceCursorMarker(surfaceMarkerRef.current,surfaceCursorRef.current);
         const xrCam = rendererRef.current.xr.getCamera();
         rendererRef.current.render(sceneRef.current, xrCam);
         const wideRenderer = trackedWideRendererRef.current;
@@ -3485,22 +3510,24 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
   const handleApplyRealDistance = () => {
     const cm = Number(realDistanceInput);
-    const nextScale = computeScaleFromRealDistanceCm(pointA, pointB, cm);
-    if (!nextScale) {
-      onToast('فاصله واقعی باید حداقل ۲۰ سانتی‌متر باشد');
-      return;
+    if (!Number.isFinite(cm) || cm < 10 || cm > 1000) {
+      onToast('فاصله باید بین ۱۰ و ۱۰۰۰ سانتی‌متر باشد'); return;
     }
-    // Scaling keeps the reference A fixed on the physical floor.
     const prev = alignmentRef.current;
+    const dx = pointB.x - pointA.x, dz = pointB.z - pointA.z;
+    const modelLength = Math.hypot(dx, dz);
+    if (modelLength < .001) return;
+    // The physical A/B pins are measurements, not a request to enlarge them.
+    const physicalLength = modelLength * prev.scale;
+    const nextScale = physicalLength / (cm / 100);
+    const calibratedB = { x: pointA.x + dx / modelLength * cm / 100, z: pointA.z + dz / modelLength * cm / 100 };
     const c = Math.cos(prev.yaw), sn = Math.sin(prev.yaw);
     const ax = pointA.x * c + pointA.z * sn, az = -pointA.x * sn + pointA.z * c;
     const next = { ...prev, scale: nextScale, x: prev.x + (prev.scale - nextScale) * ax, z: prev.z + (prev.scale - nextScale) * az };
     alignmentRef.current = next; setAlignment(next);
+    pointBRef.current = calibratedB; setPointB(calibratedB);
     setShowScaleDialog(false);
-    propsRef.current.onUpdateProject((prev) => ({
-      ...prev,
-      arCalibration: { a: pointA, b: pointB, realDistanceCm: cm },
-    }));
+    propsRef.current.onUpdateProject(prevProject => ({ ...prevProject, arCalibration: { a: pointA, b: calibratedB, realDistanceCm: cm } }));
     onToast(`مقیاس AR روی فاصله واقعی ${cm}cm تنظیم شد (ضریب ${nextScale})`);
   };
 
@@ -3591,7 +3618,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       />
 
       {/* Aiming Reticle overlay for precise AR aiming */}
-      {(xrActive || (reticleEnabled && !surfaceCursorActive)) && (
+      {((xrActive && (!floorLocked || aimStatus === 'invalid')) || (!xrActive && reticleEnabled && !surfaceCursorActive)) && (
         <div
           data-testid="ar-reticle-overlay"
           className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
@@ -3877,9 +3904,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
                 </label>
                 <input
                   id="ar-real-dist"
-                  type="number"
-                  min={20}
-                  max={2000}
+                  type="text"
+                  readOnly
+                  inputMode="none"
+                  onClick={() => setShowScaleDialog(true)}
                   value={realDistanceInput}
                   onChange={(e) => setRealDistanceInput(e.target.value)}
                   className="w-20 h-8 px-2 border border-slate-300 rounded-md font-bold tabular-nums text-center"
@@ -3925,7 +3953,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           <section role="dialog" aria-modal="true" aria-labelledby="ar-scale-title" dir="rtl" className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl space-y-4">
             <h2 id="ar-scale-title" className="text-lg font-bold text-slate-900">تثبیت مقیاس</h2>
             <label htmlFor="ar-scale-distance" className="block text-sm text-slate-700">فاصله واقعی بین A و B (سانتی‌متر)</label>
-            <input autoFocus id="ar-scale-distance" type="number" inputMode="decimal" min="20" value={realDistanceInput} onChange={e => setRealDistanceInput(e.target.value)} className="w-full h-12 rounded-xl border border-slate-300 px-3 text-lg text-slate-900" />
+            <input readOnly id="ar-scale-distance" type="text" inputMode="none" value={realDistanceInput} className="w-full h-12 rounded-xl border border-slate-300 px-3 text-lg text-slate-900" />
+            <div className="grid grid-cols-3 gap-2" aria-label="صفحه کلید مقیاس">
+              {['1','2','3','4','5','6','7','8','9','پاک','0','⌫'].map(key => <button key={key} type="button" className="h-11 rounded-lg bg-slate-100 text-lg font-bold text-slate-900" onClick={() => setRealDistanceInput(value => key === 'پاک' ? '' : key === '⌫' ? value.slice(0,-1) : String(Math.min(1000, Number(value + key))))}>{key}</button>)}
+            </div>
             <div className="flex gap-2">
               <button type="button" onClick={handleApplyRealDistance} className="min-h-12 flex-1 rounded-xl bg-emerald-600 text-white font-bold">تأیید مقیاس</button>
               <button type="button" onClick={() => setShowScaleDialog(false)} className="min-h-12 px-4 rounded-xl border border-slate-300 text-slate-700">ادامه تنظیم</button>

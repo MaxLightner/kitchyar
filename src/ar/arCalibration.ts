@@ -80,7 +80,7 @@ export function fitCalibrationDragABWithScale(
 
   if (modelLength < 0.08 || physicalLength < 0.1) return null;
 
-  const scale = Math.max(0.25, Math.min(3.5, +(physicalLength / modelLength).toFixed(4)));
+  const scale = Math.min(10, physicalLength) / modelLength;
   const yaw = Math.atan2(dz, dx) - Math.atan2(wz, wx);
   const cosine = Math.cos(yaw);
   const sine = Math.sin(yaw);
