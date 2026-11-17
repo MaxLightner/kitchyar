@@ -1,0 +1,517 @@
+import {
+  ApplianceKind,
+  BacksplashFinishId,
+  BoxKind,
+  CabinetFinishId,
+  CountertopFinishId,
+  DoorStyle,
+  DrawerPattern,
+  FridgeModel,
+  HardwareKind,
+  OpeningKind,
+  ProjectSettings,
+  SinkModel,
+} from './types';
+
+export interface CabinetFinishConfig {
+  id: CabinetFinishId;
+  label: string;
+  shortLabel: string;
+  hex: string;
+  hexDark: string;
+  edgeHex: string;
+  woodGrain?: boolean;
+  roughness: number;
+}
+
+export const CABINET_FINISH_ORDER: CabinetFinishId[] = [
+  'warm-white',
+  'cashmere',
+  'greige',
+  'sage-green',
+  'navy-matte',
+  'charcoal',
+  'natural-oak',
+  'walnut',
+];
+
+export const CABINET_FINISHES: Record<CabinetFinishId, CabinetFinishConfig> = {
+  'warm-white': {
+    id: 'warm-white',
+    label: 'سفید صابونی مات',
+    shortLabel: 'سفید',
+    hex: '#f8f7f4',
+    hexDark: '#e4e0d8',
+    edgeHex: '#94a3b8',
+    roughness: 0.36,
+  },
+  cashmere: {
+    id: 'cashmere',
+    label: 'کشمیر گرم',
+    shortLabel: 'کشمیر',
+    hex: '#e7ddd3',
+    hexDark: '#cfc2b4',
+    edgeHex: '#78716c',
+    roughness: 0.42,
+  },
+  greige: {
+    id: 'greige',
+    label: 'طوسی بژ (گریژ)',
+    shortLabel: 'گریژ',
+    hex: '#c7c2ba',
+    hexDark: '#a8a299',
+    edgeHex: '#57534e',
+    roughness: 0.4,
+  },
+  'sage-green': {
+    id: 'sage-green',
+    label: 'سبز مریم‌گلی',
+    shortLabel: 'سبز مریم',
+    hex: '#9fb19e',
+    hexDark: '#7f947e',
+    edgeHex: '#3f4f3f',
+    roughness: 0.44,
+  },
+  'navy-matte': {
+    id: 'navy-matte',
+    label: 'سرمه‌ای مات',
+    shortLabel: 'سرمه‌ای',
+    hex: '#2b4059',
+    hexDark: '#1c2b3d',
+    edgeHex: '#0f172a',
+    roughness: 0.44,
+  },
+  charcoal: {
+    id: 'charcoal',
+    label: 'ذغالی آنتراسیت',
+    shortLabel: 'ذغالی',
+    hex: '#363940',
+    hexDark: '#23252a',
+    edgeHex: '#090a0d',
+    roughness: 0.42,
+  },
+  'natural-oak': {
+    id: 'natural-oak',
+    label: 'چوب بلوط طبیعی',
+    shortLabel: 'بلوط',
+    hex: '#c8a173',
+    hexDark: '#9e7749',
+    edgeHex: '#624322',
+    woodGrain: true,
+    roughness: 0.56,
+  },
+  walnut: {
+    id: 'walnut',
+    label: 'چوب گردویی تیره',
+    shortLabel: 'گردویی',
+    hex: '#7a5236',
+    hexDark: '#553620',
+    edgeHex: '#2f1c0e',
+    woodGrain: true,
+    roughness: 0.52,
+  },
+};
+
+export interface BacksplashFinishConfig {
+  id: BacksplashFinishId;
+  label: string;
+  shortLabel: string;
+  baseHex: string;
+  groutHex: string;
+  accentHex: string;
+  pattern: 'marble' | 'subway' | 'travertine' | 'hex' | 'terrazzo' | 'herringbone';
+}
+
+export const BACKSPLASH_FINISH_ORDER: BacksplashFinishId[] = [
+  'calacatta-marble',
+  'subway-white',
+  'warm-travertine',
+  'hex-sage',
+  'terrazzo-grey',
+  'herringbone-charcoal',
+];
+
+export const BACKSPLASH_FINISHES: Record<BacksplashFinishId, BacksplashFinishConfig> = {
+  'calacatta-marble': {
+    id: 'calacatta-marble',
+    label: 'اسلب مرمر کلکته',
+    shortLabel: 'مرمر',
+    baseHex: '#f5f4f0',
+    groutHex: '#d6d3cd',
+    accentHex: '#a8a29e',
+    pattern: 'marble',
+  },
+  'subway-white': {
+    id: 'subway-white',
+    label: 'کاشی مترویی سفید',
+    shortLabel: 'مترویی',
+    baseHex: '#fafaf9',
+    groutHex: '#94a3b8',
+    accentHex: '#e2e8f0',
+    pattern: 'subway',
+  },
+  'warm-travertine': {
+    id: 'warm-travertine',
+    label: 'کاشی تراورتن کرم',
+    shortLabel: 'تراورتن',
+    baseHex: '#e7dfd3',
+    groutHex: '#b8ad9d',
+    accentHex: '#c7b8a3',
+    pattern: 'travertine',
+  },
+  'hex-sage': {
+    id: 'hex-sage',
+    label: 'کاشی شش‌ضلعی سبز',
+    shortLabel: 'شش‌ضلعی',
+    baseHex: '#b8cab8',
+    groutHex: '#7e917e',
+    accentHex: '#9bb29b',
+    pattern: 'hex',
+  },
+  'terrazzo-grey': {
+    id: 'terrazzo-grey',
+    label: 'ترازو طوسی روشن',
+    shortLabel: 'ترازو',
+    baseHex: '#e2e4e6',
+    groutHex: '#adb3ba',
+    accentHex: '#64748b',
+    pattern: 'terrazzo',
+  },
+  'herringbone-charcoal': {
+    id: 'herringbone-charcoal',
+    label: 'جناغی دودی تیره',
+    shortLabel: 'جناغی دودی',
+    baseHex: '#475569',
+    groutHex: '#1e293b',
+    accentHex: '#64748b',
+    pattern: 'herringbone',
+  },
+};
+
+export interface CountertopFinishConfig {
+  id: CountertopFinishId;
+  label: string;
+  shortLabel: string;
+  hex: string;
+  veinHex: string;
+}
+
+export const COUNTERTOP_FINISH_ORDER: CountertopFinishId[] = [
+  'dark-quartz',
+  'calacatta-top',
+  'concrete-grey',
+  'oak-butcher',
+];
+
+export const COUNTERTOP_FINISHES: Record<CountertopFinishId, CountertopFinishConfig> = {
+  'dark-quartz': {
+    id: 'dark-quartz',
+    label: 'کوارتز مشکی',
+    shortLabel: 'کوارتز تیره',
+    hex: '#2b313b',
+    veinHex: '#475569',
+  },
+  'calacatta-top': {
+    id: 'calacatta-top',
+    label: 'کورین مرمر سفید',
+    shortLabel: 'مرمر سفید',
+    hex: '#f1f0ec',
+    veinHex: '#cbd5e1',
+  },
+  'concrete-grey': {
+    id: 'concrete-grey',
+    label: 'بتن طوسی',
+    shortLabel: 'بتن',
+    hex: '#94989e',
+    veinHex: '#64748b',
+  },
+  'oak-butcher': {
+    id: 'oak-butcher',
+    label: 'صفحه چوب بلوط',
+    shortLabel: 'چوبی',
+    hex: '#b98c5b',
+    veinHex: '#7d562d',
+  },
+};
+
+export const DOOR_STYLE_ORDER: DoorStyle[] = [
+  'flat',
+  'cnc',
+  'glass',
+  'glass-grid',
+];
+
+export const DOOR_STYLE_META: Record<
+  DoorStyle,
+  { label: string; shortLabel: string; desc: string }
+> = {
+  flat: { label: 'ساده (مدرن فلت)', shortLabel: 'ساده', desc: 'درب صاف مدرن' },
+  cnc: { label: 'سی‌ان‌سی / قاب‌دار', shortLabel: 'سی‌ان‌سی', desc: 'طرح نئوکلاسیک و کلاسیک' },
+  glass: { label: 'شیشه‌ای (ویترین)', shortLabel: 'شیشه‌ای', desc: 'قاب با شیشه سرتاسری' },
+  'glass-grid': { label: 'شیشه‌ای مشبک', shortLabel: 'مشبک شیشه', desc: 'شیشه با تقسیم‌بندی گرید' },
+};
+
+export const HARDWARE_KIND_ORDER: HardwareKind[] = [
+  'hinged',
+  'pantry-pullout',
+  'lift-bifold',
+  'push-to-open',
+  'corner',
+];
+
+export const HARDWARE_KIND_META: Record<
+  HardwareKind,
+  { label: string; shortLabel: string; desc: string }
+> = {
+  hinged: { label: 'لولایی استاندارد', shortLabel: 'لولایی', desc: 'بازشو لولایی معمولی' },
+  'pantry-pullout': { label: 'سوپری کشویی ریلی', shortLabel: 'سوپری', desc: 'درب به صورت کشویی بیرون می‌آید' },
+  'lift-bifold': { label: 'جک افقی هم‌زمان (هوایی)', shortLabel: 'جک افقی', desc: 'درب‌های افقی هوایی با هم باز می‌شوند' },
+  'push-to-open': { label: 'مگنتی فشاری (بدون دستگیره)', shortLabel: 'مگنتی', desc: 'باز شدن با فشار بدون نیاز به دستگیره' },
+  corner: { label: 'لولای کنج (حداکثر ۸۰°)', shortLabel: 'کنج ۸۰°', desc: 'لولای مخصوص کنج با فاصله ۴cm از دیوار' },
+};
+
+export const SHEET_MM = 16;
+export const UNIT_DOUBLE_MM = 32;
+export const MIN_DOOR_CM = 30;
+export const MIN_PANTRY_CM = 15;
+export const MIN_DYNAMIC_DOOR_CM = 35;
+export const MAX_DOOR_CM = 60;
+export const DRAWER_MIN_CM = 40;
+export const DRAWER_MAX_CM = 110;
+export const MIN_LIFT_DOOR_CM = 50;
+export const MAX_LIFT_DOOR_CM = 110;
+export const MAX_LIFT_LEAF_HEIGHT_CM = 60;
+export const CARCASS_STILE_CM = 5;
+export const MIN_SHELF_GAP_CM = 25;
+export const DEFAULT_DOOR_CM = 60;
+export const DEFAULT_COLUMN_DEPTH_CM = 35;
+export const COUNTERTOP_CM = 4;
+export const PLINTH_CM = 10;
+export const FRIDGE_FRAME_CM = 5; // 5cm architectural surround box frame
+export const FRAME_WIDTH_OPTIONS = [3, 5, 7, 9, 11] as const;
+export const APRON_SINK_DEPTH_CM = 20;
+export const CORNER_FILLER_CM = 5; // 5cm clearance filler stile so adjacent corner doors never clash
+
+export const WALL_LOWER_ELEV_CM = 145;
+export const WALL_LOWER_HEIGHT_CM = 75; // Top = 220cm (matches tall & over-fridge top)
+export const WALL_DOUBLE_LOWER_H_CM = 45; // Lower shallow tier: 145..190cm
+export const WALL_DOUBLE_UPPER_ELEV_CM = 190; // Upper deep tier: 190..235cm (Top = 235cm)
+
+export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
+  wallHeightCm: 265,
+  baseHeightCm: 86,
+  plinthCm: 10,
+  countertopCm: 4,
+  wallCabElevCm: 145,
+  wallCabHeightCm: 75,
+  defaultHoodKind: 'chimney',
+};
+
+export interface FridgeModelConfig {
+  id: FridgeModel;
+  label: string;
+  shortLabel: string;
+  width: number;
+  depth: number;
+  height: number;
+}
+
+export const FRIDGE_MODELS: Record<FridgeModel, FridgeModelConfig> = {
+  single: {
+    id: 'single',
+    label: 'معمولی (۷۰cm)',
+    shortLabel: 'معمولی',
+    width: 70,
+    depth: 70,
+    height: 185,
+  },
+  'side-by-side': {
+    id: 'side-by-side',
+    label: 'ساید بای ساید (۹۲cm)',
+    shortLabel: 'ساید',
+    width: 92,
+    depth: 75,
+    height: 185,
+  },
+  twin: {
+    id: 'twin',
+    label: 'دوقلو (۱۲۰cm)',
+    shortLabel: 'دوقلو',
+    width: 120,
+    depth: 70,
+    height: 185,
+  },
+};
+
+export const FRIDGE_MODEL_ORDER: FridgeModel[] = ['single', 'side-by-side', 'twin'];
+
+export interface SinkModelConfig {
+  id: SinkModel;
+  label: string;
+  shortLabel: string;
+  width: number;
+  depth: number;
+}
+
+export const SINK_MODELS: Record<SinkModel, SinkModelConfig> = {
+  'steel-1': {
+    id: 'steel-1',
+    label: 'استیل تک‌لگن (۶۰cm)',
+    shortLabel: 'تک‌لگن',
+    width: 60,
+    depth: 50,
+  },
+  'steel-2': {
+    id: 'steel-2',
+    label: 'استیل دولگن (۹۰cm)',
+    shortLabel: 'دولگن',
+    width: 90,
+    depth: 50,
+  },
+  'steel-tray-right': {
+    id: 'steel-tray-right',
+    label: 'استیل لگن + سینی راست (۱۰۰cm)',
+    shortLabel: 'سینی راست',
+    width: 100,
+    depth: 50,
+  },
+  'steel-tray-left': {
+    id: 'steel-tray-left',
+    label: 'استیل لگن + سینی چپ (۱۰۰cm)',
+    shortLabel: 'سینی چپ',
+    width: 100,
+    depth: 50,
+  },
+  'ceramic-apron': {
+    id: 'ceramic-apron',
+    label: 'سرامیکی پیش‌آمده (۸۰cm)',
+    shortLabel: 'سرامیکی',
+    width: 80,
+    depth: 54,
+  },
+  'corner-sink': {
+    id: 'corner-sink',
+    label: 'سینک کنج (۹۰cm)',
+    shortLabel: 'سینک کنج',
+    width: 90,
+    depth: 54,
+  },
+};
+
+export const SINK_MODEL_ORDER: SinkModel[] = [
+  'steel-2',
+  'steel-1',
+  'steel-tray-right',
+  'steel-tray-left',
+  'ceramic-apron',
+  'corner-sink',
+];
+
+export const GAS_WIDTH_OPTIONS = [30, 35, 60, 75, 80, 90] as const;
+
+export const APPLIANCE_CONFIGS: Record<
+  ApplianceKind,
+  { label: string; shortLabel: string; width: number; depth: number }
+> = {
+  sink: { label: 'سینک (۹۰cm)', shortLabel: 'سینک', width: 90, depth: 50 },
+  gas: { label: 'گاز صفحه‌ای (۸۰cm)', shortLabel: 'گاز', width: 80, depth: 52 },
+  dishwasher: { label: 'ماشین ظرفشویی (۶۰cm)', shortLabel: 'ظرفشویی', width: 60, depth: 58 },
+  washing: { label: 'ماشین لباسشویی (۶۰cm)', shortLabel: 'لباسشویی', width: 60, depth: 58 },
+};
+
+export const OPENING_DEFAULTS: Record<
+  OpeningKind,
+  { label: string; width: number; elevY: number; height: number; depthCm?: number }
+> = {
+  window: { label: 'پنجره', width: 120, elevY: 105, height: 120 },
+  door: { label: 'درب ورودی / اتاق', width: 90, elevY: 0, height: 210 },
+  column: { label: 'ستون / داکت', width: 45, elevY: 0, height: 265, depthCm: DEFAULT_COLUMN_DEPTH_CM },
+};
+
+export const DRAWER_PATTERNS: DrawerPattern[] = [
+  { id: '2eq', label: '۲ کشو مساوی', shortLabel: '۲ کشو', ratios: [0.5] },
+  { id: '3eq', label: '۳ کشو مساوی', shortLabel: '۳ کشو', ratios: [0.333, 0.667] },
+  { id: '3step', label: '۳ کشو پلکانی', shortLabel: 'پلکانی', ratios: [0.22, 0.54] },
+  { id: '4eq', label: '۴ کشو مساوی', shortLabel: '۴ کشو', ratios: [0.25, 0.5, 0.75] },
+  {
+    id: '1top',
+    label: 'تک کشو بالا (درب + کشو)',
+    shortLabel: 'تک کشو بالا',
+    ratios: [],
+    kind: 'door',
+    drawerBand: { position: 'top', ratio: 0.26 },
+  },
+  {
+    id: '1bot',
+    label: 'تک کشو پایین (درب + کشو)',
+    shortLabel: 'تک کشو پایین',
+    ratios: [],
+    kind: 'door',
+    drawerBand: { position: 'bottom', ratio: 0.26 },
+  },
+];
+
+export const LIFT_PATTERNS: DrawerPattern[] = [
+  { id: '1lift', label: '۱ درب افقی (ارتفاع کم / بالای یخچال)', shortLabel: '۱ افقی', ratios: [] },
+  { id: '2lift', label: '۲ درب افقی (استاندارد)', shortLabel: '۲ افقی', ratios: [0.5] },
+];
+
+export interface BoxPresetConfig {
+  name: string;
+  height: number;
+  depth: number;
+  elevY: number;
+  plinth: number;
+  countertopCm: number;
+}
+
+export const BOX_PRESETS: Record<BoxKind, BoxPresetConfig> = {
+  base: {
+    name: 'زمینی',
+    height: 86, // 10 plinth + 72 carcass + 4 countertop
+    depth: 60,
+    elevY: 0,
+    plinth: PLINTH_CM,
+    countertopCm: COUNTERTOP_CM,
+  },
+  wall: {
+    name: 'هوایی',
+    height: WALL_LOWER_HEIGHT_CM,
+    depth: 32,
+    elevY: WALL_LOWER_ELEV_CM,
+    plinth: 0,
+    countertopCm: 0,
+  },
+  'wall-deep': {
+    name: 'هوایی عمق‌دار (ردیف بالا)',
+    height: 45,
+    depth: 58,
+    elevY: WALL_DOUBLE_UPPER_ELEV_CM,
+    plinth: 0,
+    countertopCm: 0,
+  },
+  tall: {
+    name: 'قدی',
+    height: 220, // Matches 145 + 75 wall top!
+    depth: 60,
+    elevY: 0,
+    plinth: PLINTH_CM,
+    countertopCm: 0,
+  },
+  fridge: {
+    name: 'یخچال',
+    height: 185,
+    depth: 70,
+    elevY: 0,
+    plinth: 0,
+    countertopCm: 0,
+  },
+  closet: {
+    name: 'کمد دیواری',
+    height: 235,
+    depth: 60,
+    elevY: 0,
+    plinth: 8,
+    countertopCm: 0,
+  },
+};

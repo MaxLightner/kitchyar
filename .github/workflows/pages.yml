@@ -1,80 +1,27 @@
-name: Publish Kitchyar Designer to GitHub Pages
-
+name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-    paths:
-      - 'apps/designer/**'
-      - '.github/workflows/pages.yml'
   workflow_dispatch:
-
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
-
 concurrency:
   group: pages
   cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Kitchyar
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
         with:
-          persist-credentials: true
-
-      - name: Import the reviewed kichiyar2 snapshot once
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f apps/designer/.kichiyar2-import-sha ]; then
-            echo 'Importing initial designer source into apps/designer'
-            git clone https://github.com/m3dhamid-arch/kitchiyar.git /tmp/kichiyar2-source
-            git -C /tmp/kichiyar2-source checkout --detach 94c372ca1a65ae4ae05ca33437743f81afcb98f5
-            mkdir -p apps/designer
-            rsync -a --exclude=.git --exclude=node_modules --exclude=dist --exclude='.env*' /tmp/kichiyar2-source/ apps/designer/
-            echo '94c372ca1a65ae4ae05ca33437743f81afcb98f5' > apps/designer/.kichiyar2-import-sha
-            cat > apps/designer/UPSTREAM.md <<'EOF'
-          # Kitchyar Designer
-          Initial import from https://github.com/m3dhamid-arch/kitchiyar at commit
-          `94c372ca1a65ae4ae05ca33437743f81afcb98f5`.
-
-          Edit `apps/designer` in this repository. This importer runs only once;
-          later changes to this folder are built and deployed without overwriting them.
-          The previous Kitchyar is preserved at `apps/preview` and at branch
-          `backup/legacy-before-kichiyar2-2026-11-15`.
-          EOF
-            git add apps/designer
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'feat: import kichiyar2 designer as new Kitchyar website'
-            git push origin HEAD:main
-          else
-            echo 'Designer already imported; preserving edits in apps/designer'
-          fi
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-        working-directory: apps/designer
-
-      - name: Build new designer
-        run: bun run build
-        working-directory: apps/designer
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: apps/designer/dist
-
+          path: dist
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -82,6 +29,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Publish
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4
