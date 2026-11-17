@@ -1,3 +1,5 @@
+import { logDiagnostic } from '../utils/diagnostics';
+import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -783,22 +785,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       let yCm = Math.max(-3000, Math.min(3000, Math.round((scratchHit.z / CM) / 5) * 5));
       const cur = propsRef.current;
 
-      // Snap to existing wall endpoints within 18cm
-      let snappedToCorner = false;
-      for (const w of cur.project.walls) {
-        for (const ep of [
-          { x: w.x1Cm, y: w.y1Cm },
-          { x: w.x2Cm, y: w.y2Cm },
-        ]) {
-          if (Math.hypot(xCm - ep.x, yCm - ep.y) <= 18) {
-            xCm = Math.round(ep.x);
-            yCm = Math.round(ep.y);
-            snappedToCorner = true;
-            break;
-          }
-        }
-        if (snappedToCorner) break;
-      }
+      const endpoint = snapWallEndpoint({ x: scratchHit.x / CM, y: scratchHit.z / CM }, cur.project.walls);
+      const snappedToCorner = endpoint.corner;
+      if (snappedToCorner) { xCm = endpoint.x; yCm = endpoint.y; }
 
       // Orthogonal 90-degree assist from pending start point
       const pStart = pendingWallStart3DRef.current;
@@ -2848,16 +2837,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const scene = sceneRef.current;
     if (!scene) return;
 
+    let built: BuiltKitchenScene;
+    try { built = buildKitchen3DScene(project, { doorOpenProgress: 0, tool }); }
+    catch (error) { logDiagnostic('scene-build-failed', error); props.onToast('خطای نمایش ثبت شد؛ صحنه قبلی حفظ شد'); return; }
     if (builtRef.current) {
       scene.remove(builtRef.current.root);
       disposeObject3D(builtRef.current.root);
-      builtRef.current = null;
     }
-
-    const built = buildKitchen3DScene(project, {
-      doorOpenProgress: 0,
-      tool,
-    });
     builtRef.current = built;
     scene.add(built.root);
 

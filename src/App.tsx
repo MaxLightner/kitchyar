@@ -1,3 +1,4 @@
+import { logDiagnostic, setDiagnosticContext } from './utils/diagnostics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   APPLIANCE_CONFIGS,
@@ -452,6 +453,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    setDiagnosticContext({ projectId: activeProjectId, viewMode, tool, walls: project.walls.length, boxes: project.walls.reduce((n,w)=>n+w.boxes.length,0) });
+    logDiagnostic('project-state');
     const recName = activeProjectRecord?.name || 'آشپزخانه من';
     setProjects((prev) => upsertProjectRecord(prev, activeProjectId, recName, project, viewMode));
     persistActiveProjectId(activeProjectId);

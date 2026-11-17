@@ -1,3 +1,6 @@
+import { snapArWallEndpointsCm } from '../ar/arCalibration';
+import { logDiagnostic } from '../utils/diagnostics';
+import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -625,6 +628,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const lastHoverCoordsRef = useRef<{ x: number; y: number } | null>(null);
 
   const propsRef = useRef({
+    onUpdateProject,
     selectionMode,
     fridgeModel,
     sinkModel,
@@ -679,6 +683,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onConfirmHiddenHandle,
   });
   propsRef.current = {
+    onUpdateProject,
     selectionMode,
     fridgeModel,
     sinkModel,
@@ -1256,10 +1261,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       if (tool === 'wall') {
         const start = pendingWallStartRef.current;
         if (!start) return { status: 'neutral' };
+        const modelEnd = floorLocalToModelXZ(localPt);
+        const snapped = snapArWallEndpointsCm(start, modelEnd, projectRef.current.walls);
+        const endX = snapped.x2Cm / 100, endZ = snapped.y2Cm / 100;
         const sx = al.x + al.scale * (start.x * c + start.z * sn);
         const sz = al.z + al.scale * (-start.x * sn + start.z * c);
-        const dx = localPt.x - sx;
-        const dz = localPt.z - sz;
+        const dx = al.x + al.scale * (endX * c + endZ * sn) - sx;
+        const dz = al.z + al.scale * (-endX * sn + endZ * c) - sz;
         const len = Math.hypot(dx, dz);
         if (len < 0.03) return { status: 'invalid' };
         const h = (projectRef.current.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm) / 100;
@@ -1658,7 +1666,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           const data = picked.data;
           const selMode = propsRef.current.selectionMode || 'single';
           if (selMode !== 'single' && data.boxId) {
-            onUpdateProject((prevProject) => {
+            propsRef.current.onUpdateProject((prevProject) => {
               const curMs: MultiSelection = prevProject.multiSelection
                 ? {
                     boxIds: [...prevProject.multiSelection.boxIds],
@@ -1687,7 +1695,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             return;
           }
 
-          onUpdateProject((prevProject) => ({
+          propsRef.current.onUpdateProject((prevProject) => ({
             ...prevProject,
             activeWallId: data.wallId,
             activeBoxId: data.boxId || null,
@@ -1919,7 +1927,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const a = pointARef.current;
         const b = pointBRef.current;
         const distCm = Math.round(Math.hypot(b.x - a.x, b.z - a.z) * alignmentRef.current.scale * 100);
-        onUpdateProject((prev) => ({
+        propsRef.current.onUpdateProject((prev) => ({
           ...prev,
           arCalibration: { a, b, realDistanceCm: distCm },
         }));
@@ -2133,17 +2141,17 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const floorGroup = floorGroupRef.current;
     if (!mount || !floorGroup) return;
 
-    while (mount.children.length > 0) {
-      const child = mount.children[0];
-      mount.remove(child);
-      disposeObject3D(child);
+    let built: BuiltKitchenScene;
+    try {
+      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72 });
+    } catch (error) {
+      logDiagnostic('ar-scene-build-failed', error);
+      onToast('خطای نمایش ثبت شد؛ صحنه قبلی حفظ شد');
+      return;
     }
-
-    const built = buildKitchen3DScene(project, {
-      doorOpenProgress: 0,
-      hideFloor: false,
-      floorOpacity: 0.72,
-    });
+    while (mount.children.length > 0) {
+      const child = mount.children[0]; mount.remove(child); disposeObject3D(child);
+    }
     builtSceneRef.current = built;
 
     const validIds = new Set(built.animatedDoors.map((d) => d.doorId));
@@ -2297,7 +2305,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setAlignment({ x: sol.x, z: sol.z, yaw: sol.yaw, scale: sol.scale });
       const distCm = Math.round(Math.hypot(b.x - a.x, b.z - a.z) * sol.scale * 100);
       setRealDistanceInput(String(distCm));
-      onUpdateProject((prev) => ({
+      propsRef.current.onUpdateProject((prev) => ({
         ...prev,
         arCalibration: { a, b, realDistanceCm: distCm },
       }));
@@ -2308,7 +2316,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     if (toolNow === 'wall') {
       const start = pendingWallStartRef.current;
       if (!start) {
-        setPendingWallStart(modelPt);
+        const snapped = snapWallEndpoint({ x: modelPt.x * 100, y: modelPt.z * 100 }, projectRef.current.walls);
+        const point = { x: snapped.x / 100, z: snapped.y / 100 };
+        pendingWallStartRef.current = point;
+        setPendingWallStart(point);
         onToast('نقطه شروع دیوار ثبت شد — نقطه بعدی را انتخاب یا تأیید کنید');
         return;
       }
@@ -2317,18 +2328,25 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         onToast('طول دیوار باید حداقل ۴۰ سانتی‌متر باشد');
         return;
       }
-      onUpdateProject((prev) => {
-        const wallH = prev.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm;
-        const newWall = buildArScannedWall(prev.walls, start, modelPt, wallH);
+      const wallH = projectRef.current.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm;
+      const newWall = buildArScannedWall(projectRef.current.walls.map(w => ({ ...w })), start, modelPt, wallH);
+      // Keep the exact welded endpoint, never the unsnapped hit-test point.
+      const end = { x: newWall.x2Cm / 100, z: newWall.y2Cm / 100 };
+      pendingWallStartRef.current = end;
+      setPendingWallStart(end);
+      propsRef.current.onUpdateProject((prev) => {
+        const walls = prev.walls.map(w => ({ ...w }));
+        const committedWall = buildArScannedWall(walls, start, end, wallH);
+        committedWall.id = newWall.id;
         return {
           ...prev,
-          walls: [...prev.walls, newWall],
-          activeWallId: newWall.id,
+          walls: [...walls, committedWall],
+          activeWallId: committedWall.id,
           activeBoxId: null,
           selectedDoorId: null,
         };
       }, 'دیوار جدید روی کف AR ثبت شد');
-      setPendingWallStart(modelPt);
+      logDiagnostic('wall-added', newWall.id);
       return;
     }
 
@@ -2377,7 +2395,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         choices.onCreateBoxesFromSweep(validSegments, pendingSweep.kind, sweepRes.suggestedOwners, {});
         return;
       }
-      onUpdateProject((prev) => {
+      propsRef.current.onUpdateProject((prev) => {
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
         for (const [k, v] of Object.entries(sweepRes.suggestedOwners || {})) {
           if (!next.cornerOwners[k]) next.cornerOwners[k] = v;
@@ -2405,7 +2423,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     if (toolNow === 'fridge') {
-      onUpdateProject((prev) => {
+      propsRef.current.onUpdateProject((prev) => {
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
         const w = next.walls.find((x) => x.id === hitWall.wall.id);
         if (!w) return prev;
@@ -2423,7 +2441,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     if (toolNow === 'opening') {
-      onUpdateProject((prev) => {
+      propsRef.current.onUpdateProject((prev) => {
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
         const w = next.walls.find((x) => x.id === hitWall.wall.id);
         if (!w) return prev;
@@ -2443,7 +2461,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     if (toolNow === 'sink' || toolNow === 'gas' || toolNow === 'appliance') {
-      onUpdateProject((prev) => {
+      propsRef.current.onUpdateProject((prev) => {
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
         const w = next.walls.find((x) => x.id === hitWall.wall.id);
         if (!w) return prev;
@@ -2540,7 +2558,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
       if (picked.data.boxId) {
         choices.onApplyFinish?.('box', picked.data.wallId, picked.data.boxId);
-        onUpdateProject((prev) => ({
+        propsRef.current.onUpdateProject((prev) => ({
           ...prev,
           activeWallId: picked.data.wallId,
           activeBoxId: picked.data.boxId || null,
@@ -2573,7 +2591,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         if (choices.onDeleteOpening) {
           choices.onDeleteOpening(picked.data.wallId, picked.data.openingId);
         } else {
-          onUpdateProject((prev) => {
+          propsRef.current.onUpdateProject((prev) => {
             const next: ProjectState = JSON.parse(JSON.stringify(prev));
             const w = next.walls.find((x) => x.id === picked.data.wallId);
             if (w) w.openings = (w.openings || []).filter((o) => o.id !== picked.data.openingId);
@@ -2583,7 +2601,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         return;
       }
       let toastMsg = '';
-      onUpdateProject((prev) => {
+      propsRef.current.onUpdateProject((prev) => {
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
         const w = next.walls.find((x) => x.id === picked.data.wallId);
         if (!w) return prev;
@@ -2662,7 +2680,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           )
         );
         const runBatch = () => {
-          onUpdateProject((prev) => {
+          propsRef.current.onUpdateProject((prev) => {
             const next: ProjectState = JSON.parse(JSON.stringify(prev));
             for (const wMut of next.walls) {
               const bZones = getCornerBlockedZonesForWall(wMut, next.walls, next.cornerOwners);
@@ -2685,7 +2703,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       const runSingle = () => {
         let feedback = '';
-        onUpdateProject((prev) => {
+        propsRef.current.onUpdateProject((prev) => {
           const next: ProjectState = JSON.parse(JSON.stringify(prev));
           const w = next.walls.find((x) => x.id === wallNow.id);
           const box = w?.boxes.find((b) => b.id === boxNow.id);
@@ -2763,7 +2781,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     let feedback = '';
-    onUpdateProject((prev) => {
+    propsRef.current.onUpdateProject((prev) => {
       const next: ProjectState = JSON.parse(JSON.stringify(prev));
       const w = next.walls.find((x) => x.id === picked.data.wallId);
       const box = w?.boxes.find((b) => b.id === picked.data.boxId);
@@ -3416,7 +3434,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       return;
     }
     setAlignment((prev) => ({ ...prev, scale: nextScale }));
-    onUpdateProject((prev) => ({
+    propsRef.current.onUpdateProject((prev) => ({
       ...prev,
       arCalibration: { a: pointA, b: pointB, realDistanceCm: cm },
     }));

@@ -1,3 +1,4 @@
+import { snapWallEndpoint } from '../cad/wallSnap';
 import { autoOrientWallsOnAdd, getWallVectors } from '../cad/cornerLogic';
 import { createWall } from '../cad/doorRules';
 import { Wall } from '../cad/types';
@@ -120,35 +121,18 @@ export function snapArWallEndpointsCm(
 ): { x1Cm: number; y1Cm: number; x2Cm: number; y2Cm: number; lengthCm: number } {
   const rawX1 = Math.round((startM.x * 100) / 5) * 5;
   const rawY1 = Math.round((startM.z * 100) / 5) * 5;
-  const snapEndpoint = (x: number, y: number) => {
-    let bestX = x;
-    let bestY = y;
-    let bestD = 22;
-    for (const w of existingWalls) {
-      const d1 = Math.hypot(w.x1Cm - x, w.y1Cm - y);
-      if (d1 < bestD) {
-        bestD = d1;
-        bestX = w.x1Cm;
-        bestY = w.y1Cm;
-      }
-      const d2 = Math.hypot(w.x2Cm - x, w.y2Cm - y);
-      if (d2 < bestD) {
-        bestD = d2;
-        bestX = w.x2Cm;
-        bestY = w.y2Cm;
-      }
-    }
-    return { x: bestX, y: bestY };
-  };
+  const snapEndpoint = (x: number, y: number) => snapWallEndpoint({ x, y }, existingWalls);
 
-  const p1 = snapEndpoint(rawX1, rawY1);
+  const p1 = snapEndpoint(startM.x * 100, startM.z * 100);
+  if (!p1.corner) { p1.x = rawX1; p1.y = rawY1; }
+  const target = snapEndpoint(endM.x * 100, endM.z * 100);
   let x2 = Math.round((endM.x * 100) / 5) * 5;
   let y2 = Math.round((endM.z * 100) / 5) * 5;
 
   const dx = x2 - p1.x;
   const dy = y2 - p1.y;
   const len = Math.hypot(dx, dy);
-  if (len >= 40) {
+  if (len >= 40 && !target.corner) {
     const rawDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
     const nearest = Math.round(rawDeg / snapAngleDeg) * snapAngleDeg;
     if (Math.abs(rawDeg - nearest) <= 9) {
@@ -159,7 +143,7 @@ export function snapArWallEndpointsCm(
     }
   }
 
-  const p2 = snapEndpoint(x2, y2);
+  const p2 = target.corner ? target : snapEndpoint(x2, y2);
   const finalLen = Math.max(40, Math.round(Math.hypot(p2.x - p1.x, p2.y - p1.y)));
   return { x1Cm: p1.x, y1Cm: p1.y, x2Cm: p2.x, y2Cm: p2.y, lengthCm: finalLen };
 }

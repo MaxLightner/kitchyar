@@ -1,3 +1,4 @@
+import { downloadDiagnostics } from '../utils/diagnostics';
 import React, { useRef } from 'react';
 import {
   AlignCenterHorizontal,
@@ -181,6 +182,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             </button>
           </div>
 
+          <button type="button" onClick={downloadDiagnostics} title="دریافت گزارش خطا" aria-label="دریافت گزارش خطا" className={iconBtn}><Download className="w-4 h-4" /></button>
           {/* تاریخچه تغییرات */}
           <div className="flex items-center gap-1 shrink-0">
             <button

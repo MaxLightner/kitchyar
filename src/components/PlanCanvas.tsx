@@ -1,3 +1,4 @@
+import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   APPLIANCE_CONFIGS,
@@ -346,14 +347,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     raw: { x: number; y: number },
     startPt: { x: number; y: number } | null
   ) => {
-    for (const w of walls) {
-      if (Math.hypot(raw.x - w.x1Cm, raw.y - w.y1Cm) < 18) {
-        return { x: w.x1Cm, y: w.y1Cm, corner: true };
-      }
-      if (Math.hypot(raw.x - w.x2Cm, raw.y - w.y2Cm) < 18) {
-        return { x: w.x2Cm, y: w.y2Cm, corner: true };
-      }
-    }
+    const endpoint = snapWallEndpoint(raw, walls);
+    if (endpoint.corner) return endpoint;
     let sx = Math.round(raw.x / 10) * 10;
     let sy = Math.round(raw.y / 10) * 10;
     if (startPt) {
@@ -463,7 +458,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     }
 
     const nodeEl = targetEl.closest('[data-wall-node]');
-    if (nodeEl && (tool === 'select' || tool === 'wall') && !wallDraw.startPt) {
+    if (nodeEl && tool === 'select' && !wallDraw.startPt) {
       const key = nodeEl.getAttribute('data-wall-node');
       const node = smartNodes.find((n) => n.key === key);
       if (node) {
