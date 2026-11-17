@@ -2278,6 +2278,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       floorNetMeshRef.current.visible = xrActive &&
         (floorRevealStartRef.current !== null || (!floorLocked && Boolean(floorScannerRef.current.point)));
       floorNetUniformsRef.current.uOpacity.value = 0.85;
+      const net = floorNetMeshRef.current;
+      if (floorLocked) {
+        const yaw = alignment.yaw - Math.atan2(pointB.z-pointA.z, pointB.x-pointA.x);
+        net.quaternion.setFromAxisAngle(new THREE.Vector3(0,1,0), yaw).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2));
+        net.position.set(alignment.x + alignment.scale*(pointA.x*Math.cos(alignment.yaw)+pointA.z*Math.sin(alignment.yaw)), .004, alignment.z + alignment.scale*(-pointA.x*Math.sin(alignment.yaw)+pointA.z*Math.cos(alignment.yaw)));
+      } else { net.rotation.set(-Math.PI/2,0,0); net.position.set(0,.004,0); }
     }
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = !xrActive || !floorLocked;
