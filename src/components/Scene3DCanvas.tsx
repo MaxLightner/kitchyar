@@ -1970,6 +1970,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const hitXCm = Math.max(0, Math.min(wall.length, scratchRel.dot(tr.tangent) / CM));
       const hitYCm = Math.max(0, Math.min(wall.height, topPoint.y / CM));
 
+      if (cur.tool === 'cab-draw' && cur.drawBoxKind === 'base') {
+        const widthCm = Math.min(60, Math.max(30, wall.length));
+        const startCm = Math.max(0, Math.min(wall.length - widthCm, Math.round((hitXCm - widthCm / 2) / 5) * 5));
+        cur.onCreateBoxesFromSweep?.([{ wallId: wall.id, startCm, widthCm }], cur.drawBoxKind, {}, {});
+        cur.onToast('کابینت مطابق پیش‌نمایش ثبت شد');
+        return;
+      }
       if (cur.tool === 'cab-draw') {
         const startXCm = Math.max(0, Math.min(wall.length, Math.round(hitXCm / 5) * 5));
         pendingCabDraw3DRef.current = {

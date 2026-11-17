@@ -546,9 +546,9 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           return;
         }
       }
-      const wEl = targetEl.closest('[data-wall-click]');
+      const wEl = targetEl.closest('[data-wall-move], [data-wall-click]');
       if (wEl) {
-        const wId = wEl.getAttribute('data-wall-click');
+        const wId = wEl.getAttribute('data-wall-move') || wEl.getAttribute('data-wall-click');
         if (wId) onDeleteWall(wId);
         return;
       }
@@ -660,21 +660,18 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           }
         }
 
+        const initialWidth = Math.min(60, hit.wall.length);
+        const previewStart = Math.max(0, Math.min(hit.wall.length - initialWidth, Math.round((hit.offsetCm - initialWidth / 2) / 5) * 5));
         const initial = computeMultiWallSweep(
-          workingWalls,
-          hit.wall.id,
-          hit.offsetCm,
-          hit.wall.id,
-          hit.offsetCm,
-          drawBoxKind,
-          cornerOwners,
-          false
+          workingWalls, hit.wall.id, drawBoxKind === 'base' ? previewStart : hit.offsetCm,
+          hit.wall.id, drawBoxKind === 'base' ? previewStart + initialWidth : hit.offsetCm,
+          drawBoxKind, cornerOwners, false
         );
 
         setCabSweep({
           active: true,
           startWallId: hit.wall.id,
-          startOffsetCm: hit.offsetCm,
+          startOffsetCm: drawBoxKind === 'base' ? previewStart : hit.offsetCm,
           hasDragged: false,
           flipOverrides,
           segments: initial.segments,
@@ -764,7 +761,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       if (wId) {
         const w = walls.find((x) => x.id === wId);
         onSelectWall(wId, w?.boxes[0]?.id ?? null);
-        if (tool === 'select' && w) {
+        if (tool === 'select' && w && wEl.hasAttribute('data-wall-move')) {
           e.currentTarget.setPointerCapture(e.pointerId);
           dragOp.current = {
             mode: 'move-wall',
@@ -952,7 +949,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
-      const valid = cabSweep.hasDragged ? cabSweep.segments.filter((seg) => seg.widthCm >= 30) : [];
+      const valid = (cabSweep.hasDragged || drawBoxKind === 'base') ? cabSweep.segments.filter((seg) => seg.widthCm >= 30) : [];
       const owners = cabSweep.suggestedOwners;
       const flips = cabSweep.flipOverrides;
       setCabSweep({
@@ -1842,6 +1839,12 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
               {planHoverWall &&
                 planHoverWall.wallId === w.id &&
                 (() => {
+                  if (tool === 'cab-draw' && drawBoxKind === 'base' && !cabSweep.active) {
+                    const width = Math.min(60, w.length);
+                    const start = Math.max(0, Math.min(w.length - width, Math.round((planHoverWall.offsetCm - width / 2) / 5) * 5));
+                    const depth = BOX_PRESETS.base.depth * s;
+                    return <rect x={start * s} y={flip === 1 ? 0 : -depth} width={width * s} height={depth} fill="rgba(79,70,229,.25)" stroke="#4f46e5" strokeDasharray="4,3" pointerEvents="none" />;
+                  }
                   if (tool === 'fridge') {
                     const cfg = FRIDGE_MODELS[fridgeModel];
                     const totalW = cfg.width + FRIDGE_FRAME_CM * 2;
@@ -2034,6 +2037,14 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           );
         })}
 
+        {tool === 'select' && displayWalls.map(w => {
+          const v = getWallVectors(w);
+          return <g key={w.id} data-wall-move={w.id} aria-label="جابجایی دیوار با متعلقات" style={{ cursor: 'grab' }} transform={`translate(${(w.x1Cm + w.x2Cm) * s / 2 - v.nx * 26}, ${(w.y1Cm + w.y2Cm) * s / 2 - v.ny * 26})`}>
+            <circle r={22} fill="transparent" />
+            <circle r={14} fill="#ffffff" stroke="#4f46e5" strokeWidth={2} />
+            <path d="M-8 0H8M0-8V8M-8 0l3-3m-3 3l3 3M8 0L5-3m3 3L5 3M0-8l-3 3m3-3l3 3M0 8l-3-3m3 3l3-3" fill="none" stroke="#4f46e5" strokeWidth={1.5} strokeLinecap="round" />
+          </g>;
+        })}
         {/* دکمه‌های تعاملی کنج */}
         {inside90Junctions.map((j) => (
           <g
