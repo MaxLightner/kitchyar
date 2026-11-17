@@ -247,6 +247,8 @@ interface ARWorkspaceProps {
     flipOverrides?: Record<string, 1 | -1>
   ) => void;
   onConfirmHiddenHandle?: (onConfirm: () => void) => void;
+  onBeginDrag: () => void;
+  onCancelDrag: () => void;
   onUpdateProject: (updater: (prev: ProjectState) => ProjectState, toastMsg?: string) => void;
   onSwitchViewMode: (mode: '2d' | '3d' | 'ar') => void;
   onToast: (msg: string) => void;
@@ -574,6 +576,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   onCreateBoxesFromSweep,
   onConfirmHiddenHandle,
   onUpdateProject,
+  onBeginDrag,
+  onCancelDrag,
   onSwitchViewMode,
   onToast,
   sessionKillSignal = 0,
@@ -630,6 +634,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
   const propsRef = useRef({
     onUpdateProject,
+    onBeginDrag,
+    onCancelDrag,
     selectionMode,
     fridgeModel,
     sinkModel,
@@ -685,6 +691,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   });
   propsRef.current = {
     onUpdateProject,
+    onBeginDrag,
+    onCancelDrag,
     selectionMode,
     fridgeModel,
     sinkModel,
@@ -878,6 +886,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const doorStatesRef = useRef<Map<string, { cur: number; target: number }>>(new Map());
   const renderOnceRef = useRef<() => void>(() => {});
   const arDragRef = useRef<ArDragState | null>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const dragAlignmentRef = useRef(alignment);
   const dragDownClientRef = useRef<{ x: number; y: number } | null>(null);
   const gestureStepperRef = useRef(new PacedGestureStepper());
 
@@ -1631,7 +1641,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const cursorScreen = (x:number,y:number)=>xrSessionRef.current ? aimCenter(dom.getBoundingClientRect()) : surfaceCursorRef.current.screen(pickingCamera(),dom)||{x,y};
 
     const onPointerDownCapture = (e: PointerEvent) => {
-      if (e.button !== 0 || !activeRef.current) return;
+      if (e.button !== 0 || !activeRef.current || arDragRef.current) return;
       if (xrSessionRef.current && !floorLockedRef.current) {
         onToast('اسکن کف هنوز در حال تثبیت است');
         return;
@@ -1648,6 +1658,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           e.stopPropagation();
           controls.enabled = false;
           try { dom.setPointerCapture(e.pointerId); } catch {}
+          propsRef.current.onBeginDrag();
+          dragPointerIdRef.current = e.pointerId;
+          dragAlignmentRef.current = { ...alignmentRef.current };
           if (calibHandle === 'a') {
             arDragRef.current = { kind: 'drag-a', startWorld: { x: floorPt.x, z: floorPt.z }, moved: false };
           } else {
@@ -1766,6 +1779,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               e.stopPropagation();
               controls.enabled = false;
               try { dom.setPointerCapture(e.pointerId); } catch {}
+              propsRef.current.onBeginDrag();
+              dragPointerIdRef.current = e.pointerId;
               arDragRef.current = {
                 kind: 'move-opening',
                 wallId: data.wallId,
@@ -1786,6 +1801,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               e.stopPropagation();
               controls.enabled = false;
               try { dom.setPointerCapture(e.pointerId); } catch {}
+              propsRef.current.onBeginDrag();
+              dragPointerIdRef.current = e.pointerId;
               arDragRef.current = {
                 kind: 'move-app',
                 wallId: data.wallId,
@@ -1807,6 +1824,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               e.stopPropagation();
               controls.enabled = false;
               try { dom.setPointerCapture(e.pointerId); } catch {}
+              propsRef.current.onBeginDrag();
+              dragPointerIdRef.current = e.pointerId;
               arDragRef.current = {
                 kind: 'move-box',
                 wallId: data.wallId,
@@ -1842,6 +1861,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const onPointerMove = (e: PointerEvent) => {
       if (!activeRef.current) return;
+      if (arDragRef.current && e.pointerId !== dragPointerIdRef.current) return;
       if (xrSessionRef.current && !arDragRef.current) { aimTapRef.current.move(e.pointerId, e.clientX, e.clientY); return; }
       if(e.pointerType==='touch' && surfaceCursorRef.current.dragging) {
         if(surfaceCursorRef.current.moving(e.pointerId,e.clientX,e.clientY))pinSurfaceCursor(e.clientX,e.clientY);
@@ -1943,6 +1963,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      if (arDragRef.current && e.pointerId !== dragPointerIdRef.current) return;
       if(!activeRef.current)return;
       if (xrSessionRef.current && !arDragRef.current && arToolRef.current !== 'select' && !arToolRef.current.startsWith('calibrate-')) {
         const confirm = aimTapRef.current.end(e.pointerId);
@@ -1956,6 +1977,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
       const dr = arDragRef.current;
       arDragRef.current = null;
+      dragPointerIdRef.current = null;
       dragDownClientRef.current = null;
       if (!xrSessionRef.current) controls.enabled = true;
       try {
@@ -2129,7 +2151,27 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     dom.addEventListener('touchmove', onTouchMove, { passive: false });
     dom.addEventListener('touchend', onTouchEnd);
     window.addEventListener('pointermove', onPointerMove);
-    const onPointerCancel = (e: PointerEvent) => { aimTapRef.current.cancel(); surfaceCursorRef.current.cancelGesture(); onPointerUp(e); };
+    const onPointerCancel = (e: PointerEvent) => {
+      if (arDragRef.current && e.pointerId !== dragPointerIdRef.current) return;
+      aimTapRef.current.cancel();
+      surfaceCursorRef.current.cancelGesture();
+      const dr = arDragRef.current;
+      arDragRef.current = null;
+      dragPointerIdRef.current = null;
+      dragDownClientRef.current = null;
+      if (dr) {
+        if (dr.kind === 'drag-a' || dr.kind === 'drag-b') {
+          alignmentRef.current = { ...dragAlignmentRef.current };
+          setAlignment(alignmentRef.current);
+          const a = pointARef.current, b = pointBRef.current;
+          setRealDistanceInput(String(Math.round(Math.hypot(b.x - a.x, b.z - a.z) * alignmentRef.current.scale * 100)));
+        }
+        propsRef.current.onCancelDrag();
+      }
+      if (!xrSessionRef.current) controls.enabled = true;
+      try { if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId); } catch {}
+      requestPreviewRender();
+    };
     window.addEventListener('pointercancel', onPointerCancel);
     window.addEventListener('pointerup', onPointerUp);
 

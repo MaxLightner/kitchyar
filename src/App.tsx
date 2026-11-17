@@ -1,3 +1,5 @@
+import { useProjectHistory } from './hooks/useProjectHistory';
+import { getStorageFailure, STORAGE_STATUS_EVENT } from './cad/projectStorage';
 import { logDiagnostic, setDiagnosticContext } from './utils/diagnostics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -305,9 +307,14 @@ export default function App() {
   });
   const [styleGalleryOpen, setStyleGalleryOpen] = useState(false);
 
-  const [project, setProject] = useState<ProjectState>(initialProject);
-  const [history, setHistory] = useState<string[]>(() => [JSON.stringify(initialProject)]);
-  const [historyIdx, setHistoryIdx] = useState<number>(0);
+  const { project, setProject, history, historyIdx, commitState, resetHistory, travelHistory, getProject } = useProjectHistory(initialProject);
+  const [storageFailure, setStorageFailure] = useState(getStorageFailure);
+  useEffect(() => {
+    const update = () => setStorageFailure(getStorageFailure());
+    window.addEventListener(STORAGE_STATUS_EVENT, update);
+    update();
+    return () => window.removeEventListener(STORAGE_STATUS_EVENT, update);
+  }, []);
 
   const [tool, setTool] = useState<ToolId>('select');
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
@@ -454,50 +461,38 @@ export default function App() {
 
   useEffect(() => {
     setDiagnosticContext({ projectId: activeProjectId, viewMode, tool, walls: project.walls.length, boxes: project.walls.reduce((n,w)=>n+w.boxes.length,0) });
-    logDiagnostic('project-state');
+    logDiagnostic('editor-context');
+  }, [project, activeProjectId, viewMode, tool]);
+
+  useEffect(() => {
     const recName = activeProjectRecord?.name || 'آشپزخانه من';
-    setProjects((prev) => upsertProjectRecord(prev, activeProjectId, recName, project, viewMode));
+    setProjects(upsertProjectRecord(projects, activeProjectId, recName, project, viewMode));
     persistActiveProjectId(activeProjectId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, activeProjectId, viewMode]);
 
-  const commitState = useCallback(
-    (next: ProjectState, pushHist = true) => {
-      setProject(next);
-      if (pushHist) {
-        const snap = JSON.stringify(next);
-        setHistory((prev) => {
-          const sliced = prev.slice(0, historyIdx + 1);
-          if (sliced[sliced.length - 1] === snap) return sliced;
-          const appended = [...sliced, snap];
-          if (appended.length > 50) appended.shift();
-          setHistoryIdx(appended.length - 1);
-          return appended;
-        });
-      }
-    },
-    [historyIdx]
-  );
-
   const handleUndo = useCallback(() => {
-    if (historyIdx <= 0) return;
-    const prevIdx = historyIdx - 1;
-    const restored = normalizeProject(JSON.parse(history[prevIdx]) as ProjectState);
+    if (!travelHistory(-1, normalizeProject)) return;
     dragBaseRef.current = null;
-    setProject(restored);
-    setHistoryIdx(prevIdx);
     showToast('آخرین عملیات لغو شد');
-  }, [history, historyIdx, showToast]);
+  }, [travelHistory, showToast]);
 
   const handleRedo = useCallback(() => {
-    if (historyIdx >= history.length - 1) return;
-    const nextIdx = historyIdx + 1;
-    const restored = normalizeProject(JSON.parse(history[nextIdx]) as ProjectState);
+    if (!travelHistory(1, normalizeProject)) return;
     dragBaseRef.current = null;
-    setProject(restored);
-    setHistoryIdx(nextIdx);
     showToast('عملیات تکرار شد');
-  }, [history, historyIdx, showToast]);
+  }, [travelHistory, showToast]);
+
+  const dragCheckpointRef = useRef<ProjectState | null>(null);
+  const handleBeginDrag = useCallback(() => {
+    dragCheckpointRef.current = cloneProject(getProject());
+  }, [getProject]);
+  const handleCancelDrag = useCallback(() => {
+    if (dragCheckpointRef.current) setProject(dragCheckpointRef.current);
+    dragCheckpointRef.current = null;
+    dragBaseRef.current = null;
+    logDiagnostic('drag-cancelled');
+  }, [setProject]);
 
   const activeWall = useMemo(
     () => project.walls.find((w) => w.id === project.activeWallId) || project.walls[0] || null,
@@ -636,54 +631,32 @@ export default function App() {
 
   const mutateWallById = useCallback(
     (wallId: string, mutator: (wall: Wall) => void, commitHistory = true, toastMsg?: string) => {
-      setProject((prev) => {
+      commitState((prev) => {
         const next = cloneProject(prev);
         const w = next.walls.find((x) => x.id === wallId);
         if (!w) return prev;
         if (!w.openings) w.openings = [];
         mutator(w);
-        if (commitHistory) {
-          const snap = JSON.stringify(next);
-          setHistory((h) => {
-            const sliced = h.slice(0, historyIdx + 1);
-            if (sliced[sliced.length - 1] === snap) return sliced;
-            const appended = [...sliced, snap];
-            if (appended.length > 50) appended.shift();
-            setHistoryIdx(appended.length - 1);
-            return appended;
-          });
-        }
         return next;
-      });
+      }, commitHistory);
       if (toastMsg) showToast(toastMsg);
     },
-    [historyIdx, showToast]
+    [commitState, showToast]
   );
 
   const mutateActiveWall = useCallback(
     (mutator: (wall: Wall) => void, commitHistory = true, toastMsg?: string) => {
-      setProject((prev) => {
+      commitState((prev) => {
         const next = cloneProject(prev);
         const w = next.walls.find((x) => x.id === next.activeWallId) || next.walls[0];
         if (!w) return prev;
         if (!w.openings) w.openings = [];
         mutator(w);
-        if (commitHistory) {
-          const snap = JSON.stringify(next);
-          setHistory((h) => {
-            const sliced = h.slice(0, historyIdx + 1);
-            if (sliced[sliced.length - 1] === snap) return sliced;
-            const appended = [...sliced, snap];
-            if (appended.length > 50) appended.shift();
-            setHistoryIdx(appended.length - 1);
-            return appended;
-          });
-        }
         return next;
-      });
+      }, commitHistory);
       if (toastMsg) showToast(toastMsg);
     },
-    [historyIdx, showToast]
+    [commitState, showToast]
   );
 
   const handleResizeWallCabinetsSynced = useCallback(
@@ -2522,11 +2495,8 @@ export default function App() {
       const parsed = JSON.parse(jsonText) as ProjectState;
       if (parsed && Array.isArray(parsed.walls)) {
         const normalized = normalizeProject(parsed);
-        const snap = JSON.stringify(normalized);
         dragBaseRef.current = null;
-        setProject(normalized);
-        setHistory([snap]);
-        setHistoryIdx(0);
+        resetHistory(normalized);
         fitWallToView(normalized.walls[0] || null);
         showToast('پروژه با موفقیت بارگذاری شد');
       } else {
@@ -2605,13 +2575,10 @@ export default function App() {
   const handleLoadRecordIntoEditor = useCallback(
     (rec: SavedProjectRecord, mode: ViewMode) => {
       const normalized = normalizeProject(rec.state);
-      const snap = JSON.stringify(normalized);
       dragBaseRef.current = null;
       setActiveProjectId(rec.id);
       persistActiveProjectId(rec.id);
-      setProject(normalized);
-      setHistory([snap]);
-      setHistoryIdx(0);
+      resetHistory(normalized);
       setHoodKind(normalized.settings?.defaultHoodKind || 'chimney');
       if (mode === 'ar') beginTrackedFloorScan();
       else { setFloorScanActive(false); setInitialXrSession(null); }
@@ -3269,6 +3236,8 @@ export default function App() {
             />
                   {floorScanActive && (
                   <ARWorkspace
+            onBeginDrag={handleBeginDrag}
+            onCancelDrag={handleCancelDrag}
             active={viewMode === '3d'}
             embeddedIn3D={true}
             sharedTool={tool}
@@ -3340,10 +3309,7 @@ export default function App() {
             onSwitchViewMode={handleSwitchViewMode}
             onToast={showToast}
             onUpdateProject={(updater, toastMsg) => {
-              const next = updater(project);
-              if (next !== project) {
-                commitState(next, true);
-              }
+              commitState(updater, true);
               if (toastMsg) showToast(toastMsg);
             }}
           />
@@ -3354,6 +3320,8 @@ export default function App() {
             <>
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
+                  onBeginDrag={handleBeginDrag}
+                  onCancelDrag={handleCancelDrag}
                   walls={project.walls}
                   columns={project.columns || []}
                   cornerOwners={project.cornerOwners}
@@ -3928,6 +3896,12 @@ export default function App() {
         </div>
       )}
 
+      {storageFailure && (
+        <div role="alert" className="fixed bottom-24 left-3 right-3 z-[100] mx-auto max-w-xl rounded-xl border border-red-400 bg-red-950 p-3 text-sm text-white shadow-lg" dir="rtl">
+          <p>{storageFailure}</p>
+          <button type="button" onClick={handleExportProject} className="mt-2 rounded-lg bg-white px-3 py-2 font-bold text-red-950">دریافت فایل پروژه</button>
+        </div>
+      )}
       {toast && (
         <div
           role="status"

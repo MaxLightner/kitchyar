@@ -7,6 +7,7 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     base: '/kitchyar/',
+    define: { __BUILD_VERSION__: JSON.stringify(process.env.GITHUB_SHA || `local-${new Date().toISOString()}`) },
     plugins: [
       react(),
       tailwindcss(),

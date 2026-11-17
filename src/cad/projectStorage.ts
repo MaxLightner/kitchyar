@@ -1,3 +1,4 @@
+import { logDiagnostic } from '../utils/diagnostics';
 import { uid } from './doorRules';
 import { buildPresetProject, PresetMode } from './presets';
 import { ProjectState } from './types';
@@ -15,6 +16,32 @@ export interface SavedProjectRecord {
 const PROJECTS_LIST_KEY = 'kichiyar_projects_v2';
 const ACTIVE_PROJECT_ID_KEY = 'kichiyar_active_project_id_v2';
 const LEGACY_SINGLE_KEY = 'cabinet_cad_project_v2';
+export const STORAGE_STATUS_EVENT = 'kitchyar-storage-status';
+let storageFailure: string | null = null;
+let unreadableProjects = false;
+const failedWrites = new Set<string>();
+export function getStorageFailure() { return storageFailure; }
+function updateStorageStatus() {
+  const next = unreadableProjects
+    ? 'خواندن پروژه‌های ذخیره‌شده ممکن نشد. برای حفظ اطلاعات قبلی، ذخیره خودکار متوقف است؛ از کار فعلی فایل بگیرید.'
+    : failedWrites.size ? 'تغییرات ذخیره نشده‌اند. فضای ذخیره‌سازی مرورگر پر یا مسدود است؛ پیش از بستن صفحه، فایل پروژه را دریافت کنید.' : null;
+  if (next === storageFailure) return;
+  storageFailure = next;
+  window.dispatchEvent(new Event(STORAGE_STATUS_EVENT));
+}
+function writeStorage(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value);
+    failedWrites.delete(key);
+    updateStorageStatus();
+    return true;
+  } catch (error) {
+    if (!failedWrites.has(key)) logDiagnostic('project-save-failed', error);
+    failedWrites.add(key);
+    updateStorageStatus();
+    return false;
+  }
+}
 
 function summarizeState(state: ProjectState) {
   const wallCount = state.walls?.length || 0;
@@ -27,12 +54,15 @@ export function loadProjectsList(): SavedProjectRecord[] {
     const raw = localStorage.getItem(PROJECTS_LIST_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as SavedProjectRecord[];
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.sort((a, b) => b.updatedAt - a.updatedAt);
+      if (!Array.isArray(parsed) || parsed.some(p => !p || !p.id || !p.state || !Array.isArray(p.state.walls))) {
+        throw new Error('Invalid saved project list');
       }
+      if (parsed.length > 0) return parsed.sort((a, b) => b.updatedAt - a.updatedAt);
     }
-  } catch {
-    // ignore storage errors
+  } catch (error) {
+    unreadableProjects = true;
+    logDiagnostic('project-load-failed', error);
+    updateStorageStatus();
   }
 
   // Migrate single project from v2 key or seed one crisp L-shaped sample
@@ -76,12 +106,9 @@ export function loadProjectsList(): SavedProjectRecord[] {
   return [initialRec];
 }
 
-export function saveProjectsList(list: SavedProjectRecord[]): void {
-  try {
-    localStorage.setItem(PROJECTS_LIST_KEY, JSON.stringify(list));
-  } catch {
-    // ignore storage quota
-  }
+export function saveProjectsList(list: SavedProjectRecord[]): boolean {
+  if (unreadableProjects) return false;
+  return writeStorage(PROJECTS_LIST_KEY, JSON.stringify(list));
 }
 
 export function getActiveProjectId(): string | null {
@@ -93,11 +120,7 @@ export function getActiveProjectId(): string | null {
 }
 
 export function setActiveProjectId(id: string): void {
-  try {
-    localStorage.setItem(ACTIVE_PROJECT_ID_KEY, id);
-  } catch {
-    // ignore
-  }
+  if (!unreadableProjects) writeStorage(ACTIVE_PROJECT_ID_KEY, id);
 }
 
 export function upsertProjectRecord(
@@ -123,12 +146,9 @@ export function upsertProjectRecord(
       ? list.map((p, idx) => (idx === existingIdx ? record : p))
       : [record, ...list];
   const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
+  // The list is authoritative; avoid duplicating the active project on every
+  // pointer frame or overwriting a recovery copy after a failed save.
   saveProjectsList(sorted);
-  try {
-    localStorage.setItem(LEGACY_SINGLE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
   return sorted;
 }
 

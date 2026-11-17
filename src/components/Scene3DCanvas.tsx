@@ -1874,8 +1874,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (cur.tool === 'cab-draw' && pendingCabDraw3DRef.current) {
         const pending = pendingCabDraw3DRef.current;
         const target = resolveCabSweepTarget(actionX, actionY, pending.wallId, pending.boxKind);
-        pendingCabDraw3DRef.current = null;
-        clearGhost();
         if (target) {
           const sweepRes = computeMultiWallSweep(
             cur.project.walls,
@@ -1889,6 +1887,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           );
           const validSegments = sweepRes.segments.filter((seg) => seg.widthCm >= 30);
           if (validSegments.length > 0) {
+            pendingCabDraw3DRef.current = null;
+            clearGhost();
             if (cur.onCreateBoxesFromSweep) {
               cur.onCreateBoxesFromSweep(validSegments, pending.boxKind, sweepRes.suggestedOwners, {});
             } else {
@@ -1912,6 +1912,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           cur.onToast('عرض باکس باید حداقل ۳۰ سانتی‌متر باشد');
           return;
         }
+        cur.onToast('نقطه پایان را روی دیوار مشخص کنید؛ نقطه شروع حفظ شده است');
+        return;
       }
 
       const { topData: data, topPoint } = raycastWithHandleSpots(actionX, actionY);
