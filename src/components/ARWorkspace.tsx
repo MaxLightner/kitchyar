@@ -237,7 +237,8 @@ interface ARWorkspaceProps {
     target: 'box' | 'all-cabinets' | 'backsplash' | 'countertop',
     wallId?: string,
     boxId?: string,
-    overrideId?: string
+    overrideId?: string,
+    doorId?: string,
   ) => void;
   onHandleStyleChange?: (style: HandleStyle) => void;
   onHandleOrientChange?: (orient: Orientation) => void;
@@ -1515,7 +1516,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const modelZ = dx * sn + dz * c;
       const pendingSweep = pendingCabSweepRef.current;
       // Allow multi-wall sweeps across corners when drawing boxes!
-      const result = projectArPointOntoWalls({ x: modelX, z: modelZ }, projectRef.current.walls);
+      const extend = tool === 'fridge' || tool === 'cab-base' || tool === 'cab-wall' || tool === 'cab-tall';
+      const result = projectArPointOntoWalls({ x: modelX, z: modelZ }, projectRef.current.walls, extend);
       if (!result) return { status: 'invalid' };
       const w = result.wall;
       const v = getWallVectors(w);
@@ -1726,6 +1728,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
 
       if (!kitchenMount.visible && !toolNow.startsWith('calibrate-')) return;
+      if (toolNow === 'finish') { e.stopImmediatePropagation(); return; }
       if (xrSessionRef.current && toolNow !== 'select' && !toolNow.startsWith('calibrate-')) {
         e.preventDefault(); e.stopImmediatePropagation(); controls.enabled = false;
         aimTapRef.current.begin(e.pointerId, e.clientX, e.clientY);
@@ -2043,6 +2046,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const onPointerUp = (e: PointerEvent) => {
       if (arDragRef.current && e.pointerId !== dragPointerIdRef.current) return;
       if(!activeRef.current)return;
+      if (arToolRef.current === 'finish') {
+        const press = dragDownClientRef.current;
+        dragDownClientRef.current = null;
+        if (kitchenMount.visible && press && Math.hypot(e.clientX - press.x, e.clientY - press.y) <= 8)
+          handleArDetailActionRef.current(e.clientX, e.clientY);
+        return;
+      }
       if (xrSessionRef.current && !arDragRef.current && arToolRef.current !== 'select' && !arToolRef.current.startsWith('calibrate-')) {
         const confirm = aimTapRef.current.end(e.pointerId);
         try { if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId); } catch {}
@@ -2577,7 +2587,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const proj = projectRef.current;
     const pendingSweep = pendingCabSweepRef.current;
     // Allow cross-wall sweeping in cab-draw so corner connections work like 2D!
-    const hitWall = projectArPointOntoWalls(modelPt, proj.walls);
+    const extend = toolNow === 'fridge' || toolNow === 'cab-base' || toolNow === 'cab-wall' || toolNow === 'cab-tall';
+    const hitWall = projectArPointOntoWalls(modelPt, proj.walls, extend);
     if (!hitWall) {
       onToast('ابتدا نشانگر را نزدیک یک دیوار قرار دهید');
       return;
@@ -2750,7 +2761,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         return;
       }
       if (picked.data.boxId) {
-        choices.onApplyFinish?.('box', picked.data.wallId, picked.data.boxId);
+        choices.onApplyFinish?.('box', picked.data.wallId, picked.data.boxId, undefined, picked.data.doorId);
         propsRef.current.onUpdateProject((prev) => ({
           ...prev,
           activeWallId: picked.data.wallId,
@@ -4087,7 +4098,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       )}
       {/* Confirm (تأیید) and Cancel (لغو) floating AR editing actions */}
       {!dialogOpen && !showScaleDialog && !(embeddedIn3D && !floorLocked) &&
-        (arTool.startsWith('calibrate-') || (!hideKitchen && (arTool !== 'select' || pendingWallStart || surfaceCursorActive))) && (
+        (arTool.startsWith('calibrate-') || (!hideKitchen && arTool !== 'finish' && (arTool !== 'select' || pendingWallStart || surfaceCursorActive))) && (
         <div className="pointer-events-auto absolute bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2.5 py-1.5">
           <button
             type="button"

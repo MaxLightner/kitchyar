@@ -677,12 +677,12 @@ test('Hierarchical move of base/fridge/closet shifts coupled appliances & over-f
   w.boxes.push(base);
   placeApplianceWithCabinetRules(w, [w], 'sink', base, 20, {});
 
-  // Add a closet at x=200..300 and verify free move range respects base at 180 and wall end 400
+  // Add a closet at x=200..300 and verify the base is a barrier while the unconnected wall end is open
   const closet = createEmptyBox('closet', 240, 100);
   w.boxes.push(closet);
   const range = getFreeMoveRangeForBox(w, [w], closet, {});
   assert.equal(range.minX, 180);
-  assert.equal(range.maxX, 300);
+  assert.equal(range.maxX, Infinity);
 
   // Move base by +10 (to 10..190, pushing up to 140 max): attached sink shifts by +10!
   const sinkBefore = w.appliances[0].offsetX;

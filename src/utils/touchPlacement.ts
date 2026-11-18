@@ -17,12 +17,12 @@ export function placementAt(svg: SVGSVGElement | null, point: PlacementPoint): C
 }
 
 export function isPlanPlacement(tool: ToolId) {
-  return tool === 'wall' || tool === 'cab-draw' || tool === 'fridge' || tool === 'opening' ||
+  return tool === 'cab-draw' || tool === 'fridge' || tool === 'opening' ||
     tool === 'sink' || tool === 'gas' || tool === 'appliance' || tool === 'dining';
 }
 
 export function isFrontPlacement(tool: ToolId) {
   return tool === 'handle' || tool === 'doors' || tool === 'door-style' || tool === 'hardware' ||
-    tool === 'finish' || tool === 'pencil' || tool === 'skeleton' || tool === 'fridge' ||
+    tool === 'pencil' || tool === 'skeleton' || tool === 'fridge' ||
     tool === 'sink' || tool === 'gas' || tool === 'appliance' || tool === 'opening';
 }

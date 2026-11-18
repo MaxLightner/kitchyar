@@ -93,3 +93,8 @@ html.kitchiyar-xr-passthrough [data-testid="scene-3d-root"] > div:first-child ca
   visibility: hidden !important;
   pointer-events: none !important;
 }
+
+/* The plan and elevation share the guide lane when both views are open. */
+.kitchyar-tool-guides > :not(:last-child) {
+  display: none;
+}

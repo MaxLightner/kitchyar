@@ -1,5 +1,5 @@
 import { CABINET_FINISHES } from './constants';
-import { clearHoodUnitForGas, createEmptyBox, syncHoodUnitAboveGas, uid } from './doorRules';
+import { applyHandlesToBoxDoors, clearHoodUnitForGas, createEmptyBox, syncHoodUnitAboveGas, uid } from './doorRules';
 import {
   BacksplashFinishId,
   CabinetFinishId,
@@ -240,14 +240,20 @@ export function applyKitchenStylePreset(
         delete box.finish;
       }
 
-      if (!applyCabinetModel) continue;
+      delete box.color;
+      delete box.texture;
       for (const door of box.doors) {
+        delete door.finish;
+        if (!applyCabinetModel) continue;
         if (door.kind === 'door' || door.kind === 'drawer' || door.kind === 'lift') {
           if (door.doorStyle !== 'glass' && door.doorStyle !== 'glass-grid' && door.hardwareKind !== 'pantry-pullout') {
             door.doorStyle = preset.doorStyle;
           }
         }
       }
+      const withoutHandles = box.doors.filter(door => !box.handles.some(handle => handle.doorId === door.id));
+      if (withoutHandles.length) applyHandlesToBoxDoors(box, withoutHandles.map(door => door.id), preset.handleStyle,
+        preset.handleStyle === 'hidden' ? 'horizontal' : 'vertical');
       for (const handle of box.handles) {
         handle.style = preset.handleStyle;
         if (handle.style === 'hidden') {

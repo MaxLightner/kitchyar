@@ -374,8 +374,9 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
     <aside
       ref={railRef}
       aria-label="نوار ابزار فتوشاپی و تنظیمات"
-      className="relative w-12 bg-white border-l border-slate-200 flex flex-col items-center py-2 gap-2 shrink-0 z-30 select-none"
+      className="relative flex min-h-0 shrink-0 z-30 select-none"
     >
+      <div className="flex w-12 shrink-0 flex-col items-center gap-2 overflow-y-auto bg-white py-2 border-l border-slate-200">
       {/* دکمه زوم روی انتخاب بالای ابزار انتخاب */}
       {props.onZoomToSelected && (
         <button
@@ -548,13 +549,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
       </div>
 
       <div className="flex-1" />
+      </div>
 
       {/* پنجره شناور بازشونده کنار ریل (مشابه پنل‌های فتوشاپ) */}
       {openTab && (
         <div
           role="dialog"
           aria-label="پنل تنظیمات ابزار"
-          className="absolute top-1.5 right-full mr-1.5 w-[256px] max-h-[calc(100vh-140px)] bg-white border border-slate-200 rounded-xl shadow-2xl flex flex-col overflow-hidden z-40"
+          className="flex w-[min(256px,42vw)] min-h-0 shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white"
         >
           <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200 shrink-0">
             <span className="text-[13px] font-extrabold text-slate-800">
