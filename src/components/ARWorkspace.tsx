@@ -1,3 +1,4 @@
+import { DoorTapSequence } from '../utils/doorTapSequence';
 import { previewCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { AimTap, aimCenter, calibrationPinsAtView } from '../ar/centerAim';
 import { snapArWallEndpointsCm } from '../ar/arCalibration';
@@ -483,16 +484,6 @@ function createCrossMarker(): THREE.Group {
   return group;
 }
 
-function resolveHitDoorId(obj: THREE.Object3D | null): string | undefined {
-  let cur: THREE.Object3D | null = obj;
-  while (cur) {
-    const ud = cur.userData as Scene3DHitData | undefined;
-    if (ud?.animationId || ud?.doorId) return ud.animationId || ud.doorId;
-    cur = cur.parent;
-  }
-  return undefined;
-}
-
 function buildAbRulerTickPoints(vA: THREE.Vector3, vB: THREE.Vector3): THREE.Vector3[] {
   const dx = vB.x - vA.x;
   const dz = vB.z - vA.z;
@@ -615,6 +606,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [occlusionEnabled, setOcclusionEnabled] = useState(true);
   const [occlusionStatus, setOcclusionStatus] = useState<OcclusionStatus>('idle');
   const [doorsOpen, setDoorsOpen] = useState(false);
+  const [kitchenHidden, setKitchenHidden] = useState(false);
   const [reticleEnabled, setReticleEnabled] = useState(true);
   const [localWideViewMode, setLocalWideViewMode] = useState<WideViewMode>('normal');
   const wideViewMode = wideViewModeExternal ?? localWideViewMode;
@@ -755,7 +747,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onConfirmHiddenHandle,
   };
 
-  const toggleXrDoorAtPointRef = useRef<(x: number, y: number) => boolean>(() => false);
   const detailedPickAtClientRef = useRef<
     (x: number, y: number) => { data: Scene3DHitData; point: THREE.Vector3 } | null
   >(() => null);
@@ -831,8 +822,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   floorLockedRef.current = floorLocked;
   const occlusionEnabledRef = useRef(occlusionEnabled);
   occlusionEnabledRef.current = occlusionEnabled;
-  const doorsOpenRef = useRef(doorsOpen);
-  doorsOpenRef.current = doorsOpen;
   const reticleEnabledRef = useRef(reticleEnabled);
   reticleEnabledRef.current = reticleEnabled;
 
@@ -1158,7 +1147,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     };
 
     detailedPickAtClientRef.current = (clientX, clientY) => {
-      if (!builtSceneRef.current) return null;
+      if (!builtSceneRef.current || !kitchenMount.visible) return null;
       builtSceneRef.current.root.updateWorldMatrix(true, true);
       getPointerRay(clientX, clientY);
       if (
@@ -1299,7 +1288,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       const tool = arToolRef.current;
       if (tool !== 'handle') handleSpotsRef.current?.setHoveredSpot(null);
-      if (tool === 'select' || tool.startsWith('calibrate-')) return { status: 'neutral' };
+      if (!kitchenMount.visible || tool === 'select' || tool.startsWith('calibrate-')) return { status: 'neutral' };
 
       const al = alignmentRef.current;
       const c = Math.cos(al.yaw);
@@ -1586,27 +1575,29 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       return { status: 'valid', sweepWidthCm: width > 0 ? Math.round(width) : undefined };
     };
 
-    const toggleDoorByRay = (ndc: THREE.Vector2, viewCamera: THREE.Camera): boolean => {
-      if (!activeRef.current || !builtSceneRef.current) return false;
-      builtSceneRef.current.root.updateWorldMatrix(true, true);
-      raycaster.setFromCamera(ndc, viewCamera);
-      const hits = raycaster.intersectObjects(builtSceneRef.current.interactables, false);
-      const partId = hits[0] ? resolveHitDoorId(hits[0].object) : undefined;
-      if (!partId) return false;
-      const isOpenable = builtSceneRef.current.animatedDoors.some((h) => h.doorId === partId);
-      if (!isOpenable) {
-        onToast('لطفاً ابتدا محل دستگیره را مشخص کنید');
-        return false;
+    const doorTap = new DoorTapSequence();
+    let doorPress: { pointerId: number; x: number; y: number; partId: string } | null = null;
+
+    const handleDoorRelease = (e: PointerEvent) => {
+      if (doorPress?.pointerId !== e.pointerId) return;
+      const press = doorPress;
+      doorPress = null;
+      if (!kitchenMount.visible || arToolRef.current !== 'select' || e.button !== 0 ||
+          Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) return doorTap.reset();
+      const picked = detailedPickAtClientRef.current(e.clientX, e.clientY)?.data;
+      const partId = picked?.animationId || picked?.doorId;
+      if (partId !== press.partId || (picked?.kind !== 'door' && picked?.kind !== 'handle')) return doorTap.reset();
+      const state = doorStatesRef.current.get(partId) ?? { cur: 0, target: 0 };
+      const target = doorTap.next(partId, state.target > 0.5, e.pointerType, e.timeStamp, e.clientX, e.clientY);
+      if (target === null) return;
+      if (!builtSceneRef.current?.animatedDoors.some(part => part.doorId === partId)) {
+        onToast('ابتدا روی همین در یا کشو دستگیره بگذارید');
+        return;
       }
-      const states = doorStatesRef.current;
-      const st = states.get(partId) || { cur: 0, target: 0 };
-      states.set(partId, { cur: st.cur, target: st.target > 0.5 ? 0 : 1 });
-      setDoorsOpen(Array.from(states.values()).some((s) => s.target > 0.5));
+      doorStatesRef.current.set(partId, { cur: state.cur, target });
+      setDoorsOpen([...doorStatesRef.current.values()].some(part => part.target > 0.5));
       requestPreviewRender();
-      return true;
     };
-    toggleXrDoorAtPointRef.current = (clientX, clientY) =>
-      toggleDoorByRay(pointerNdc(clientX, clientY), pickingCamera());
 
     const dom = renderer.domElement;
     dom.style.setProperty('-webkit-touch-callout', 'none');
@@ -1645,6 +1636,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         return;
       }
 
+      doorPress = null;
       const toolNow = arToolRef.current;
       dragDownClientRef.current = { x: e.clientX, y: e.clientY };
 
@@ -1679,6 +1671,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }
       }
 
+      if (!kitchenMount.visible && !toolNow.startsWith('calibrate-')) return;
       if (xrSessionRef.current && toolNow !== 'select' && !toolNow.startsWith('calibrate-')) {
         e.preventDefault(); e.stopImmediatePropagation(); controls.enabled = false;
         aimTapRef.current.begin(e.pointerId, e.clientX, e.clientY);
@@ -1697,6 +1690,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       if (toolNow === 'select') {
         const picked = detailedPickAtClientRef.current(e.clientX, e.clientY);
+        const partId = picked?.data.animationId || picked?.data.doorId;
+        if (partId && (picked?.data.kind === 'door' || picked?.data.kind === 'handle') &&
+            (propsRef.current.selectionMode ?? 'single') === 'single') {
+          doorPress = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, partId };
+        } else doorTap.reset();
         if (picked) {
           const data = picked.data;
           if (data.kind === 'box-handle' && data.boxId && data.handleSide) {
@@ -1763,13 +1761,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             selectedHandleId: data.kind === 'handle' ? (data.handleId || null) : null,
             multiSelection: undefined,
           }));
-
-          if ((e.pointerType === 'mouse' || e.pointerType === 'pen') &&
-              data.doorId && toggleXrDoorAtPointRef.current(e.clientX, e.clientY)) {
-            e.preventDefault();
-            e.stopPropagation();
-            return;
-          }
 
           const wall = projectRef.current.walls.find((x) => x.id === data.wallId);
           if (wall && data.openingId) {
@@ -1997,6 +1988,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
       } catch {}
 
+      if (!dr || (dr.kind === 'move-box' && !dr.moved)) handleDoorRelease(e);
+      else { doorPress = null; doorTap.reset(); }
       if (dr?.kind === 'resize-box' && dr.moved) {
         propsRef.current.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dr.dx, dr.dy, true);
       } else if (dr?.kind === 'move-box' && dr.moved && dr.lastTargetX !== dr.origX) {
@@ -2169,6 +2162,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     window.addEventListener('pointermove', onPointerMove);
     const onPointerCancel = (e: PointerEvent) => {
       if (arDragRef.current && e.pointerId !== dragPointerIdRef.current) return;
+      if (doorPress?.pointerId === e.pointerId) { doorPress = null; doorTap.reset(); }
       aimTapRef.current.reset(e.pointerId);
       surfaceCursorRef.current.resetGesture(e.pointerId);
       const dr = arDragRef.current;
@@ -2247,6 +2241,22 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
   }, [active, arTool, fridgeModel, sinkModel, gasWidth, applianceKind, openingKind, handleStyle, handleOrient, doorOrient, doorVertCount, drawerPatIdx, liftPatIdx, hardwareBrush, doorStyleBrush, cabinetFinishBrush, frameWidthCm, shelfOrient, shelfCount]);
 
+  useEffect(() => {
+    if (kitchenMountRef.current) kitchenMountRef.current.visible = !kitchenHidden;
+    if (kitchenHidden) {
+      if (wallGhostRef.current) wallGhostRef.current.visible = false;
+      if (placementGhostRef.current) placementGhostRef.current.visible = false;
+      if (sweepGhostGroupRef.current) sweepGhostGroupRef.current.visible = false;
+      if (handleGhostGroupRef.current) handleGhostGroupRef.current.visible = false;
+      if (wallStartMarkerRef.current) wallStartMarkerRef.current.visible = false;
+    } else {
+      if (sweepGhostGroupRef.current) sweepGhostGroupRef.current.visible = true;
+      if (handleGhostGroupRef.current) handleGhostGroupRef.current.visible = true;
+      if (wallStartMarkerRef.current) wallStartMarkerRef.current.visible = Boolean(pendingWallStart);
+    }
+    renderOnceRef.current();
+  }, [kitchenHidden, pendingWallStart]);
+
   // Update 3D kitchen meshes inside AR floor group whenever project/alignment/doorsOpen updates
   useEffect(() => {
     const mount = kitchenMountRef.current;
@@ -2278,7 +2288,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     for (const k of Array.from(doorStatesRef.current.keys())) {
       if (!validIds.has(k)) doorStatesRef.current.delete(k);
     }
-    const defaultTarget = doorsOpenRef.current ? 1 : 0;
+    setDoorsOpen([...doorStatesRef.current.values()].some(part => part.target > 0.5));
+    const defaultTarget = 0;
     for (const h of built.animatedDoors) {
       let st = doorStatesRef.current.get(h.doorId);
       if (!st) {
@@ -2327,7 +2338,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           0.08,
           alignment.z + alignment.scale * (-pendingWallStart.x * sin + pendingWallStart.z * cos)
         );
-        wallStartMarkerRef.current.visible = true;
+        wallStartMarkerRef.current.visible = mount.visible;
       } else {
         wallStartMarkerRef.current.visible = false;
       }
@@ -2965,6 +2976,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       handleLockFloor();
       return;
     }
+    if (kitchenHidden && !arToolRef.current.startsWith('calibrate-')) return;
     if (arToolRef.current === 'wall' && pendingWallStartRef.current && renderer) {
       const rect = renderer.domElement.getBoundingClientRect();
       const centerLocal = floorPointAtClientRef.current(
@@ -3764,6 +3776,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               onClick={() => {
                 floorScannerRef.current.reset();
                 anchorsRef.current = [];
+                setKitchenHidden(false);
                 setFloorLocked(false);
                 setScanReady(false);
               }}
@@ -3859,6 +3872,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             </button>
           </div>
 
+          {floorLocked && (
+            <button type="button" data-testid="ar-toggle-kitchen" aria-pressed={kitchenHidden}
+              className="h-8 w-full rounded-lg border border-slate-300 px-2.5 font-bold text-slate-700"
+              onClick={() => {
+                if (!kitchenHidden) setShowCalibPanel(true);
+                setKitchenHidden(value => !value);
+              }}>
+              {kitchenHidden ? 'نمایش آشپزخانه' : 'مخفی کردن آشپزخانه'}
+            </button>
+          )}
           {showCalibPanel && (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-1.5">

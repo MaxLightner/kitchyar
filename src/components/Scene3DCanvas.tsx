@@ -1,3 +1,4 @@
+import { DoorTapSequence } from '../utils/doorTapSequence';
 import { previewCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { logDiagnostic } from '../utils/diagnostics';
 import { snapWallEndpoint } from '../cad/wallSnap';
@@ -40,7 +41,6 @@ import {
   applyDoorBrushPreview,
   applyHandlesToBoxDoors,
   autoUnitizeBoxForHandles,
-  canDoorOpenIn3D,
   clampBoxInternalsAfterResize,
   computeDoorBrushPreview,
   createWall,
@@ -375,8 +375,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
   const propsRef = useRef(props);
   propsRef.current = props;
-  const doorsOpenRef = useRef(doorsOpen);
-  doorsOpenRef.current = doorsOpen;
 
   const applyCameraPreset = (
     preset: 'iso' | 'front' | 'top',
@@ -641,7 +639,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         for (const h of built.animatedDoors) {
           let st = states.get(h.doorId);
           if (!st) {
-            st = { cur: doorsOpenRef.current ? 1 : 0, target: doorsOpenRef.current ? 1 : 0 };
+            st = { cur: 0, target: 0 };
             states.set(h.doorId, st);
           }
           if (Math.abs(st.target - st.cur) > 0.001) {
@@ -1772,43 +1770,28 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     };
 
-    const onDoorSingleClick = (e: PointerEvent) => {
-      if (!builtRef.current || e.pointerType === 'touch') return;
+    const doorTap = new DoorTapSequence();
+    const onDoorTap = (e: PointerEvent) => {
+      const built = builtRef.current;
+      if (!built || propsRef.current.selectionMode !== 'single') return doorTap.reset();
+      built.root.updateWorldMatrix(true, true);
       raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
-      const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
-      if (!hits.length) return;
-      const data = resolveHitData(hits[0].object);
-      if (!data?.doorId || !data.boxId) return;
-
-      const cur = propsRef.current;
-      const wall = cur.project.walls.find((x) => x.id === data.wallId);
-      const box = wall?.boxes.find((b) => b.id === data.boxId);
-      const door = box?.doors.find((d) => d.id === data.doorId);
-      if (!box || !door) return;
-
-      let rowIdx: number | undefined;
-      if (data.animationId && data.animationId.includes(':row:')) {
-        const raw = Number(data.animationId.split(':row:')[1]);
-        if (!Number.isNaN(raw)) rowIdx = raw;
-      }
-
-      if (!canDoorOpenIn3D(box, door, rowIdx)) {
-        cur.onToast('لطفاً ابتدا محل دستگیره را مشخص کنید');
+      const hit = raycaster.intersectObjects(built.interactables, false)[0];
+      const data = hit && resolveHitData(hit.object);
+      if (!data?.doorId || (data.kind !== 'door' && data.kind !== 'handle')) return doorTap.reset();
+      const partId = data.animationId || data.doorId;
+      const states = doorStatesRef.current;
+      const state = states.get(partId) ?? { cur: 0, target: 0 };
+      const target = doorTap.next(partId, state.target > 0.5, e.pointerType, e.timeStamp, e.clientX, e.clientY);
+      if (target === null) return;
+      if (!built.animatedDoors.some(part => part.doorId === partId)) {
+        propsRef.current.onToast('ابتدا روی همین در یا کشو دستگیره بگذارید');
         return;
       }
-
-      const partId = data.animationId || data.doorId;
-
-      const states = doorStatesRef.current;
-      const curSt = states.get(partId) || {
-        cur: doorsOpenRef.current ? 1 : 0,
-        target: doorsOpenRef.current ? 1 : 0,
-      };
-      curSt.target = curSt.target > 0.5 ? 0 : 1;
-      states.set(partId, curSt);
+      states.set(partId, { cur: state.cur, target });
+      setDoorsOpen([...states.values()].some(part => part.target > 0.5));
       requestRender();
     };
-
 
     const onPointerUp = (e: PointerEvent) => {
       if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
@@ -1824,6 +1807,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
 
       const dr = drag3DRef.current;
+      const press = downClientRef.current;
+      const isTap = e.button === 0 && !!press && Math.hypot(actionX - press.x, actionY - press.y) <= 8;
       drag3DRef.current = null;
       dragPointerId = null;
       controls.enabled = propsRef.current.tool !== 'wall' && propsRef.current.tool !== 'cab-draw';
@@ -1839,7 +1824,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           cur.onFinishDrag();
           return;
         }
-        if (dr.kind === 'move-box' && !dr.moved && cur.tool === 'select') onDoorSingleClick(e);
+        if (dr.kind === 'move-box' && !dr.moved && isTap && cur.tool === 'select') onDoorTap(e);
+        else doorTap.reset();
         if (dr.kind === 'move-box' && dr.moved && dr.lastTargetX !== dr.origX) {
           cur.onMoveBox(dr.wallId, dr.boxId, dr.lastTargetX, true, dr.sessionId);
         } else if (dr.kind === 'move-app' && dr.moved && dr.lastTargetX !== dr.origX) {
@@ -1865,8 +1851,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
       const dc = downClientRef.current;
       downClientRef.current = null;
-      if (!dc || Math.hypot(actionX - dc.x, actionY - dc.y) > 8 || !builtRef.current) return;
-      if (cur.tool === 'select') onDoorSingleClick(e);
+      if (!dc || !isTap || !builtRef.current) { doorTap.reset(); return; }
+      if (cur.tool === 'select') onDoorTap(e);
+      else doorTap.reset();
 
       if (cur.tool === 'wall') {
         const pt = raycastFloorPointCm(actionX, actionY);
@@ -2725,6 +2712,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       if (dragPointerId === null && !dom.hasPointerCapture(e.pointerId) && e.target !== dom && !downClientRef.current) return;
       cancelModelDrag();
+      doorTap.reset();
       surfaceCursorRef.current.resetGesture(e.pointerId);
       downClientRef.current = null;
       rightDownClientRef.current = null;
@@ -2840,10 +2828,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     // Reapply current door open/close states smoothly without snapping
     const states = doorStatesRef.current;
+    const activeParts = new Set(built.animatedDoors.map(part => part.doorId));
+    for (const id of states.keys()) if (!activeParts.has(id)) states.delete(id);
+    setDoorsOpen([...states.values()].some(part => part.target > 0.5));
     for (const h of built.animatedDoors) {
       let st = states.get(h.doorId);
       if (!st) {
-        st = { cur: doorsOpenRef.current ? 1 : 0, target: doorsOpenRef.current ? 1 : 0 };
+        st = { cur: 0, target: 0 };
         states.set(h.doorId, st);
       }
       if (st.cur > 0.001) {
@@ -3072,7 +3063,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         {tool === 'wall'
           ? 'نشانگر روی زمین را حرکت دهید و با کلیک نقطه‌ها دیوار بکشید (راست‌کلیک = انتخاب)'
           : tool === 'select'
-          ? 'لمس یا کلیک = انتخاب · دستگیرهٔ بنفش را بکشید تا اندازه تغییر کند'
+          ? 'دو کلیک روی در برای باز کردن · یک کلیک برای بستن'
           : 'موس روی دیوار = پیش‌نمایش و اسکرول تغییر مدل · راست‌کلیک = بازگشت به انتخاب'}
       </div>
 
