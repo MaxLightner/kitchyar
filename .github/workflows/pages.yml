@@ -1,7 +1,7 @@
-name: Deploy to GitHub Pages
+name: Validate Kitchyar editor
 on:
   push:
-    branches: [main, fix/ar-center-aim]
+    branches: [work/kitchyar-dining-render-check]
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,6 +18,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run build
+      - run: bun test src/cad/diningAndFinishes.test.ts src/cad/editorFit.test.ts src/cad/cabinetPlacement.test.ts
+      - name: Type diagnostics
+        continue-on-error: true
+        run: bun run lint
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
