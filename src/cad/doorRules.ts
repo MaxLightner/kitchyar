@@ -2961,7 +2961,7 @@ export function placeFridgeOnWall(
   const fridgeTotalHeight = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
   const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
 
-  let offsetX = Math.max(0, Math.min(wall.length - width, Math.round(desiredOffsetX / 5) * 5));
+  let offsetX = Math.round(desiredOffsetX / 5) * 5;
 
   for (const z of blocked) {
     if (z.tier !== 'lower') continue;
@@ -2970,12 +2970,6 @@ export function placeFridgeOnWall(
       else offsetX = Math.min(offsetX, z.startCm - width);
     }
   }
-  offsetX = Math.max(0, Math.min(wall.length - width, offsetX));
-
-  if (offsetX < 0 || offsetX + width > wall.length) {
-    return { ok: false, message: `فضای دیوار برای یخچال ${cfg.label} و فریم ۵cm کافی نیست` };
-  }
-
   const collidingOp = findCollidingOpening(wall, offsetX, offsetX + width, 0, fridgeTotalHeight);
   if (collidingOp) {
     return { ok: false, message: 'یخچال با پنجره، درب یا ستون دیوار تداخل دارد' };
@@ -3422,9 +3416,10 @@ export function getFreeMoveRangeForBox(
   box: CabinetBox,
   cornerOwners: Record<string, string>
 ): { minX: number; maxX: number; snapTargets: number[] } {
-  let minX = 0;
-  let maxX = Math.max(0, wall.length - box.width);
-  const snapTargets: number[] = [0, maxX];
+  let minX = -Infinity;
+  let maxX = Infinity;
+  const snapTargets: number[] = [0, wall.length - box.width];
+  const linked = wall.boxes.filter(item => item.linkedToBoxId === box.id);
 
   const boxCenter = box.offsetX + box.width / 2;
   const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
@@ -3437,10 +3432,10 @@ export function getFreeMoveRangeForBox(
       ((box.type === 'tall' || box.type === 'closet' || box.type === 'fridge') &&
         z.tier === 'lower');
     if (!matches) continue;
-    if (z.startCm <= 2) {
+    if (z.startCm <= 2 && box.offsetX + box.width > z.startCm + 0.1) {
       minX = Math.max(minX, z.endCm);
       snapTargets.push(z.endCm);
-    } else if (z.endCm >= wall.length - 2) {
+    } else if (z.endCm >= wall.length - 2 && box.offsetX < z.endCm - 0.1) {
       maxX = Math.min(maxX, z.startCm - box.width);
       snapTargets.push(z.startCm - box.width);
     }
@@ -3453,7 +3448,7 @@ export function getFreeMoveRangeForBox(
     snapTargets.push(other.offsetX, other.offsetX + other.width);
     snapTargets.push(other.offsetX - box.width, other.offsetX + other.width - box.width);
     if (other.linkedToBoxId === box.id || box.linkedToBoxId === other.id) continue;
-    if (!tiersCollideForBoxMove(box, other)) continue;
+    if (!tiersCollideForBoxMove(box, other) && !linked.some(item => tiersCollideForBoxMove(item, other))) continue;
     const otherCenter = other.offsetX + other.width / 2;
     if (otherCenter <= boxCenter) {
       const edge = other.offsetX + other.width;
@@ -3477,7 +3472,8 @@ export function getFreeMoveRangeForBox(
   }
 
   for (const op of wall.openings || []) {
-    const vOverlap = box.elevY < op.elevY + op.height - 1 && box.elevY + box.height > op.elevY + 1;
+    const vOverlap = [box, ...linked].some(item =>
+      item.elevY < op.elevY + op.height - 1 && item.elevY + item.height > op.elevY + 1);
     if (!vOverlap) continue;
     const opCenter = op.offsetX + op.width / 2;
     if (opCenter <= boxCenter) {
@@ -3513,8 +3509,11 @@ export function moveBoxHierarchically(
   cornerOwners: Record<string, string>,
   opts?: { exact?: boolean }
 ): { offsetX: number; minX: number; maxX: number; leftGap: number; rightGap: number } | null {
-  const box = wall.boxes.find((b) => b.id === boxId);
-  if (!box) return null;
+  const picked = wall.boxes.find((b) => b.id === boxId);
+  if (!picked || !Number.isFinite(desiredOffsetX)) return null;
+  const box = wall.boxes.find(item => item.id === picked.linkedToBoxId && item.type === 'fridge') ?? picked;
+  const pickedOffset = picked.offsetX - box.offsetX;
+  desiredOffsetX -= pickedOffset;
 
   const { minX, maxX, snapTargets } = getFreeMoveRangeForBox(wall, allWalls, box, cornerOwners);
   let target = Math.max(minX, Math.min(maxX, opts?.exact ? desiredOffsetX : Math.round(desiredOffsetX / 5) * 5));
@@ -3564,7 +3563,7 @@ export function moveBoxHierarchically(
           Math.abs(other.width - box.width) <= 2);
       if (isLinkedOver) {
         other.linkedToBoxId = box.id;
-        other.offsetX = target;
+        other.offsetX = +(other.offsetX + delta).toFixed(1);
       }
     }
 

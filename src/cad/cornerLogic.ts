@@ -633,9 +633,9 @@ export function computeMultiWallSweep(
 
   const presetDepth = BOX_PRESETS[boxKind]?.depth ?? 60;
   const snapNearEnds = (val: number, len: number) => {
-    if (val <= 15) return 0;
-    if (len - val <= 15) return len;
-    return Math.max(0, Math.min(len, Math.round(val / 5) * 5));
+    if (val >= 0 && val <= 15) return 0;
+    if (val <= len && len - val <= 15) return len;
+    return Math.round(val / 5) * 5;
   };
 
   // Snap to existing boxes of the same tier on a wall if within 12cm
@@ -647,18 +647,16 @@ export function computeMultiWallSweep(
       if (Math.abs(s - b.offsetX) <= 12) s = b.offsetX;
       if (Math.abs(s - (b.offsetX + b.width)) <= 12) s = b.offsetX + b.width;
     }
-    return Math.max(0, Math.min(w.length, s));
+    return s;
   };
 
   // Same-wall placement
   if (startWall.id === targetWall.id) {
     if (!hasDragged) {
-      let s = snapToWallAndBoxes(startOffsetCm - 30, startWall);
-      if (startOffsetCm <= 15) s = 0;
-      else if (startWall.length - startOffsetCm <= 15) s = Math.max(0, startWall.length - 60);
-      s = Math.max(0, Math.min(startWall.length - 30, s));
-      const w = Math.min(60, startWall.length - s);
-      if (w < 30) return { segments: [], suggestedOwners: {} };
+      const centered = snapToWallAndBoxes(startOffsetCm - 30, startWall);
+      const s = startOffsetCm >= 0 && startOffsetCm <= startWall.length && startWall.length >= 60
+        ? Math.max(0, Math.min(startWall.length - 60, centered)) : centered;
+      const w = 60;
       return {
         segments: [{ wallId: startWall.id, startCm: s, widthCm: w }],
         suggestedOwners: {},
@@ -673,8 +671,8 @@ export function computeMultiWallSweep(
       e = targetOffsetCm > starterEnd ? Math.max(e, starterEnd) : starterEnd;
     }
     if (e - s < 30) {
-      if (s + 30 <= startWall.length) e = s + 30;
-      else s = Math.max(0, e - 30);
+      if (targetOffsetCm >= startOffsetCm) e = s + 30;
+      else s = e - 30;
     }
     const w = e - s;
     if (w < 30) return { segments: [], suggestedOwners: {} };
@@ -1033,10 +1031,10 @@ export function moveSmartWallNode(
     const deltaLen = w.length - oldLength;
     if (r.end === 'start' && deltaLen !== 0) {
       for (const b of w.boxes) {
-        b.offsetX = Math.max(0, b.offsetX + deltaLen);
+        b.offsetX += deltaLen;
       }
       for (const a of w.appliances) {
-        a.offsetX = Math.max(0, a.offsetX + deltaLen);
+        a.offsetX = a.boxId ? a.offsetX + deltaLen : Math.max(0, a.offsetX + deltaLen);
       }
       if (w.openings) {
         for (const op of w.openings) {

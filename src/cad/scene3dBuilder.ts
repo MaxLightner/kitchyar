@@ -2087,10 +2087,11 @@ function buildDoor3D(ctx: {
 
   const dStyle: DoorStyle = door.doorStyle || 'flat';
   const isClosed = doorOpenProgress < 0.08;
-  const doorMat = matPack.getDoorMaterial(boxFinish, dStyle, isClosed, isSel, box);
-  const doorEdgeMat = matPack.getDoorEdgeMaterial(boxFinish, isClosed, isSel);
+  const doorFinish = door.finish ?? boxFinish;
+  const doorMat = matPack.getDoorMaterial(doorFinish, dStyle, isClosed, isSel, door.finish ? undefined : box);
+  const doorEdgeMat = matPack.getDoorEdgeMaterial(doorFinish, isClosed, isSel);
   const doorBoxMats: THREE.Material[] = [doorEdgeMat, doorEdgeMat, doorEdgeMat, doorEdgeMat, doorMat, doorMat];
-  const doorCncInnerMat = matPack.getDoorInnerCncMaterial(boxFinish, isSel);
+  const doorCncInnerMat = matPack.getDoorInnerCncMaterial(doorFinish, isSel);
 
   const doorHit: Scene3DHitData = {
     kind: 'door',

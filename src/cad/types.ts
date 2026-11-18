@@ -102,6 +102,7 @@ export interface DoorUnit {
   drawerRatios: number[];
   /** Visual panel style: flat, CNC routed, glass, glass-grid */
   doorStyle?: DoorStyle;
+  finish?: CabinetFinishId;
   /** Hardware / opening mechanism decoupled from panel style */
   hardwareKind?: HardwareKind;
   /** Hinge attachment edge for architectural swing direction & paired handles */

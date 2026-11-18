@@ -38,7 +38,7 @@ export function NumberPadDialog({ label, initial, min, max, allowRow = false, ot
           <button key={item} type="button" aria-pressed={second === (i === 1)} className="flex-1 rounded border px-1 text-xs aria-pressed:bg-indigo-100"
             onClick={() => { setSecond(i === 1); setFresh(true); }}>{item}</button>
         ))}</div>}
-        <input id={id+'-value'} inputMode="none" dir="ltr" value={value}
+        <input id={id+'-value'} autoFocus inputMode="none" dir="ltr" value={value}
           onChange={e => { setFresh(false); setValue(e.target.value.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/٫/g,'.')); }}
           className="h-10 w-full rounded-md border border-slate-300 px-3 text-center text-lg tabular-nums" />
         <div className="grid grid-cols-3 gap-1" dir="ltr">

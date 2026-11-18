@@ -218,7 +218,8 @@ interface Scene3DCanvasProps {
     target: 'box' | 'all-cabinets' | 'backsplash' | 'countertop',
     wallId?: string,
     boxId?: string,
-    overrideId?: string
+    overrideId?: string,
+    doorId?: string,
   ) => void;
   onPlaceAppliance: (wallId: string, boxId: string, desiredOffsetX: number, kindOverride?: ApplianceKind) => void;
   onPlaceFridge: (wallId: string, desiredOffsetX: number) => void;
@@ -910,7 +911,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           const hitTr = built.wallTransforms.get(hitData.wallId);
           if (hitWall && hitTr) {
             scratchRel.copy(hits[0].point).sub(hitTr.origin);
-            const along = Math.max(0, Math.min(hitWall.length, scratchRel.dot(hitTr.tangent) / CM));
+            const along = scratchRel.dot(hitTr.tangent) / CM;
             return { wallId: hitWall.id, xCm: Math.round(along / 5) * 5 };
           }
         }
@@ -920,7 +921,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (raycaster.ray.intersectPlane(scratchPlane, scratchHit)) {
         const nearWall = projectArPointOntoWalls(
           { x: scratchHit.x, z: scratchHit.z },
-          cur.project.walls
+          cur.project.walls,
+          true,
         );
         if (nearWall) {
           return { wallId: nearWall.wall.id, xCm: nearWall.offsetCm };
@@ -931,7 +933,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (proj && fbWall) {
         return {
           wallId: fbWall.id,
-          xCm: Math.max(0, Math.min(fbWall.length, Math.round(proj.xCm / 5) * 5)),
+          xCm: Math.round(proj.xCm / 5) * 5,
         };
       }
       return null;
@@ -1449,7 +1451,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         }
         return;
       }
-      if (e.pointerType === 'touch' && propsRef.current.tool !== 'select') {
+      if (e.pointerType === 'touch' && propsRef.current.tool !== 'select' && propsRef.current.tool !== 'finish') {
         e.preventDefault();
         e.stopImmediatePropagation();
         controls.enabled = false;
@@ -1467,6 +1469,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
       if (e.button !== 0 || !builtRef.current) return;
       downClientRef.current = { x: e.clientX, y: e.clientY };
+      if (propsRef.current.tool === 'finish') { e.stopImmediatePropagation(); return; }
       if (propsRef.current.tool === 'wall' || propsRef.current.tool === 'dining') return;
 
       const cur = propsRef.current;
@@ -1923,7 +1926,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
       if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       let actionX=e.clientX, actionY=e.clientY;
-      if(e.pointerType==='touch' && (propsRef.current.tool!=='select' || surfaceCursorRef.current.dragging)) {
+      if(e.pointerType==='touch' && ((propsRef.current.tool!=='select' && propsRef.current.tool!=='finish') || surfaceCursorRef.current.dragging)) {
         const commit=surfaceCursorRef.current.end(e.pointerId);
         controls.enabled=propsRef.current.tool!=='wall'&&propsRef.current.tool!=='cab-draw';
         if (!commit || propsRef.current.tool === 'select') return;
@@ -2251,7 +2254,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           return;
         }
         if (data.boxId) {
-          cur.onApplyFinish('box', wall.id, data.boxId);
+          cur.onApplyFinish('box', wall.id, data.boxId, undefined, data.doorId);
           cur.onSelectWallAndBox(wall.id, data.boxId, null);
           return;
         }
@@ -3184,7 +3187,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           : 'موس روی دیوار = پیش‌نمایش و اسکرول تغییر مدل · راست‌کلیک = بازگشت به انتخاب'}
       </div>
 
-      {!props.scanMode && ((hasPlacementCursor && tool !== 'select') || tool === 'handle') && (
+      {!props.scanMode && ((hasPlacementCursor && tool !== 'select' && tool !== 'finish') || tool === 'handle') && (
         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50 pointer-events-auto flex gap-2">
           {tool === 'handle' && (
             <button type="button" className="h-11 rounded-xl border border-slate-300 bg-white px-3 font-bold"

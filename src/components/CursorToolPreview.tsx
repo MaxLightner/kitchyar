@@ -1,6 +1,7 @@
 import { getFinishSwatch } from '../cad/materials3d';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
-import React, { useEffect, useState } from 'react';
+import React, { createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import {
   APPLIANCE_CONFIGS,
   BACKSPLASH_FINISHES,
@@ -32,6 +33,8 @@ import {
 } from '../cad/types';
 
 export type CursorTargetStatus = 'valid' | 'invalid' | 'neutral';
+
+export const ToolGuideHost = createContext<HTMLDivElement | null>(null);
 
 export interface CursorToolPreviewProps {
   visible: boolean;
@@ -120,52 +123,8 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
   activeCabWidthCm,
   testId = 'cursor-preview-2d',
 }) => {
-  const [safeTop, setSafeTop] = useState<number>(100);
-
-  useEffect(() => {
-    if (!visible) return;
-    const measureTopChrome = () => {
-      if (typeof document === 'undefined') return;
-      let maxBottom = 56;
-      const selectors = [
-        'header',
-        '[data-testid="selection-align-toolbar"]',
-        '[data-testid="scene-3d-floating-bar"]',
-        '[data-testid="ar-floating-bar"]',
-        '[data-testid="chido-floor-scan-readiness"]',
-      ];
-      for (const sel of selectors) {
-        document.querySelectorAll(sel).forEach((el) => {
-          const rect = el.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0 && rect.top < 220) {
-            maxBottom = Math.max(maxBottom, rect.bottom);
-          }
-        });
-      }
-      const vh = window.innerHeight || 800;
-      const clamped = Math.max(58, Math.min(vh - 150, Math.round(maxBottom + 8)));
-      setSafeTop(clamped);
-    };
-
-    measureTopChrome();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureTopChrome) : null;
-    if (ro) {
-      const hdr = document.querySelector('header');
-      if (hdr) ro.observe(hdr);
-    }
-    window.addEventListener('resize', measureTopChrome);
-    const id = window.setInterval(measureTopChrome, 250);
-    return () => {
-      window.clearInterval(id);
-      window.removeEventListener('resize', measureTopChrome);
-      ro?.disconnect();
-    };
-  }, [visible, tool, targetStatus, drawBoxKind]);
-
-  if (!visible || !PREVIEW_TOOLS.has(tool)) return null;
-
-  const cardW = 104;
-  const top = safeTop;
+  const host = useContext(ToolGuideHost);
+  if (!host || !visible || !PREVIEW_TOOLS.has(tool)) return null;
 
   let graphic: React.ReactNode = null;
   let badgeLabel = '';
@@ -528,12 +487,11 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
       ? 'border-2 border-rose-500 ring-2 ring-rose-400/45 bg-rose-50/95 shadow-rose-500/20'
       : 'border border-slate-300 bg-white/95';
 
-  return (
+  return createPortal(
     <div
       data-testid={testId}
       data-target-status={targetStatus}
-      className={`fixed z-[75] pointer-events-none flex flex-col items-center justify-center gap-1 rounded-xl shadow-xl px-2 py-1.5 select-none transition-colors duration-100 ${statusToneClass}`}
-      style={{ left: '50%', top: `${top}px`, transform: 'translateX(-50%)', minWidth: `${cardW}px` }}
+      className={`pointer-events-none flex min-w-0 items-center gap-2 rounded-lg px-2 select-none ${statusToneClass}`}
     >
       {graphic}
       {badgeLabel && (
@@ -552,7 +510,7 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
           )}
         </span>
       )}
-    </div>
+    </div>, host,
   );
 };
 

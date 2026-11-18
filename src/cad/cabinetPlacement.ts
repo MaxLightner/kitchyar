@@ -24,9 +24,10 @@ function subtractBlockedIntervals(
 }
 
 export function cabinetStarterSegment(wall: Wall, targetCm: number): SweepSegment {
-  const widthCm = Math.min(60, wall.length);
-  const centeredStart = Math.round((targetCm - widthCm / 2) / 5) * 5;
-  const startCm = Math.max(0, Math.min(wall.length - widthCm, centeredStart));
+  const widthCm = 60;
+  const centered = Math.round((targetCm - widthCm / 2) / 5) * 5;
+  const startCm = targetCm >= 0 && targetCm <= wall.length && wall.length >= widthCm
+    ? Math.max(0, Math.min(wall.length - widthCm, centered)) : centered;
   return { wallId: wall.id, startCm, widthCm };
 }
 
@@ -71,8 +72,8 @@ export function resolveCabinetPlacement(
         if (geom.kind !== 'inside-90') continue;
 
         const touchesCorner =
-          (myEnd === 'start' && seg.startCm <= 5) ||
-          (myEnd === 'end' && seg.startCm + seg.widthCm >= w.length - 5);
+          (myEnd === 'start' && seg.startCm <= 5 && seg.startCm + seg.widthCm >= -5) ||
+          (myEnd === 'end' && seg.startCm <= w.length + 5 && seg.startCm + seg.widthCm >= w.length - 5);
         if (!touchesCorner) continue;
 
         const otherHasCornerBox = otherWall.boxes.some((ob) => {
@@ -138,8 +139,8 @@ export function resolveCabinetPlacement(
     for (const placement of placements) {
       if (placement.wallId === w.id) blockedSpans.push({ start: placement.startCm, end: placement.startCm + placement.widthCm });
     }
-    const start = Math.max(0, seg.startCm);
-    const end = Math.min(w.length, seg.startCm + seg.widthCm);
+    const start = seg.startCm;
+    const end = seg.startCm + seg.widthCm;
     const validSpans = subtractBlockedIntervals(start, end, blockedSpans);
     validSpans.forEach((sp) => {
       const finalW = Math.round(sp.end - sp.start);

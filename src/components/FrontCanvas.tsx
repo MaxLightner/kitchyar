@@ -161,7 +161,8 @@ interface FrontCanvasProps {
     target: 'box' | 'all-cabinets' | 'backsplash' | 'countertop',
     wallId?: string,
     boxId?: string,
-    overrideId?: string
+    overrideId?: string,
+    doorId?: string,
   ) => void;
   hoodKind?: 'hidden' | 'chimney';
   onTriggerAutoUnitHighlight?: (boxId: string) => void;
@@ -1752,8 +1753,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         return;
       }
       if (hit) {
-        onApplyFinish('box', wall.id, hit.box.id);
-        onSelectBoxAndDoor(hit.box.id, null);
+        const doorId = target.closest('[data-door-id]')?.getAttribute('data-door-id') ?? undefined;
+        onApplyFinish('box', wall.id, hit.box.id, undefined, doorId);
         return;
       }
       if (isPointOverBacksplash(pt) || target.closest('[data-backsplash-zone]')) {
@@ -1934,7 +1935,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         }
 
         const doorEl = target.closest('[data-door-id]');
-        const doorId = doorEl?.getAttribute('data-door-id') || null;
+        const doorId = hit.box.type === 'fridge' ? null : doorEl?.getAttribute('data-door-id') || null;
         if (selectionMode !== 'single') {
           const nextSel = doorId
             ? applySelectionDelta(multiSelection, 'door', doorId)
@@ -2503,8 +2504,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       if (liveBox) {
         const range = getFreeMoveRangeForBox(wall, allWalls, liveBox, cornerOwners);
         setDragGuides({
-          leftGap: Math.max(0, Math.round(liveBox.offsetX - range.minX)),
-          rightGap: Math.max(0, Math.round(range.maxX - liveBox.offsetX)),
+          leftGap: Math.round(liveBox.offsetX - (Number.isFinite(range.minX) ? range.minX : 0)),
+          rightGap: Math.round((Number.isFinite(range.maxX) ? range.maxX : wall.length - liveBox.width) - liveBox.offsetX),
           itemStart: liveBox.offsetX,
           itemEnd: liveBox.offsetX + liveBox.width,
           yTopCm: liveBox.elevY + liveBox.height,
@@ -2879,12 +2880,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       return null;
     };
 
-    const activeFinishId = box.finish || projectCabinetFinish;
-    const finishCfg = box.color ? { ...CABINET_FINISHES[activeFinishId], hex: box.color, hexDark: box.color } : CABINET_FINISHES[activeFinishId];
+    const activeFinishId = door.finish ?? box.finish ?? projectCabinetFinish;
+    const finishCfg = !door.finish && box.color ? { ...CABINET_FINISHES[activeFinishId], hex: box.color, hexDark: box.color } : CABINET_FINISHES[activeFinishId];
     const isDarkPanel =
       activeFinishId === 'navy-matte' || activeFinishId === 'charcoal' || activeFinishId === 'walnut';
     const panelFill =
-      isPantryPullout
+      isPantryPullout && !door.finish
         ? '#ecfdf5'
         : dStyle === 'glass' || dStyle === 'glass-grid'
         ? '#cbd5e1'

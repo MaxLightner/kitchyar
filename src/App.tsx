@@ -34,6 +34,7 @@ import {
   getBoxFrameInsets,
   compactDisconnectedDoorsInBox,
   createEmptyBox,
+  createWall,
   deleteApplianceHierarchically,
   deleteBoxHierarchically,
   equalizeDoorsAndFillGaps,
@@ -126,6 +127,7 @@ import { Scene3DCanvas } from './components/Scene3DCanvas';
 import { SettingsModal } from './components/SettingsModal';
 import { SideInspector } from './components/SideInspector';
 import { StyleGalleryModal } from './components/StyleGalleryModal';
+import { ToolGuideHost } from './components/CursorToolPreview';
 import { TopBar, ViewMode } from './components/TopBar';
 import { WelcomeScreen } from './components/WelcomeScreen';
 
@@ -296,10 +298,12 @@ export default function App() {
   });
   const [styleGalleryOpen, setStyleGalleryOpen] = useState(false);
   const [cameraToolbarHost, setCameraToolbarHost] = useState<HTMLDivElement | null>(null);
+  const [toolGuideHost, setToolGuideHost] = useState<HTMLDivElement | null>(null);
   const [measurement, setMeasurement] = useState<{
     label: string; initial: number; min: number; max: number; allowRow?: boolean;
     other?: { label: string; initial: number; min: number; max: number };
     base: ProjectState; resolve: (value: number, row: boolean, secondary?: number) => ProjectState | null;
+    onApplied?: (next: ProjectState) => void;
   } | null>(null);
 
   const { project, setProject, history, historyIdx, commitState, resetHistory, travelHistory, getProject } = useProjectHistory(initialProject);
@@ -540,10 +544,13 @@ export default function App() {
       const ws = workspaceRef.current;
       const pw = ws?.clientWidth || 900;
       const ph = (ws?.clientHeight || 600) * ((100 - topHeightPct) / 100);
-      const sx = (pw * 0.78) / Math.max(w.length, 100);
+      const start = Math.min(0, ...w.boxes.map(box => box.offsetX));
+      const end = Math.max(w.length, ...w.boxes.map(box => box.offsetX + box.width));
+      const sx = (pw * 0.78) / Math.max(end - start, 100);
       const sy = (ph * 0.74) / Math.max(w.height, 100);
-      setPxPerCm(+Math.max(0.75, Math.min(3.5, Math.min(sx, sy))).toFixed(2));
-      setFrontPan({ x: 0, y: 0 });
+      const scale = +Math.max(0.75, Math.min(3.5, sx, sy)).toFixed(2);
+      setPxPerCm(scale);
+      setFrontPan({ x: (w.length - end - start) * scale / 2, y: 0 });
     },
     [topHeightPct]
   );
@@ -627,7 +634,7 @@ export default function App() {
     const upper = box.type === 'wall' || box.type === 'wall-deep';
     const min = field === 'elevY' ? Math.min(95, box.elevY) : field === 'width' ? Math.min(40, box.width) : 25;
     const max = field === 'width'
-      ? (keepRight ? box.offsetX + box.width : wall.length - box.offsetX)
+      ? 10000
       : field === 'elevY' ? (keepTop ? box.elevY + box.height - 25 : wall.height - box.height)
       : wall.height - box.elevY;
     if (max < min) return;
@@ -651,8 +658,10 @@ export default function App() {
         b[field] = Math.round(value * 10) / 10;
         if (field === 'width' && keepRight) b.offsetX = before.offsetX + before.width - b.width;
         if (field === 'elevY' && keepTop) b.height = before.elevY + before.height - b.elevY;
-        if (b.height < 25 || b.elevY + b.height > w.height || b.offsetX < 0 ||
-            b.offsetX + b.width > w.length + 0.01) return null;
+        if (b.height < 25 || b.elevY + b.height > w.height) return null;
+        if (w.openings?.some(op => b.offsetX < op.offsetX + op.width - 0.1 &&
+          b.offsetX + b.width > op.offsetX + 0.1 && b.elevY < op.elevY + op.height - 0.1 &&
+          b.elevY + b.height > op.elevY + 0.1)) return null;
         const overlaps = (v: typeof before, other: typeof b) =>
           v.offsetX < other.offsetX + other.width - 0.1 && v.offsetX + v.width > other.offsetX + 0.1 &&
           v.elevY < other.elevY + other.height - 0.1 && v.elevY + v.height > other.elevY + 0.1;
@@ -1862,8 +1871,10 @@ export default function App() {
       const box = wall?.boxes.find(b => b.id === id);
       if (!wall || !box) continue;
       const range = getFreeMoveRangeForBox(wall, next.walls, box, next.cornerOwners);
-      const target = pos === 'left' ? range.minX : pos === 'right' ? range.maxX
-        : +((range.minX + range.maxX) / 2).toFixed(1);
+      const clamp = (x: number) => Math.max(range.minX, Math.min(range.maxX, x));
+      const left = clamp(Number.isFinite(range.minX) ? range.minX : 0);
+      const right = clamp(Number.isFinite(range.maxX) ? range.maxX : wall.length - box.width);
+      const target = pos === 'left' ? left : pos === 'right' ? right : (left + right) / 2;
       if (Math.abs(box.offsetX - target) < .1) continue;
       moveBoxHierarchically(wall, next.walls, box.id, target, next.cornerOwners);
       count++;
@@ -1957,8 +1968,8 @@ export default function App() {
     const wall = next.walls.find(w => w.id === wallId)!;
     const item = wall.boxes.find(item => item.id === boxId);
     if (commit && dragCheckpointRef.current && item && Math.abs(item.offsetX - original.offsetX) > 0.05) {
-      setMeasurement({ label: 'جای کابینت از ابتدای دیوار', initial: item.offsetX, min: 0,
-        max: Math.max(0, wall.length - item.width), base, resolve: value => {
+      setMeasurement({ label: 'جای کابینت از ابتدای دیوار', initial: item.offsetX,
+        min: Math.min(item.offsetX, -10000), max: Math.max(item.offsetX, 10000), base, resolve: value => {
           const moved = resolve(value, true);
           const wall = moved.walls.find(w => w.id === wallId)!;
           const result = [...wall.boxes, ...wall.appliances].find(part => part.id === item.id);
@@ -2106,9 +2117,10 @@ export default function App() {
       target: 'box' | 'all-cabinets' | 'backsplash' | 'countertop',
       wallId?: string,
       boxId?: string,
-      overrideId?: string
+      overrideId?: string,
+      doorId?: string,
     ) => {
-      const next = cloneProject(project);
+      const next = cloneProject(getProject());
       if (target === 'backsplash') {
         let bsId = (overrideId as BacksplashFinishId) || backsplashBrush;
         if (!overrideId && (next.backsplashFinish || 'calacatta-marble') === bsId) {
@@ -2134,6 +2146,7 @@ export default function App() {
         for (const w of next.walls) {
           for (const b of w.boxes) {
             delete b.finish;
+            for (const door of b.doors) delete door.finish;
           }
         }
         commitState(next, true);
@@ -2152,13 +2165,22 @@ export default function App() {
         return;
       }
       const box = targetWall.boxes.find((b) => b.id === targetBoxId);
-      if (!box) return;
-      box.finish = cabId;
+      if (!box || box.type === 'fridge') return;
+      if (doorId) {
+        const door = box.doors.find(item => item.id === doorId);
+        if (!door || door.kind === 'fridge' || door.finish === cabId) return;
+        door.finish = cabId;
+      } else {
+        box.finish = cabId;
+        delete box.color;
+        delete box.texture;
+        for (const door of box.doors) delete door.finish;
+      }
       next.activeWallId = targetWall.id;
       commitState(next, true);
       showToast(`رنگ باکس «${box.name}»: ${CABINET_FINISHES[cabId].label}`);
     },
-    [project, cabinetFinishBrush, backsplashBrush, countertopBrush, commitState, showToast]
+    [getProject, cabinetFinishBrush, backsplashBrush, countertopBrush, commitState, showToast]
   );
 
   const handleBulkDelete = useCallback(() => {
@@ -2863,6 +2885,7 @@ export default function App() {
   };
 
   return (
+    <ToolGuideHost.Provider value={toolGuideHost}>
     <div
       ref={editorOverlayRef}
       data-testid="editor-shell"
@@ -2929,6 +2952,13 @@ export default function App() {
         onMoveUnit={handleMoveUnit}
         cameraToolbarRef={setCameraToolbarHost}
       />
+      </div>
+
+      <div hidden={dialogOpen || (tool === 'select' && !toast)} className="shrink-0 border-b border-slate-200 bg-slate-50">
+        <div className="flex h-10 items-center justify-center gap-2 overflow-hidden px-2">
+          <div ref={setToolGuideHost} className="kitchyar-tool-guides flex min-w-0 items-center" />
+          {toast && <div role="status" title={toast} className="min-w-0 truncate rounded-lg bg-slate-900 px-3 py-1 text-[13px] font-bold text-white">{toast}</div>}
+        </div>
       </div>
 
       <div inert={dialogOpen} className="kitchiyar-editor-main flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
@@ -3522,15 +3552,29 @@ export default function App() {
                     }, true)
                   }
                   onToggleCornerOwner={handleToggleCornerOwner}
-                  onAddWall={(wall) => {
-                    const next = cloneProject(project);
-                    const st = next.settings || DEFAULT_PROJECT_SETTINGS;
-                    wall.height = st.wallHeightCm;
-                    const oriented = autoOrientWallsOnAdd(next.walls, wall);
-                    next.walls.push(oriented);
-                    next.activeWallId = oriented.id;
-                    commitState(next, true);
-                    fitWallToView(oriented);
+                  onAddWall={(wall, onPlaced) => {
+                    const base = getProject();
+                    const dx = wall.x2Cm - wall.x1Cm, dy = wall.y2Cm - wall.y1Cm;
+                    const drawn = Math.hypot(dx, dy);
+                    setMeasurement({ label: 'طول دیوار', initial: Math.round(drawn),
+                      min: 40, max: Math.max(10000, Math.ceil(drawn)), base,
+                      resolve: length => {
+                        const next = cloneProject(base);
+                        const placed = createWall(wall.name.replace(/\(\d+\)$/, "(" + length + ")"),
+                          wall.x1Cm, wall.y1Cm, wall.x1Cm + dx * length / drawn,
+                          wall.y1Cm + dy * length / drawn, wall.flipSide,
+                          (next.settings || DEFAULT_PROJECT_SETTINGS).wallHeightCm);
+                        const oriented = autoOrientWallsOnAdd(next.walls, placed);
+                        next.walls.push(oriented);
+                        next.activeWallId = oriented.id;
+                        return next;
+                      },
+                      onApplied: next => {
+                        const placed = next.walls[next.walls.length - 1];
+                        onPlaced(placed);
+                        fitWallToView(placed);
+                      },
+                    });
                   }}
                   onMoveWallNode={handleMoveWallNode}
                   onMoveWall={handleMoveWall}
@@ -3832,6 +3876,7 @@ export default function App() {
             const next = measurement.resolve(value, row, secondary);
             if (!next) { showToast('این اندازه با فضای موجود یا کابینت مجاور تداخل دارد'); return; }
             commitState(next, true);
+            measurement.onApplied?.(next);
             setMeasurement(null);
           }} />
       )}
@@ -4019,14 +4064,7 @@ export default function App() {
           <button type="button" onClick={handleExportProject} className="mt-2 rounded-lg bg-white px-3 py-2 font-bold text-red-950">دریافت فایل پروژه</button>
         </div>
       )}
-      {toast && (
-        <div
-          role="status"
-          className="fixed top-[92px] left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-1.5 rounded-full text-[13px] font-bold shadow-lg z-50 pointer-events-none"
-        >
-          {toast}
-        </div>
-      )}
     </div>
+    </ToolGuideHost.Provider>
   );
 }

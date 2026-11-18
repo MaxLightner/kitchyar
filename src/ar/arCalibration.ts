@@ -176,7 +176,8 @@ export function buildArScannedWall(
  */
 export function projectArPointOntoWalls(
   pointM: XZPoint,
-  walls: Wall[]
+  walls: Wall[],
+  extend = false,
 ): { wall: Wall; offsetCm: number; signedDistCm: number } | null {
   const px = pointM.x * 100;
   const py = pointM.z * 100;
@@ -188,13 +189,13 @@ export function projectArPointOntoWalls(
     const relY = py - w.y1Cm;
     const along = relX * v.tx + relY * v.ty;
     const perp = relX * v.nx + relY * v.ny;
-    if (along < -20 || along > w.length + 20) continue;
+    if (!extend && (along < -20 || along > w.length + 20)) continue;
     const absPerp = Math.abs(perp);
     if (absPerp > 85) continue;
-    const clampedAlong = Math.max(0, Math.min(w.length, Math.round(along / 5) * 5));
-    if (!best || absPerp < best.score) {
-      best = { wall: w, offsetCm: clampedAlong, signedDistCm: perp, score: absPerp };
-    }
+    const rounded = Math.round(along / 5) * 5;
+    const offsetCm = extend ? rounded : Math.max(0, Math.min(w.length, rounded));
+    const score = absPerp + (extend ? Math.max(0, -along, along - w.length) * 1.4 : 0);
+    if (!best || score < best.score) best = { wall: w, offsetCm, signedDistCm: perp, score };
   }
 
   return best ? { wall: best.wall, offsetCm: best.offsetCm, signedDistCm: best.signedDistCm } : null;

@@ -128,7 +128,7 @@ interface PlanCanvasProps {
   onExitToSelect: () => void;
   onFlipActiveWallSide: () => void;
   onToggleCornerOwner: (cornerKey: string) => void;
-  onAddWall: (wall: Wall) => void;
+  onAddWall: (wall: Wall, onPlaced: (wall: Wall) => void) => void;
   onMoveWallNode: (refs: WallNodeRef[], x: number, y: number, commit: boolean) => void;
   onMoveWall: (
     wallId: string,
@@ -255,7 +255,12 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     suggestedOwners: Record<string, string>;
   }>(emptyCabSweep);
   useEffect(() => {
-    if (tool !== 'wall') setWallDraw(emptyWallDraw);
+    if (tool !== 'wall') { setWallDraw(emptyWallDraw); return; }
+    const resetChain = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setWallDraw(emptyWallDraw);
+    };
+    window.addEventListener('keydown', resetChain);
+    return () => window.removeEventListener('keydown', resetChain);
   }, [tool]);
   useEffect(() => {
     setCabSweep(emptyCabSweep);
@@ -433,12 +438,14 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       const proj = vx * ux + vy * uy;
       const signedPerp = -vx * uy + vy * ux;
       const perp = Math.abs(signedPerp);
-      if (proj >= -30 && proj <= w.length + 30 && perp < 85) {
-        const clamped = Math.max(0, Math.min(w.length, Math.round(proj / 5) * 5));
+      const extend = tool === 'cab-draw' || tool === 'fridge';
+      if ((extend || (proj >= -30 && proj <= w.length + 30)) && perp < 85) {
+        const rounded = Math.round(proj / 5) * 5;
+        const offsetCm = extend ? rounded : Math.max(0, Math.min(w.length, rounded));
         const outOfSpanPenalty = proj < 0 ? -proj : proj > w.length ? proj - w.length : 0;
         const score = perp + outOfSpanPenalty * 1.4;
         if (!best || score < best.score) {
-          best = { wall: w, offsetCm: clamped, perp, signedPerp, score };
+          best = { wall: w, offsetCm, perp, signedPerp, score };
         }
       }
     }
@@ -596,12 +603,9 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             snapped.y,
             1
           );
-          onAddWall(newW);
-          setWallDraw({
-            startPt: { x: snapped.x, y: snapped.y },
-            currPt: { x: snapped.x, y: snapped.y },
-            lengthCm: 0,
-            snappedCorner: false,
+          onAddWall(newW, placed => {
+            const end = { x: placed.x2Cm, y: placed.y2Cm };
+            setWallDraw({ startPt: end, currPt: end, lengthCm: 0, snappedCorner: false });
           });
         }
       }
@@ -1337,18 +1341,6 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         </div>
 
         <div className="pointer-events-auto flex items-center gap-1 mr-auto">
-          {tool === 'wall' && wallDraw.startPt && (
-            <button
-              type="button"
-              onClick={() => {
-                setWallDraw({ startPt: null, currPt: null, lengthCm: 0, snappedCorner: false });
-                onToast('رسم دیوار متوقف شد');
-              }}
-              className="h-7 px-2.5 rounded-md bg-amber-100 border border-amber-400 text-amber-900 text-[13px] font-bold"
-            >
-              پایان دیوار
-            </button>
-          )}
           <button
             type="button"
             onClick={onFlipActiveWallSide}
