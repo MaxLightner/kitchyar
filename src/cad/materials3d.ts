@@ -474,7 +474,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
   const bevelNormal = createDoorBevelNormalMap(5);
 
   const matCarcass = new THREE.MeshStandardMaterial({
-    color: defaultCabCfg.id === 'warm-white' ? 0xe9e4dc : new THREE.Color(defaultCabCfg.hexDark).getHex(),
+    color: 0xf4f2ed,
     roughness: 0.65,
     metalness: 0.04,
   });

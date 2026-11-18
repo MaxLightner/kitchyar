@@ -60,6 +60,7 @@ import {
   removeUnitDividerWithSync,
   resizeDoorSeamCoupled,
   resizeDrawerUnitWidthCm,
+  resizeUnitDividerWithDoorsSync,
 } from '../cad/doorRules';
 import { applyHandleAtSpot, canPlaceHandleInBay } from '../cad/handleSpots';
 import { projectArPointOntoWalls } from '../ar/arCalibration';
@@ -236,6 +237,8 @@ interface Scene3DCanvasProps {
 }
 
 type Drag3D =
+  | { kind: 'resize-unit-divider'; wallId: string; boxId: string; seamCm: number;
+      startSeamCm: number; startDot: number; moved?: boolean }
   | { kind: 'move-dining'; diningId: string; offsetXCm: number; offsetYCm: number;
       lastX: number; lastY: number; moved: boolean; rotation: number;
       primaryTouch?: { x: number; y: number };
@@ -1624,6 +1627,15 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         }
         if (data.kind === 'unit-div' && data.boxId && data.seamCm !== undefined) {
           cur.onSelectUnitDivider(wall.id, { boxId: data.boxId, seamCm: data.seamCm });
+          if (wallProj) {
+            controls.enabled = false;
+            e.stopImmediatePropagation();
+            try { dom.setPointerCapture(e.pointerId); } catch {}
+            beginModelDrag(e.pointerId);
+            drag3DRef.current = { kind: 'resize-unit-divider',
+              wallId: wall.id, boxId: data.boxId, seamCm: data.seamCm,
+              startSeamCm: data.seamCm, startDot: wallProj.xCm };
+          }
           return;
         }
         if (data.kind === 'opening' && data.openingId) {
@@ -1836,6 +1848,23 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           },
           false
         );
+      } else if (dr.kind === 'resize-unit-divider') {
+        if (!dr.moved && pointerMovedPx < 5) return;
+        const target = dr.startSeamCm + Math.round(proj.xCm - dr.startDot);
+        if (Math.abs(target - dr.seamCm) < 1) return;
+        let seamCm = dr.seamCm;
+        cur.onMutateWallById(dr.wallId, w => {
+          const box = w.boxes.find(item => item.id === dr.boxId);
+          if (!box) return;
+          const blocked = getCornerBlockedZonesForWall(w, cur.project.walls, cur.project.cornerOwners);
+          const result = resizeUnitDividerWithDoorsSync(box, dr.seamCm, target, blocked);
+          if (result?.ok) seamCm = result.seamCm;
+        }, false);
+        if (seamCm !== dr.seamCm) {
+          dr.moved = true;
+          dr.seamCm = seamCm;
+          cur.onSelectUnitDivider(dr.wallId, { boxId: dr.boxId, seamCm });
+        }
       } else if (dr.kind === 'resize-door-seam') {
         const deltaCm = Math.round(proj.xCm - dr.lastDot);
         if (Math.abs(deltaCm) >= 1) {
@@ -1941,7 +1970,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           if (dr.dx || dr.dy) cur.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dr.dx ?? 0, dr.dy ?? 0, true);
         } else if (dr.kind === 'move-shelf') {
           if (dr.dx || dr.dy) cur.onMoveShelf(dr.wallId, dr.boxId, dr.shelfId, dr.dx, dr.dy, true);
-        } else if (dr.kind === 'resize-drawer' || dr.kind === 'resize-door-seam') {
+        } else if (dr.kind === 'resize-drawer' || dr.kind === 'resize-door-seam' || dr.kind === 'resize-unit-divider') {
           if (dr.moved) {
             cur.onMutateWallById(dr.wallId, () => {}, true);
           }

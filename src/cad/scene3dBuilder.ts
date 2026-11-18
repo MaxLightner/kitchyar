@@ -1597,12 +1597,14 @@ function buildBox3D(ctx: {
 
   const carcassMeshes: THREE.Mesh[] = [];
   if (solidHorizSpans.some((sp) => sp.s <= 2)) {
-    const pLeft = new THREE.Mesh(new THREE.BoxGeometry(board, bodyH, carcD), boxBodyMat);
+    const pLeft = new THREE.Mesh(new THREE.BoxGeometry(board, bodyH, carcD),
+      [mats.matCarcass, boxBodyMat, boxBodyMat, boxBodyMat, boxBodyMat, boxBodyMat]);
     pLeft.position.set(bx + board / 2, bodyCenterY, cz);
     carcassMeshes.push(pLeft);
   }
   if (solidHorizSpans.some((sp) => sp.e >= box.width - 2)) {
-    const pRight = new THREE.Mesh(new THREE.BoxGeometry(board, bodyH, carcD), boxBodyMat);
+    const pRight = new THREE.Mesh(new THREE.BoxGeometry(board, bodyH, carcD),
+      [boxBodyMat, mats.matCarcass, boxBodyMat, boxBodyMat, boxBodyMat, boxBodyMat]);
     pRight.position.set(bx + bw - board / 2, bodyCenterY, cz);
     carcassMeshes.push(pRight);
   }
@@ -2738,14 +2740,25 @@ function buildAppliance3D(
       r2.position.set(ax, topY + 0.019, cz + normalSign * 0.105);
       grp.add(r1, r2);
     } else {
-      const offsets = app.width >= 85 ? [-0.28, -0.1, 0.1, 0.28] : [-0.22, 0.22];
-      for (const ox of offsets) {
-        const r1 = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.07, 0.014, 16), mats.matSteel);
-        r1.position.set(ax + ox * cookW, topY + 0.022, cz - normalSign * 0.1);
-        const r2 = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.014, 16), mats.matSteel);
-        r2.position.set(ax + ox * cookW, topY + 0.022, cz + normalSign * 0.1);
-        grp.add(r1, r2);
-      }
+      const centers = [-1, 1].flatMap(side => [-1, 1].map(row =>
+        ({ x: ax + side * cookW * 0.25, z: cz + row * cookD * 0.25 })));
+      if (app.width >= 75) centers.push({ x: ax, z: cz });
+      const grateBar = new THREE.BoxGeometry(Math.min(0.056, cookW * 0.11), 0.014, 0.011);
+      centers.forEach(({ x, z }, index) => {
+        const radius = Math.min(0.068, cookW * 0.15) * (index === 4 ? 1 : 0.8);
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 1.06, 0.014, 24), mats.matSteel);
+        base.position.set(x, topY + 0.025, z);
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.76, radius * 0.80, 0.011, 24), mats.matDarkChrome);
+        cap.position.set(x, topY + 0.036, z);
+        grp.add(base, cap);
+        for (let arm = 0; arm < 4; arm++) {
+          const angle = Math.PI * (arm / 2 + 0.25);
+          const grate = new THREE.Mesh(grateBar, mats.matDarkChrome);
+          grate.rotation.y = -angle;
+          grate.position.set(x + Math.cos(angle) * radius * 1.35, topY + 0.048, z + Math.sin(angle) * radius * 1.35);
+          grp.add(grate);
+        }
+      });
     }
 
     // Connected Hood above gas
