@@ -406,6 +406,7 @@ const finishSwatches = new Map<string, string>();
 const backsplashTextures = new Map<BacksplashFinishId, ReturnType<typeof createBacksplashTextures>>();
 const countertopTextures = new Map<CountertopFinishId, THREE.CanvasTexture>();
 let doorBevelTexture: THREE.CanvasTexture | undefined;
+let cabinetOcclusionTexture: THREE.CanvasTexture | undefined;
 
 export function isSharedKitchenTexture(texture: THREE.Texture) {
   return texture.userData.sharedKitchenTexture === true;
@@ -414,6 +415,26 @@ export function isSharedKitchenTexture(texture: THREE.Texture) {
 function shareKitchenTexture<T extends THREE.Texture>(texture: T): T {
   texture.userData.sharedKitchenTexture = true;
   return texture;
+}
+
+function getCabinetOcclusionTexture() {
+  if (cabinetOcclusionTexture) return cabinetOcclusionTexture;
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const edge = Math.min(x, y, size - 1 - x, size - 1 - y);
+      const shadow = Math.max(0, 1 - edge / 10);
+      const value = Math.round(255 * (1 - 0.44 * shadow * shadow));
+      image.data.set([value, value, value, 255], (y * size + x) * 4);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  cabinetOcclusionTexture = shareKitchenTexture(new THREE.CanvasTexture(canvas));
+  return cabinetOcclusionTexture;
 }
 
 export function getFinishSwatch(kind: 'cabinet' | 'countertop' | 'backsplash', id: string) {
@@ -437,6 +458,7 @@ export function getFinishSwatch(kind: 'cabinet' | 'countertop' | 'backsplash', i
 
 export interface KitchenMaterialPack {
   matCarcass: THREE.MeshStandardMaterial;
+  matCabinetBack: THREE.MeshStandardMaterial;
   matPlinth: THREE.MeshStandardMaterial;
   matCountertop: THREE.MeshStandardMaterial;
   matDoorRevealDark: THREE.MeshStandardMaterial;
@@ -485,11 +507,9 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
 
   const bevelNormal = doorBevelTexture ??= shareKitchenTexture(createDoorBevelNormalMap());
 
-  const matCarcass = new THREE.MeshStandardMaterial({
-    color: 0xf4f2ed,
-    roughness: 0.65,
-    metalness: 0.04,
-  });
+  const insideAoMap = project.settings?.ambientOcclusion !== false ? getCabinetOcclusionTexture() : null;
+  const matCarcass = new THREE.MeshStandardMaterial({ color: 0xd6dbe0, roughness: 0.68, aoMap: insideAoMap });
+  const matCabinetBack = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, aoMap: insideAoMap });
 
   const matPlinth = new THREE.MeshStandardMaterial({
     color: defaultCabCfg.id === 'charcoal' || defaultCabCfg.id === 'navy-matte' ? 0x1e293b : 0x334155,
@@ -511,7 +531,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
 
   // Dark recessed reveal shadow liner visible in the 4mm seams between closed doors
   const matDoorRevealDark = new THREE.MeshStandardMaterial({
-    color: 0x0f172a,
+    color: 0x121214,
     roughness: 0.9,
     metalness: 0.02,
   });
@@ -644,6 +664,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
 
   return {
     matCarcass,
+    matCabinetBack,
     matPlinth,
     matCountertop,
     matDoorRevealDark,

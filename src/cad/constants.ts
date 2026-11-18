@@ -305,6 +305,8 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   wallCabElevCm: 145,
   wallCabHeightCm: 75,
   defaultHoodKind: 'chimney',
+  ambientOcclusion: true,
+  equipmentFinish: 'silver',
 };
 
 export interface FridgeModelConfig {

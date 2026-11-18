@@ -64,6 +64,7 @@ export type DoorSwing = 'left-in' | 'right-in' | 'left-out' | 'right-out';
 
 export type ToolId =
   | 'select'
+  | 'move'
   | 'wall'
   | 'cab-draw'
   | 'fridge'
@@ -265,6 +266,8 @@ export interface DrawerPattern {
   drawerBand?: { position: 'top' | 'bottom'; ratio: number };
 }
 
+export type EquipmentFinish = 'silver' | 'white' | 'black';
+
 export interface ProjectSettings {
   wallHeightCm: number;
   baseHeightCm: number;
@@ -280,6 +283,8 @@ export interface ProjectSettings {
   backsplashRoughness?: number;
   floorReflection?: number;
   floorRoughness?: number;
+  ambientOcclusion?: boolean;
+  equipmentFinish?: EquipmentFinish;
   defaultHoodKind?: 'chimney' | 'hidden';
 }
 

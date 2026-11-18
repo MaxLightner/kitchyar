@@ -8,7 +8,7 @@ import { HANDLE_STYLES } from '../cad/handleGeometry';
 import { DoorTapSequence } from '../utils/doorTapSequence';
 import { previewCabinetRow, continueCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { logDiagnostic } from '../utils/diagnostics';
-import { snapWallEndpoint } from '../cad/wallSnap';
+import { hasWallSegment, snapWallDrawingPoint } from '../cad/wallSnap';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
@@ -819,23 +819,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       raycaster.setFromCamera(setNdc(clientX, clientY), camera);
       scratchPlane.set(upAxis, 0);
       if (!raycaster.ray.intersectPlane(scratchPlane, scratchHit)) return null;
-      let xCm = Math.max(-3000, Math.min(3000, Math.round((scratchHit.x / CM) / 5) * 5));
-      let yCm = Math.max(-3000, Math.min(3000, Math.round((scratchHit.z / CM) / 5) * 5));
+      const xCm = Math.max(-3000, Math.min(3000, Math.round((scratchHit.x / CM) / 5) * 5));
+      const yCm = Math.max(-3000, Math.min(3000, Math.round((scratchHit.z / CM) / 5) * 5));
       if (!snapCorner) return snapDiningPosition(xCm, yCm);
       const cur = propsRef.current;
 
-      const endpoint = snapWallEndpoint({ x: scratchHit.x / CM, y: scratchHit.z / CM }, cur.project.walls);
-      const snappedToCorner = endpoint.corner;
-      if (snappedToCorner) { xCm = endpoint.x; yCm = endpoint.y; }
-
-      // Orthogonal 90-degree assist from pending start point
-      const pStart = pendingWallStart3DRef.current;
-      if (!snappedToCorner && pStart) {
-        if (Math.abs(xCm - pStart.xCm) <= 14) xCm = pStart.xCm;
-        else if (Math.abs(yCm - pStart.yCm) <= 14) yCm = pStart.yCm;
-      }
-
-      return { xCm, yCm };
+      if (cur.tool !== 'wall') return { xCm, yCm };
+      const start = pendingWallStart3DRef.current;
+      const snapped = snapWallDrawingPoint({ x: scratchHit.x / CM, y: scratchHit.z / CM }, cur.project.walls,
+        start ? { x: start.xCm, y: start.yCm } : null);
+      return { xCm: snapped.x, yCm: snapped.y };
     };
 
     const updateWallFloorPreview = (clientX: number, clientY: number) => {
@@ -1471,7 +1464,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         }
         return;
       }
-      if (e.pointerType === 'touch' && propsRef.current.tool !== 'select' && propsRef.current.tool !== 'finish') {
+      if (e.pointerType === 'touch' && propsRef.current.tool !== 'select' && propsRef.current.tool !== 'move' && propsRef.current.tool !== 'finish') {
         e.preventDefault();
         e.stopImmediatePropagation();
         controls.enabled = false;
@@ -1504,10 +1497,12 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const topHit = hits[0];
       const data = resolveHitData(topHit.object);
       if (!data) return;
-      if (cur.tool === 'select') {
+      const moveActive = cur.tool === 'move';
+      if (cur.tool === 'select' || moveActive) {
         const item = data.kind === 'dining' ? cur.project.diningSets?.find(d => d.id === data.diningId) : null;
         if (item) {
           cur.onSelectDining(item.id);
+          if (!moveActive) return;
           const floor = raycastFloorPointCm(e.clientX, e.clientY, false);
           if (floor) {
             controls.enabled = false;
@@ -1524,8 +1519,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         if (cur.project.selectedDiningId) cur.onSelectDining(null);
       }
 
-      if (cur.tool === 'select' && data.kind === 'column' && data.columnId) {
+      if ((cur.tool === 'select' || moveActive) && data.kind === 'column' && data.columnId) {
         cur.onSelectColumn?.(data.columnId);
+        if (!moveActive) return;
         const col = (cur.project.columns || []).find((c) => c.id === data.columnId);
         const floorPt = raycastFloorPointCm(e.clientX, e.clientY);
         if (col && floorPt) {
@@ -1551,16 +1547,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
       const wallProj = projectPointerOntoWall(data.wallId, e.clientX, e.clientY);
 
-      if (data.kind === 'appliance' && data.appId && wallProj) {
+      if (data.kind === 'appliance' && data.appId && (cur.tool === 'select' || moveActive)) {
         const app = wall.appliances.find((a) => a.id === data.appId);
-        const canDragApp =
-          app &&
-          (cur.tool === 'select' ||
-            (cur.tool === 'gas' && app.kind === 'gas') ||
-            (cur.tool === 'sink' && app.kind === 'sink') ||
-            (cur.tool === 'appliance' && (app.kind === 'dishwasher' || app.kind === 'washing')));
-        if (canDragApp && app) {
+        if (app) {
           cur.onSelectAppliance(wall.id, app.id);
+          if (!moveActive || !wallProj) return;
           controls.enabled = false;
           e.stopPropagation();
           try {
@@ -1581,8 +1572,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         }
       }
 
-      if (cur.tool === 'select') {
-        if (data.kind === 'drawer-resize-handle' && data.boxId && data.doorId && data.edge && wallProj) {
+      if (cur.tool === 'select' || moveActive) {
+        if (moveActive && data.kind === 'drawer-resize-handle' && data.boxId && data.doorId && data.edge && wallProj) {
           const box = wall.boxes.find((b) => b.id === data.boxId);
           const door = box?.doors.find((d) => d.id === data.doorId);
           if (box && door && door.kind === 'drawer') {
@@ -1605,7 +1596,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           }
           return;
         }
-        if (data.kind === 'door-seam-handle' && data.boxId && data.leftDoorId && wallProj) {
+        if (moveActive && data.kind === 'door-seam-handle' && data.boxId && data.leftDoorId && wallProj) {
           controls.enabled = false;
           e.stopPropagation();
           try {
@@ -1622,7 +1613,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           };
           return;
         }
-        if (data.kind === 'box-handle' && data.boxId && data.handleSide && wallProj) {
+        if (moveActive && data.kind === 'box-handle' && data.boxId && data.handleSide && wallProj) {
           const box = wall.boxes.find((b) => b.id === data.boxId);
           if (box) {
             controls.enabled = false;
@@ -1650,7 +1641,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         }
         if (data.kind === 'unit-div' && data.boxId && data.seamCm !== undefined) {
           cur.onSelectUnitDivider(wall.id, { boxId: data.boxId, seamCm: data.seamCm });
-          if (wallProj) {
+          if (moveActive && wallProj) {
             controls.enabled = false;
             e.stopImmediatePropagation();
             try { dom.setPointerCapture(e.pointerId); } catch {}
@@ -1664,7 +1655,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         if (data.kind === 'opening' && data.openingId) {
           cur.onSelectOpening(wall.id, data.openingId);
           const op = wall.openings?.find((o) => o.id === data.openingId);
-          if (op && wallProj) {
+          if (moveActive && op && wallProj) {
             controls.enabled = false;
             e.stopPropagation();
             try {
@@ -1714,7 +1705,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             cur.onSelectFrame(wall.id, data.boxId, data.frameId);
           } else if (data.kind === 'shelf' && data.shelfId) {
             cur.onSelectShelf(wall.id, data.boxId, data.shelfId);
-            if (wallProj) {
+            if (moveActive && wallProj) {
               controls.enabled = false;
               e.stopPropagation();
               try { dom.setPointerCapture(e.pointerId); } catch {}
@@ -1729,7 +1720,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             cur.onSelectWallAndBox(wall.id, data.boxId, data.doorId ?? null);
           }
 
-          if (box && wallProj) {
+          if (moveActive && box && wallProj) {
             controls.enabled = false;
             e.stopPropagation();
             try {
@@ -1946,7 +1937,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
       if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       let actionX=e.clientX, actionY=e.clientY;
-      if(e.pointerType==='touch' && ((propsRef.current.tool!=='select' && propsRef.current.tool!=='finish') || surfaceCursorRef.current.dragging)) {
+      if(e.pointerType==='touch' && ((propsRef.current.tool!=='select' && propsRef.current.tool!=='move' && propsRef.current.tool!=='finish') || surfaceCursorRef.current.dragging)) {
         const commit=surfaceCursorRef.current.end(e.pointerId);
         controls.enabled=propsRef.current.tool!=='wall'&&propsRef.current.tool!=='cab-draw';
         if (!commit || propsRef.current.tool === 'select') return;
@@ -2036,6 +2027,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           pt.xCm,
           pt.yCm
         );
+        if (hasWallSegment(cur.project.walls, newWall)) return cur.onToast('این دیوار از قبل رسم شده است');
         cur.onAddWall?.(newWall);
         pendingWallStart3DRef.current = pt;
         updateWallFloorPreview(actionX, actionY);
@@ -2119,7 +2111,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const tr = builtRef.current.wallTransforms.get(data.wallId);
       if (!wall || !tr) return;
 
-      if (cur.tool === 'select') {
+      if (cur.tool === 'select' || cur.tool === 'move') {
         if (data.kind === 'wall' || data.kind === 'backsplash' || data.kind === 'countertop') {
           cur.onSelectWallAndBox(wall.id, null, null);
         }
@@ -2635,7 +2627,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const is3DCyclableTool = (t: ToolId): boolean =>
-      t !== 'select' && t !== 'wall' && t !== 'eraser';
+      t !== 'select' && t !== 'move' && t !== 'wall' && t !== 'eraser';
 
     const step3DToolOption = (dir: 1 | -1, clientX: number, clientY: number): boolean => {
       const cur = propsRef.current;
@@ -2969,7 +2961,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     if (controlsRef.current) {
       controlsRef.current.enabled = !props.scanMode && tool !== 'wall' && tool !== 'cab-draw';
     }
-    if (tool === 'select') {
+    if (tool === 'select' || tool === 'move') {
       surfaceCursorRef.current.clear();
       setHasPlacementCursor(false);
     }
@@ -3217,12 +3209,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       <div className="pointer-events-none absolute bottom-2.5 left-3 bg-white/95 border border-slate-200 rounded-lg px-2.5 py-1 text-[13px] font-bold text-slate-600 shadow-xs">
         {tool === 'wall'
           ? 'نشانگر روی زمین را حرکت دهید و با کلیک نقطه‌ها دیوار بکشید (راست‌کلیک = انتخاب)'
+          : tool === 'move'
+          ? 'قطعه یا دستگیرهٔ تغییر اندازه را بکشید'
           : tool === 'select'
           ? 'دو کلیک روی در برای باز کردن · یک کلیک برای بستن'
           : 'موس روی دیوار = پیش‌نمایش و اسکرول تغییر مدل · راست‌کلیک = بازگشت به انتخاب'}
       </div>
 
-      {!props.scanMode && ((hasPlacementCursor && tool !== 'select' && tool !== 'finish') || tool === 'handle') && (
+      {!props.scanMode && ((hasPlacementCursor && tool !== 'select' && tool !== 'move' && tool !== 'finish') || tool === 'handle') && (
         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50 pointer-events-auto flex gap-2">
           {tool === 'handle' && (
             <button type="button" className="h-11 rounded-xl border border-slate-300 bg-white px-3 font-bold"
@@ -3239,7 +3233,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             onClick={() => cancelPlacementRef.current()}>لغو</button>}
         </div>
       )}
-      {!props.scanMode && (hoverPreview || tool !== 'select') && !drag3DRef.current && (
+      {!props.scanMode && (hoverPreview || (tool !== 'select' && tool !== 'move')) && !drag3DRef.current && (
         <CursorToolPreview
           visible={true}
           clientX={hoverPreview?.clientX ?? 0}

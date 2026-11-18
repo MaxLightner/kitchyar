@@ -375,7 +375,7 @@ export function canDoorOpenIn3D(
 ): boolean {
   if (door.kind === 'fridge') return true;
   if (door.kind === 'open' || door.kind === 'rail') return false;
-  if (door.hardwareKind === 'push-to-open' || door.hardwareKind === 'lift-bifold') return true;
+  if (door.hardwareKind === 'push-to-open' || door.hardwareKind === 'lift-bifold' || door.hardwareKind === 'pantry-pullout') return true;
   return box.handles.some((h) => {
     if (h.doorId !== door.id) return false;
     if (h.style === 'handleless') return true;
@@ -1952,8 +1952,21 @@ export function clearHoodUnitForGas(
  * - For `chimney` hoods: keeps the dedicated hood bay open (with its own hood unit dividers)
  * - For `hidden` hoods: inserts a matching horizontal `lift` door for the upper hood cabinet
  */
+export function requiresIntegratedHood(wall: Wall, gas: Pick<ApplianceItem, 'offsetX' | 'width'>) {
+  const overGas = (box: CabinetBox) => box.offsetX < gas.offsetX + gas.width - 5 && box.offsetX + box.width > gas.offsetX + 5;
+  return wall.boxes.some(lower => lower.type === 'wall' && overGas(lower) && wall.boxes.some(upper =>
+    upper.type === 'wall-deep' && !upper.linkedToBoxId && overGas(upper) &&
+    Math.abs(upper.elevY - lower.elevY - lower.height) <= 3));
+}
+
+export function effectiveHoodKind(wall: Wall, gas: ApplianceItem) {
+  return requiresIntegratedHood(wall, gas) ? 'hidden' : gas.hoodKind ?? 'chimney';
+}
+
 export function syncHoodUnitAboveGas(wall: Wall, gas: ApplianceItem): number {
   if (gas.kind !== 'gas') return 0;
+  const integrated = requiresIntegratedHood(wall, gas);
+  if (integrated) gas.hoodKind = 'hidden';
   const gStart = gas.offsetX;
   const gEnd = gas.offsetX + gas.width;
   let updated = 0;
@@ -1969,6 +1982,13 @@ export function syncHoodUnitAboveGas(wall: Wall, gas: ApplianceItem): number {
 
     const localStart = +rawStart.toFixed(1);
     const localEnd = +rawEnd.toFixed(1);
+    if (integrated && box.type === 'wall-deep') {
+      if (spanW >= 30 && !box.doors.some(door => door.kind !== 'open' && door.startCm < localEnd - 2 && door.startCm + door.widthCm > localStart + 2)) {
+        box.doors.push({ id: uid('door'), startCm: localStart, widthCm: spanW, kind: 'lift', drawerRatios: [] });
+        box.doors.sort((a, b) => a.startCm - b.startCm);
+      }
+      continue;
+    }
 
     // Trim or remove any doors colliding with the dedicated hood unit span [localStart .. localEnd]
     const nextDoors: DoorUnit[] = [];
@@ -2122,7 +2142,8 @@ export function clearDishRackUnitAboveSink(
     return edges;
   };
 
-  for (const box of wall.boxes) {
+  const overhead = getSinkUpperCabinet(wall, oldStartX, oldEndX - oldStartX);
+  for (const box of overhead ? [overhead] : wall.boxes) {
     if (box.type !== 'wall' && box.type !== 'wall-deep') continue;
     if (box.linkedToBoxId) continue;
     const localStart = +(Math.max(0, oldStartX - box.offsetX)).toFixed(1);
@@ -2134,7 +2155,7 @@ export function clearDishRackUnitAboveSink(
         .filter((d) => {
           const mid = d.startCm + d.widthCm / 2;
           return (
-            mid >= localStart - 0.5 &&
+            d.kind === 'lift' && mid >= localStart - 0.5 &&
             mid <= localEnd + 0.5 &&
             d.startCm >= localStart - 2 &&
             d.startCm + d.widthCm <= localEnd + 2
@@ -2165,6 +2186,15 @@ export function clearDishRackUnitAboveSink(
  * - Clicking elsewhere adds another appliance without overlapping
  * - Dishwasher / washing snaps flush to sink or edges to avoid <30cm dead slivers
  */
+function getSinkUpperCabinet(wall: Wall, x: number, width: number) {
+  return wall.boxes.filter(box => (box.type === 'wall' || box.type === 'wall-deep') && !box.linkedToBoxId &&
+    box.offsetX <= x + 0.5 && box.offsetX + box.width >= x + width - 0.5).sort((a, b) => a.elevY - b.elevY)[0];
+}
+
+function isDedicatedSinkUpper(box: CabinetBox, sink: ApplianceItem) {
+  return Math.abs(box.offsetX - sink.offsetX) <= 0.6 && Math.abs(box.width - sink.width) <= 1;
+}
+
 export function ensureHorizontalDoorsAboveSink(
   wall: Wall,
   sinkOffsetX: number,
@@ -2173,8 +2203,9 @@ export function ensureHorizontalDoorsAboveSink(
   const sStart = sinkOffsetX;
   const sEnd = sinkOffsetX + sinkWidth;
   let updatedCount = 0;
+  const overhead = getSinkUpperCabinet(wall, sStart, sinkWidth);
 
-  for (const box of wall.boxes) {
+  for (const box of overhead ? [overhead] : wall.boxes) {
     if (box.type !== 'wall' && box.type !== 'wall-deep') continue;
     if (box.linkedToBoxId) continue;
     const rawStart = Math.max(0, sStart - box.offsetX);
@@ -2190,6 +2221,9 @@ export function ensureHorizontalDoorsAboveSink(
       spanW = +(localEnd - localStart).toFixed(1);
     }
 
+    const existing = box.doors.filter(d => d.kind === 'lift' && d.startCm >= localStart - 0.5 && d.startCm + d.widthCm <= localEnd + 0.5);
+    if (existing.length && Math.abs(existing[0].startCm - localStart) <= 0.5 &&
+        Math.abs(existing.reduce((end, d) => Math.max(end, d.startCm + d.widthCm), 0) - localEnd) <= 0.5) continue;
     const overlappedIds = new Set(
       box.doors
         .filter((d) => !(d.startCm + d.widthCm <= localStart + 2 || d.startCm >= localEnd - 2))
@@ -3503,6 +3537,13 @@ export function getFreeMoveRangeForBox(
  * Moves a cabinet box / closet / fridge hierarchically within its free space along the wall,
  * carrying all attached appliances and linked over-fridge cabinets along with it.
  */
+function stackedCabinet(companion: CabinetBox, box: CabinetBox) {
+  if (companion.linkedToBoxId || box.linkedToBoxId || Math.abs(companion.offsetX - box.offsetX) > 1 || Math.abs(companion.width - box.width) > 1) return false;
+  const lower = box.type === 'wall' ? box : companion;
+  const upper = box.type === 'wall-deep' ? box : companion;
+  return lower.type === 'wall' && upper.type === 'wall-deep' && Math.abs(lower.elevY + lower.height - upper.elevY) <= 2;
+}
+
 export function moveBoxHierarchically(
   wall: Wall,
   allWalls: Wall[],
@@ -3513,11 +3554,46 @@ export function moveBoxHierarchically(
 ): { offsetX: number; minX: number; maxX: number; leftGap: number; rightGap: number } | null {
   const picked = wall.boxes.find((b) => b.id === boxId);
   if (!picked || !Number.isFinite(desiredOffsetX)) return null;
-  const box = wall.boxes.find(item => item.id === picked.linkedToBoxId && item.type === 'fridge') ?? picked;
+  const pairedSink = wall.appliances.find(app => app.kind === 'sink' && isDedicatedSinkUpper(picked, app) &&
+    getSinkUpperCabinet(wall, app.offsetX, app.width)?.id === picked.id);
+  const box = (pairedSink && findParentBoxForAppliance(wall, pairedSink)) ??
+    wall.boxes.find(item => item.id === picked.linkedToBoxId && item.type === 'fridge') ??
+    (picked.type === 'wall-deep' ? wall.boxes.find(item => stackedCabinet(item, picked)) : undefined) ?? picked;
   const pickedOffset = picked.offsetX - box.offsetX;
   desiredOffsetX -= pickedOffset;
 
-  const { minX, maxX, snapTargets } = getFreeMoveRangeForBox(wall, allWalls, box, cornerOwners);
+  let { minX, maxX, snapTargets } = getFreeMoveRangeForBox(wall, allWalls, box, cornerOwners);
+  const stacked = box.type === 'wall' ? wall.boxes.find(item => stackedCabinet(item, box)) : undefined;
+  if (stacked) {
+    const offset = stacked.offsetX - box.offsetX;
+    const range = getFreeMoveRangeForBox(wall, allWalls, stacked, cornerOwners);
+    minX = Math.max(minX, range.minX - offset);
+    maxX = Math.min(maxX, range.maxX - offset);
+  }
+  const linkedUppers = new Map<string, CabinetBox>();
+  const sinksBelow: ApplianceItem[] = [];
+  for (const sink of wall.appliances) {
+    if (sink.kind !== 'sink') continue;
+    const upper = getSinkUpperCabinet(wall, sink.offsetX, sink.width);
+    if (!upper) continue;
+    if (findParentBoxForAppliance(wall, sink)?.id === box.id) {
+      const offset = sink.offsetX - box.offsetX;
+      if (isDedicatedSinkUpper(upper, sink)) {
+        const range = getFreeMoveRangeForBox(wall, allWalls, upper, cornerOwners);
+        minX = Math.max(minX, range.minX - offset);
+        maxX = Math.min(maxX, range.maxX - offset);
+        linkedUppers.set(sink.id, upper);
+      } else {
+        minX = Math.max(minX, upper.offsetX - offset);
+        maxX = Math.min(maxX, upper.offsetX + upper.width - sink.width - offset);
+      }
+    } else if (upper.id === box.id) {
+      minX = Math.max(minX, sink.offsetX + sink.width - box.width);
+      maxX = Math.min(maxX, sink.offsetX);
+      sinksBelow.push(sink);
+    }
+  }
+  if (minX > maxX) { minX = box.offsetX; maxX = box.offsetX; }
   let target = Math.max(minX, Math.min(maxX, opts?.exact ? desiredOffsetX : Math.round(desiredOffsetX / 5) * 5));
 
   const closestSnap = snapTargets
@@ -3528,7 +3604,10 @@ export function moveBoxHierarchically(
   const oldX = box.offsetX;
   const delta = target - oldX;
   if (delta !== 0) {
+    for (const sink of sinksBelow) clearDishRackUnitAboveSink(wall, sink.offsetX, sink.offsetX + sink.width, sink.id);
     box.offsetX = target;
+    if (stacked) stacked.offsetX = +(stacked.offsetX + delta).toFixed(1);
+    for (const sink of sinksBelow) ensureHorizontalDoorsAboveSink(wall, sink.offsetX, sink.width);
 
     // Moving a base box must move its gas/sink AND resynchronize the overhead hood/rack.
     const movedAppliances: ApplianceItem[] = [];
@@ -3543,7 +3622,9 @@ export function moveBoxHierarchically(
         if (app.kind === 'gas') {
           clearHoodUnitForGas(wall, app.offsetX, app.offsetX + app.width, app.id);
         } else if (app.kind === 'sink') {
-          clearDishRackUnitAboveSink(wall, app.offsetX, app.offsetX + app.width, app.id);
+          const upper = linkedUppers.get(app.id);
+          if (upper) upper.offsetX = +(upper.offsetX + delta).toFixed(1);
+          else clearDishRackUnitAboveSink(wall, app.offsetX, app.offsetX + app.width, app.id);
         }
         app.boxId = box.id;
         app.offsetX = +(app.offsetX + delta).toFixed(1);
@@ -3647,6 +3728,14 @@ export function getFreeMoveRangeForAppliance(
     }
   }
 
+  const upper = app.kind === 'sink' ? getSinkUpperCabinet(wall, app.offsetX, app.width) : undefined;
+  if (upper) {
+    const range = isDedicatedSinkUpper(upper, app)
+      ? getFreeMoveRangeForBox(wall, allWalls, upper, cornerOwners)
+      : { minX: upper.offsetX, maxX: upper.offsetX + upper.width - app.width };
+    minX = Math.max(minX, range.minX);
+    maxX = Math.min(maxX, range.maxX);
+  }
   const appCenter = app.offsetX + app.width / 2;
   for (const other of wall.appliances) {
     if (other.id === app.id) continue;
@@ -3742,6 +3831,14 @@ export function moveApplianceHierarchically(
 ): { offsetX: number; minX: number; maxX: number; leftGap: number; rightGap: number } | null {
   const app = wall.appliances.find((a) => a.id === appId);
   if (!app) return null;
+  const upper = app.kind === 'sink' ? getSinkUpperCabinet(wall, app.offsetX, app.width) : undefined;
+  const linkedUpper = upper && isDedicatedSinkUpper(upper, app) ? upper : undefined;
+  const under = app.kind === 'sink' ? findParentBoxForAppliance(wall, app) : null;
+  if (under && under.width - app.width <= 1) {
+    const offset = app.offsetX - under.offsetX;
+    const moved = moveBoxHierarchically(wall, allWalls, under.id, desiredOffsetX - offset, cornerOwners, opts);
+    return moved && { ...moved, offsetX: app.offsetX, minX: moved.minX + offset, maxX: moved.maxX + offset };
+  }
 
   const { minX, maxX, parentBox, snapTargets } = getFreeMoveRangeForAppliance(
     wall,
@@ -3777,7 +3874,8 @@ export function moveApplianceHierarchically(
     if (app.kind === 'gas') {
       clearHoodUnitForGas(wall, oldX, oldX + app.width, app.id);
     } else if (app.kind === 'sink') {
-      clearDishRackUnitAboveSink(wall, oldX, oldX + app.width, app.id);
+      if (linkedUpper) linkedUpper.offsetX = +(linkedUpper.offsetX + delta).toFixed(1);
+      else clearDishRackUnitAboveSink(wall, oldX, oldX + app.width, app.id);
     }
 
     app.offsetX = target;
@@ -3866,6 +3964,15 @@ export function moveApplianceHierarchically(
       );
       parentBox.doors = parentBox.doors.filter((d) => !overwrittenIds.has(d.id));
       parentBox.handles = parentBox.handles.filter((h) => !overwrittenIds.has(h.doorId));
+
+      for (const shelf of parentBox.shelves) {
+        if (shelf.startCm >= oldLocalStart - 1 && shelf.endCm <= oldLocalEnd + 1) {
+          shelf.startCm = +(shelf.startCm + delta).toFixed(1);
+          shelf.endCm = +(shelf.endCm + delta).toFixed(1);
+        } else if (Math.abs(shelf.startCm - oldLocalEnd) <= 1) shelf.startCm = newLocalEnd;
+        else if (Math.abs(shelf.endCm - oldLocalStart) <= 1) shelf.endCm = newLocalStart;
+      }
+      parentBox.shelves = parentBox.shelves.filter(shelf => shelf.endCm - shelf.startCm >= 15);
 
       // Shift linked doors (e.g. stepped gas drawers or sink 2-door unit) cleanly with the appliance
       for (const d of linkedDoors) {
@@ -5036,9 +5143,16 @@ export function resizeUnitDividerWithDoorsSync(
     }
   }
 
-  for (const sh of box.shelves) {
-    if (Math.abs(sh.startCm - actualSeam) <= 2) sh.startCm = targetSeam;
-    if (Math.abs(sh.endCm - actualSeam) <= 2) sh.endCm = targetSeam;
+  for (const shelf of box.shelves) {
+    if (shelf.startCm >= leftBound - 1 && shelf.endCm <= actualSeam + 1) {
+      const scale = (targetSeam - leftBound) / (actualSeam - leftBound);
+      shelf.startCm = +(leftBound + (shelf.startCm - leftBound) * scale).toFixed(1);
+      shelf.endCm = +(leftBound + (shelf.endCm - leftBound) * scale).toFixed(1);
+    } else if (shelf.startCm >= actualSeam - 1 && shelf.endCm <= rightBound + 1) {
+      const scale = (rightBound - targetSeam) / (rightBound - actualSeam);
+      shelf.startCm = +(rightBound - (rightBound - shelf.startCm) * scale).toFixed(1);
+      shelf.endCm = +(rightBound - (rightBound - shelf.endCm) * scale).toFixed(1);
+    }
   }
   box.shelves = box.shelves.filter((sh) => sh.endCm - sh.startCm >= 15);
   box.doors.sort((a, b) => a.startCm - b.startCm);
@@ -5439,6 +5553,32 @@ export function resizeWallCabinetsSynchronized(
   return true;
 }
 
+export function isCabinetCrown(wall: Wall, box: CabinetBox) {
+  return box.type === 'tall' || box.type === 'wall-deep' || (box.type === 'wall' && !wall.boxes.some(above =>
+    above.type === 'wall-deep' && !above.linkedToBoxId && Math.abs(above.elevY - box.elevY - box.height) <= 2 &&
+    above.offsetX < box.offsetX + box.width - 2 && above.offsetX + above.width > box.offsetX + 2));
+}
+
+export function setCabinetCrownHeight(walls: Wall[], top: number): boolean {
+  const crowns = walls.flatMap(wall => wall.boxes.filter(box => isCabinetCrown(wall, box)).map(box => ({ wall, box })));
+  if (!crowns.length || !Number.isFinite(top)) return false;
+  for (const { wall, box } of crowns) {
+    const lower = box.type === 'wall-deep' && !box.linkedToBoxId ? wall.boxes.filter(other => other.type === 'wall' &&
+      Math.abs(other.elevY + other.height - box.elevY) <= 2 && other.offsetX < box.offsetX + box.width - 2 &&
+      other.offsetX + other.width > box.offsetX + 2) : [];
+    const minTop = Math.max(box.elevY + (box.type === 'tall' ? 150 : 25), ...lower.map(other => other.elevY + other.height * 3));
+    if (top < minTop - 0.1 || top > wall.height + 0.1) return false;
+    const oldTop = box.elevY + box.height;
+    if (wall.openings?.some(opening => opening.elevY >= oldTop - 0.1 && opening.elevY < top - 0.1 &&
+      opening.offsetX < box.offsetX + box.width - 0.1 && opening.offsetX + opening.width > box.offsetX + 0.1)) return false;
+  }
+  for (const { box } of crowns) {
+    box.height = +(top - box.elevY).toFixed(1);
+    clampBoxInternalsAfterResize(box);
+  }
+  return true;
+}
+
 export interface BacksplashSpan {
   startCm: number;
   endCm: number;
@@ -5512,7 +5652,7 @@ export function computeWallBacksplashSpans(
     (b) => b.type === 'fridge' || b.type === 'tall' || b.type === 'closet'
   );
   const openings = wall.openings || [];
-  const chimneyGases = wall.appliances.filter((a) => a.kind === 'gas' && a.hoodKind === 'chimney');
+  const chimneyGases = wall.appliances.filter((a) => a.kind === 'gas' && effectiveHoodKind(wall, a) === 'chimney');
 
   const raw: BacksplashSpan[] = [];
 
@@ -5902,7 +6042,7 @@ export function getBoxCarpentryElements(
           .filter(
             (a) =>
               a.kind === 'gas' &&
-              a.hoodKind !== 'hidden' &&
+              effectiveHoodKind(wall, a) !== 'hidden' &&
               a.offsetX < box.offsetX + box.width - 5 &&
               a.offsetX + a.width > box.offsetX + 5
           )

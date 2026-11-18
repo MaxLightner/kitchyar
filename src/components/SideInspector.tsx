@@ -18,6 +18,7 @@ import {
   Layers,
   LayoutGrid,
   MousePointer2,
+  Move,
   Paintbrush,
   Palette,
   Refrigerator,
@@ -398,11 +399,20 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
           type="button"
           onClick={() => props.onSelectTool!('select')}
           aria-pressed={activeTool === 'select'}
-          aria-label="ابزار انتخاب و جابجایی"
-          title="انتخاب و جابجایی (Select)"
+          data-testid="rail-select"
+          aria-label="ابزار انتخاب"
+          title="انتخاب"
           className={railBtnCls(activeTool === 'select')}
         >
           <MousePointer2 className="w-4 h-4" />
+        </button>
+      )}
+
+      {props.onSelectTool && (
+        <button type="button" data-testid="rail-move" onClick={() => props.onSelectTool!('move')}
+          aria-pressed={activeTool === 'move'} aria-label="ابزار جابه‌جایی" title="جابه‌جایی و تغییر اندازه"
+          className={railBtnCls(activeTool === 'move')}>
+          <Move className="w-4 h-4" />
         </button>
       )}
 

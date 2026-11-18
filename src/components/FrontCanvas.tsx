@@ -50,6 +50,7 @@ import {
   eraseDoorWithRule,
   getBoxCarpentryElements,
   getBoxFrameInsets,
+  effectiveHoodKind,
   getBoxSideExposure,
   getFreeMoveRangeForAppliance,
   getFreeMoveRangeForBox,
@@ -981,7 +982,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     const overCountertop = isPointOverCountertop(pt);
     const overWallArea =
       !!wall && pt.x >= originX && pt.x <= originX + wallW && pt.y >= floorY - wallH && pt.y <= floorY;
-    const isCyclableTool = tool !== 'select' && tool !== 'wall' && tool !== 'eraser';
+    const isCyclableTool = tool !== 'select' && tool !== 'move' && tool !== 'wall' && tool !== 'eraser';
 
     if (!e.ctrlKey && isCyclableTool) {
       setHoverClientPt({ x: e.clientX, y: e.clientY });
@@ -1082,7 +1083,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           y: touchPinch.current.origPan.y + (midY - touchPinch.current.midY),
         });
       } else {
-        const isCyclableTool = tool !== 'select' && tool !== 'wall' && tool !== 'eraser';
+        const isCyclableTool = tool !== 'select' && tool !== 'move' && tool !== 'wall' && tool !== 'eraser';
         const stepDelta = midY - touchPinch.current.lastStepY;
         touchPinch.current.lastStepY = midY;
         if (isCyclableTool) {
@@ -1278,6 +1279,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    const directPointer = e.pointerType === 'mouse' || e.pointerType === 'pen';
     touchPointerMode.current = e.pointerType === 'touch';
     if (e.button === 2 || !wall) return;
     activePointersRef.current.add(e.pointerId);
@@ -1287,7 +1289,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       cancelCurrentDrag();
       return;
     }
-    if (e.pointerType === 'touch' && isFrontPlacement(tool) && !(tool === 'handle' && (e.target as Element).closest('[data-handle-id]'))) {
+    if (!directPointer && touchPointerMode.current && isFrontPlacement(tool) && !(tool === 'handle' && (e.target as Element).closest('[data-handle-id]'))) {
       touchTargetPointer.current = e.pointerId;
       e.currentTarget.setPointerCapture(e.pointerId);
       handlePointerMove(e);
@@ -1430,7 +1432,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 1. Interactive Opening Resize Handles
     const openHandleEl = target.closest('[data-opening-handle]');
-    if (openHandleEl && !confirmed) {
+    if (tool === 'move' && openHandleEl && !confirmed) {
       const oId = openHandleEl.getAttribute('data-opening-id');
       const side = openHandleEl.getAttribute('data-opening-handle') as 'left' | 'right' | 'top' | 'bottom';
       const op = wall.openings?.find((o) => o.id === oId);
@@ -1453,7 +1455,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 2. Box resize handles
     const boxHandleEl = target.closest('[data-box-handle]');
-    if (boxHandleEl && !confirmed) {
+    if (tool === 'move' && boxHandleEl && !confirmed) {
       const bId = boxHandleEl.getAttribute('data-box-id');
       const side = boxHandleEl.getAttribute('data-box-handle') as 'left' | 'right' | 'top' | 'bottom';
       const box = wall.boxes.find((b) => b.id === bId);
@@ -1478,7 +1480,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 2b. Unit divider drag resize handle
     const unitDivResizeEl = target.closest('[data-unit-div-resize]');
-    if (unitDivResizeEl && !confirmed) {
+    if (tool === 'move' && unitDivResizeEl && !confirmed) {
       const seamVal = Number(unitDivResizeEl.getAttribute('data-unit-div-resize'));
       const bId = unitDivResizeEl.getAttribute('data-box-id');
       const boxObj = wall.boxes.find((b) => b.id === bId);
@@ -1507,7 +1509,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 3a. Coupled door seam resize handle (between touching doors)
     const doorSeamEl = target.closest('[data-door-seam]');
-    if (doorSeamEl) {
+    if (tool === 'move' && doorSeamEl) {
       const dId = doorSeamEl.getAttribute('data-door-seam');
       const bId = doorSeamEl.getAttribute('data-box-id');
       if (dId && bId) {
@@ -1526,7 +1528,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     // 3b. Standalone / Drawer left-or-right resize handle
     const doorResizeLeftEl = target.closest('[data-door-resize-left]');
     const doorResizeEl = doorResizeLeftEl || target.closest('[data-door-resize]');
-    if (doorResizeEl && !confirmed) {
+    if (tool === 'move' && doorResizeEl && !confirmed) {
       const edge: 'left' | 'right' = doorResizeLeftEl ? 'left' : 'right';
       const dId = doorResizeLeftEl
         ? doorResizeLeftEl.getAttribute('data-door-resize-left')
@@ -1549,20 +1551,14 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       }
     }
 
-    // 4. Drag & Select appliance (works in Select mode OR when matching placement tool is active)
     const appEl = target.closest('[data-app-id]');
-    if (appEl) {
+    if (appEl && (tool === 'select' || tool === 'move')) {
       const appId = appEl.getAttribute('data-app-id');
-      const app = wall.appliances.find((a) => a.id === appId);
-      const canDragApp =
-        app &&
-        (tool === 'select' ||
-          (tool === 'gas' && app.kind === 'gas') ||
-          (tool === 'sink' && app.kind === 'sink') ||
-          (tool === 'appliance' && (app.kind === 'dishwasher' || app.kind === 'washing')));
-      if (canDragApp && app) {
+      const app = wall.appliances.find(a => a.id === appId);
+      if (app) {
         onSetMultiSelection(undefined);
         onSelectAppliance?.(app.id);
+        if (tool !== 'move') return;
         e.currentTarget.setPointerCapture(e.pointerId);
         beginDrag(e.pointerId);
         dragOp.current = {
@@ -1579,11 +1575,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 4b. Click/Drag Opening in Select mode
     const openEl = target.closest('[data-opening-id]');
-    if (openEl && (tool === 'select' || tool === 'opening')) {
+    if (openEl && (tool === 'select' || tool === 'move')) {
       const oId = openEl.getAttribute('data-opening-id');
       const op = wall.openings?.find((o) => o.id === oId);
       if (op) {
         onSelectOpening(op.id);
+        if (tool !== 'move') return;
         e.currentTarget.setPointerCapture(e.pointerId);
         beginDrag(e.pointerId);
         dragOp.current = {
@@ -1610,16 +1607,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         const hId = handEl.getAttribute('data-handle-id');
         const hObj = hit.box.handles.find((h) => h.id === hId);
         if (hObj) {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          beginDrag(e.pointerId);
-          dragOp.current = {
-            mode: 'stretch-handle',
-            boxId: hit.box.id,
-            handleId: hObj.id,
-            orient: hObj.orient,
-            startPt: pt,
-            origLen: hObj.lengthCm || 16,
-          };
+          onSelectHandle?.(hit.box.id, hObj.id);
           return;
         }
       }
@@ -1841,7 +1829,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     }
 
     // 6. Select Mode (click frame/shelf/handle/unit-divider/box to select & drag hierarchically, empty background for Marquee)
-    if (tool === 'select') {
+    if (tool === 'select' || tool === 'move') {
       const frameSel = target.closest('[data-frame-id]');
       if (frameSel) {
         const fId = frameSel.getAttribute('data-frame-id');
@@ -1861,6 +1849,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         if (bId && sId && boxObj && shelfObj) {
           onSetMultiSelection(undefined);
           onSelectShelf?.(bId, sId);
+          if (tool !== 'move') return;
           const insets = getEffectiveBoxInsets(boxObj);
           const scaleX = Math.max(
             0.2,
@@ -1899,6 +1888,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         if (bId && boxObj && !Number.isNaN(uCm)) {
           onSetMultiSelection(undefined);
           onSelectUnitDivider?.({ boxId: bId, seamCm: uCm });
+          if (tool !== 'move') return;
           const insets = getEffectiveBoxInsets(boxObj);
           const scaleX = Math.max(
             0.2,
@@ -1926,6 +1916,13 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         if (bId && hId) {
           onSetMultiSelection(undefined);
           onSelectHandle?.(bId, hId);
+          const handle = hit?.box.handles.find(h => h.id === hId);
+          if (tool === 'move' && handle) {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            beginDrag(e.pointerId);
+            dragOp.current = { mode: 'stretch-handle', boxId: bId, handleId: hId,
+              orient: handle.orient, startPt: pt, origLen: handle.lengthCm || 16 };
+          }
           return;
         }
       }
@@ -1939,6 +1936,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
             if (!Number.isNaN(uStart) && !Number.isNaN(uEnd)) {
               onSetMultiSelection(undefined);
               onSelectUnit?.({ boxId: hit.box.id, startCm: uStart, endCm: uEnd });
+              if (tool !== 'move') return;
               e.currentTarget.setPointerCapture(e.pointerId);
               beginDrag(e.pointerId);
               dragOp.current = {
@@ -1967,6 +1965,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
         onSetMultiSelection(undefined);
         onSelectBoxAndDoor(hit.box.id, doorId);
+        if (tool !== 'move') return;
         e.currentTarget.setPointerCapture(e.pointerId);
         beginDrag(e.pointerId);
         dragOp.current = {
@@ -1983,6 +1982,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       onSelectOpening(null);
       onSelectAppliance?.(null);
       onSetMultiSelection(undefined);
+      if (tool === 'move') return;
       e.currentTarget.setPointerCapture(e.pointerId);
       setMarquee({ startX: pt.x, startY: pt.y, currX: pt.x, currY: pt.y });
       beginDrag(e.pointerId);
@@ -3273,7 +3273,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           </>
         )}
 
-        {tool === 'select' &&
+        {tool === 'move' &&
           door.kind === 'drawer' && (
             <>
               <rect
@@ -3305,7 +3305,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
             </>
           )}
 
-        {tool === 'select' &&
+        {tool === 'move' &&
           door.kind !== 'fridge' &&
           door.kind !== 'drawer' &&
           (hasTouchingRightNeighbor ? (
@@ -3903,7 +3903,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     const fFill = fr.color ?? (isFSel ? '#4f46e5' : '#64748b');
                     const fStroke = isFSel ? '#312e81' : '#334155';
                     const cur =
-                      tool === 'eraser' ? 'not-allowed' : tool === 'select' ? 'pointer' : undefined;
+                      tool === 'eraser' ? 'not-allowed' : tool === 'move' ? 'grab' : tool === 'select' ? 'pointer' : undefined;
 
                     if (fr.side === 'left') {
                       return (
@@ -4093,7 +4093,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                       .filter(
                         (a) =>
                           a.kind === 'gas' &&
-                          a.hoodKind !== 'hidden' &&
+                          effectiveHoodKind(wall, a) !== 'hidden' &&
                           a.offsetX < box.offsetX + box.width - 5 &&
                           a.offsetX + a.width > box.offsetX + 5
                       )
@@ -4187,7 +4187,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           strokeWidth={isDivSel ? 1.8 : 1.2}
                         />
                         {((doorsHidden && tool !== 'eraser' && tool !== 'pencil' && tool !== 'skeleton') ||
-                          (tool === 'select' && isDivSel)) && (
+                          (tool === 'move' && isDivSel)) && (
                           <rect
                             x={ux - 4}
                             y={innerTop + innerH / 2 - 12}
@@ -4426,7 +4426,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     );
                   })}
 
-                  {isAct && tool === 'select' && box.type !== 'fridge' && (
+                  {isAct && tool === 'move' && box.type !== 'fridge' && (
                     <>
                       {([
                         ['left', bx - 1, by + bodyH / 2],
@@ -4768,9 +4768,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                       />
                       <rect
                         x={ax + aw * 0.08}
-                        y={app.hoodKind === 'chimney' ? floorY - 220 * s : floorY - 156 * s}
+                        y={effectiveHoodKind(wall, app) === 'chimney' ? floorY - 220 * s : floorY - 156 * s}
                         width={aw * 0.84}
-                        height={app.hoodKind === 'chimney' ? 74 * s : 22}
+                        height={effectiveHoodKind(wall, app) === 'chimney' ? 74 * s : 22}
                         fill="transparent"
                       />
                       {/* پروفیل بسیار ظریف و کم‌ارتفاع گاز صفحه‌ای */}
@@ -4820,7 +4820,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           </text>
                         </g>
                       )}
-                      {app.hoodKind === 'chimney' ? (
+                      {effectiveHoodKind(wall, app) === 'chimney' ? (
                         <path
                           d={`M ${ax + aw * 0.1} ${floorY - 150 * s} L ${ax + aw * 0.9} ${
                             floorY - 150 * s
@@ -4891,17 +4891,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               );
             })}
 
-            {/* نشانگر زنده فاصله چپ/راست هنگام درگ باکس یا تجهیز */}
-            {dragGuides && (
-              <g pointerEvents="none">
-                <g transform={`translate(${originX + ((dragGuides.itemStart + dragGuides.itemEnd) / 2) * s}, ${floorY - dragGuides.yTopCm * s - 18})`}>
-                  <rect x={-64} y={-11} width={128} height={22} rx={6} fill="#0f172a" />
-                  <text x={0} y={3.5} fontSize={13} fontWeight={800} fill="#ffffff" textAnchor="middle">
-                    {`چپ ${dragGuides.leftGap}cm · راست ${dragGuides.rightGap}cm`}
-                  </text>
-                </g>
-              </g>
-            )}
 
             {/* نقاط داغ دستگیره */}
             {tool === 'handle' &&
@@ -5489,7 +5478,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         </div>
       )}
 
-      {(hoverClientPt || tool !== 'select') && !dragOp.current && (
+      {dragGuides && tool === "move" && (
+        <div className="pointer-events-none absolute bottom-2 right-3 rounded bg-slate-900/85 px-2 py-1 text-[11px] font-semibold text-white" data-testid="front-move-clearance">
+          چپ {dragGuides.leftGap} cm · راست {dragGuides.rightGap} cm
+        </div>
+      )}
+      {(hoverClientPt || (tool !== "select" && tool !== "move")) && !dragOp.current && (
         <CursorToolPreview
           visible={true}
           clientX={hoverClientPt?.x ?? 0}

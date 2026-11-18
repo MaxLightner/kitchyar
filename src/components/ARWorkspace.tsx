@@ -7,7 +7,7 @@ import { previewCabinetRow, continueCabinetRow, startCabinetRow, type CabinetRow
 import { AimTap, aimCenter, calibrationPinsAtView } from '../ar/centerAim';
 import { snapArWallEndpointsCm } from '../ar/arCalibration';
 import { logDiagnostic } from '../utils/diagnostics';
-import { snapWallEndpoint } from '../cad/wallSnap';
+import { hasWallSegment, snapWallDrawingPoint } from '../cad/wallSnap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -31,6 +31,7 @@ import {
   Lock,
   LockOpen,
   MousePointer2,
+  Move,
   PanelTop,
   RectangleHorizontal,
   Refrigerator,
@@ -106,9 +107,7 @@ import {
   getBoxSideExposure,
   getMaxVerticalDoorCount,
   getUnitsInBox,
-  placeApplianceWithCabinetRules,
   placeFrameOnBox,
-  placeFridgeOnWall,
   removeUnitDividerWithSync,
 } from '../cad/doorRules';
 import { applyHandleAtSpot, canPlaceHandleInBay } from '../cad/handleSpots';
@@ -150,6 +149,7 @@ import {
 
 export type ArToolId =
   | 'select'
+  | 'move'
   | 'calibrate-a'
   | 'calibrate-b'
   | 'wall'
@@ -250,6 +250,8 @@ interface ARWorkspaceProps {
   ) => void;
   onHandleStyleChange?: (style: HandleStyle) => void;
   onHandleOrientChange?: (orient: Orientation) => void;
+  onPlaceFridge: (wallId: string, offsetX: number) => void;
+  onPlaceAppliance: (wallId: string, boxId: string, offsetX: number, kind: ApplianceKind) => void;
   onFridgeModelChange?: (model: FridgeModel) => void;
   onSinkModelChange?: (model: SinkModel) => void;
   onGasWidthChange?: (w: number) => void;
@@ -828,7 +830,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     if (!embeddedIn3D || !sharedTool) return;
     if (sharedTool !== 'wall') setPendingWallStart(null);
     setPendingCabSweep(pending => pending && sharedTool === 'cab-draw' && pending.kind === drawBoxKind ? pending : null);
-    if (sharedTool === 'select') {
+    if (sharedTool === 'select' || sharedTool === 'move') {
       surfaceCursorRef.current.clear();
       setSurfaceCursorActive(false);
     }
@@ -1334,7 +1336,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       const tool = arToolRef.current;
       if (tool !== 'handle') handleSpotsRef.current?.setHoveredSpot(null);
-      if (!kitchenMount.visible || tool === 'select' || tool.startsWith('calibrate-')) return { status: 'neutral' };
+      if (!kitchenMount.visible || tool === 'select' || tool === 'move' || tool.startsWith('calibrate-')) return { status: 'neutral' };
 
       const al = alignmentRef.current;
       const c = Math.cos(al.yaw);
@@ -1756,14 +1758,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       if (!kitchenMount.visible && !toolNow.startsWith('calibrate-')) return;
       if (toolNow === 'finish') { e.stopImmediatePropagation(); return; }
-      if (xrSessionRef.current && toolNow !== 'select' && !toolNow.startsWith('calibrate-')) {
+      if (xrSessionRef.current && toolNow !== 'select' && toolNow !== 'move' && !toolNow.startsWith('calibrate-')) {
         e.preventDefault(); e.stopImmediatePropagation(); controls.enabled = false;
         aimTapRef.current.begin(e.pointerId, e.clientX, e.clientY);
         try { dom.setPointerCapture(e.pointerId); } catch {}
         return;
       }
       // Only activate placement surface cursor on non-select, non-calibrate tools
-      if(!xrSessionRef.current && e.pointerType==='touch' && toolNow!=='select' && !toolNow.startsWith('calibrate-')) {
+      if(!xrSessionRef.current && e.pointerType==='touch' && toolNow !== 'select' && toolNow !== 'move' && !toolNow.startsWith('calibrate-')) {
         e.preventDefault();e.stopImmediatePropagation();controls.enabled=false;
         if (!surfaceCursorRef.current.begin(e.pointerId, e.clientX, e.clientY)) return;
         surfaceCursorRef.current.clearTarget();
@@ -1772,7 +1774,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         return;
       }
 
-      if (toolNow === 'select') {
+      if (toolNow === 'select' || toolNow === 'move') {
         const picked = detailedPickAtClientRef.current(e.clientX, e.clientY);
         if (picked?.data.kind === 'dining' && picked.data.diningId) {
           propsRef.current.onSelectDining(picked.data.diningId);
@@ -1788,7 +1790,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         } else doorTap.reset();
         if (picked) {
           const data = picked.data;
-          if (data.kind === 'box-handle' && data.boxId && data.handleSide) {
+          if (toolNow === 'move' && data.kind === 'box-handle' && data.boxId && data.handleSide) {
             const point = projectArPointerOntoWallRef.current(data.wallId, e.clientX, e.clientY);
             if (!point) return;
             e.preventDefault();
@@ -1853,6 +1855,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             multiSelection: undefined,
           }), undefined, false);
 
+          if (toolNow !== 'move') return;
           const wall = projectRef.current.walls.find((x) => x.id === data.wallId);
           if (wall && data.kind === 'shelf' && data.boxId && data.shelfId) {
             const point = projectArPointerOntoWallRef.current(wall.id, e.clientX, e.clientY);
@@ -2054,7 +2057,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       lastHoverCoordsRef.current = { x: e.clientX, y: e.clientY };
       const toolNow = arToolRef.current;
-      if (toolNow === 'select' || toolNow.startsWith('calibrate-')) {
+      if (toolNow === 'select' || toolNow === 'move' || toolNow.startsWith('calibrate-')) {
         setCursorPreview(null);
         return;
       }
@@ -2080,13 +2083,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           handleArDetailActionRef.current(e.clientX, e.clientY);
         return;
       }
-      if (xrSessionRef.current && !arDragRef.current && arToolRef.current !== 'select' && !arToolRef.current.startsWith('calibrate-')) {
+      if (xrSessionRef.current && !arDragRef.current && arToolRef.current !== 'select' && arToolRef.current !== 'move' && !arToolRef.current.startsWith('calibrate-')) {
         const confirm = aimTapRef.current.end(e.pointerId);
         try { if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId); } catch {}
         if (confirm) confirmActionRef.current();
         return;
       }
-      if(!arDragRef.current && e.pointerType==='touch' && arToolRef.current!=='select' && !arToolRef.current.startsWith('calibrate-')) {
+      if(!arDragRef.current && e.pointerType==='touch' && arToolRef.current !== 'select' && arToolRef.current !== 'move' && !arToolRef.current.startsWith('calibrate-')) {
         if (surfaceCursorRef.current.end(e.pointerId) && surfaceCursorRef.current.point) confirmActionRef.current();
         return;
       }
@@ -2214,7 +2217,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const onTouchStart = (e: TouchEvent) => {
       if (arDragRef.current) return;
-      if (e.touches.length === 2 && arToolRef.current !== 'select' && !arToolRef.current.startsWith('calibrate-')) {
+      if (e.touches.length === 2 && arToolRef.current !== 'select' && arToolRef.current !== 'move' && !arToolRef.current.startsWith('calibrate-')) {
         aimTapRef.current.cancel();
         surfaceCursorRef.current.cancelGesture();
         controls.enabled = false;
@@ -2343,7 +2346,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
   // Keep CursorToolPreview updated immediately on tool or option switch (even without moving mouse)
   useEffect(() => {
-    if (!active || arTool === 'select' || arTool.startsWith('calibrate-')) {
+    if (!active || arTool === 'select' || arTool === 'move' || arTool.startsWith('calibrate-')) {
       setCursorPreview(null);
       return;
     }
@@ -2380,7 +2383,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     let built: BuiltKitchenScene;
     try {
-      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72, onTextureReady: () => renderOnceRef.current(), tool: (arTool === 'select' ? 'select' : 'cab-draw') });
+      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72, onTextureReady: () => renderOnceRef.current(), tool: arTool === 'move' ? 'move' : 'select' });
     } catch (error) {
       logDiagnostic('ar-scene-build-failed', error);
       onToast('خطای نمایش ثبت شد؛ صحنه قبلی حفظ شد');
@@ -2530,7 +2533,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const toolNow = arToolRef.current;
     const choices = propsRef.current;
 
-    if (toolNow === 'select') return;
+    if (toolNow === 'select' || toolNow === 'move') return;
     if (toolNow === 'dining') {
       choices.onPlaceDining(modelPt.x * 100, modelPt.z * 100);
       return;
@@ -2576,21 +2579,24 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     if (toolNow === 'wall') {
       const start = pendingWallStartRef.current;
+      const snapped = snapWallDrawingPoint({ x: modelPt.x * 100, y: modelPt.z * 100 }, projectRef.current.walls,
+        start ? { x: start.x * 100, y: start.z * 100 } : null);
       if (!start) {
-        const snapped = snapWallEndpoint({ x: modelPt.x * 100, y: modelPt.z * 100 }, projectRef.current.walls);
         const point = { x: snapped.x / 100, z: snapped.y / 100 };
         pendingWallStartRef.current = point;
         setPendingWallStart(point);
         onToast('نقطه شروع دیوار ثبت شد — نقطه بعدی را انتخاب یا تأیید کنید');
         return;
       }
-      const distCm = Math.hypot(modelPt.x - start.x, modelPt.z - start.z) * 100;
+      const endPoint = { x: snapped.x / 100, z: snapped.y / 100 };
+      const distCm = Math.hypot(endPoint.x - start.x, endPoint.z - start.z) * 100;
       if (distCm < 40) {
         onToast('طول دیوار باید حداقل ۴۰ سانتی‌متر باشد');
         return;
       }
       const wallH = projectRef.current.settings?.wallHeightCm || DEFAULT_PROJECT_SETTINGS.wallHeightCm;
-      const newWall = buildArScannedWall(projectRef.current.walls.map(w => ({ ...w })), start, modelPt, wallH);
+      const newWall = buildArScannedWall(projectRef.current.walls.map(w => ({ ...w })), start, endPoint, wallH);
+      if (hasWallSegment(projectRef.current.walls, newWall)) return onToast('این دیوار از قبل رسم شده است');
       // Keep the exact welded endpoint, never the unsnapped hit-test point.
       const end = { x: newWall.x2Cm / 100, z: newWall.y2Cm / 100 };
       pendingWallStartRef.current = end;
@@ -2648,21 +2654,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     if (toolNow === 'fridge') {
-      propsRef.current.onUpdateProject((prev) => {
-        const next: ProjectState = JSON.parse(JSON.stringify(prev));
-        const w = next.walls.find((x) => x.id === hitWall.wall.id);
-        if (!w) return prev;
-        const wCenter = hitWall.offsetCm - (FRIDGE_MODELS[choices.fridgeModel].width + 2 * FRIDGE_FRAME_CM) / 2;
-        const res = placeFridgeOnWall(w, next.walls, choices.fridgeModel, wCenter, next.cornerOwners, true, next.settings);
-        if (!res.ok) {
-          onToast(res.message);
-          return prev;
-        }
-        next.activeWallId = w.id;
-        next.activeBoxId = res.fridgeId || null;
-        onToast(`یخچال ${FRIDGE_MODELS[choices.fridgeModel].shortLabel} در AR نصب شد`);
-        return next;
-      });
+      const width = FRIDGE_MODELS[choices.fridgeModel].width + 2 * FRIDGE_FRAME_CM;
+      choices.onPlaceFridge(hitWall.wall.id, hitWall.offsetCm - width / 2);
       return;
     }
 
@@ -2687,47 +2680,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     if (toolNow === 'sink' || toolNow === 'gas' || toolNow === 'appliance') {
-      propsRef.current.onUpdateProject((prev) => {
-        const next: ProjectState = JSON.parse(JSON.stringify(prev));
-        const w = next.walls.find((x) => x.id === hitWall.wall.id);
-        if (!w) return prev;
-        const baseBox = w.boxes.find(
-          (b) =>
-            b.type === 'base' &&
-            hitWall.offsetCm >= b.offsetX - 5 &&
-            hitWall.offsetCm <= b.offsetX + b.width + 5
-        );
-        if (!baseBox) {
-          onToast('ابتدا در این قسمت باکس زمینی بکشید');
-          return prev;
-        }
-        const kind: ApplianceKind =
-          toolNow === 'sink' ? 'sink' : toolNow === 'gas' ? 'gas' : choices.applianceKind;
-        const appW =
-          kind === 'sink'
-            ? SINK_MODELS[choices.sinkModel].width
-            : kind === 'gas'
-            ? choices.gasWidth
-            : APPLIANCE_CONFIGS[kind].width;
-        const res = placeApplianceWithCabinetRules(
-          w,
-          next.walls,
-          kind,
-          baseBox,
-          hitWall.offsetCm - appW / 2,
-          next.cornerOwners,
-          choices.hoodKind,
-          { sinkModel: choices.sinkModel, customWidth: kind === 'gas' ? choices.gasWidth : undefined }
-        );
-        if (!res.ok) {
-          onToast(res.message);
-          return prev;
-        }
-        next.activeWallId = w.id;
-        next.activeBoxId = baseBox.id;
-        next.selectedApplianceId = res.appliance?.id || null;
-        return next;
-      });
+      const base = hitWall.wall.boxes.find(b => b.type === 'base' && hitWall.offsetCm >= b.offsetX - 5 && hitWall.offsetCm <= b.offsetX + b.width + 5);
+      if (!base) return onToast('ابتدا در این قسمت باکس زمینی بکشید');
+      const kind = toolNow === 'appliance' ? choices.applianceKind : toolNow;
+      const width = kind === 'sink' ? SINK_MODELS[choices.sinkModel].width : kind === 'gas' ? choices.gasWidth : APPLIANCE_CONFIGS[kind].width;
+      choices.onPlaceAppliance(hitWall.wall.id, base.id, hitWall.offsetCm - width / 2, kind);
     }
   };
   applyFloorActionRef.current = applyArFloorActionAt;
@@ -3123,15 +3080,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         onToast('نشانگر روی کف نیست؛ دوربین را به سمت کف بگیرید');
         return;
       }
-      const pt = floorLocalToModelXZ(centerLocal);
-      const distCm = Math.hypot(pt.x - pendingWallStartRef.current.x, pt.z - pendingWallStartRef.current.z) * 100;
-      if (distCm < 40) {
-        onToast('طول دیوار باید حداقل ۴۰ سانتی‌متر باشد');
-        return;
-      }
       applyFloorActionRef.current(centerLocal);
-      // Next segment stays connected to this one; only Cancel breaks the chain.
-      onToast('دیوار ثبت شد؛ نشانگر را به گوشه بعدی ببرید و دوباره تأیید بزنید');
       return;
     }
     if (renderer) {
@@ -4139,7 +4088,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       )}
       {/* Confirm (تأیید) and Cancel (لغو) floating AR editing actions */}
       {!dialogOpen && !showScaleDialog && !(embeddedIn3D && !floorLocked) &&
-        (arTool.startsWith('calibrate-') || (!hideKitchen && arTool !== 'finish' && (arTool !== 'select' || pendingWallStart || surfaceCursorActive))) && (
+        (arTool.startsWith('calibrate-') || (!hideKitchen && arTool !== 'finish' && ((arTool !== 'select' && arTool !== 'move') || pendingWallStart || surfaceCursorActive))) && (
         <div className="pointer-events-auto absolute bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2.5 py-1.5">
           <button
             type="button"
@@ -4185,7 +4134,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             { id: 'fridge', label: 'یخچال', icon: Refrigerator },
           ],
           [
-            { id: 'select', label: 'انتخاب / جابجایی', icon: MousePointer2 },
+            { id: 'select', label: 'انتخاب', icon: MousePointer2 },
+            { id: 'move', label: 'جابه‌جایی', icon: Move },
             { id: 'sink', label: 'سینک', icon: Droplets },
             { id: 'gas', label: 'گاز', icon: Flame },
             { id: 'appliance', label: 'تجهیزات', icon: WashingMachine },

@@ -21,6 +21,7 @@ import {
   doesFridgeTouchCabinet,
   getBoxCarpentryElements,
   getBoxFrameInsets,
+  effectiveHoodKind,
   getUnitsInBox,
   isDividerNearBlockedCorner,
   isDoorAdjacentToInsideCorner,
@@ -199,6 +200,7 @@ export function disposeObject3D(root: THREE.Object3D): void {
   const textures = new Set<THREE.Texture>();
 
   root.traverse((obj) => {
+    if (obj instanceof THREE.InstancedMesh) obj.dispose();
     const mesh = obj as THREE.Mesh;
     if (mesh.geometry) geometries.add(mesh.geometry);
     if (mesh.material) {
@@ -671,6 +673,7 @@ export function buildKitchen3DScene(
     metalness: 0.15,
   });
   const matCarcass = matPack.matCarcass;
+  const matCabinetBack = matPack.matCabinetBack;
   const matPlinth = matPack.matPlinth;
   const matCountertop = matPack.matCountertop;
   const matDoorRevealDark = matPack.matDoorRevealDark;
@@ -701,17 +704,18 @@ export function buildKitchen3DScene(
     roughness: 0.58,
     metalness: 0.05,
   });
-  const matShelf = new THREE.MeshStandardMaterial({
-    color: 0xfef3c7,
-    roughness: 0.55,
-    metalness: 0.04,
-  });
+  const matShelf = matCarcass;
   const matSteel = new THREE.MeshStandardMaterial({
     color: 0xd1d5db,
     roughness: 0.25,
     metalness: 0.85,
   });
-  const matWasher = new THREE.MeshPhysicalMaterial({ color: 0xf1f2f3, roughness: 0.27, clearcoat: 0.25 });
+  const equipmentFinish = project.settings?.equipmentFinish ?? 'silver';
+  const equipmentColor = equipmentFinish === 'white' ? 0xf4f5f6 : equipmentFinish === 'black' ? 0x30343b : 0xd8dee6;
+  const matEquipment = new THREE.MeshPhysicalMaterial({
+    color: equipmentColor, roughness: 0.26, metalness: equipmentFinish === 'silver' ? 0.76 : 0.12, clearcoat: 0.28,
+  });
+  matEquipment.userData.sceneReflection = true;
   const matPorcelain = new THREE.MeshPhysicalMaterial({ color: 0xf5f2ec, roughness: 0.23, clearcoat: 0.45 });
   const matDarkChrome = new THREE.MeshStandardMaterial({
     color: 0x1e293b,
@@ -976,6 +980,8 @@ export function buildKitchen3DScene(
         matPack,
         mats: {
           matCarcass,
+          matCabinetBack,
+          matEquipment,
           matPlinth,
           matCountertop,
           matDoorRevealDark,
@@ -1009,7 +1015,7 @@ export function buildKitchen3DScene(
           matGlassCooktop,
           matCarcass,
           matDoorModern: matPorcelain,
-          matWasher,
+          matEquipment,
           matGlass,
         })
       );
@@ -1140,10 +1146,9 @@ function buildUpperCornerInfills3D(
       const doorMat = matPack.getDoorMaterial(finish, 'flat', doorOpenProgress < 0.08, false);
 
       if (geom.kind === 'inside-90' || geom.kind === 'inside-angled') {
-        // Reach the actual upper-cabinet start on each wall. The old depth+12 cap
-        // stopped the corner infill short and left a visible hollow wedge.
-        const coverA = Math.max(depthB, Math.max(nearA.dist, 0) + 1);
-        const coverB = Math.max(depthA, Math.max(nearB.dist, 0) + 1);
+        // Fill empty corner space only. Extending into an existing cabinet duplicates its faces.
+        const coverA = Math.min(nearA.dist, geom.getSetbackCm(depthB));
+        const coverB = Math.min(nearB.dist, geom.getSetbackCm(depthA));
         if (coverA <= 1 || coverB <= 1) continue;
 
         // Build solid prism covering the inside corner intersection between both upper cabinet runs
@@ -1343,6 +1348,8 @@ function buildBox3D(ctx: {
   matPack: KitchenMaterialPack;
   mats: {
     matCarcass: THREE.Material;
+    matCabinetBack: THREE.Material;
+    matEquipment: THREE.Material;
     matPlinth: THREE.Material;
     matCountertop: THREE.Material;
     matDoorRevealDark: THREE.Material;
@@ -1436,11 +1443,7 @@ function buildBox3D(ctx: {
     const cx = bx + bw / 2;
     const frontDoorZ = normalSign * (fD + doorThick / 2);
 
-    const matBrushedInox = new THREE.MeshStandardMaterial({
-      color: 0xd8dee6,
-      roughness: 0.24,
-      metalness: 0.78,
-    });
+    const matBrushedInox = mats.matEquipment;
     const matShellDark = new THREE.MeshStandardMaterial({
       color: 0x334155,
       roughness: 0.45,
@@ -1593,7 +1596,7 @@ function buildBox3D(ctx: {
           .filter(
             (a) =>
               a.kind === 'gas' &&
-              a.hoodKind !== 'hidden' &&
+              effectiveHoodKind(wall, a) !== 'hidden' &&
               a.offsetX < box.offsetX + box.width - 5 &&
               a.offsetX + a.width > box.offsetX + 5
           )
@@ -1647,7 +1650,7 @@ function buildBox3D(ctx: {
       : new THREE.BoxGeometry(spanW, board, carcD), mats.matCarcass);
     if (sinkBowls.length) pTop.position.y = bodyBottomY + bodyH - board;
     else pTop.position.set(midX, bodyBottomY + bodyH - board / 2, cz);
-    const pBack = new THREE.Mesh(new THREE.BoxGeometry(spanW, bodyH - board * 2, 0.01), mats.matCarcass);
+    const pBack = new THREE.Mesh(new THREE.BoxGeometry(spanW, bodyH - board * 2, 0.01), mats.matCabinetBack);
     pBack.position.set(midX, bodyCenterY, normalSign * 0.006);
     carcassMeshes.push(pBot, pTop, pBack);
   }
@@ -1750,6 +1753,26 @@ function buildBox3D(ctx: {
     interactables.push(divMesh);
   }
 
+  const jointWidth = 0.0022;
+  const backFaceZ = normalSign * 0.0116;
+  const joints: JointLine[] = [];
+  for (const span of solidHorizSpans) {
+    const left = bx + span.s * CM + board;
+    const right = bx + span.e * CM - board;
+    if (right <= left) continue;
+    const midX = (left + right) / 2;
+    joints.push([right - left, jointWidth, midX, bodyBottomY + board, backFaceZ],
+      [right - left, jointWidth, midX, bodyBottomY + bodyH - board, backFaceZ],
+      [jointWidth, bodyH - 2 * board, left, bodyCenterY, backFaceZ],
+      [jointWidth, bodyH - 2 * board, right, bodyCenterY, backFaceZ]);
+  }
+  for (const divider of box.unitDividers) {
+    if (isDividerNearBlockedCorner(box, divider, blockedZones)) continue;
+    const x = bx + (rawIn.left + divider * scaleX) * CM;
+    if (!solidHorizSpans.some(span => x > bx + span.s * CM && x < bx + span.e * CM)) continue;
+    for (const side of [-1, 1]) joints.push([jointWidth, innerH, x + side * 0.016, innerBottomY + innerH / 2, backFaceZ]);
+  }
+
   // 7. Interior Shelves (horizontal shelves & vertical partitions)
   for (const sh of box.shelves) {
     const isShSel = sh.id === project.selectedShelfId;
@@ -1762,6 +1785,7 @@ function buildBox3D(ctx: {
         isShSel ? mats.matHandleGizmo : mats.matShelf
       );
       vMesh.position.set(vx, innerBottomY + innerH / 2, normalSign * ((carcD - 0.04) / 2 + 0.01));
+      joints.push([jointWidth, vh, vx - 0.009, vMesh.position.y, backFaceZ], [jointWidth, vh, vx + 0.009, vMesh.position.y, backFaceZ]);
       vMesh.userData = { kind: 'shelf', wallId: wall.id, boxId: box.id, shelfId: sh.id } as Scene3DHitData;
       grp.add(vMesh);
       interactables.push(vMesh);
@@ -1776,10 +1800,29 @@ function buildBox3D(ctx: {
       isShSel ? mats.matHandleGizmo : mats.matShelf
     );
     shMesh.position.set(sx + sw / 2 + 0.016, sy, normalSign * ((carcD - 0.04) / 2 + 0.01));
+    joints.push([sw, jointWidth, shMesh.position.x, sy + 0.009, backFaceZ]);
     shMesh.userData = { kind: 'shelf', wallId: wall.id, boxId: box.id, shelfId: sh.id } as Scene3DHitData;
     grp.add(shMesh);
     interactables.push(shMesh);
   }
+
+  if (!doorsHidden) {
+    const frontZ = normalSign * (carcD - 0.002);
+    const fronts = box.doors.filter(door => door.kind !== 'open' && door.kind !== 'rail');
+    const edges = new Set(fronts.flatMap(door => [door.startCm, door.startCm + door.widthCm]));
+    for (const edge of edges) {
+      const x = bx + (rawIn.left + edge * scaleX) * CM;
+      joints.push([0.0045, innerH, x, innerBottomY + innerH / 2, frontZ]);
+    }
+    for (const door of fronts) {
+      const x = bx + (rawIn.left + (door.startCm + door.widthCm / 2) * scaleX) * CM;
+      const ratios = door.drawerBand
+        ? [door.drawerBand.position === 'top' ? door.drawerBand.ratio : 1 - door.drawerBand.ratio]
+        : door.drawerRatios;
+      for (const ratio of [0, ...ratios, 1]) joints.push([door.widthCm * scaleX * CM, 0.003, x, innerBottomY + (1 - ratio) * innerH, frontZ]);
+    }
+  }
+  addJointLines(grp, joints, mats.matDoorRevealDark);
 
   // 7b. Derived Carcass Carpentry (5cm corner fillers, outer/drawer 5cm stiles, base non-drawer top rails)
   const carpentry = getBoxCarpentryElements(box, wall, blockedZones, project.columns || []);
@@ -1934,7 +1977,7 @@ function buildBox3D(ctx: {
   // Selection wireframe + 3D move/resize handles
   if (isBoxSel) {
     addOutlineHighlight(grp, bw, bh, bd, bx + bw / 2, by + bh / 2, normalSign * (bd / 2));
-    if (!tool || tool === 'select') {
+    if (tool === 'move') {
       addBox3DHandles(grp, wall.id, box, by, bh, bd, normalSign, mats.matHandleGizmo, interactables);
     }
   }
@@ -1991,6 +2034,22 @@ function addBox3DHandles(
   }
 }
 
+type JointLine = [width: number, height: number, x: number, y: number, z: number];
+
+function addJointLines(group: THREE.Group, lines: JointLine[], material: THREE.Material) {
+  if (!lines.length) return;
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, lines.length);
+  const transform = new THREE.Object3D();
+  lines.forEach(([width, height, x, y, z], index) => {
+    transform.position.set(x, y, z);
+    transform.scale.set(width, height, 0.0014);
+    transform.updateMatrix();
+    mesh.setMatrixAt(index, transform.matrix);
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  group.add(mesh);
+}
+
 function buildDoor3D(ctx: {
   wall: Wall;
   box: CabinetBox;
@@ -2014,6 +2073,7 @@ function buildDoor3D(ctx: {
   matPack: KitchenMaterialPack;
   mats: {
     matDoorRevealDark: THREE.Material;
+    matCarcass: THREE.Material;
     matGlass: THREE.Material;
     matFrame: THREE.Material;
     matSteel: THREE.Material;
@@ -2045,8 +2105,7 @@ function buildDoor3D(ctx: {
     mats,
   } = ctx;
 
-  // Exposed washing machines keep their own white factory finish. Cabinet-style
-  // door faces must not render over the appliance and pick up the kitchen color.
+  // A washing machine has an exposed appliance face.
   if (box.type === 'base' && wall.appliances.some((appliance) => {
     if (appliance.kind !== 'washing') return false;
     const doorStart = box.offsetX + door.startCm;
@@ -2267,15 +2326,27 @@ function buildDoor3D(ctx: {
         const bodyW = Math.max(0.04, dw - 0.11);
         const bodyY = -rowH / 2 + sideH / 2 + 0.01;
         const drawerParts: THREE.Mesh[] = [
-          new THREE.Mesh(new THREE.BoxGeometry(bodyW, 0.012, drawerDepth), mats.matFrame),
-          new THREE.Mesh(new THREE.BoxGeometry(0.012, sideH, drawerDepth), mats.matFrame),
-          new THREE.Mesh(new THREE.BoxGeometry(0.012, sideH, drawerDepth), mats.matFrame),
-          new THREE.Mesh(new THREE.BoxGeometry(bodyW, sideH, 0.012), mats.matFrame),
+          new THREE.Mesh(new THREE.BoxGeometry(bodyW, 0.012, drawerDepth), mats.matCarcass),
+          new THREE.Mesh(new THREE.BoxGeometry(0.012, sideH, drawerDepth), mats.matCarcass),
+          new THREE.Mesh(new THREE.BoxGeometry(0.012, sideH, drawerDepth), mats.matCarcass),
+          new THREE.Mesh(new THREE.BoxGeometry(bodyW, sideH, 0.012), mats.matCarcass),
         ];
         drawerParts[0].position.set(0, -rowH / 2 + 0.014, -normalSign * (drawerDepth / 2 + 0.01));
         drawerParts[1].position.set(-bodyW / 2 + 0.006, bodyY, -normalSign * (drawerDepth / 2 + 0.01));
         drawerParts[2].position.set(bodyW / 2 - 0.006, bodyY, -normalSign * (drawerDepth / 2 + 0.01));
         drawerParts[3].position.set(0, bodyY, -normalSign * (drawerDepth + 0.01));
+        const drawerJoints = new THREE.Group();
+        drawerJoints.rotation.x = Math.PI / 2;
+        drawerJoints.position.y = -rowH / 2 + 0.021;
+        const jointX = bodyW / 2 - 0.012;
+        const midZ = -normalSign * (drawerDepth / 2 + 0.01);
+        addJointLines(drawerJoints, [
+          [0.0022, drawerDepth - 0.024, -jointX, midZ, 0],
+          [0.0022, drawerDepth - 0.024, jointX, midZ, 0],
+          [bodyW - 0.024, 0.0022, 0, -normalSign * 0.022, 0],
+          [bodyW - 0.024, 0.0022, 0, -normalSign * (drawerDepth - 0.002), 0],
+        ], mats.matDoorRevealDark);
+        rowGrp.add(drawerJoints);
         for (const part of drawerParts) {
           part.castShadow = true;
           part.receiveShadow = true;
@@ -2755,7 +2826,7 @@ function buildAppliance3D(
     matGlassCooktop: THREE.Material;
     matCarcass: THREE.Material;
     matDoorModern: THREE.Material;
-    matWasher: THREE.Material;
+    matEquipment: THREE.Material;
     matGlass: THREE.Material;
   }
 ): THREE.Group {
@@ -2879,7 +2950,7 @@ function buildAppliance3D(
       .filter(height => height > topY + 0.67);
     const hoodTop = Math.min(wall.height * CM, ...frameAbove);
     const hoodY = Math.min(hoodTop - 0.055, topY + 0.69);
-    if (app.hoodKind === 'chimney') {
+    if (effectiveHoodKind(wall, app) === 'chimney') {
       const visor = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.06, hoodD), mats.matSteel);
       visor.position.set(ax, hoodY, normalSign * (hoodD / 2));
       const chimneyHeight = Math.min(0.48, Math.max(0.035, hoodTop - hoodY));
@@ -2902,7 +2973,7 @@ function buildAppliance3D(
   const machD = Math.max(0.5, boxDepthCm * CM - 0.01);
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(machW, machH, machD),
-    app.kind === 'dishwasher' ? mats.matSteel : mats.matWasher
+    mats.matEquipment
   );
   body.position.set(ax, machH / 2, normalSign * (machD / 2));
   body.castShadow = true;

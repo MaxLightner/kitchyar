@@ -3,7 +3,7 @@ import type { DiningSeats, FloorFurniture, FloorFurnitureKind } from '../cad/typ
 import { TV_SET_DEPTH_CM, TV_SET_WIDTH_CM } from '../cad/dining3d';
 import { isPlanPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
 import { cabinetStarterSegment, previewCabinetRow, resolveCabinetPlacement, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
-import { snapWallEndpoint } from '../cad/wallSnap';
+import { hasWallSegment, snapWallDrawingPoint } from '../cad/wallSnap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   APPLIANCE_CONFIGS,
@@ -244,6 +244,17 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   const paneRef = useRef<HTMLElement | null>(null);
 
   const [planScale, setPlanScale] = useState(0.6);
+  const [planSize, setPlanSize] = useState({ width: 900, height: 240 });
+  useEffect(() => {
+    const pane = paneRef.current;
+    if (!pane) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width && height) setPlanSize({ width, height });
+    });
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, []);
   const [pan, setPan] = useState({ x: 0, y: 26 });
   const [wallDraw, setWallDraw] = useState<{
     startPt: { x: number; y: number } | null;
@@ -416,25 +427,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     return { x: svgPt.x / planScale, y: svgPt.y / planScale };
   };
 
-  const snapWallPoint = (
-    raw: { x: number; y: number },
-    startPt: { x: number; y: number } | null
-  ) => {
-    const endpoint = snapWallEndpoint(raw, walls);
-    if (endpoint.corner) return endpoint;
-    let sx = Math.round(raw.x / 10) * 10;
-    let sy = Math.round(raw.y / 10) * 10;
-    if (startPt) {
-      const dx = sx - startPt.x;
-      const dy = sy - startPt.y;
-      if (Math.hypot(dx, dy) > 15) {
-        const deg = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
-        if (deg < 12 || deg > 168) sy = startPt.y;
-        else if (Math.abs(deg - 90) < 12) sx = startPt.x;
-      }
-    }
-    return { x: sx, y: sy, corner: false };
-  };
+  const snapWallPoint = (raw: { x: number; y: number }, start: { x: number; y: number } | null) =>
+    snapWallDrawingPoint(raw, walls, start);
 
   const projectPointToWalls = (ptCm: { x: number; y: number }, wallList: Wall[] = walls) => {
     let best: { wall: Wall; offsetCm: number; perp: number; signedPerp: number; score: number } | null = null;
@@ -533,12 +527,13 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       onPlaceDining(pt.x, pt.y);
       return;
     }
-    if (tool === 'select' || tool === 'eraser') {
+    if (tool === 'select' || tool === 'move' || tool === 'eraser') {
       const id = targetEl.closest('[data-dining-id]')?.getAttribute('data-dining-id');
       const item = diningSets.find(d => d.id === id);
       if (item) {
         if (tool === 'eraser') { onDeleteDining(item.id); return; }
         onSelectDining(item.id);
+        if (tool !== 'move') return;
         e.currentTarget.setPointerCapture(e.pointerId);
         onBeginDrag();
         dragOp.current = { mode: 'move-dining', columnId: item.id, startPtCm: clientToCm(e.clientX, e.clientY),
@@ -549,7 +544,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     }
 
     const cornerEl = targetEl.closest('[data-corner-key]');
-    if (cornerEl && !confirmed) {
+    if (cornerEl && !confirmed && (tool === 'select' || tool === 'move')) {
       const key = cornerEl.getAttribute('data-corner-key');
       if (key) {
         onToggleCornerOwner(key);
@@ -558,7 +553,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     }
 
     const nodeEl = targetEl.closest('[data-wall-node]');
-    if (nodeEl && tool === 'select' && !wallDraw.startPt) {
+    if (nodeEl && tool === 'move' && !wallDraw.startPt) {
       const key = nodeEl.getAttribute('data-wall-node');
       const node = smartNodes.find((n) => n.key === key);
       if (node) {
@@ -577,7 +572,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
 
     const ptCm = clientToCm(e.clientX, e.clientY);
 
-    const resizeTarget = !confirmed && tool === 'select' ? targetEl.closest('[data-plan-resize]') : null;
+    const resizeTarget = !confirmed && tool === 'move' ? targetEl.closest('[data-plan-resize]') : null;
     if (resizeTarget) {
       const wall = walls.find(w => w.id === resizeTarget.getAttribute('data-wall-id'));
       const box = wall?.boxes.find(b => b.id === resizeTarget.getAttribute('data-box-id'));
@@ -612,11 +607,12 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             snapped.y,
             1
           );
+          if (hasWallSegment(walls, newW)) return onToast('این دیوار از قبل رسم شده است');
           onAddWall(newW, placed => {
             const end = { x: placed.x2Cm, y: placed.y2Cm };
             setWallDraw({ startPt: end, currPt: end, lengthCm: 0, snappedCorner: false });
           });
-        }
+        } else onToast('طول دیوار باید حداقل ۴۰ سانتی‌متر باشد');
       }
       return;
     }
@@ -715,7 +711,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       const col = columns.find((c) => c.id === colId);
       if (col) {
         onSelectColumn?.(col.id);
-        if (!confirmed && (tool === 'select' || tool === 'opening')) {
+        if (!confirmed && tool === 'move') {
           e.currentTarget.setPointerCapture(e.pointerId);
           onBeginDrag();
           dragOp.current = {
@@ -798,7 +794,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       const app = w?.appliances.find((a) => a.id === aId);
       if (w && app) {
         onSelectAppliance?.(w.id, app.id);
-        if (tool === 'select') {
+        if (tool === 'move') {
           e.currentTarget.setPointerCapture(e.pointerId);
           onBeginDrag();
           dragOp.current = {
@@ -825,7 +821,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       const op = w?.openings?.find((o) => o.id === oId);
       if (w && op) {
         onSelectOpening(w.id, op.id);
-        if (tool === 'select') {
+        if (tool === 'move') {
           e.currentTarget.setPointerCapture(e.pointerId);
           onBeginDrag();
           dragOp.current = {
@@ -848,7 +844,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       const box = w?.boxes.find((b) => b.id === bId);
       if (w && box) {
         onSelectWall(w.id, box.id);
-        if (tool === 'select') {
+        if (tool === 'move') {
           e.currentTarget.setPointerCapture(e.pointerId);
           onBeginDrag();
           dragOp.current = {
@@ -872,7 +868,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       if (wId) {
         const w = walls.find((x) => x.id === wId);
         onSelectWall(wId, w?.boxes[0]?.id ?? null);
-        if (tool === 'select' && w && wEl.hasAttribute('data-wall-move')) {
+        if (tool === 'move' && w && wEl.hasAttribute('data-wall-move')) {
           e.currentTarget.setPointerCapture(e.pointerId);
           onBeginDrag();
           dragOp.current = {
@@ -1230,7 +1226,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     }
 
     setPlanScale((v) =>
-      +Math.max(0.3, Math.min(1.8, v + (e.deltaY < 0 ? 0.06 : -0.06))).toFixed(2)
+      +Math.max(0.15, Math.min(1.8, v + (e.deltaY < 0 ? 0.06 : -0.06))).toFixed(2)
     );
   };
 
@@ -1262,7 +1258,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       }
       const ratio = dist / Math.max(10, touchPinch.current.dist);
       setPlanScale(
-        +Math.max(0.3, Math.min(1.8, touchPinch.current.origScale * ratio)).toFixed(2)
+        +Math.max(0.15, Math.min(1.8, touchPinch.current.origScale * ratio)).toFixed(2)
       );
       setPan({
         x: touchPinch.current.origPan.x + (midX - touchPinch.current.midX),
@@ -1284,8 +1280,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     };
   }, []);
 
-  const pw = paneRef.current?.clientWidth || 900;
-  const ph = paneRef.current?.clientHeight || 240;
+  const { width: pw, height: ph } = planSize;
   const viewBox = `${-pw / 2 - pan.x} ${-ph / 2 - pan.y} ${pw} ${ph}`;
   const s = planScale;
 
@@ -1359,27 +1354,32 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setPlanScale((v) => +Math.max(0.3, v - 0.1).toFixed(2))}
+            onClick={() => setPlanScale((v) => +Math.max(0.15, v - 0.1).toFixed(2))}
             aria-label="کوچک‌نمایی پلان"
-            className="h-7 w-7 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[13px] font-bold"
+            className="h-9 w-9 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-base font-bold"
           >
             -
           </button>
           <button
             type="button"
             onClick={() => {
-              setPan({ x: 0, y: 26 });
-              setPlanScale(0.6);
+              if (!walls.length) { setPan({ x: 0, y: 26 }); setPlanScale(0.6); return; }
+              const xs = walls.flatMap(w => [w.x1Cm, w.x2Cm]);
+              const ys = walls.flatMap(w => [w.y1Cm, w.y2Cm]);
+              const [x1, x2, y1, y2] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+              const scale = Math.max(0.15, Math.min(1.8, (pw - 40) / (x2 - x1 + 150), (ph - 48) / (y2 - y1 + 150)));
+              setPlanScale(scale);
+              setPan({ x: -(x1 + x2) * scale / 2, y: -(y1 + y2) * scale / 2 - 14 });
             }}
             className="h-7 px-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[13px] font-bold"
           >
-            مرکز
+            جا دادن پلان
           </button>
           <button
             type="button"
             onClick={() => setPlanScale((v) => +Math.min(1.8, v + 0.1).toFixed(2))}
             aria-label="بزرگ‌نمایی پلان"
-            className="h-7 w-7 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[13px] font-bold"
+            className="h-9 w-9 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-base font-bold"
           >
             +
           </button>
@@ -1535,7 +1535,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
               <g
                 style={{
                   cursor:
-                    tool === 'select' ? 'move' : tool === 'eraser' ? 'not-allowed' : 'pointer',
+                    tool === 'move' ? 'move' : tool === 'eraser' ? 'not-allowed' : 'pointer',
                 }}
                 data-wall-click={w.id}
               >
@@ -1732,7 +1732,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                     data-plan-wall-id={w.id}
                     style={{
                       cursor:
-                        tool === 'eraser' ? 'not-allowed' : tool === 'select' ? 'grab' : 'pointer',
+                        tool === 'eraser' ? 'not-allowed' : tool === 'move' ? 'grab' : 'pointer',
                     }}
                   >
                     {app.kind === 'sink' ? (
@@ -1971,7 +1971,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                 );
               })}
 
-              {tool === 'select' && w.boxes.filter(box => box.id === activeBoxId && box.type !== 'fridge').map(box => (
+              {tool === 'move' && w.boxes.filter(box => box.id === activeBoxId && box.type !== 'fridge').map(box => (
                 <g key={box.id}>
                   {(['left', 'right'] as const).map(side => {
                     const x = (box.offsetX + (side === 'right' ? box.width : 0)) * s;
@@ -2182,7 +2182,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           );
         })}
 
-        {tool === 'select' && displayWalls.map(w => {
+        {tool === 'move' && displayWalls.map(w => {
           const v = getWallVectors(w);
           return <g key={w.id} data-wall-move={w.id} aria-label="جابجایی دیوار با متعلقات" style={{ cursor: 'grab' }} transform={`translate(${(w.x1Cm + w.x2Cm) * s / 2 - v.nx * 26}, ${(w.y1Cm + w.y2Cm) * s / 2 - v.ny * 26})`}>
             <circle r={22} fill="transparent" />
@@ -2213,7 +2213,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         ))}
 
         {/* گره‌های هوشمند دیوار (درگ برای تغییر ابعاد و زاویه دیوارها پس از رسم) */}
-        {(tool === 'select' || tool === 'wall') &&
+        {(tool === 'select' || tool === 'move' || tool === 'wall') &&
           !wallDraw.startPt &&
           smartNodes.map((node) => (
             <g

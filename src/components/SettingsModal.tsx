@@ -154,6 +154,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
+          <label className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 font-bold text-slate-700">
+            <input type="checkbox" className="size-4 accent-indigo-600" data-testid="settings-ambient-occlusion"
+              checked={form.ambientOcclusion !== false}
+              onChange={e => setForm(prev => ({ ...prev, ambientOcclusion: e.target.checked }))} />
+            سایهٔ تماس داخل کابینت (AO)
+          </label>
+
           <fieldset className="space-y-2">
             <legend className="mb-1 font-extrabold text-slate-800">بازتاب سطوح</legend>
             {SURFACES.map(surface => (

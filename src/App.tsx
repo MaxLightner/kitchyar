@@ -1,4 +1,5 @@
 import { applyFrontCut, findFrontCut } from './cad/frontCut';
+import { hasWallSegment } from './cad/wallSnap';
 import { NumberPadDialog } from './components/NumberPadDialog';
 import type { CabinetTextureId, DiningSeats, FloorFurniture, FloorFurnitureKind } from './cad/types';
 import { snapDiningPosition } from './cad/diningLayout';
@@ -56,8 +57,12 @@ import {
   removeUnitDividerWithSync,
   resizeDrawerUnitWidthCm,
   resizeWallCabinetsSynchronized,
+  isCabinetCrown,
+  setCabinetCrownHeight,
   stripInvalidColumnAndCornerDividers,
   syncHoodUnitAboveGas,
+  requiresIntegratedHood,
+  effectiveHoodKind,
   getBifoldSplit,
   uid,
 } from './cad/doorRules';
@@ -102,6 +107,7 @@ import {
   DoorKind,
   DoorStyle,
   DoorSwing,
+  EquipmentFinish,
   FridgeModel,
   HandleStyle,
   HardwareKind,
@@ -136,6 +142,17 @@ const STORAGE_KEY = 'cabinet_cad_project_v2';
 
 function cloneProject(p: ProjectState): ProjectState {
   return JSON.parse(JSON.stringify(p));
+}
+
+function keepStackedHoodsIntegrated(wall: Wall) {
+  for (const gas of wall.appliances) {
+    if (gas.kind !== 'gas' || !requiresIntegratedHood(wall, gas)) continue;
+    const missingFront = wall.boxes.some(box => (box.type === 'wall' || box.type === 'wall-deep') && !box.linkedToBoxId &&
+      box.offsetX < gas.offsetX + gas.width - 5 && box.offsetX + box.width > gas.offsetX + 5 &&
+      !box.doors.some(door => door.kind !== 'open' && door.startCm + box.offsetX < gas.offsetX + gas.width - 2 &&
+        door.startCm + door.widthCm + box.offsetX > gas.offsetX + 2));
+    if (gas.hoodKind !== 'hidden' || missingFront) syncHoodUnitAboveGas(wall, gas);
+  }
 }
 
 function normalizeProject(raw: ProjectState): ProjectState {
@@ -227,6 +244,7 @@ function normalizeProject(raw: ProjectState): ProjectState {
       }
     }
 
+    keepStackedHoodsIntegrated(normalizedWall);
     return normalizedWall;
   });
 
@@ -386,14 +404,14 @@ export default function App() {
 
   const [pxPerCm, setPxPerCm] = useState(2.1);
   const [frontPan, setFrontPan] = useState({ x: 0, y: 0 });
-  const [topHeightPct, setTopHeightPct] = useState(34);
+  const [topHeightPct, setTopHeightPct] = useState(50);
   const [toast, setToast] = useState<string | null>(null);
 
   const toastTimer = useRef<number | null>(null);
   const autoUnitTimerRef = useRef<number | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const editorOverlayRef = useRef<HTMLDivElement | null>(null);
-  const splitDragging = useRef(false);
+  const splitDrag = useRef<{ pointerId: number; startY: number; startPercent: number; height: number } | null>(null);
   const dragBaseRef = useRef<{ id: string; project: ProjectState } | null>(null);
 
   const activeProjectRecord = useMemo(
@@ -566,6 +584,7 @@ export default function App() {
 
   const handleSelectTool = useCallback(
     (nextTool: ToolId) => {
+      if (nextTool === 'move') setSelectionMode('single');
       setTool(nextTool);
     },
     []
@@ -591,7 +610,7 @@ export default function App() {
   const handleExitToSelect = useCallback(() => {
     if (tool !== 'select') {
       setTool('select');
-      showToast('ابزار انتخاب و جابجایی فعال شد');
+      showToast('ابزار انتخاب فعال شد');
     }
   }, [tool, showToast]);
 
@@ -662,6 +681,9 @@ export default function App() {
       const next = cloneProject(base);
       const w = next.walls.find(w => w.id === wallId)!;
       const selected = w.boxes.find(b => b.id === boxId)!;
+      if (field === 'height' && isCabinetCrown(w, selected) && next.walls.some(wall => wall.boxes.some(box => box.type === 'wall' || box.type === 'wall-deep'))) {
+        return setCabinetCrownHeight(next.walls, selected.elevY + Math.round(value * 10) / 10) ? next : null;
+      }
       const peers = [selected];
       if (row && upper && field !== 'width') {
         for (let i = 0; i < peers.length; i++) {
@@ -750,15 +772,12 @@ export default function App() {
       else sh.xRatio = n / span;
       return next;
     };
-    if (!commit) { commitState(resolve(requested), false); return; }
-    if (Math.abs(requested - before) < 0.05) return;
-    setMeasurement({ label: horizontal ? 'ارتفاع طبقه از کف داخلی باکس' : 'فاصلهٔ جداکننده از ابتدای یونیت',
-      initial: requested, min: Math.ceil(min * 10) / 10, max: Math.floor(max * 10) / 10, base, resolve });
+    commitState(resolve(requested), commit);
   }, [commitState, getProject]);
 
   const handleMoveUnit = useCallback(
     (dir: 'left' | 'right') => {
-      if (!activeWall || !project.selectedUnit) return;
+      if (tool !== 'move' || !activeWall || !project.selectedUnit) return;
       const next = cloneProject(project);
       const w = next.walls.find((x) => x.id === activeWall.id);
       const b = w?.boxes.find((x) => x.id === project.selectedUnit!.boxId);
@@ -786,7 +805,7 @@ export default function App() {
       commitState(next, true);
       showToast(res.message);
     },
-    [activeWall, project, commitState, showToast]
+    [activeWall, project, commitState, showToast, tool]
   );
 
   const handleCreateBoxesFromSweep = (
@@ -815,6 +834,10 @@ export default function App() {
       wall.boxes.push(box);
       if (kind === 'tall') carveBoxesForPlacedBox(wall, box);
       firstBoxId ??= box.id;
+    }
+    for (const wallId of new Set(placement.segments.map(segment => segment.wallId))) {
+      const wall = next.walls.find(w => w.id === wallId);
+      if (wall) keepStackedHoodsIntegrated(wall);
     }
     next.activeWallId = placement.segments[0].wallId;
     next.activeBoxId = firstBoxId;
@@ -875,6 +898,7 @@ export default function App() {
     next.selectedHandleId = null;
     commitState(next, true);
     if (wallChanged) fitWallToView(w);
+    setTool('select');
     showToast(res.message);
   };
 
@@ -907,6 +931,7 @@ export default function App() {
     next.selectedHandleId = null;
     commitState(next, true);
     if (wallChanged) fitWallToView(w);
+    setTool('select');
     showToast(res.message);
   };
 
@@ -962,12 +987,6 @@ export default function App() {
       return next;
     };
     const value = offsetX < 0 ? live.offsetX : offsetX;
-    if (commit && dragCheckpointRef.current && Math.abs(value - before.offsetX) > 0.05) {
-      const wall = current.walls.find(w => w.id === wallId)!;
-      setMeasurement({ label: 'جای بازشو از ابتدای دیوار', initial: value, min: 0,
-        max: Math.max(0, wall.length - live.width), base, resolve });
-      return;
-    }
     commitState(resolve(value), commit);
   };
 
@@ -1204,8 +1223,16 @@ export default function App() {
     showToast(`مدل سینک به ${SINK_MODELS[nextModel].shortLabel} تغییر یافت`);
   };
 
+  const handleEquipmentFinish = (equipmentFinish: EquipmentFinish) => {
+    commitState(prev => ({ ...prev, settings: { ...(prev.settings ?? DEFAULT_PROJECT_SETTINGS), equipmentFinish } }), true);
+  };
+
   const handleChangeSelectedApplianceHood = (nextHood: 'hidden' | 'chimney') => {
-    if (!selectedAppliance || selectedAppliance.kind !== 'gas') return;
+    if (!activeWall || !selectedAppliance || selectedAppliance.kind !== 'gas') return;
+    if (nextHood === 'chimney' && requiresIntegratedHood(activeWall, selectedAppliance)) {
+      showToast('در کابینت هوایی دوطبقه، هود به‌صورت مخفی نصب می‌شود');
+      return;
+    }
     mutateActiveWall(
       (w) => {
         const a = w.appliances.find((x) => x.id === selectedAppliance.id);
@@ -1939,15 +1966,6 @@ export default function App() {
       if (commit) { setProject(base); showToast('این اندازه برای دیوار یا متعلقاتش جا نمی‌گذارد'); }
       return;
     }
-    const ref = refs[0];
-    const wall = base.walls.find(w => w.id === ref?.wallId);
-    const oldX = ref?.end === 'start' ? wall?.x1Cm : wall?.x2Cm;
-    const oldY = ref?.end === 'start' ? wall?.y1Cm : wall?.y2Cm;
-    if (commit && dragCheckpointRef.current && (x !== oldX || y !== oldY)) {
-      setMeasurement({ label: 'مختصات X گوشه', initial: x, min: -10000, max: 10000,
-        other: { label: 'مختصات Y گوشه', initial: y, min: -10000, max: 10000 }, base, resolve: resolvePoint });
-      return;
-    }
     commitState(next, commit);
   };
 
@@ -1964,69 +1982,25 @@ export default function App() {
       if (commit) { setProject(base); showToast('جابه‌جایی برای دیوار متصل یا متعلقاتش جا نمی‌گذارد'); }
       return;
     }
-    if (commit && dragCheckpointRef.current && (dx || dy)) {
-      setMeasurement({ label: 'جابه‌جایی X دیوار', initial: dx, min: -10000, max: 10000,
-        other: { label: 'جابه‌جایی Y دیوار', initial: dy, min: -10000, max: 10000 }, base, resolve: resolveWall });
-      return;
-    }
     commitState(next, commit);
   }, [commitState, getProject, setProject, showToast]);
 
   const handleMoveBox = useCallback((
     wallId: string, boxId: string, desiredOffsetX: number, commit: boolean, _sessionId?: string
   ) => {
-    const current = getProject();
-    const base = dragCheckpointRef.current || current;
-    const original = base.walls.find(w => w.id === wallId)?.boxes.find(item => item.id === boxId);
-    if (!original) return;
-    const resolve = (value: number, exact = false) => {
-      const next = cloneProject(base);
-      const w = next.walls.find(w => w.id === wallId)!;
-      moveBoxHierarchically(w, next.walls, boxId, value, next.cornerOwners, { exact });
-      return next;
-    };
-    const next = resolve(desiredOffsetX);
-    const wall = next.walls.find(w => w.id === wallId)!;
-    const item = wall.boxes.find(item => item.id === boxId);
-    if (commit && dragCheckpointRef.current && item && Math.abs(item.offsetX - original.offsetX) > 0.05) {
-      setMeasurement({ label: 'جای کابینت از ابتدای دیوار', initial: item.offsetX,
-        min: Math.min(item.offsetX, -10000), max: Math.max(item.offsetX, 10000), base, resolve: value => {
-          const moved = resolve(value, true);
-          const wall = moved.walls.find(w => w.id === wallId)!;
-          const result = [...wall.boxes, ...wall.appliances].find(part => part.id === item.id);
-          return result && Math.abs(result.offsetX - value) <= 0.1 ? moved : null;
-        } });
-      return;
-    }
-    commitState(next, commit);
+    const next = cloneProject(dragCheckpointRef.current || getProject());
+    const wall = next.walls.find(w => w.id === wallId);
+    if (wall && moveBoxHierarchically(wall, next.walls, boxId, desiredOffsetX, next.cornerOwners)) commitState(next, commit);
   }, [getProject, commitState]);
 
   const handleMoveAppliance = useCallback((
     wallId: string, appId: string, desiredOffsetX: number, commit: boolean, _sessionId?: string
   ) => {
-    const current = getProject();
-    const base = dragCheckpointRef.current || current;
-    const original = base.walls.find(w => w.id === wallId)?.appliances.find(item => item.id === appId);
-    if (!original) return;
-    const resolve = (value: number, exact = false) => {
-      const next = cloneProject(base);
-      const w = next.walls.find(w => w.id === wallId)!;
-      moveApplianceHierarchically(w, next.walls, appId, value, next.cornerOwners, { refitAdjacentDoors: true, exact });
-      return next;
-    };
-    const next = resolve(desiredOffsetX);
-    const wall = next.walls.find(w => w.id === wallId)!;
-    const item = wall.appliances.find(item => item.id === appId);
-    if (commit && dragCheckpointRef.current && item && Math.abs(item.offsetX - original.offsetX) > 0.05) {
-      setMeasurement({ label: 'جای تجهیز از ابتدای دیوار', initial: item.offsetX, min: 0,
-        max: Math.max(0, wall.length - item.width), base, resolve: value => {
-          const moved = resolve(value, true);
-          const result = moved.walls.find(w => w.id === wallId)?.appliances.find(part => part.id === appId);
-          return result && Math.abs(result.offsetX - value) <= 0.1 ? moved : null;
-        } });
-      return;
+    const next = cloneProject(dragCheckpointRef.current || getProject());
+    const wall = next.walls.find(w => w.id === wallId);
+    if (wall && moveApplianceHierarchically(wall, next.walls, appId, desiredOffsetX, next.cornerOwners, { refitAdjacentDoors: true })) {
+      commitState(next, commit);
     }
-    commitState(next, commit);
   }, [getProject, commitState]);
 
   const executeDeleteWall = useCallback(
@@ -2476,7 +2450,7 @@ export default function App() {
         if (handleDeleteCurrentSelection()) {
           e.preventDefault();
         }
-      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && activeWall && selectedAppliance) {
+      } else if (tool === 'move' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && activeWall && selectedAppliance) {
         e.preventDefault();
         const step = e.key === 'ArrowRight' ? 5 : -5;
         handleMoveAppliance(activeWall.id, selectedAppliance.id, selectedAppliance.offsetX + step, true);
@@ -2553,8 +2527,8 @@ export default function App() {
 
   const hintText = useMemo(() => {
     const map: Record<ToolId, string> = {
-      select:
-        'انتخاب و جابجایی: درگ دیوار = جابجایی با اتصال | درگ باکس/طبقه/ستون = جابجایی آزاد | کلیک روی خط یونیت = انتخاب | Z = زوم | Del = حذف',
+      select: 'برای انتخاب روی قطعه کلیک کنید',
+      move: 'قطعه یا دستگیرهٔ تغییر اندازه را بکشید. Shift هنگام کشیدن دیوار، کل مجموعهٔ متصل را حرکت می‌دهد.',
       wall: 'رسم دیوار: کلیک و ادامه دهید (راست‌کلیک = لغو و بازگشت به انتخاب)',
       'cab-draw': 'کشیدن کابینت: نوع باکس را انتخاب کرده و روی دیوار بکشید (راست‌کلیک = انتخاب)',
       fridge: 'درج یخچال (+ فریم ۵cm): اسکرول روی دیوار = تغییر مدل | کلیک روی کابینت = برش خودکار فضا',
@@ -3124,16 +3098,31 @@ export default function App() {
             <main
               ref={workspaceRef}
               className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden relative"
-              onPointerMove={(e) => {
-                if (!splitDragging.current || !workspaceRef.current) return;
-                const rect = workspaceRef.current.getBoundingClientRect();
-                const pct = ((e.clientY - rect.top) / rect.height) * 100;
-                setTopHeightPct(Math.max(18, Math.min(72, pct)));
-              }}
-              onPointerUp={() => {
-                splitDragging.current = false;
-              }}
             >
+              {!dialogOpen && tool === 'select' && (selectedAppliance?.kind === 'gas' || selectedAppliance?.kind === 'dishwasher' || selectedAppliance?.kind === 'washing' || activeBox?.type === 'fridge') && (
+                <div role="group" aria-label="تنظیمات تجهیز انتخاب‌شده" data-testid="equipment-actions"
+                  className="absolute bottom-10 left-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1.5 text-xs shadow-md">
+                  {selectedAppliance?.kind === 'gas' ? (
+                    (['hidden', 'chimney'] as const).map(kind => (
+                      <button key={kind} type="button" onClick={() => handleChangeSelectedApplianceHood(kind)}
+                        disabled={kind === 'chimney' && Boolean(activeWall && requiresIntegratedHood(activeWall, selectedAppliance))}
+                        aria-pressed={(activeWall ? effectiveHoodKind(activeWall, selectedAppliance) : selectedAppliance.hoodKind) === kind}
+                        className="min-h-8 rounded-md border border-slate-200 px-2 aria-pressed:bg-indigo-100 aria-pressed:text-indigo-800 disabled:opacity-40">
+                        {kind === 'hidden' ? 'هود مخفی' : 'هود شومینه‌ای'}
+                      </button>
+                    ))
+                  ) : (
+                    <>
+                      <span className="px-1 font-semibold text-slate-700">رنگ تجهیزات</span>
+                      {([['silver', 'نقره‌ای'], ['white', 'سفید'], ['black', 'مشکی']] as const).map(([finish, label]) => (
+                        <button key={finish} type="button" onClick={() => handleEquipmentFinish(finish)}
+                          aria-pressed={(project.settings?.equipmentFinish ?? 'silver') === finish}
+                          className="min-h-8 rounded-md border border-slate-200 px-2 aria-pressed:bg-indigo-100 aria-pressed:text-indigo-800">{label}</button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
@@ -3385,6 +3374,8 @@ export default function App() {
                 onFrontCut={cutFront}
             dialogOpen={dialogOpen}
             onMoveShelf={moveShelfPrecisely}
+            onPlaceFridge={handlePlaceFridge}
+            onPlaceAppliance={handlePlaceAppliance}
             onResizeCabinet={resizeCabinetFromHandle}
             onBeginDrag={handleBeginDrag}
             onCancelDrag={handleCancelDrag}
@@ -3595,10 +3586,12 @@ export default function App() {
                       min: 40, max: Math.max(10000, Math.ceil(drawn)), base,
                       resolve: length => {
                         const next = cloneProject(base);
+                        const ratio = length === Math.round(drawn) ? 1 : length / drawn;
                         const placed = createWall(wall.name.replace(/\(\d+\)$/, "(" + length + ")"),
-                          wall.x1Cm, wall.y1Cm, wall.x1Cm + dx * length / drawn,
-                          wall.y1Cm + dy * length / drawn, wall.flipSide,
+                          wall.x1Cm, wall.y1Cm, wall.x1Cm + dx * ratio,
+                          wall.y1Cm + dy * ratio, wall.flipSide,
                           (next.settings || DEFAULT_PROJECT_SETTINGS).wallHeightCm);
+                        if (hasWallSegment(next.walls, placed)) return null;
                         const oriented = autoOrientWallsOnAdd(next.walls, placed);
                         next.walls.push(oriented);
                         next.activeWallId = oriented.id;
@@ -3640,11 +3633,30 @@ export default function App() {
               <div
                 role="separator"
                 aria-label="تغییر ارتفاع پلان و روبرو"
+                aria-orientation="horizontal" aria-valuemin={32} aria-valuemax={68}
+                aria-valuenow={Math.round(topHeightPct)} tabIndex={0}
                 onPointerDown={(e) => {
+                  const height = workspaceRef.current?.clientHeight ?? 0;
+                  if (e.button !== 0 || !height || splitDrag.current) return;
                   e.preventDefault();
-                  splitDragging.current = true;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  splitDrag.current = { pointerId: e.pointerId, startY: e.clientY, startPercent: topHeightPct, height };
                 }}
-                className="h-2 bg-slate-100 border-y border-slate-300 cursor-row-resize flex items-center justify-center shrink-0 z-20"
+                onPointerMove={(e) => {
+                  const drag = splitDrag.current;
+                  if (!drag || drag.pointerId !== e.pointerId) return;
+                  const percent = drag.startPercent + ((e.clientY - drag.startY) / drag.height) * 100;
+                  setTopHeightPct(Math.max(32, Math.min(68, percent)));
+                }}
+                onLostPointerCapture={() => { splitDrag.current = null; }}
+                onDoubleClick={() => setTopHeightPct(50)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Home') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setTopHeightPct(percent => e.key === 'Home' ? 50 : Math.max(32, Math.min(68, percent + (e.key === 'ArrowUp' ? -4 : 4))));
+                }}
+                className="h-4 touch-none bg-slate-100 border-y border-slate-300 cursor-row-resize flex items-center justify-center shrink-0 z-20 hover:bg-slate-200 focus-visible:outline-indigo-500"
               >
                 <div className="w-11 h-1 rounded-full bg-slate-400" />
               </div>
