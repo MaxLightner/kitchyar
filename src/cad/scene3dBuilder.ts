@@ -777,7 +777,6 @@ export function buildKitchen3DScene(
   }
 
   const stripMaterial = new THREE.MeshBasicMaterial({ color: 0xffe1aa, toneMapped: false });
-  let lightCount = 0;
   for (const wall of project.walls) {
     const v = getWallVectors(wall);
     const tangent = new THREE.Vector3(v.tx, 0, v.ty).normalize();
@@ -919,8 +918,8 @@ export function buildKitchen3DScene(
       strip.position.set(x, y, z);
       wallGrp.add(strip);
 
-      // One direct light per contiguous run, keeping the mobile shader light count bounded.
-      if ((box.offsetX > runEnd + 2 || Math.abs(y - runY) > 0.02) && lightCount < 6) {
+      // One direct light per contiguous run instead of one per cabinet.
+      if (box.offsetX > runEnd + 2 || Math.abs(y - runY) > 0.02) {
         let end = box.offsetX + box.width;
         for (const next of litBoxes) {
           if (next.offsetX <= box.offsetX) continue;
@@ -931,7 +930,6 @@ export function buildKitchen3DScene(
         light.position.set((box.offsetX + end) * CM / 2, y - 0.018, z);
         light.target.position.set(light.position.x, y - 0.54, normalSign * 0.14);
         wallGrp.add(light, light.target);
-        lightCount++;
       }
       runEnd = box.offsetX + box.width;
       runY = y;

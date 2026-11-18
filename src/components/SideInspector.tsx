@@ -14,7 +14,6 @@ import {
   Frame,
   GripVertical,
   Lightbulb,
-  RotateCw,
   Utensils,
   Layers,
   LayoutGrid,

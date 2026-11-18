@@ -3801,6 +3801,10 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     stroke={isAct ? '#4f46e5' : box.type === 'wall-deep' ? '#0284c7' : '#64748b'}
                     strokeWidth={isAct ? 2.2 : 1.5}
                   />
+                  {box.underCabinetLight && (box.type === 'wall' || box.type === 'wall-deep') && (
+                    <line x1={bx + 3} x2={bx + bw - 3} y1={by + bodyH + 2} y2={by + bodyH + 2}
+                      stroke="#e7ac46" strokeWidth={3} strokeLinecap="round" pointerEvents="none" />
+                  )}
                   {/* چهارچوب بدنه واقعی یونیت (قید بالا، کف یونیت بالای پاخور، و دیواره‌های کناری) */}
                   {box.type !== 'fridge' && bodyH > 20 && (
                     <g pointerEvents="none" opacity={doorsHidden ? 0.92 : 0.45}>

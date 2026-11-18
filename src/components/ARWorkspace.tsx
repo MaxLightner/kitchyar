@@ -2296,6 +2296,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
       if (kitchenMountRef.current) disposeObject3D(kitchenMountRef.current);
       builtSceneRef.current = null;
+      disposeObject3D(diningGhost);
+      if (diningGhostRef.current === diningGhost) diningGhostRef.current = null;
       envRT.dispose();
       pmrem.dispose();
       renderer.dispose();
