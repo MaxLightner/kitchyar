@@ -2188,7 +2188,7 @@ export function clearDishRackUnitAboveSink(
  */
 function getSinkUpperCabinet(wall: Wall, x: number, width: number) {
   return wall.boxes.filter(box => (box.type === 'wall' || box.type === 'wall-deep') && !box.linkedToBoxId &&
-    box.offsetX <= x + 0.5 && box.offsetX + box.width >= x + width - 0.5).sort((a, b) => a.elevY - b.elevY)[0];
+    box.offsetX <= x + 0.5 && box.offsetX + box.width >= x + Math.min(width, MIN_LIFT_DOOR_CM) - 0.5).sort((a, b) => a.elevY - b.elevY)[0];
 }
 
 function isDedicatedSinkUpper(box: CabinetBox, sink: ApplianceItem) {
@@ -3585,10 +3585,10 @@ export function moveBoxHierarchically(
         linkedUppers.set(sink.id, upper);
       } else {
         minX = Math.max(minX, upper.offsetX - offset);
-        maxX = Math.min(maxX, upper.offsetX + upper.width - sink.width - offset);
+        maxX = Math.min(maxX, upper.offsetX + upper.width - Math.min(sink.width, MIN_LIFT_DOOR_CM) - offset);
       }
     } else if (upper.id === box.id) {
-      minX = Math.max(minX, sink.offsetX + sink.width - box.width);
+      minX = Math.max(minX, sink.offsetX + Math.min(sink.width, MIN_LIFT_DOOR_CM) - box.width);
       maxX = Math.min(maxX, sink.offsetX);
       sinksBelow.push(sink);
     }
@@ -3732,7 +3732,7 @@ export function getFreeMoveRangeForAppliance(
   if (upper) {
     const range = isDedicatedSinkUpper(upper, app)
       ? getFreeMoveRangeForBox(wall, allWalls, upper, cornerOwners)
-      : { minX: upper.offsetX, maxX: upper.offsetX + upper.width - app.width };
+      : { minX: upper.offsetX, maxX: upper.offsetX + upper.width - Math.min(app.width, MIN_LIFT_DOOR_CM) };
     minX = Math.max(minX, range.minX);
     maxX = Math.min(maxX, range.maxX);
   }

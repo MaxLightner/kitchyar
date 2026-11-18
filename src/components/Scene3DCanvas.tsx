@@ -1469,8 +1469,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         e.stopImmediatePropagation();
         controls.enabled = false;
         if (!surfaceCursorRef.current.begin(e.pointerId, e.clientX, e.clientY)) return;
-        surfaceCursorRef.current.clearTarget();
-        pinSurfaceCursor(e.clientX, e.clientY);
+        if (!surfaceCursorRef.current.point) pinSurfaceCursor(e.clientX, e.clientY);
         try {
           renderer.domElement.setPointerCapture(e.pointerId);
         } catch {}
