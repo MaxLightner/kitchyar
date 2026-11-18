@@ -8,6 +8,11 @@
   "backsplashFinish": "terrazzo-grey",
   "countertopFinish": "concrete-grey",
   "doorStyle": "flat",
-  "handleStyle": "simple",
-  "defaultHoodKind": "hidden"
+  "handleStyle": "handleless",
+  "defaultHoodKind": "hidden",
+  "roughness": {
+    "cabinet": 0.57,
+    "countertop": 0.53,
+    "backsplash": 0.47
+  }
 }

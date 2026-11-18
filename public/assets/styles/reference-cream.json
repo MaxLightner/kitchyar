@@ -10,6 +10,11 @@
   "backsplashFinish": "calacatta-marble",
   "countertopFinish": "oak-butcher",
   "doorStyle": "flat",
-  "handleStyle": "hidden",
-  "defaultHoodKind": "hidden"
+  "handleStyle": "f-profile",
+  "defaultHoodKind": "hidden",
+  "roughness": {
+    "cabinet": 0.36,
+    "countertop": 0.42,
+    "backsplash": 0.23
+  }
 }

@@ -1,3 +1,4 @@
+import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useState } from 'react';
 import { Check, Sparkles, X } from 'lucide-react';
 import { DOOR_STYLE_META } from '../cad/constants';
@@ -57,7 +58,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
             <div>
               <h2 className="text-sm font-black text-slate-900">استخراج استایل و رنگ از عکس نمونه</h2>
               <p className="text-[13px] text-slate-500">
-                ابتدا یک عکس را انتخاب کنید، سپس دکمه «اعمال» پایین پنجره را بزنید تا متریال، سبک درب، دستگیره و هود اعمال شود
+                عکس را انتخاب کنید و «اعمال» را بزنید تا رنگ، میزان ماتی و دستگیره‌های استایل روی کابینت‌ها اعمال شوند.
               </p>
             </div>
           </div>
@@ -115,11 +116,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
                       </span>
                       <span className="px-1.5 py-0.5 rounded bg-slate-100">
                         دستگیره:{' '}
-                        {preset.handleStyle === 'hidden'
-                          ? 'مخفی'
-                          : preset.handleStyle === 'knob'
-                          ? 'قارچی'
-                          : 'ساده'}
+                        {HANDLE_STYLES.find(style => style.id === preset.handleStyle)?.label}
                       </span>
                       <span className="px-1.5 py-0.5 rounded bg-slate-100">
                         هود: {preset.defaultHoodKind === 'chimney' ? 'اکسپوز' : 'مخفی'}

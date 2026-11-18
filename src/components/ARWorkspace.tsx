@@ -1,3 +1,5 @@
+import { findFrontCut } from '../cad/frontCut';
+import type { FloorFurnitureKind } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import { NumberPadDialog } from './NumberPadDialog';
 import { DoorTapSequence } from '../utils/doorTapSequence';
@@ -161,6 +163,7 @@ export type ArToolId =
   | 'dining'
   | 'opening'
   | 'doors'
+  | 'front-cut'
   | 'hardware'
   | 'door-style'
   | 'finish'
@@ -174,6 +177,7 @@ export type ArToolId =
 function isArDetailTool(t: ArToolId): boolean {
   return (
     t === 'doors' ||
+    t === 'front-cut' ||
     t === 'hardware' ||
     t === 'door-style' ||
     t === 'finish' ||
@@ -188,6 +192,10 @@ function isArDetailTool(t: ArToolId): boolean {
 
 interface ARWorkspaceProps {
   diningSeats: DiningSeats;
+  furnitureKind: FloorFurnitureKind;
+  frontCutOrient: Orientation;
+  onFrontCutOrient: (orientation: Orientation) => void;
+  onFrontCut: (wallId: string, boxId: string, x: number, y: number) => void;
   diningRotation: number;
   onPlaceDining: (x: number, y: number) => void;
   onSelectDining: (id: string | null) => void;
@@ -597,7 +605,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   sharedTool,
   onSessionEnded,
   dialogOpen = false,
-  diningSeats, diningRotation, onPlaceDining, onSelectDining, onDeleteDining,
+  diningSeats, diningRotation, furnitureKind, frontCutOrient, onFrontCutOrient, onFrontCut, onPlaceDining, onSelectDining, onDeleteDining,
   onFloorConfirmed,
   wideViewModeExternal,
   onWideViewModeChange,
@@ -650,7 +658,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const lastHoverCoordsRef = useRef<{ x: number; y: number } | null>(null);
 
   const propsRef = useRef({
-    diningSeats, diningRotation, onPlaceDining, onSelectDining, onDeleteDining,
+    diningSeats, diningRotation, furnitureKind, frontCutOrient, onFrontCutOrient, onFrontCut, onPlaceDining, onSelectDining, onDeleteDining,
     onUpdateProject,
     onBeginDrag,
     onResizeCabinet,
@@ -711,7 +719,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onConfirmHiddenHandle,
   });
   propsRef.current = {
-    diningSeats, diningRotation, onPlaceDining, onSelectDining, onDeleteDining,
+    diningSeats, diningRotation, furnitureKind, frontCutOrient, onFrontCutOrient, onFrontCut, onPlaceDining, onSelectDining, onDeleteDining,
     onUpdateProject,
     onBeginDrag,
     onResizeCabinet,
@@ -943,7 +951,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       powerPreference: 'high-performance',
     });
     const isSoftware = detectSoftwareWebGL(renderer.getContext());
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isSoftware ? 1 : 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isSoftware ? 1 : 1.25));
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -962,6 +970,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const disposeEnvironment = loadKitchenEnvironment(renderer, target => {
       scene.environment = target.texture;
+      renderOnceRef.current();
     });
     scene.environmentIntensity = 0.9;
 
@@ -1049,7 +1058,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     diningGhost.visible = false;
     floorGroup.add(diningGhost);
     diningGhostRef.current = diningGhost;
-    let lastDiningSeats: DiningSeats | null = null;
+    let lastFurnitureKey = '';
 
     const handleGhostGroup = new THREE.Group();
     handleGhostGroup.renderOrder = 14;
@@ -1148,7 +1157,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const ctrlChanged = controls.update();
       updateSurfaceCursorMarker(surfaceMarker,surfaceCursorRef.current);
       renderer.render(scene, camera);
-      if (doorsMoving || ctrlChanged) {
+      if (rafId === null && (doorsMoving || ctrlChanged)) {
         rafId = requestAnimationFrame(renderPreview);
       }
     };
@@ -1353,13 +1362,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       const choices = propsRef.current;
       if (tool === 'dining') {
-        if (lastDiningSeats !== choices.diningSeats) {
+        const furnitureKey = choices.furnitureKind + ':' + choices.diningSeats;
+        if (lastFurnitureKey !== furnitureKey) {
           for (const child of [...diningGhost.children]) {
             diningGhost.remove(child);
             disposeObject3D(child);
           }
-          diningGhost.add(buildDiningFootprint3D(choices.diningSeats));
-          lastDiningSeats = choices.diningSeats;
+          diningGhost.add(buildDiningFootprint3D(choices.diningSeats, choices.furnitureKind));
+          lastFurnitureKey = furnitureKey;
         }
         const model = floorLocalToModelXZ(localPt);
         const { xCm, yCm } = snapDiningPosition(model.x * 100, model.z * 100);
@@ -1400,6 +1410,23 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const hitYCm = modelPt.y * 100;
         const localX = Math.max(0, Math.min(box.width, hitXCm - box.offsetX));
         const v = getWallVectors(wall);
+
+        if (tool === 'front-cut') {
+          const zones = getCornerBlockedZonesForWall(wall, projectRef.current.walls, projectRef.current.cornerOwners);
+          const cut = findFrontCut(wall, box, choices.frontCutOrient, hitXCm, hitYCm, zones);
+          if (!cut) return { status: 'invalid' };
+          const vertical = cut.orientation === 'vertical';
+          const x = vertical ? cut.at : (cut.x1 + cut.x2) / 2;
+          const y = vertical ? (cut.y1 + cut.y2) / 2 : cut.at;
+          const p = mount.localToWorld(tr.origin.clone().addScaledVector(tr.tangent, x / 100)
+            .addScaledVector(tr.normal, (box.depth + 2) / 100).setY(y / 100));
+          placement.position.copy(floorGroup.worldToLocal(p));
+          placement.rotation.y = -Math.atan2(v.ty, v.tx) + al.yaw;
+          placement.scale.set((vertical ? 0.005 : (cut.x2 - cut.x1) / 100) * al.scale,
+            (vertical ? (cut.y2 - cut.y1) / 100 : 0.005) * al.scale, 0.012 * al.scale);
+          placement.visible = true;
+          return { status: 'valid' };
+        }
 
         if (tool === 'handle') {
           const door =
@@ -2326,7 +2353,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const ghostRes = floor ? updateArGhostRef.current(floor, pt.x, pt.y) : { status: 'invalid' as const };
       setCursorPreview({ x: pt.x, y: pt.y, status: ghostRes.status, sweepWidthCm: ghostRes.sweepWidthCm, previewDoorWidths: ghostRes.previewDoorWidths });
     }
-  }, [active, arTool, fridgeModel, sinkModel, gasWidth, applianceKind, openingKind, handleStyle, handleOrient, doorOrient, doorVertCount, drawerPatIdx, liftPatIdx, hardwareBrush, doorStyleBrush, cabinetFinishBrush, frameWidthCm, shelfOrient, shelfCount, diningSeats, diningRotation]);
+  }, [active, arTool, fridgeModel, sinkModel, gasWidth, applianceKind, openingKind, handleStyle, handleOrient, doorOrient, doorVertCount, drawerPatIdx, liftPatIdx, hardwareBrush, doorStyleBrush, cabinetFinishBrush, frameWidthCm, shelfOrient, shelfCount, diningSeats, diningRotation, furnitureKind, frontCutOrient]);
 
   useEffect(() => {
     if (kitchenMountRef.current) kitchenMountRef.current.visible = !hideKitchen;
@@ -2711,6 +2738,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const built = builtSceneRef.current;
     const choices = propsRef.current;
     const toolNow = arToolRef.current;
+
+    if (toolNow === 'front-cut') {
+      const transform = picked && built?.wallTransforms.get(picked.data.wallId);
+      if (picked?.data.boxId && transform && mount) {
+        const pt = mount.worldToLocal(picked.point.clone());
+        const x = pt.clone().sub(transform.origin).dot(transform.tangent) * 100;
+        choices.onFrontCut(picked.data.wallId, picked.data.boxId, x, pt.y * 100);
+      } else choices.onFrontCutOrient(choices.frontCutOrient === 'vertical' ? 'horizontal' : 'vertical');
+      return;
+    }
 
     if (!picked || !mount || !built) {
       if (toolNow === 'handle') {
@@ -3489,9 +3526,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               wideRenderer.domElement.height !== Math.round(height * wideRenderer.getPixelRatio())) {
             wideRenderer.setSize(width, height, false);
           }
-          wideCamera.aspect = width / height;
-          wideCamera.fov = wideViewVerticalFov(wideViewModeRef.current, wideCamera.aspect);
-          wideCamera.updateProjectionMatrix();
+          const aspect = width / height;
+          const fov = wideViewVerticalFov(wideViewModeRef.current, aspect);
+          if (wideCamera.aspect !== aspect || wideCamera.fov !== fov) {
+            wideCamera.aspect = aspect;
+            wideCamera.fov = fov;
+            wideCamera.updateProjectionMatrix();
+          }
           wideCamera.updateMatrixWorld(true);
           try {
             const wideScene = sceneRef.current;
@@ -3555,7 +3596,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const parent = containerRef.current;
     if (!embeddedIn3D || !xrActive || !floorLocked || wideViewMode === 'normal' || !parent) return;
     const wideRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
-    wideRenderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
+    wideRenderer.setPixelRatio(Math.min(1.25, window.devicePixelRatio || 1));
     wideRenderer.setClearColor(0xf3f4f6, 1);
     wideRenderer.outputColorSpace = THREE.SRGBColorSpace;
     const arRenderer = rendererRef.current;

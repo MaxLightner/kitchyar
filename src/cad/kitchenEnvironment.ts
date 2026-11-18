@@ -26,24 +26,27 @@ function bakeFallbackEnvironment(pmrem: THREE.PMREMGenerator) {
 
 export function loadKitchenEnvironment(
   renderer: THREE.WebGLRenderer,
-  apply: (target: THREE.WebGLRenderTarget) => void,
+  apply: (target: THREE.WebGLRenderTarget, source?: THREE.Texture) => void,
 ) {
   const pmrem = new THREE.PMREMGenerator(renderer);
   let active: THREE.WebGLRenderTarget | null = bakeFallbackEnvironment(pmrem);
+  let source: THREE.Texture | null = null;
   apply(active);
-  new HDRLoader().load('./assets/materials/kitchen-studio.hdr', hdr => {
+  new HDRLoader().load(import.meta.env.BASE_URL + 'assets/materials/kitchen-studio.hdr', hdr => {
     if (active) {
       const previous = active;
+      hdr.mapping = THREE.EquirectangularReflectionMapping;
       active = pmrem.fromEquirectangular(hdr);
-      apply(active);
+      source = hdr;
+      apply(active, source);
       previous.dispose();
-    }
-    hdr.dispose();
+    } else hdr.dispose();
   }, undefined, () => {
     // Keep the window-light fallback if the HDR image is unavailable.
   });
   return () => {
     active?.dispose();
+    source?.dispose();
     active = null;
     pmrem.dispose();
   };

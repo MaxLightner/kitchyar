@@ -1,4 +1,4 @@
-import { CABINET_FINISHES } from './constants';
+import { CABINET_FINISHES, DEFAULT_PROJECT_SETTINGS } from './constants';
 import { applyHandlesToBoxDoors, clearHoodUnitForGas, createEmptyBox, syncHoodUnitAboveGas, uid } from './doorRules';
 import {
   BacksplashFinishId,
@@ -25,6 +25,7 @@ export interface KitchenStylePreset {
   doorStyle: DoorStyle;
   handleStyle: HandleStyle;
   defaultHoodKind: 'chimney' | 'hidden';
+  roughness?: { cabinet: number; countertop: number; backsplash: number };
   twoTierWallCabinets?: boolean;
 }
 
@@ -42,7 +43,8 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     backsplashFinish: 'calacatta-marble',
     countertopFinish: 'oak-butcher',
     doorStyle: 'flat',
-    handleStyle: 'hidden',
+    handleStyle: 'f-profile',
+    roughness: { cabinet: 0.36, countertop: 0.42, backsplash: 0.23 },
     defaultHoodKind: 'hidden',
   },
   {
@@ -56,6 +58,7 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     countertopFinish: 'calacatta-top',
     doorStyle: 'cnc',
     handleStyle: 'simple',
+    roughness: { cabinet: 0.47, countertop: 0.22, backsplash: 0.23 },
     defaultHoodKind: 'chimney',
   },
   {
@@ -68,7 +71,8 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     backsplashFinish: 'warm-travertine',
     countertopFinish: 'oak-butcher',
     doorStyle: 'cnc',
-    handleStyle: 'hidden',
+    handleStyle: 'f-profile',
+    roughness: { cabinet: 0.52, countertop: 0.42, backsplash: 0.55 },
     defaultHoodKind: 'chimney',
   },
   {
@@ -82,6 +86,7 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     countertopFinish: 'calacatta-top',
     doorStyle: 'flat',
     handleStyle: 'simple',
+    roughness: { cabinet: 0.52, countertop: 0.24, backsplash: 0.42 },
     defaultHoodKind: 'chimney',
   },
   {
@@ -94,7 +99,8 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     backsplashFinish: 'warm-travertine',
     countertopFinish: 'calacatta-top',
     doorStyle: 'flat',
-    handleStyle: 'hidden',
+    handleStyle: 'f-profile',
+    roughness: { cabinet: 0.56, countertop: 0.26, backsplash: 0.53 },
     defaultHoodKind: 'hidden',
   },
   {
@@ -107,7 +113,8 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     backsplashFinish: 'terrazzo-grey',
     countertopFinish: 'concrete-grey',
     doorStyle: 'flat',
-    handleStyle: 'simple',
+    handleStyle: 'handleless',
+    roughness: { cabinet: 0.57, countertop: 0.53, backsplash: 0.47 },
     defaultHoodKind: 'hidden',
   },
   {
@@ -121,6 +128,7 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     countertopFinish: 'calacatta-top',
     doorStyle: 'cnc',
     handleStyle: 'simple',
+    roughness: { cabinet: 0.25, countertop: 0.2, backsplash: 0.19 },
     defaultHoodKind: 'chimney',
   },
   {
@@ -136,7 +144,8 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     backsplashFinish: 'herringbone-charcoal',
     countertopFinish: 'dark-quartz',
     doorStyle: 'flat',
-    handleStyle: 'hidden',
+    handleStyle: 'f-profile',
+    roughness: { cabinet: 0.42, countertop: 0.31, backsplash: 0.28 },
     defaultHoodKind: 'hidden',
   },
   {
@@ -150,6 +159,7 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     countertopFinish: 'calacatta-top',
     doorStyle: 'cnc',
     handleStyle: 'knob',
+    roughness: { cabinet: 0.48, countertop: 0.28, backsplash: 0.51 },
     defaultHoodKind: 'chimney',
   },
 ];
@@ -218,7 +228,13 @@ export function applyKitchenStylePreset(
   next.backsplashFinish = preset.backsplashFinish;
   next.countertopFinish = preset.countertopFinish;
   next.skipStylePrompt = true;
-  if (applyCabinetModel && next.settings) {
+  next.settings = { ...DEFAULT_PROJECT_SETTINGS, ...next.settings };
+  if (preset.roughness) {
+    next.settings.cabinetRoughness = preset.roughness.cabinet;
+    next.settings.countertopRoughness = preset.roughness.countertop;
+    next.settings.backsplashRoughness = preset.roughness.backsplash;
+  }
+  if (applyCabinetModel) {
     next.settings.defaultHoodKind = preset.defaultHoodKind;
   }
 
@@ -251,19 +267,14 @@ export function applyKitchenStylePreset(
           }
         }
       }
-      const withoutHandles = box.doors.filter(door => !box.handles.some(handle => handle.doorId === door.id));
-      if (withoutHandles.length) applyHandlesToBoxDoors(box, withoutHandles.map(door => door.id), preset.handleStyle,
-        preset.handleStyle === 'hidden' ? 'horizontal' : 'vertical');
-      for (const handle of box.handles) {
-        handle.style = preset.handleStyle;
-        if (handle.style === 'hidden') {
-          const door = box.doors.find(item => item.id === handle.doorId);
-          if (door && (box.type === 'base' || box.type === 'wall' || box.type === 'wall-deep' || door.kind === 'drawer')) {
-            handle.orient = 'horizontal';
-          }
-        }
-        handle.lengthCm = handle.style === 'hidden' ? 14 : handle.style === 'knob' ? 3.6 : handle.style === 'tab' ? 9 : 16;
-      }
+      const profile = preset.handleStyle === 'f-profile' || preset.handleStyle === 'hidden';
+      const horizontal = box.doors.filter(door => door.kind === 'drawer' || door.kind === 'lift' ||
+        (profile && door.hardwareKind !== 'pantry-pullout' && box.type !== 'tall' && box.type !== 'closet'));
+      const horizontalIds = new Set(horizontal.map(door => door.id));
+      applyHandlesToBoxDoors(box, [...horizontalIds], preset.handleStyle, 'horizontal');
+      applyHandlesToBoxDoors(box, box.doors.filter(door => !horizontalIds.has(door.id)).map(door => door.id),
+        preset.handleStyle, 'vertical');
+
     }
     if (!applyCabinetModel) continue;
     for (const app of wall.appliances) {

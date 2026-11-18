@@ -1,52 +1,87 @@
 import * as THREE from 'three';
+import type { ProjectState } from './types';
 
-/** Capture nearby virtual surfaces once per settled edit. The XR camera feed is not sampled. */
+export function kitchenReflectionKey(project: ProjectState) {
+  return JSON.stringify([project.walls, project.columns, project.diningSets, project.doorsHidden,
+    project.cabinetFinish, project.cabinetTexture, project.countertopFinish, project.backsplashFinish, project.settings]);
+}
+
+/** Capture virtual objects at rest. Camera motion and selection do not rebuild the environment. */
 export function createCabinetReflectionProbe(renderer: THREE.WebGLRenderer, scene: THREE.Scene, onReady: () => void) {
-  const target = new THREE.WebGLCubeRenderTarget(64, {
-    type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter,
-  });
-  const camera = new THREE.CubeCamera(0.12, 28, target);
+  const target = new THREE.WebGLCubeRenderTarget(64, { type: THREE.HalfFloatType, depthBuffer: true });
+  const camera = new THREE.CubeCamera(0.12, 24, target);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let current: { root: THREE.Object3D; position: THREE.Vector3; key: string } | undefined;
+  let sky: THREE.Texture | undefined;
+  let capturedKey: string | undefined;
 
-  const materialsFor = (root: THREE.Object3D) => {
-    const mats = new Set<THREE.MeshStandardMaterial>();
+  const apply = (root: THREE.Object3D, map: THREE.Texture | null) => {
     root.traverse(node => {
       if (!(node instanceof THREE.Mesh)) return;
-      for (const mat of Array.isArray(node.material) ? node.material : [node.material]) {
-        if (mat.userData.sceneReflection && mat.envMapIntensity > 0) mats.add(mat as THREE.MeshStandardMaterial);
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+        if (!(material instanceof THREE.MeshStandardMaterial) || !material.userData.sceneReflection ||
+            material.envMap === map) continue;
+        material.envMap = map;
+        material.needsUpdate = true;
       }
     });
-    return mats;
+  };
+
+  const queue = () => {
+    clearTimeout(timer);
+    if (!current || current.key === capturedKey) return;
+    timer = setTimeout(() => {
+      if (!current || renderer.xr.isPresenting || !current.root.parent) return;
+      const { root, position, key } = current;
+      const objects = new Set<THREE.Object3D>();
+      root.traverse(node => objects.add(node));
+      const hidden: THREE.Object3D[] = [];
+      scene.traverseVisible(node => {
+        if ((node instanceof THREE.Mesh && !objects.has(node)) || node instanceof THREE.Line || node instanceof THREE.Sprite) {
+          hidden.push(node);
+          node.visible = false;
+        }
+      });
+      const background = scene.background;
+      const fog = scene.fog;
+      const previousTarget = renderer.getRenderTarget();
+      const xrEnabled = renderer.xr.enabled;
+      const shadowRefresh = renderer.shadowMap.needsUpdate;
+      try {
+        // Keep the HDR highlights behind objects in the probe. Avoid sampling the probe during capture.
+        scene.background = sky ?? background;
+        scene.fog = null;
+        renderer.shadowMap.needsUpdate = false;
+        apply(root, null);
+        camera.position.copy(position);
+        camera.update(renderer, scene);
+        capturedKey = key;
+      } catch {
+        // Keep the studio environment on devices without a renderable cubemap.
+        capturedKey = undefined;
+      } finally {
+        scene.background = background;
+        scene.fog = fog;
+        renderer.setRenderTarget(previousTarget);
+        renderer.xr.enabled = xrEnabled;
+        renderer.shadowMap.needsUpdate = shadowRefresh;
+        for (const node of hidden) node.visible = true;
+        apply(root, capturedKey === undefined ? null : target.texture);
+      }
+      onReady();
+    }, 420);
   };
 
   return {
-    schedule(root: THREE.Object3D, position: THREE.Vector3) {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (!root.parent || !root.visible || renderer.xr.isPresenting) return;
-        const mats = materialsFor(root);
-        if (!mats.size) return;
-        const maps = new Map([...mats].map(mat => [mat, mat.envMap]));
-        camera.position.copy(position);
-        let captured = false;
-        const oldTarget = renderer.getRenderTarget();
-        const xrEnabled = renderer.xr.enabled;
-        try {
-          for (const mat of mats) { mat.envMap = null; mat.needsUpdate = true; }
-          camera.update(renderer, scene);
-          captured = true;
-        } catch {
-          // Drivers without a usable cubemap framebuffer retain the studio environment.
-        } finally {
-          renderer.setRenderTarget(oldTarget);
-          renderer.xr.enabled = xrEnabled;
-          for (const mat of mats) {
-            mat.envMap = captured ? target.texture : maps.get(mat) ?? null;
-            mat.needsUpdate = true;
-          }
-        }
-        onReady();
-      }, 320);
+    schedule(root: THREE.Object3D, position: THREE.Vector3, key: string) {
+      current = { root, position, key };
+      if (capturedKey !== undefined) apply(root, target.texture);
+      queue();
+    },
+    setSky(source: THREE.Texture) {
+      sky = source;
+      capturedKey = undefined;
+      queue();
     },
     dispose() { clearTimeout(timer); target.dispose(); },
   };

@@ -8,6 +8,11 @@
   "backsplashFinish": "warm-travertine",
   "countertopFinish": "oak-butcher",
   "doorStyle": "cnc",
-  "handleStyle": "hidden",
-  "defaultHoodKind": "chimney"
+  "handleStyle": "f-profile",
+  "defaultHoodKind": "chimney",
+  "roughness": {
+    "cabinet": 0.52,
+    "countertop": 0.42,
+    "backsplash": 0.55
+  }
 }

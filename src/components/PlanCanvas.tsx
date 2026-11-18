@@ -1,5 +1,6 @@
 import { diningLayout, snapDiningPosition } from '../cad/diningLayout';
-import type { DiningSet, DiningSeats } from '../cad/types';
+import type { DiningSeats, FloorFurniture, FloorFurnitureKind } from '../cad/types';
+import { TV_SET_DEPTH_CM, TV_SET_WIDTH_CM } from '../cad/dining3d';
 import { isPlanPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
 import { cabinetStarterSegment, previewCabinetRow, resolveCabinetPlacement, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { snapWallEndpoint } from '../cad/wallSnap';
@@ -55,13 +56,19 @@ const emptyCabSweep = {
 };
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
 
-function DiningPlanSymbol({ item, scale, selected, ghost }: { item: DiningSet; scale: number; selected?: boolean; ghost?: boolean }) {
-  const design = diningLayout(item.seats);
+function DiningPlanSymbol({ item, scale, selected, ghost }: { item: FloorFurniture; scale: number; selected?: boolean; ghost?: boolean }) {
+  const design = item.kind === 'tv' ? null : diningLayout(item.seats);
   const line = ghost ? '#059669' : selected ? '#4338ca' : '#795d47';
   return (
     <g data-dining-id={ghost ? undefined : item.id} opacity={ghost ? 0.62 : 1}
       pointerEvents={ghost ? 'none' : undefined}
       transform={`translate(${item.xCm * scale} ${item.yCm * scale}) rotate(${item.rotation}) scale(${scale})`}>
+      {item.kind === 'tv' ? <>
+        <rect x={-TV_SET_WIDTH_CM / 2} y={-TV_SET_DEPTH_CM / 2} width={TV_SET_WIDTH_CM} height={TV_SET_DEPTH_CM}
+          rx={3} fill="#d6b38c" stroke={line} strokeWidth={selected ? 3 : 1.8} />
+        <path d="M -67 -4 H 67" stroke="#1e293b" strokeWidth={6} strokeLinecap="round" />
+        <text y={13} textAnchor="middle" fill="#4c392d" fontSize={12}>تلویزیون</text>
+      </> : design && <>
       {design.chairs.map((chair, i) => (
         <g key={i} transform={`translate(${chair.x} ${chair.z}) rotate(${-chair.yaw * 180 / Math.PI})`}>
           <rect x={-22} y={-22} width={44} height={42} rx={9} fill="#a9b09a" stroke={line} strokeWidth={1.5} />
@@ -73,14 +80,16 @@ function DiningPlanSymbol({ item, scale, selected, ghost }: { item: DiningSet; s
       <text y={4} textAnchor="middle" fill="#4c392d" fontSize={12} fontWeight={700}>
         {item.seats.toLocaleString('fa-IR')} نفره
       </text>
+      </>}
     </g>
   );
 }
 
 interface PlanCanvasProps {
-  diningSets: DiningSet[];
+  diningSets: FloorFurniture[];
   selectedDiningId?: string | null;
   diningSeats: DiningSeats;
+  furnitureKind: FloorFurnitureKind;
   diningRotation: number;
   onPlaceDining: (x: number, y: number) => void;
   onMoveDining: (id: string, x: number, y: number, commit: boolean) => void;
@@ -182,7 +191,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   settings,
   walls,
   columns = [],
-  diningSets, selectedDiningId, diningSeats, diningRotation,
+  diningSets, selectedDiningId, diningSeats, diningRotation, furnitureKind,
   onPlaceDining, onMoveDining, onSelectDining, onDeleteDining,
   cornerOwners,
   activeWallId,
@@ -2268,7 +2277,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         {diningSets.map(item => <DiningPlanSymbol key={item.id} item={item} scale={s} selected={selectedDiningId === item.id} />)}
         {tool === 'dining' && planHoverFloorCm && (!touchPointerMode.current || touchTarget) && (
           <DiningPlanSymbol ghost scale={s}
-            item={{ id: '', xCm: planHoverFloorCm.x, yCm: planHoverFloorCm.y, rotation: diningRotation, seats: diningSeats }} />
+            item={{ id: '', xCm: planHoverFloorCm.x, yCm: planHoverFloorCm.y, rotation: diningRotation,
+                ...(furnitureKind === 'tv' ? { kind: 'tv' as const } : { seats: diningSeats }) }} />
         )}
 
         {columns.map((col) => {

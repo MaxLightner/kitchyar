@@ -25,10 +25,10 @@ import {
   isDividerNearBlockedCorner,
   isDoorAdjacentToInsideCorner,
 } from './doorRules';
-import { buildDining3D, createDiningMaterials } from './dining3d';
+import { buildDining3D, buildTelevisionSet3D, createDiningMaterials } from './dining3d';
 import { readSurfaceFinish } from './surfaceFinish';
 import { getWallColumnSpans } from './openingRules';
-import { createKitchenMaterialPack, KitchenMaterialPack } from './materials3d';
+import { createKitchenMaterialPack, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
 import { deriveFloorPolygon } from './floorPolygon';
 import { computeDoorHandleSpots } from './handleSpots';
 import {
@@ -65,6 +65,7 @@ export interface Scene3DHitData {
     | 'opening'
     | 'column'
     | 'dining'
+    | 'under-cabinet-light'
     | 'box-handle'
     | 'drawer-resize-handle'
     | 'door-seam-handle';
@@ -77,6 +78,7 @@ export interface Scene3DHitData {
   openingId?: string;
   columnId?: string;
   diningId?: string;
+  lightBoxIds?: string[];
   frameId?: string;
   shelfId?: string;
   handleId?: string;
@@ -206,13 +208,14 @@ export function disposeObject3D(root: THREE.Object3D): void {
         const std = m as THREE.MeshStandardMaterial;
         if (std.map) textures.add(std.map);
         if (std.roughnessMap) textures.add(std.roughnessMap);
+        if (std.bumpMap) textures.add(std.bumpMap);
         if (std.normalMap) textures.add(std.normalMap);
       }
     }
   });
 
   geometries.forEach((g) => g.dispose());
-  textures.forEach((t) => t.dispose());
+  textures.forEach(t => { if (!isSharedKitchenTexture(t)) t.dispose(); });
   materials.forEach((m) => m.dispose());
 }
 
@@ -277,7 +280,7 @@ export function buildHandleMesh(
   yRatio = 0.5
 ): THREE.Object3D {
   const grp = new THREE.Group();
-  const frontOutZ = normalSign * (thick * 0.5 + 0.008);
+  if (style === 'handleless') return grp;
 
   if (style === 'knob') {
     // True half-sphere mushroom/button knob spaced ~1.5cm off the door surface on a narrow neck stem
@@ -299,6 +302,22 @@ export function buildHandleMesh(
 
   const lenM = fitHandleLengthCm(style, orient, lengthCm, w / CM, h / CM, xRatio, yRatio) * CM;
   const vertical = orient === 'vertical';
+  if (style === 'f-profile') {
+    const edge = (vertical ? xRatio : 1 - yRatio) >= 0.5 ? 1 : -1;
+    const cross = vertical ? w : h;
+    const anchor = vertical ? (xRatio - 0.5) * w : (0.5 - yRatio) * h;
+    const along = vertical ? (yRatio - 0.5) * h : (0.5 - xRatio) * w;
+    const rail = (width: number, offset: number, depth: number, z: number, material: THREE.Material) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(vertical ? width : lenM, vertical ? lenM : width, depth), material);
+      const center = edge * (cross / 2 - offset) - anchor;
+      mesh.position.set(vertical ? center : along, vertical ? along : center, normalSign * z);
+      grp.add(mesh);
+    };
+    rail(0.025, 0.0125, 0.006, thick / 2 - 0.004, matHiddenTrim);
+    rail(0.004, 0.003, 0.010, thick / 2, matDarkChrome);
+    rail(0.003, 0.023, 0.004, thick / 2 - 0.002, matDarkChrome);
+    return grp;
+  }
   if (style === 'hidden' || style === 'tab') {
     const width = vertical ? 0.012 : lenM;
     const height = vertical ? lenM : 0.012;
@@ -411,7 +430,7 @@ export function attachSelectedHandlePreviews(
         });
         const preview = buildHandleMesh(
           handle.style, handle.orient, handle.lengthCm || 16,
-          size.width, size.height, 0.018, normalSign, material, material
+          size.width, size.height, 0.018, normalSign, material, material, handle.xRatio, handle.yRatio
         );
         preview.position.set(
           (handle.xRatio - 0.5) * size.width,
@@ -775,7 +794,7 @@ export function buildKitchen3DScene(
     }
   }
 
-  const stripMaterial = new THREE.MeshBasicMaterial({ color: 0xffe1aa, toneMapped: false });
+  const stripMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(3.1, 2.35, 1.54), toneMapped: false });
   for (const wall of project.walls) {
     const v = getWallVectors(wall);
     const tangent = new THREE.Vector3(v.tx, 0, v.ty).normalize();
@@ -904,34 +923,36 @@ export function buildKitchen3DScene(
 
     const blockedZones = getCornerBlockedZonesForWall(wall, project.walls, project.cornerOwners);
 
-    const litBoxes = wall.boxes.filter(b => b.underCabinetLight && (b.type === 'wall' || b.type === 'wall-deep'))
-      .sort((a, b) => a.offsetX - b.offsetX);
-    let runEnd = -Infinity;
-    let runY = -Infinity;
-    for (const box of litBoxes) {
-      const length = Math.max(0.08, box.width * CM - 0.05);
-      const y = box.elevY * CM - 0.007;
-      const x = (box.offsetX + box.width / 2) * CM;
-      const z = normalSign * Math.max(0.04, box.depth * CM - 0.06);
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(length, 0.008, 0.012), stripMaterial);
+    const uppers = wall.boxes.filter(b => b.type === 'wall' || b.type === 'wall-deep')
+      .sort((a, b) => a.elevY - b.elevY || a.depth - b.depth || a.offsetX - b.offsetX);
+    const runs: Array<{ start: number; end: number; elevation: number; depth: number; lit: boolean; boxIds: string[] }> = [];
+    for (const box of uppers) {
+      const previous = runs.at(-1);
+      const lit = Boolean(box.underCabinetLight);
+      if (previous && previous.lit === lit && Math.abs(previous.elevation - box.elevY) < 1 &&
+          Math.abs(previous.depth - box.depth) < 1 && box.offsetX <= previous.end + 1) {
+        previous.end = Math.max(previous.end, box.offsetX + box.width);
+        previous.boxIds.push(box.id);
+      } else runs.push({ start: box.offsetX, end: box.offsetX + box.width, elevation: box.elevY, depth: box.depth, lit, boxIds: [box.id] });
+    }
+    for (const run of runs) {
+      const length = Math.max(0.08, (run.end - run.start) * CM - 0.025);
+      const y = run.elevation * CM - 0.009;
+      const x = (run.start + run.end) * CM / 2;
+      const z = normalSign * Math.max(0.05, run.depth * CM - 0.047);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(length, 0.015, 0.028), run.lit ? stripMaterial : matHiddenTrim);
       strip.position.set(x, y, z);
+      strip.userData = { kind: 'under-cabinet-light', wallId: wall.id, lightBoxIds: run.boxIds } satisfies Scene3DHitData;
       wallGrp.add(strip);
-
-      // One direct light per contiguous run instead of one per cabinet.
-      if (box.offsetX > runEnd + 2 || Math.abs(y - runY) > 0.02) {
-        let end = box.offsetX + box.width;
-        for (const next of litBoxes) {
-          if (next.offsetX <= box.offsetX) continue;
-          if (next.offsetX > end + 2 || Math.abs(next.elevY - box.elevY) > 2) break;
-          end = next.offsetX + next.width;
-        }
-        const light = new THREE.SpotLight(0xffd6a1, Math.min(33, 14 + (end - box.offsetX) * 0.09), 1.35, 1.12, 0.72, 2);
-        light.position.set((box.offsetX + end) * CM / 2, y - 0.018, z);
-        light.target.position.set(light.position.x, y - 0.54, normalSign * 0.14);
+      interactables.push(strip);
+      if (!run.lit) continue;
+      const count = Math.min(3, Math.ceil(length / 1.25));
+      for (let i = 0; i < count; i++) {
+        const light = new THREE.SpotLight(0xffdfb6, Math.min(50, 22 + length * 9 / count), 1.8, 1.1, 0.85, 2);
+        light.position.set(x + length * ((i + 0.5) / count - 0.5), y - 0.025, z);
+        light.target.position.set(light.position.x, y - 0.57, normalSign * 0.10);
         wallGrp.add(light, light.target);
       }
-      runEnd = box.offsetX + box.width;
-      runY = y;
     }
 
     // Render all Cabinet Boxes on this wall
@@ -1032,7 +1053,8 @@ export function buildKitchen3DScene(
   if (diningSets.length) {
     const diningMaterials = createDiningMaterials(opts.onTextureReady);
     for (const item of diningSets) {
-      const set = buildDining3D(item.seats, diningMaterials);
+      const set = item.kind === 'tv' ? buildTelevisionSet3D(diningMaterials.wood, matHiddenTrim, matGlassCooktop)
+        : buildDining3D(item.seats, diningMaterials);
       set.position.set(item.xCm * CM, 0, item.yCm * CM);
       set.rotation.y = -item.rotation * Math.PI / 180;
       const hit: Scene3DHitData = { kind: 'dining', wallId: '', diningId: item.id };
@@ -2100,9 +2122,19 @@ function buildDoor3D(ctx: {
     doorId: door.id,
   };
 
-  const makePanelMesh = (pw: number, ph: number, cx: number, cy: number, targetParent: THREE.Group) => {
+  const makePanelMesh = (pw: number, ph: number, cx: number, cy: number, targetParent: THREE.Group, row = 0) => {
+    const profile = box.handles.find(h => h.doorId === door.id && (h.rowIndex ?? 0) === row && h.style === 'f-profile');
+    if (profile) {
+      if (profile.orient === 'vertical') {
+        const inset = Math.min(0.025, pw / 4);
+        pw -= inset; cx += (profile.xRatio >= 0.5 ? -1 : 1) * inset / 2;
+      } else {
+        const inset = Math.min(0.025, ph / 4);
+        ph -= inset; cy += (profile.yRatio <= 0.5 ? -1 : 1) * inset / 2;
+      }
+    }
     if (dStyle === 'glass' || dStyle === 'glass-grid') {
-      const st = 0.045;
+      const st = Math.min(0.045, pw / 4, ph / 4);
       const topR = new THREE.Mesh(new THREE.BoxGeometry(pw, st, doorThick), doorBoxMats);
       topR.position.set(cx, cy + ph / 2 - st / 2, 0);
       const botR = new THREE.Mesh(new THREE.BoxGeometry(pw, st, doorThick), doorBoxMats);
@@ -2129,7 +2161,7 @@ function buildDoor3D(ctx: {
         interactables.push(m);
       }
     } else if (dStyle === 'cnc') {
-      const st = Math.min(0.055, pw * 0.16);
+      const st = Math.min(0.055, pw * 0.16, ph / 4);
       const back = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, doorThick * 0.72), doorCncInnerMat);
       back.position.set(cx, cy, -normalSign * 0.002);
       const topR = new THREE.Mesh(new THREE.BoxGeometry(pw, st, doorThick), doorBoxMats);
@@ -2169,7 +2201,7 @@ function buildDoor3D(ctx: {
     lower.position.y = -upperHeight;
     upper.add(lower);
     makePanelMesh(dw, upperHeight - 0.003, 0, -upperHeight / 2, upper);
-    makePanelMesh(dw, lowerHeight - 0.003, 0, -lowerHeight / 2, lower);
+    makePanelMesh(dw, lowerHeight - 0.003, 0, -lowerHeight / 2, lower, 1);
     grp.add(upper);
 
     for (const h of box.handles) {
@@ -2228,7 +2260,7 @@ function buildDoor3D(ctx: {
         const baseX = dxLeft + dw / 2;
         const baseY = rowBotY + rowH / 2;
         rowGrp.position.set(baseX, baseY, frontFaceZ);
-        makePanelMesh(dw, rowH, 0, 0, rowGrp);
+        makePanelMesh(dw, rowH, 0, 0, rowGrp, r);
         // A real lightweight drawer box travels cleanly between the 5cm side stiles.
         const drawerDepth = Math.max(0.12, Math.min(0.42, carcD * 0.78));
         const sideH = Math.max(0.045, Math.min(0.16, rowH * 0.58));
@@ -2268,16 +2300,16 @@ function buildDoor3D(ctx: {
           animatedDoors.push(handle);
         }
       } else {
-        // Lift row pivots from its top edge
-        const baseX = dxLeft + dw / 2;
-        const baseY = rowBotY + rowH;
+        const hinge = door.frontCutHinges ? (door.hingeSide === 'right' ? -1 : 1) : 0;
+        const baseX = dxLeft + dw / 2 - hinge * dw / 2;
+        const baseY = rowBotY + rowH / (hinge ? 2 : 1);
         rowGrp.position.set(baseX, baseY, frontFaceZ);
-        makePanelMesh(dw, rowH, 0, -rowH / 2, rowGrp);
+        makePanelMesh(dw, rowH, hinge * dw / 2, hinge ? 0 : -rowH / 2, rowGrp, r);
         if (rowCanOpen) {
           const handle: AnimatedDoorHandle = {
             doorId: partId,
             group: rowGrp,
-            kind: 'lift',
+            kind: hinge ? (hinge > 0 ? 'hinge-left' : 'hinge-right') : 'lift',
             normalSign,
             baseX,
             baseY,
@@ -2294,9 +2326,10 @@ function buildDoor3D(ctx: {
       // Attach handles belonging to this row
       for (const h of box.handles) {
         if (h.doorId !== door.id || h.rowIndex !== r) continue;
-        const hx = (h.xRatio - 0.5) * dw;
+        const hingeOffset = door.frontCutHinges ? (door.hingeSide === 'right' ? -dw / 2 : dw / 2) : 0;
+        const hx = (h.xRatio - 0.5) * dw + hingeOffset;
         const hy =
-          door.kind === 'drawer'
+          door.kind === 'drawer' || door.frontCutHinges
             ? (0.5 - h.yRatio) * rowH
             : -h.yRatio * rowH;
         const hMesh = buildHandleMesh(
@@ -2400,6 +2433,8 @@ function buildDoor3D(ctx: {
     const baseY = dyBot + dh / 2;
     pivot.position.set(baseX, baseY, frontFaceZ);
     makePanelMesh(dw, dh, 0, 0, pivot);
+    const basketDepth = Math.min(0.53, carcD - 0.025);
+    if (basketDepth >= 0.18) addPantryBaskets(pivot, dw, dh, basketDepth, normalSign, mats.matSteel);
     if (canOpen) {
       const animHandle: AnimatedDoorHandle = {
         doorId: door.id,
@@ -2411,7 +2446,7 @@ function buildDoor3D(ctx: {
         baseZ: frontFaceZ,
         baseRotX: 0,
         baseRotY: 0,
-        maxSlide: 0.42,
+        maxSlide: Math.max(0.26, basketDepth - 0.04),
       };
       if (doorOpenProgress > 0) applyAnimatedDoorProgress(animHandle, doorOpenProgress);
       animatedDoors.push(animHandle);
@@ -2576,6 +2611,36 @@ function buildDoor3D(ctx: {
   grp.add(pivot);
 }
 
+function addPantryBaskets(parent: THREE.Group, width: number, height: number, depth: number, sign: number, material: THREE.Material) {
+  const basketWidth = Math.max(0.08, width - 0.034);
+  const levels = Math.max(1, Math.min(5, Math.floor(height / 0.31)));
+  const ribCount = Math.max(3, Math.ceil(depth / 0.055));
+  const wire = new THREE.BoxGeometry(1, 1, 1);
+  const parts = new THREE.InstancedMesh(wire, material, levels * (ribCount + 10) + 2);
+  const transform = new THREE.Object3D();
+  let index = 0;
+  const bar = (x: number, y: number, z: number, w: number, h: number, d: number) => {
+    transform.position.set(x, y, -sign * (z + 0.02));
+    transform.scale.set(w, h, d);
+    transform.updateMatrix();
+    parts.setMatrixAt(index++, transform.matrix);
+  };
+  for (const side of [-1, 1]) bar(side * basketWidth / 2, 0, depth - 0.02, 0.016, height - 0.05, 0.016);
+  for (let level = 0; level < levels; level++) {
+    const y = -height / 2 + 0.07 + level * (height - 0.08) / levels;
+    for (let i = 0; i < ribCount; i++) bar(0, y, depth * (i + 0.5) / ribCount, basketWidth, 0.005, 0.006);
+    for (const side of [-1, 1]) {
+      for (const rise of [0, 0.075]) {
+        bar(side * basketWidth / 2, y + rise, depth / 2, 0.007, 0.007, depth);
+        bar(0, y + rise, side < 0 ? 0.004 : depth - 0.004, basketWidth, 0.007, 0.007);
+      }
+      bar(side * basketWidth / 2, y + 0.036, depth * 0.30, 0.007, 0.075, 0.007);
+    }
+  }
+  parts.instanceMatrix.needsUpdate = true;
+  parent.add(parts);
+}
+
 function sinkFootprint(app: ApplianceItem, depth: number, sign: number) {
   const x = (app.offsetX + app.width / 2) * CM;
   const z = sign * depth / 2;
@@ -2612,6 +2677,44 @@ function sinkSlabGeometry(x: number, z: number, width: number, length: number,
   const shape = sinkPath(x, z, width, length, radius);
   shape.holes.push(...bowls.map(bowl => sinkPath(bowl.x, bowl.z, bowl.width, bowl.length, 0.045)));
   return new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 8 }).rotateX(-Math.PI / 2);
+}
+
+function makeSinkDrainboardMaterial(steel: THREE.MeshStandardMaterial, geometry: THREE.BufferGeometry,
+  x: number, z: number, width: number, depth: number, bowl: SinkBowl) {
+  const size = 128;
+  const data = new Uint8Array(size * size * 4);
+  const uv = geometry.getAttribute('uv');
+  const positions = geometry.getAttribute('position');
+  for (let i = 0; i < positions.count; i++) {
+    uv.setXY(i, (positions.getX(i) - x) / width + 0.5, (positions.getZ(i) - z) / depth + 0.5);
+  }
+  const mask = (u: number, v: number) => {
+    const relativeX = (u - 0.5) * width + x - bowl.x;
+    const traySide = (bowl.x - x) * relativeX < 0 ? Math.abs(relativeX) : 0;
+    const margin = Math.min(u - 0.055, 0.945 - u, (traySide - bowl.width / 2 - 0.012) / width);
+    const ramp = Math.min(1, Math.max(0, Math.min(margin, v - 0.13, 0.87 - v) * 26));
+    return Math.pow(Math.max(0, Math.cos(u * Math.PI * 2 * 29)), 2) * ramp;
+  };
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const u = (x + 0.5) / size, v = (y + 0.5) / size;
+    const dx = mask(u - 1 / size, v) - mask(u + 1 / size, v);
+    const dy = mask(u, v - 1 / size) - mask(u, v + 1 / size);
+    const scale = 1 / Math.hypot(dx, dy, 1);
+    const index = (y * size + x) * 4;
+    data[index] = Math.round(127.5 * (dx * scale + 1));
+    data[index + 1] = Math.round(127.5 * (dy * scale + 1));
+    data[index + 2] = Math.round(127.5 * (scale + 1));
+    data[index + 3] = 255;
+  }
+  const map = new THREE.DataTexture(data, size, size);
+  map.generateMipmaps = true;
+  map.minFilter = THREE.LinearMipmapLinearFilter;
+  map.magFilter = THREE.LinearFilter;
+  map.needsUpdate = true;
+  const material = steel.clone();
+  material.normalMap = map;
+  material.normalScale.set(0.65, 0.65);
+  return material;
 }
 
 function buildSinkBowl(bowl: SinkBowl, topY: number, material: THREE.Material) {
@@ -2681,7 +2784,12 @@ function buildAppliance3D(
     const { x, z, width, length: rimD, bowls } = sinkFootprint(app, boxDepthCm * CM, normalSign);
     const material = isApron ? mats.matDoorModern : mats.matSteel;
     const rimThickness = isApron ? 0.022 : 0.008;
-    const rim = new THREE.Mesh(sinkSlabGeometry(x, z, width, rimD, rimThickness, bowls, 0.045), material);
+    const rimGeometry = sinkSlabGeometry(x, z, width, rimD, rimThickness, bowls, 0.045);
+    const hasTray = app.sinkModel === 'steel-tray-left' || app.sinkModel === 'steel-tray-right';
+    const rimMaterial = hasTray
+      ? makeSinkDrainboardMaterial(material as THREE.MeshStandardMaterial, rimGeometry, x, z, width, rimD, bowls[0])
+      : material;
+    const rim = new THREE.Mesh(rimGeometry, rimMaterial);
     rim.position.y = topY + 0.002;
     rim.receiveShadow = true;
     grp.add(rim);

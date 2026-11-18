@@ -1,3 +1,4 @@
+import { findFrontCut } from '../cad/frontCut';
 import { HANDLE_STYLES, fitHandleLengthCm } from '../cad/handleGeometry';
 import { isFrontPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -122,6 +123,9 @@ interface FrontCanvasProps {
   multiSelection?: MultiSelection;
   selectionMode: SelectionMode;
   tool: ToolId;
+  frontCutOrient: Orientation;
+  onFrontCutOrient: (orientation: Orientation) => void;
+  onFrontCut: (wallId: string, boxId: string, x: number, y: number) => void;
   drawBoxKind?: BoxKind;
   onDrawBoxKindChange?: (k: BoxKind) => void;
   doorsHidden?: boolean;
@@ -361,6 +365,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   multiSelection,
   selectionMode,
   tool,
+  frontCutOrient, onFrontCutOrient, onFrontCut,
   drawBoxKind = 'base',
   onDrawBoxKindChange,
   doorsHidden = false,
@@ -609,6 +614,11 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     }
     return null;
   };
+
+  const cutHit = tool === 'front-cut' && wall && cursorPt ? hitTestBox(cursorPt) : null;
+  const cutPreview = cutHit && wall && cursorPt
+    ? findFrontCut(wall, cutHit.box, frontCutOrient, (cursorPt.x - originX) / s, (floorY - cursorPt.y) / s, blockedZones)
+    : null;
 
   const getEffectiveBoxInsets = (box: CabinetBox) => {
     const baseInsets = getBoxFrameInsets(box);
@@ -1309,6 +1319,13 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     const target = e.target as Element;
     const pt = clientToSvg(e.clientX, e.clientY);
     const hit = hitTestBox(pt);
+
+    if (tool === 'front-cut') {
+      if (!hit) onFrontCutOrient(frontCutOrient === 'vertical' ? 'horizontal' : 'vertical');
+      else onFrontCut(wall.id, hit.box.id, (pt.x - originX) / s, (floorY - pt.y) / s);
+      setCursorPt(pt);
+      return;
+    }
 
     // 0. Unified Priority Eraser Tool (must run before any resize/select handle checks!)
     if (tool === 'eraser') {
@@ -3388,7 +3405,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         data-front-direction={wall?.flipSide === -1 ? 'reversed' : 'forward'}
         viewBox={viewBox}
         className={`w-full h-full block touch-none [-webkit-touch-callout:none] ${wall?.flipSide === -1 ? 'front-elevation-reversed' : ''}`}
-        style={{ transform: wall?.flipSide === -1 ? 'scaleX(-1)' : undefined, cursor: spaceDown ? 'grab' : tool === 'eraser' ? 'not-allowed' : undefined }}
+        style={{ transform: wall?.flipSide === -1 ? 'scaleX(-1)' : undefined, cursor: spaceDown ? 'grab' : tool === 'eraser' ? 'not-allowed' : tool === 'front-cut' ? 'crosshair' : undefined }}
         onContextMenu={(e) => {
           e.preventDefault();
           if (touchPointerMode.current) return;
@@ -4314,6 +4331,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                       rowH = (pts[r + 1] - pts[r]) * dh;
                     }
 
+                    if (h.style === 'handleless') return null;
                     const cx = dx + dw * h.xRatio;
                     const cy = rowY + rowH * h.yRatio;
                     const ratios = [0, ...door.drawerRatios, 1];
@@ -4356,7 +4374,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                             stroke="#ffffff"
                             strokeWidth={1.2}
                           />
-                        ) : h.style === 'hidden' ? (
+                        ) : h.style === 'hidden' || h.style === 'f-profile' ? (
                           door.kind === 'drawer' ? (
                             <rect
                               x={dx + 1.5}
@@ -5416,6 +5434,15 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                 }
                 return null;
               })()}
+
+            {cutPreview && (
+              <line data-testid="front-cut-preview" pointerEvents="none"
+                x1={originX + (cutPreview.orientation === 'vertical' ? cutPreview.at : cutPreview.x1) * s}
+                x2={originX + (cutPreview.orientation === 'vertical' ? cutPreview.at : cutPreview.x2) * s}
+                y1={floorY - (cutPreview.orientation === 'horizontal' ? cutPreview.at : cutPreview.y1) * s}
+                y2={floorY - (cutPreview.orientation === 'horizontal' ? cutPreview.at : cutPreview.y2) * s}
+                stroke={cutPreview.snapped ? '#059669' : '#4f46e5'} strokeWidth={2.5} strokeDasharray="6 4" />
+            )}
 
             {/* مستطیل انتخاب گروهی (Marquee Box Selection) */}
             {marquee && (

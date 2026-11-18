@@ -403,6 +403,18 @@ function createSatinMap(): THREE.CanvasTexture {
 }
 
 const finishSwatches = new Map<string, string>();
+const backsplashTextures = new Map<BacksplashFinishId, ReturnType<typeof createBacksplashTextures>>();
+const countertopTextures = new Map<CountertopFinishId, THREE.CanvasTexture>();
+let doorBevelTexture: THREE.CanvasTexture | undefined;
+
+export function isSharedKitchenTexture(texture: THREE.Texture) {
+  return texture.userData.sharedKitchenTexture === true;
+}
+
+function shareKitchenTexture<T extends THREE.Texture>(texture: T): T {
+  texture.userData.sharedKitchenTexture = true;
+  return texture;
+}
 
 export function getFinishSwatch(kind: 'cabinet' | 'countertop' | 'backsplash', id: string) {
   if (kind === 'cabinet') {
@@ -471,7 +483,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
   const bsFinish: BacksplashFinishId = project.backsplashFinish || 'calacatta-marble';
   const ctFinish: CountertopFinishId = project.countertopFinish || 'dark-quartz';
 
-  const bevelNormal = createDoorBevelNormalMap(5);
+  const bevelNormal = doorBevelTexture ??= shareKitchenTexture(createDoorBevelNormalMap(5));
 
   const matCarcass = new THREE.MeshStandardMaterial({
     color: 0xf4f2ed,
@@ -485,8 +497,12 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     metalness: 0.15,
   });
 
-  const ctTex = createCountertopTexture(ctFinish);
-  ctTex.repeat.set(3, 1);
+  let ctTex = countertopTextures.get(ctFinish);
+  if (!ctTex) {
+    ctTex = shareKitchenTexture(createCountertopTexture(ctFinish));
+    ctTex.repeat.set(3, 1);
+    countertopTextures.set(ctFinish, ctTex);
+  }
   const matCountertop = new THREE.MeshPhysicalMaterial({
     map: ctTex,
     ...readSurfaceFinish(settings, 1, ctFinish === 'concrete-grey' ? 0.54 : ctFinish === 'oak-butcher' ? 0.44 : 0.21),
@@ -500,7 +516,14 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     metalness: 0.02,
   });
 
-  const bsTex = createBacksplashTextures(bsFinish);
+  let bsTex = backsplashTextures.get(bsFinish);
+  if (!bsTex) {
+    bsTex = createBacksplashTextures(bsFinish);
+    shareKitchenTexture(bsTex.map);
+    shareKitchenTexture(bsTex.normalMap);
+    backsplashTextures.set(bsFinish, bsTex);
+  }
+  const { map: backsplashMap, normalMap: backsplashNormal } = bsTex;
   const matBacksplashBase = new THREE.MeshPhysicalMaterial({
     map: bsTex.map,
     normalMap: bsTex.normalMap,
@@ -524,7 +547,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
       map: surface.map,
       ...readSurfaceFinish(settings, 0, Math.max(0.25, cfg.roughness * 0.78)),
     });
-    mat.userData.cabinetReflection = true;
+    mat.userData.sceneReflection = true;
     bodyCache.set(key, mat);
     return mat;
   };
@@ -554,10 +577,10 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
       map: tex,
       color: surface.map ? surface.color : '#ffffff',
       normalMap: bevelNormal,
-      normalScale: new THREE.Vector2(0.015, 0.015),
+      normalScale: new THREE.Vector2(0.05, 0.05),
       ...readSurfaceFinish(settings, 0, Math.max(0.20, cfg.roughness * 0.68 + (doorStyle === 'cnc' ? 0.06 : 0))),
     });
-    mat.userData.cabinetReflection = true;
+    mat.userData.sceneReflection = true;
     doorCache.set(key, mat);
     return mat;
   };
@@ -577,10 +600,12 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
   };
 
   const createBacksplashSpanMaterial = (wCm: number, hCm: number) => {
-    const mapClone = bsTex.map.clone();
+    const mapClone = backsplashMap.clone();
+    delete mapClone.userData.sharedKitchenTexture;
     mapClone.needsUpdate = true;
     mapClone.repeat.set(Math.max(0.5, wCm / 60), Math.max(0.4, hCm / 60));
-    const nrmClone = bsTex.normalMap.clone();
+    const nrmClone = backsplashNormal.clone();
+    delete nrmClone.userData.sharedKitchenTexture;
     nrmClone.needsUpdate = true;
     nrmClone.repeat.set(Math.max(0.5, wCm / 60), Math.max(0.4, hCm / 60));
     const tile = new THREE.MeshPhysicalMaterial({

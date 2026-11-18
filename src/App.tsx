@@ -1,5 +1,6 @@
+import { applyFrontCut, findFrontCut } from './cad/frontCut';
 import { NumberPadDialog } from './components/NumberPadDialog';
-import type { CabinetTextureId, DiningSeats } from './cad/types';
+import type { CabinetTextureId, DiningSeats, FloorFurniture, FloorFurnitureKind } from './cad/types';
 import { snapDiningPosition } from './cad/diningLayout';
 import { useProjectHistory } from './hooks/useProjectHistory';
 import { getStorageFailure, STORAGE_STATUS_EVENT } from './cad/projectStorage';
@@ -232,7 +233,7 @@ function normalizeProject(raw: ProjectState): ProjectState {
   return {
     ...raw,
     columns,
-    diningSets: (Array.isArray(raw.diningSets) ? raw.diningSets : []).filter(item => item && [2, 4, 6, 8].includes(item.seats) &&
+    diningSets: (Array.isArray(raw.diningSets) ? raw.diningSets : []).filter(item => item && (item.kind === 'tv' || [2, 4, 6, 8].includes(item.seats)) &&
       Number.isFinite(item.xCm) && Number.isFinite(item.yCm)).map(item => ({ ...item, rotation: Number.isFinite(item.rotation) ? item.rotation : 0 })),
     selectedDiningId: raw.selectedDiningId ?? null,
     selectedOpeningId: raw.selectedOpeningId ?? null,
@@ -331,6 +332,7 @@ export default function App() {
   // Tool options live cleanly in state and are controlled from SideInspector
   const [drawBoxKind, setDrawBoxKind] = useState<BoxKind>('base');
   const [doorOrient, setDoorOrient] = useState<Orientation>('vertical');
+  const [frontCutOrient, setFrontCutOrient] = useState<Orientation>('vertical');
   const [doorTargetWidth, setDoorTargetWidth] = useState<number>(60);
   const [doorVertCount, setDoorVertCount] = useState<number>(1);
   const [drawerPatIdx, setDrawerPatIdx] = useState<number>(1);
@@ -373,6 +375,7 @@ export default function App() {
   const [sinkModel, setSinkModel] = useState<SinkModel>('steel-2');
   const [gasWidth, setGasWidth] = useState<number>(80);
   const [diningSeats, setDiningSeats] = useState<DiningSeats>(4);
+  const [furnitureKind, setFurnitureKind] = useState<FloorFurnitureKind>('dining');
   const [diningRotation, setDiningRotation] = useState(0);
   const [applianceKind, setApplianceKind] = useState<ApplianceKind>('dishwasher');
   const [hoodKind, setHoodKind] = useState<'hidden' | 'chimney'>(
@@ -567,6 +570,23 @@ export default function App() {
     },
     []
   );
+
+  const cutFront = (wallId: string, boxId: string, x: number, y: number) => {
+    const next = cloneProject(getProject());
+    const wall = next.walls.find(item => item.id === wallId);
+    const box = wall?.boxes.find(item => item.id === boxId);
+    if (!wall || !box) return;
+    const zones = getCornerBlockedZonesForWall(wall, next.walls, next.cornerOwners);
+    const cut = findFrontCut(wall, box, frontCutOrient, x, y, zones);
+    if (!cut) return showToast('روی بخش قابل تقسیم نما کلیک کنید');
+    next.selectedDoorId = applyFrontCut(box, cut);
+    next.activeWallId = wallId;
+    next.activeBoxId = boxId;
+    next.selectedHandleId = null;
+    next.selectedUnit = null;
+    next.doorsHidden = false;
+    commitState(next, true);
+  };
 
   const handleExitToSelect = useCallback(() => {
     if (tool !== 'select') {
@@ -974,10 +994,11 @@ export default function App() {
   }, [setProject]);
 
   const placeDining = useCallback((x: number, y: number) => {
-    const item = { id: uid('dining'), ...snapDiningPosition(x, y), seats: diningSeats, rotation: diningRotation };
+    const position = { id: uid(furnitureKind), ...snapDiningPosition(x, y), rotation: diningRotation };
+    const item: FloorFurniture = furnitureKind === 'tv' ? { ...position, kind: 'tv' } : { ...position, seats: diningSeats };
     commitState(prev => ({ ...prev, selectedDiningId: null, diningSets: [...(prev.diningSets ?? []), item] }), true);
-    showToast(`میز ناهارخوری ${diningSeats.toLocaleString('fa-IR')} نفره درج شد`);
-  }, [commitState, diningSeats, diningRotation, showToast]);
+    showToast(furnitureKind === 'tv' ? 'ست تلویزیون درج شد' : `میز ناهارخوری ${diningSeats.toLocaleString('fa-IR')} نفره درج شد`);
+  }, [commitState, diningSeats, diningRotation, furnitureKind, showToast]);
 
   const moveDining = useCallback((id: string, x: number, y: number, commit: boolean, angle?: number) => {
     const current = getProject();
@@ -2286,19 +2307,24 @@ export default function App() {
     ));
   }, [project.multiSelection, project.walls]);
 
-  const selectedLightBoxes = project.walls.flatMap(w => w.boxes).filter(b =>
-    (b.type === 'wall' || b.type === 'wall-deep') &&
-    (b.id === project.activeBoxId || project.multiSelection?.boxIds.includes(b.id)));
+  const upperLightBoxes = project.walls.flatMap(w => w.boxes).filter(b => b.type === 'wall' || b.type === 'wall-deep');
+  const selectedUppers = upperLightBoxes.filter(b => b.id === project.activeBoxId || project.multiSelection?.boxIds.includes(b.id));
+  const selectedLightBoxes = selectedUppers.length ? selectedUppers : upperLightBoxes;
   const lightsOn = selectedLightBoxes.length > 0 && selectedLightBoxes.every(b => b.underCabinetLight);
-  const toggleUnderCabinetLight = () => {
-    const ids = new Set(selectedLightBoxes.map(b => b.id));
+  const toggleLightBoxes = (boxIds: string[]) => {
+    const ids = new Set(boxIds);
     if (!ids.size) return;
-    commitState(prev => ({
-      ...prev,
-      walls: prev.walls.map(w => ({ ...w, boxes: w.boxes.map(b =>
-        ids.has(b.id) ? { ...b, underCabinetLight: !lightsOn } : b) })),
-    }), true);
+    commitState(prev => {
+      const targets = prev.walls.flatMap(w => w.boxes).filter(box => ids.has(box.id));
+      const enabled = !targets.every(box => box.underCabinetLight);
+      return {
+        ...prev,
+        walls: prev.walls.map(w => ({ ...w, boxes: w.boxes.map(box =>
+          ids.has(box.id) ? { ...box, underCabinetLight: enabled } : box) })),
+      };
+    }, true);
   };
+  const toggleUnderCabinetLight = () => toggleLightBoxes(selectedLightBoxes.map(box => box.id));
 
   const hasAnySelection = Boolean(
     project.selectedDiningId ||
@@ -2535,8 +2561,10 @@ export default function App() {
       sink: `درج ${SINK_MODELS[sinkModel].shortLabel}: اسکرول روی باکس زمینی = تغییر مدل سینک`,
       gas: `درج گاز ${gasWidth}cm (متصل به هود و کشو): اسکرول = تغییر عرض گاز`,
       appliance: `درج ${APPLIANCE_CONFIGS[applianceKind].shortLabel}: اسکرول = ظرفشویی / لباسشویی`,
-      dining: 'میز ناهارخوری: ظرفیت را انتخاب کنید و میز را روی کف قرار دهید',
+      dining: furnitureKind === 'tv' ? 'ست تلویزیون: محل قرارگیری روی کف را انتخاب کنید'
+        : 'میز ناهارخوری: ظرفیت را انتخاب کنید و میز را روی کف قرار دهید',
       opening: `درج ${OPENING_LABELS[openingKind]}: اسکرول روی دیوار = تغییر نوع | کلیک = ثبت`,
+      'front-cut': `مداد تقسیم ${frontCutOrient === 'vertical' ? 'عمودی' : 'افقی'}: روی نما تقسیم کنید، در فضای خالی جهت را عوض کنید`,
       doors: `درب‌گذاری (${doorTargetWidth}cm): اسکرول روی باکس = الگو / تعداد | کلیک بیرون = چرخش`,
       hardware: `نوع یراق (${HARDWARE_KIND_META[hardwareBrush].label}): اسکرول = تغییر یراق | کلیک روی درب = اعمال`,
       'door-style': `مدل درب (${DOOR_STYLE_META[doorStyleBrush].label}): اسکرول = تغییر مدل | کلیک روی درب = اعمال`,
@@ -2548,7 +2576,7 @@ export default function App() {
       eraser: 'پاک‌کن: حذف فریم، دستگیره، طبقه، یونیت، پنجره/درب/ستون، تجهیز، درب، باکس یا دیوار خالی',
     };
     return map[tool];
-  }, [tool, sinkModel, gasWidth, applianceKind, openingKind, doorTargetWidth, frameWidthCm, doorStyleBrush, hardwareBrush, shelfOrient]);
+  }, [tool, sinkModel, gasWidth, applianceKind, openingKind, doorTargetWidth, frameWidthCm, doorStyleBrush, hardwareBrush, shelfOrient, furnitureKind, frontCutOrient]);
 
   const handleExportProject = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(project, null, 2));
@@ -3109,8 +3137,12 @@ export default function App() {
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
+                onToggleLightBoxes={toggleLightBoxes}
+                frontCutOrient={frontCutOrient}
+                onFrontCutOrient={setFrontCutOrient}
+                onFrontCut={cutFront}
               cameraToolbarHost={viewMode === '3d' ? cameraToolbarHost : null}
-              diningSeats={diningSeats} diningRotation={diningRotation}
+              diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}
               onPlaceDining={placeDining} onMoveDining={moveDining}
               onSelectDining={selectDining} onDeleteDining={deleteDining}
               onResizeCabinet={resizeCabinetFromHandle}
@@ -3348,6 +3380,9 @@ export default function App() {
             />
                   {floorScanActive && (
                   <ARWorkspace
+                frontCutOrient={frontCutOrient}
+                onFrontCutOrient={setFrontCutOrient}
+                onFrontCut={cutFront}
             dialogOpen={dialogOpen}
             onMoveShelf={moveShelfPrecisely}
             onResizeCabinet={resizeCabinetFromHandle}
@@ -3356,7 +3391,7 @@ export default function App() {
             onFinishDrag={handleFinishDrag}
             active={viewMode === '3d'}
             embeddedIn3D={true}
-            diningSeats={diningSeats} diningRotation={diningRotation}
+            diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}
             onPlaceDining={placeDining} onSelectDining={selectDining} onDeleteDining={deleteDining}
             sharedTool={tool}
             selectionMode={selectionMode}
@@ -3439,7 +3474,7 @@ export default function App() {
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
                   diningSets={project.diningSets ?? []} selectedDiningId={project.selectedDiningId}
-                  diningSeats={diningSeats} diningRotation={diningRotation}
+                  diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}
                   onPlaceDining={placeDining} onMoveDining={moveDining}
                   onSelectDining={selectDining} onDeleteDining={deleteDining}
                   onResizeCabinet={resizeCabinetFromHandle}
@@ -3615,6 +3650,9 @@ export default function App() {
               </div>
 
               <FrontCanvas
+                frontCutOrient={frontCutOrient}
+                onFrontCutOrient={setFrontCutOrient}
+                onFrontCut={cutFront}
                 onConfirmOpeningMove={openingId => activeWall && handleMoveOpening(activeWall.id, openingId, -1, true)}
                 onResizeCabinet={(boxId, side, dx, dy, commit) => activeWall && resizeCabinetFromHandle(activeWall.id, boxId, side, dx, dy, commit)}
                 onMoveShelf={(boxId, shelfId, dx, dy, commit) => activeWall && moveShelfPrecisely(activeWall.id, boxId, shelfId, dx, dy, commit)}
@@ -3855,8 +3893,12 @@ export default function App() {
       {viewMode !== 'ar' && !dialogOpen && (
         <BottomDock
           activeTool={tool}
-          diningSeats={diningSeats} diningRotation={diningRotation}
+          diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}
           onDiningSeats={setDiningSeats} onRotateDining={rotateDining}
+          onChooseFurniture={kind => {
+            if (tool === 'dining' && furnitureKind === kind) setTool('select');
+            else { setFurnitureKind(kind); setTool('dining'); }
+          }}
           hasAnySelection={hasAnySelection}
           doorsHidden={Boolean(project.doorsHidden)}
           onSelectTool={handleSelectTool}

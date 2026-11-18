@@ -9,5 +9,10 @@
   "countertopFinish": "calacatta-top",
   "doorStyle": "cnc",
   "handleStyle": "simple",
-  "defaultHoodKind": "chimney"
+  "defaultHoodKind": "chimney",
+  "roughness": {
+    "cabinet": 0.25,
+    "countertop": 0.2,
+    "backsplash": 0.19
+  }
 }

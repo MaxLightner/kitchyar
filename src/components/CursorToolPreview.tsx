@@ -362,14 +362,14 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
     );
   } else if (tool === 'handle') {
     const hName = HANDLE_STYLES.find(style => style.id === handleStyle)?.label ?? 'دستگیره';
-    const hDir = handleStyle === 'knob' ? '' : handleOrient === 'horizontal' ? ' افقی' : ' عمودی';
+    const hDir = handleStyle === 'knob' || handleStyle === 'handleless' ? '' : handleOrient === 'horizontal' ? ' افقی' : ' عمودی';
     badgeLabel = `${hName}${hDir}`;
     graphic = (
       <svg width="36" height="32" viewBox="0 0 38 34" className="shrink-0">
         <rect x="4" y="2" width="30" height="30" rx="2.5" fill="#f8fafc" stroke="#64748b" strokeWidth="1.4" />
-        {handleStyle === 'knob' ? (
+        {handleStyle === 'handleless' ? null : handleStyle === 'knob' ? (
           <circle cx="26" cy="17" r="4" fill="#0f172a" stroke="#475569" strokeWidth="1" />
-        ) : handleStyle === 'hidden' ? (
+        ) : handleStyle === 'hidden' || handleStyle === 'f-profile' ? (
           handleOrient === 'horizontal' ? (
             <rect x="5" y="3" width="28" height="4" rx="1" fill="#334155" />
           ) : (

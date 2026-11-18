@@ -1,3 +1,4 @@
+import { defaultHandleLengthCm } from './handleGeometry';
 import { APRON_SINK_DEPTH_CM } from './constants';
 import { applyHandlesToBoxDoors, getBoxFrameInsets, getUnitsInBox, uid } from './doorRules';
 import {
@@ -119,6 +120,11 @@ export function applyHandleAtSpot(
     return { ok: false };
   }
 
+  if (style === 'handleless') {
+    applyHandlesToBoxDoors(box, [doorId], style, orient);
+    return { ok: true };
+  }
+
   const check = canPlaceHandleInBay(box, door, blockedZones);
   if (!check.ok) {
     return { ok: false, reason: check.reason || 'اول یونیت رو مشخص کن' };
@@ -129,9 +135,10 @@ export function applyHandleAtSpot(
     else if (xRatio <= 0.35) door.hingeSide = 'right';
   }
 
-  box.handles = box.handles.filter(
-    (h) => !(h.doorId === doorId && (h.rowIndex ?? 0) === rowIndex)
-  );
+  if (door.hardwareKind === 'push-to-open' && box.handles.some(h => h.doorId === doorId && h.style === 'handleless')) {
+    door.hardwareKind = 'hinged';
+  }
+  box.handles = box.handles.filter(h => h.doorId !== doorId || (h.style !== 'handleless' && (h.rowIndex ?? 0) !== rowIndex));
   const handleId = uid('hnd');
   box.handles.push({
     id: handleId,
@@ -141,7 +148,7 @@ export function applyHandleAtSpot(
     yRatio,
     orient,
     style,
-    lengthCm: 16,
+    lengthCm: defaultHandleLengthCm(style),
   });
   return { ok: true, handleId };
 }

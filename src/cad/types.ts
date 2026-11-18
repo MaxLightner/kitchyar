@@ -47,7 +47,7 @@ export type CountertopFinishId =
 
 export type SelectionMode = 'single' | 'add' | 'subtract';
 
-export type HandleStyle = 'simple' | 'knob' | 'hidden' | 'arch' | 'tab';
+export type HandleStyle = 'simple' | 'long-bar' | 'knob' | 'hidden' | 'f-profile' | 'handleless' | 'arch' | 'tab';
 export type Orientation = 'vertical' | 'horizontal';
 
 export type ApplianceKind = 'sink' | 'gas' | 'dishwasher' | 'washing';
@@ -73,6 +73,7 @@ export type ToolId =
   | 'dining'
   | 'opening'
   | 'doors'
+  | 'front-cut'
   | 'hardware'
   | 'door-style'
   | 'finish'
@@ -100,6 +101,8 @@ export interface DoorUnit {
   kind: DoorKind;
   /** Vertical split ratios (0..1) for drawers or stacked horizontal lift doors */
   drawerRatios: number[];
+  /** Stacked facade panels from the division pencil swing sideways instead of lifting. */
+  frontCutHinges?: boolean;
   /** Visual panel style: flat, CNC routed, glass, glass-grid */
   doorStyle?: DoorStyle;
   finish?: CabinetFinishId;
@@ -187,13 +190,24 @@ export interface WallOpening {
 
 export type DiningSeats = 2 | 4 | 6 | 8;
 
-export interface DiningSet {
+interface FloorFurniturePosition {
   id: string;
   xCm: number;
   yCm: number;
-  seats: DiningSeats;
   rotation: number;
 }
+
+export interface DiningSet extends FloorFurniturePosition {
+  kind?: 'dining';
+  seats: DiningSeats;
+}
+
+export interface TelevisionSet extends FloorFurniturePosition {
+  kind: 'tv';
+}
+
+export type FloorFurniture = DiningSet | TelevisionSet;
+export type FloorFurnitureKind = 'dining' | 'tv';
 
 export interface RoomColumn {
   id: string;
@@ -285,7 +299,7 @@ export interface ArCalibrationState {
 export interface ProjectState {
   walls: Wall[];
   columns?: RoomColumn[];
-  diningSets?: DiningSet[];
+  diningSets?: FloorFurniture[];
   selectedDiningId?: string | null;
   cornerOwners: Record<string, string>;
   activeWallId: string | null;

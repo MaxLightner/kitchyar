@@ -17,15 +17,19 @@ import {
   Refrigerator,
   WashingMachine,
   Utensils,
+  Tv,
+  PencilLine,
   Wrench,
 } from 'lucide-react';
 import { DINING_SEATS } from '../cad/diningLayout';
-import { DiningSeats, ToolId } from '../cad/types';
+import { DiningSeats, FloorFurnitureKind, ToolId } from '../cad/types';
 
 interface BottomDockProps {
   activeTool: ToolId;
   diningSeats: DiningSeats;
   diningRotation: number;
+  furnitureKind: FloorFurnitureKind;
+  onChooseFurniture: (kind: FloorFurnitureKind) => void;
   onDiningSeats: (seats: DiningSeats) => void;
   onRotateDining: () => void;
   hasAnySelection?: boolean;
@@ -40,7 +44,7 @@ interface BottomDockProps {
 
 export const BottomDock: React.FC<BottomDockProps> = ({
   activeTool,
-  diningSeats, diningRotation, onDiningSeats, onRotateDining,
+  diningSeats, diningRotation, furnitureKind, onChooseFurniture, onDiningSeats, onRotateDining,
   doorsHidden = false,
   onSelectTool,
   onToggleDoorsHidden,
@@ -73,12 +77,12 @@ export const BottomDock: React.FC<BottomDockProps> = ({
       {activeTool === 'dining' && (
         <div role="group" aria-label="ظرفیت میز ناهارخوری"
           className="absolute bottom-full left-1/2 mb-1 flex max-w-[calc(100vw-16px)] -translate-x-1/2 items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
-          {DINING_SEATS.map(seats => (
+          {furnitureKind === 'dining' && DINING_SEATS.map(seats => (
             <button type="button" key={seats} data-testid={`dining-seats-${seats}`}
               aria-pressed={diningSeats === seats} onClick={() => onDiningSeats(seats)}
               className={btnCls(diningSeats === seats)}>{seats.toLocaleString('fa-IR')} نفره</button>
           ))}
-          <button type="button" className={btnCls(false)} onClick={onRotateDining} title="چرخاندن میز" aria-label="چرخاندن میز">
+          <button type="button" className={btnCls(false)} onClick={onRotateDining} title="چرخاندن" aria-label="چرخاندن">
             ↻ {diningRotation.toLocaleString('fa-IR')}°
           </button>
         </div>
@@ -154,10 +158,18 @@ export const BottomDock: React.FC<BottomDockProps> = ({
           </button>
 
           <button type="button" data-testid="dock-tool-dining"
-            onClick={() => onSelectTool(activeTool === 'dining' ? 'select' : 'dining')}
-            aria-pressed={activeTool === 'dining'} className={btnCls(activeTool === 'dining')}>
+            onClick={() => onChooseFurniture('dining')}
+            aria-pressed={activeTool === 'dining' && furnitureKind === 'dining'}
+            className={btnCls(activeTool === 'dining' && furnitureKind === 'dining')}>
             <Utensils className="w-3.5 h-3.5" />
             <span>میز ناهارخوری</span>
+          </button>
+
+          <button type="button" data-testid="dock-tool-tv" onClick={() => onChooseFurniture('tv')}
+            aria-pressed={activeTool === 'dining' && furnitureKind === 'tv'}
+            className={btnCls(activeTool === 'dining' && furnitureKind === 'tv')}>
+            <Tv className="w-3.5 h-3.5" />
+            <span>ست تلویزیون</span>
           </button>
 
           <button
@@ -185,6 +197,12 @@ export const BottomDock: React.FC<BottomDockProps> = ({
           >
             <DoorClosed className="w-3.5 h-3.5" />
             <span>درب‌گذاری</span>
+          </button>
+
+          <button type="button" data-testid="dock-tool-front-cut" onClick={() => onSelectTool('front-cut')}
+            aria-pressed={activeTool === 'front-cut'} className={btnCls(activeTool === 'front-cut')}>
+            <PencilLine className="w-3.5 h-3.5" />
+            <span>مداد تقسیم</span>
           </button>
 
           <button

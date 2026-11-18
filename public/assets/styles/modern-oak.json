@@ -8,6 +8,11 @@
   "backsplashFinish": "warm-travertine",
   "countertopFinish": "calacatta-top",
   "doorStyle": "flat",
-  "handleStyle": "hidden",
-  "defaultHoodKind": "hidden"
+  "handleStyle": "f-profile",
+  "defaultHoodKind": "hidden",
+  "roughness": {
+    "cabinet": 0.56,
+    "countertop": 0.26,
+    "backsplash": 0.53
+  }
 }

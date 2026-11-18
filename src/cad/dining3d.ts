@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { diningLayout } from './diningLayout';
-import type { DiningSeats } from './types';
+import type { DiningSeats, FloorFurnitureKind } from './types';
 
 function roundedSlab(width: number, depth: number, height: number, radius: number) {
   const w = width / 2;
@@ -52,7 +52,11 @@ export function createDiningMaterials(onReady?: () => void) {
   return { wood, fabric };
 }
 
-export function buildDiningFootprint3D(seats: DiningSeats) {
+export function buildDiningFootprint3D(seats: DiningSeats, kind: FloorFurnitureKind = 'dining') {
+  if (kind === 'tv') {
+    const ghost = new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.48, depthWrite: false });
+    return buildTelevisionSet3D(ghost, ghost, ghost);
+  }
   const layout = diningLayout(seats);
   const group = new THREE.Group();
   const material = new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.5, depthWrite: false });
@@ -119,5 +123,26 @@ export function buildDining3D(
     }
     group.add(chair);
   }
+  return group;
+}
+
+export const TV_SET_WIDTH_CM = 180;
+export const TV_SET_DEPTH_CM = 42;
+
+export function buildTelevisionSet3D(wood: THREE.Material, trim: THREE.Material, screen: THREE.Material) {
+  const group = new THREE.Group();
+  const add = (width: number, height: number, depth: number, x: number, y: number, z: number, material: THREE.Material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    group.add(mesh);
+  };
+  const width = TV_SET_WIDTH_CM / 100, depth = TV_SET_DEPTH_CM / 100;
+  add(width, 0.31, depth - 0.02, 0, 0.245, -0.01, wood);
+  for (const x of [-0.72, 0.72]) add(0.035, 0.09, depth - 0.09, x, 0.045, 0, trim);
+  for (const x of [-0.598, 0, 0.598]) add(0.59, 0.272, 0.018, x, 0.245, depth / 2 - 0.007, wood);
+  for (const x of [-0.43, 0.43]) add(0.028, 0.065, 0.22, x, 0.432, 0, trim);
+  add(1.34, 0.762, 0.045, 0, 0.843, -0.035, trim);
+  add(1.314, 0.735, 0.003, 0, 0.85, -0.011, screen);
   return group;
 }

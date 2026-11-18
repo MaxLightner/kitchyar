@@ -1,3 +1,4 @@
+import { defaultHandleLengthCm } from './handleGeometry';
 import {
   APPLIANCE_CONFIGS,
   BOX_PRESETS,
@@ -377,6 +378,7 @@ export function canDoorOpenIn3D(
   if (door.hardwareKind === 'push-to-open' || door.hardwareKind === 'lift-bifold') return true;
   return box.handles.some((h) => {
     if (h.doorId !== door.id) return false;
+    if (h.style === 'handleless') return true;
     if (rowIndex !== undefined && (door.kind === 'drawer' || door.kind === 'lift')) {
       return (h.rowIndex ?? 0) === rowIndex;
     }
@@ -4702,7 +4704,16 @@ export function applyHandlesToBoxDoors(
   const isWall = box.type === 'wall' || box.type === 'wall-deep';
 
   for (const door of targets) {
-    box.handles = box.handles.filter((h) => h.doorId !== door.id);
+    const wasHandleless = box.handles.some(h => h.doorId === door.id && h.style === 'handleless');
+    box.handles = box.handles.filter(h => h.doorId !== door.id);
+    if (style === 'handleless') {
+      if (door.kind === 'door' && (!door.hardwareKind || door.hardwareKind === 'hinged')) door.hardwareKind = 'push-to-open';
+      box.handles.push({ id: uid('hand'), doorId: door.id, rowIndex: 0, xRatio: 0.5, yRatio: 0.5,
+        orient, style, lengthCm: 0 });
+      count++;
+      continue;
+    }
+    if (wasHandleless && door.hardwareKind === 'push-to-open') door.hardwareKind = 'hinged';
 
     if (door.kind === 'drawer' || (door.kind === 'lift' && door.drawerRatios.length > 0)) {
       const rowCount = door.drawerRatios.length + 1;
@@ -4712,10 +4723,10 @@ export function applyHandlesToBoxDoors(
           doorId: door.id,
           rowIndex: r,
           xRatio: sampleSpot ? sampleSpot.xRatio : orient === 'horizontal' ? 0.5 : 0.86,
-          yRatio: sampleSpot ? sampleSpot.yRatio : door.kind === 'lift' ? 0.78 : 0.5,
+          yRatio: sampleSpot ? sampleSpot.yRatio : door.kind === 'lift' ? 0.78 : style === 'f-profile' ? 0.15 : 0.5,
           orient,
           style,
-          lengthCm: 16,
+          lengthCm: defaultHandleLengthCm(style),
         });
         count++;
       }
@@ -4726,9 +4737,9 @@ export function applyHandlesToBoxDoors(
         rowIndex: 0,
         xRatio: sampleSpot ? sampleSpot.xRatio : 0.5,
         yRatio: sampleSpot ? sampleSpot.yRatio : 0.86,
-        orient: sampleSpot ? orient : 'horizontal',
+        orient: sampleSpot || style === 'f-profile' ? orient : 'horizontal',
         style,
-        lengthCm: 16,
+        lengthCm: defaultHandleLengthCm(style),
       });
       count++;
     } else {
@@ -4772,7 +4783,7 @@ export function applyHandlesToBoxDoors(
         yRatio: yr,
         orient: isPantry && !sampleSpot ? 'vertical' : orient,
         style,
-        lengthCm: 16,
+        lengthCm: defaultHandleLengthCm(style),
       });
       count++;
     }
