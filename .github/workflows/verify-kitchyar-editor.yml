@@ -1,0 +1,16 @@
+name: Verify KiChYar editor
+on:
+  push:
+    branches: [verify/kitchyar-editor-20261118]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: node --import tsx --test src/ar/*.test.ts src/cad/*.test.ts src/utils/*.test.ts
+      - run: bun run lint
+      - run: bun run build
