@@ -294,8 +294,8 @@ export const CORNER_FILLER_CM = 5; // 5cm clearance filler stile so adjacent cor
 
 export const WALL_LOWER_ELEV_CM = 145;
 export const WALL_LOWER_HEIGHT_CM = 75; // Top = 220cm (matches tall & over-fridge top)
-export const WALL_DOUBLE_LOWER_H_CM = 45; // Lower shallow tier: 145..190cm
-export const WALL_DOUBLE_UPPER_ELEV_CM = 190; // Upper deep tier: 190..235cm (Top = 235cm)
+export const WALL_DOUBLE_LOWER_H_CM = 30;
+export const WALL_DOUBLE_UPPER_ELEV_CM = WALL_LOWER_ELEV_CM + WALL_DOUBLE_LOWER_H_CM;
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   wallHeightCm: 265,
@@ -484,7 +484,7 @@ export const BOX_PRESETS: Record<BoxKind, BoxPresetConfig> = {
   },
   'wall-deep': {
     name: 'هوایی عمق‌دار (ردیف بالا)',
-    height: 45,
+    height: 60,
     depth: 58,
     elevY: WALL_DOUBLE_UPPER_ELEV_CM,
     plinth: 0,

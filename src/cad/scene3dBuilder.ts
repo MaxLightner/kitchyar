@@ -1607,14 +1607,22 @@ function buildBox3D(ctx: {
     carcassMeshes.push(pRight);
   }
 
+  const sinkBowls = box.type === 'base' ? wall.appliances
+    .filter(app => app.kind === 'sink' && app.offsetX >= box.offsetX - 0.1 &&
+      app.offsetX + app.width <= box.offsetX + box.width + 0.1)
+    .flatMap(app => sinkFootprint(app, bd, normalSign).bowls) : [];
+
   for (const sp of solidHorizSpans) {
     const spanW = (sp.e - sp.s) * CM;
     if (spanW < 0.04) continue;
     const midX = bx + (sp.s + (sp.e - sp.s) / 2) * CM;
     const pBot = new THREE.Mesh(new THREE.BoxGeometry(spanW, board, carcD), mats.matCarcass);
     pBot.position.set(midX, bodyBottomY + board / 2, cz);
-    const pTop = new THREE.Mesh(new THREE.BoxGeometry(spanW, board, carcD), mats.matCarcass);
-    pTop.position.set(midX, bodyBottomY + bodyH - board / 2, cz);
+    const pTop = new THREE.Mesh(sinkBowls.length
+      ? sinkSlabGeometry(midX, cz, spanW, carcD, board, sinkBowls, 0)
+      : new THREE.BoxGeometry(spanW, board, carcD), mats.matCarcass);
+    if (sinkBowls.length) pTop.position.y = bodyBottomY + bodyH - board;
+    else pTop.position.set(midX, bodyBottomY + bodyH - board / 2, cz);
     const pBack = new THREE.Mesh(new THREE.BoxGeometry(spanW, bodyH - board * 2, 0.01), mats.matCarcass);
     pBack.position.set(midX, bodyCenterY, normalSign * 0.006);
     carcassMeshes.push(pBot, pTop, pBack);
@@ -1631,8 +1639,11 @@ function buildBox3D(ctx: {
   // 4. Countertop Stone Slab (tagged as 'countertop' so Finish brush can style it directly)
   if (topPadM > 0.005) {
     const slabD = bd + 0.02;
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(bw + 0.004, topPadM, slabD), mats.matCountertop);
-    slab.position.set(bx + bw / 2, bodyBottomY + bodyH + topPadM / 2, normalSign * (slabD / 2));
+    const slab = new THREE.Mesh(sinkBowls.length
+      ? sinkSlabGeometry(bx + bw / 2, normalSign * slabD / 2, bw + 0.004, slabD, topPadM, sinkBowls, 0)
+      : new THREE.BoxGeometry(bw + 0.004, topPadM, slabD), mats.matCountertop);
+    if (sinkBowls.length) slab.position.y = bodyBottomY + bodyH;
+    else slab.position.set(bx + bw / 2, bodyBottomY + bodyH + topPadM / 2, normalSign * slabD / 2);
     slab.castShadow = true;
     slab.receiveShadow = true;
     slab.userData = { kind: 'countertop', wallId: wall.id, boxId: box.id } as Scene3DHitData;
@@ -2147,23 +2158,26 @@ function buildDoor3D(ctx: {
   if (door.kind === 'lift' && door.hardwareKind === 'lift-bifold') {
     const upper = new THREE.Group();
     const lower = new THREE.Group();
-    const half = dh / 2;
+    const upperHeight = dh * (door.drawerRatios[0] ?? 2 / 3);
+    const lowerHeight = dh - upperHeight;
     const baseX = dxLeft + dw / 2;
     const baseY = dyBot + dh;
     upper.position.set(baseX, baseY, frontFaceZ);
-    lower.position.y = -half;
+    lower.position.y = -upperHeight;
     upper.add(lower);
-    makePanelMesh(dw, half - 0.003, 0, -half / 2 + 0.00075, upper);
-    makePanelMesh(dw, half - 0.003, 0, -half / 2 - 0.00075, lower);
+    makePanelMesh(dw, upperHeight - 0.003, 0, -upperHeight / 2, upper);
+    makePanelMesh(dw, lowerHeight - 0.003, 0, -lowerHeight / 2, lower);
     grp.add(upper);
 
     for (const h of box.handles) {
       if (h.doorId !== door.id) continue;
-      const grip = buildHandleMesh(h.style, h.orient, h.lengthCm || 16, dw, half,
+      const isLower = h.rowIndex === 1;
+      const leafHeight = isLower ? lowerHeight : upperHeight;
+      const grip = buildHandleMesh(h.style, h.orient, h.lengthCm || 16, dw, leafHeight,
         doorThick, normalSign, mats.matDarkChrome, mats.matHiddenTrim, h.xRatio, h.yRatio);
-      grip.position.set((h.xRatio - 0.5) * dw, -half * h.yRatio, 0);
+      grip.position.set((h.xRatio - 0.5) * dw, -leafHeight * h.yRatio, 0);
       grip.userData = { ...doorHit, kind: 'handle', handleId: h.id };
-      ((h.rowIndex ?? 0) === 0 ? upper : lower).add(grip);
+      (isLower ? lower : upper).add(grip);
       grip.traverse(child => { if (child instanceof THREE.Mesh) interactables.push(child); });
     }
 
@@ -2176,8 +2190,8 @@ function buildDoor3D(ctx: {
       const armGeometry = new THREE.CylinderGeometry(0.009, 0.009, 1, 10);
       const liftArms = [-1, 1].map(side => {
         const x = side * (dw / 2 - Math.min(0.035, dw / 6));
-        const fixed = new THREE.Vector3(baseX + x, baseY - half * 0.82, frontFaceZ - normalSign * Math.min(carcD * 0.52, 0.15));
-        const moving = new THREE.Vector3(x, -half * 0.73, -normalSign * 0.012);
+        const fixed = new THREE.Vector3(baseX + x, baseY - upperHeight * 0.82, frontFaceZ - normalSign * Math.min(carcD * 0.52, 0.15));
+        const moving = new THREE.Vector3(x, -upperHeight * 0.73, -normalSign * 0.012);
         const mesh = new THREE.Mesh(armGeometry, mats.matDarkChrome);
         mesh.castShadow = true;
         grp.add(mesh);
@@ -2559,6 +2573,71 @@ function buildDoor3D(ctx: {
   grp.add(pivot);
 }
 
+function sinkFootprint(app: ApplianceItem, depth: number, sign: number) {
+  const x = (app.offsetX + app.width / 2) * CM;
+  const z = sign * depth / 2;
+  const width = app.width * CM - 0.04;
+  const length = Math.min(0.48, depth - 0.08);
+  const tray = app.sinkModel === 'steel-tray-left' ? 1 : app.sinkModel === 'steel-tray-right' ? -1 : 0;
+  const bowls = app.sinkModel === 'steel-2'
+    ? [-1, 1].map(side => ({ x: x + side * width * 0.225, width: width * 0.41 }))
+    : [{ x: x + tray * width * 0.18, width: width * (tray ? 0.52 : 0.84) }];
+  return { x, z, width, length, bowls: bowls.map(bowl => ({ ...bowl, z, length: length * 0.78 })) };
+}
+
+type SinkBowl = ReturnType<typeof sinkFootprint>['bowls'][number];
+
+function sinkPath(x: number, z: number, width: number, length: number, radius: number) {
+  const path = new THREE.Shape();
+  radius = Math.min(radius, width / 2, length / 2);
+  const l = x - width / 2, r = x + width / 2;
+  const b = -z - length / 2, t = -z + length / 2;
+  path.moveTo(l + radius, b);
+  path.lineTo(r - radius, b);
+  path.quadraticCurveTo(r, b, r, b + radius);
+  path.lineTo(r, t - radius);
+  path.quadraticCurveTo(r, t, r - radius, t);
+  path.lineTo(l + radius, t);
+  path.quadraticCurveTo(l, t, l, t - radius);
+  path.lineTo(l, b + radius);
+  path.quadraticCurveTo(l, b, l + radius, b);
+  return path;
+}
+
+function sinkSlabGeometry(x: number, z: number, width: number, length: number,
+  thickness: number, bowls: SinkBowl[], radius: number) {
+  const shape = sinkPath(x, z, width, length, radius);
+  shape.holes.push(...bowls.map(bowl => sinkPath(bowl.x, bowl.z, bowl.width, bowl.length, 0.045)));
+  return new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 8 }).rotateX(-Math.PI / 2);
+}
+
+function buildSinkBowl(bowl: SinkBowl, topY: number, material: THREE.Material) {
+  const rings = [{ y: topY, inset: 0 }, { y: topY - 0.015, inset: 0.012 },
+    { y: topY - 0.14, inset: 0.028 }, { y: topY - 0.16, inset: 0.045 }];
+  const positions: number[] = [];
+  const count = 48;
+  for (const { y, inset } of rings) {
+    const path = sinkPath(bowl.x, bowl.z, bowl.width - inset * 2, bowl.length - inset * 2, 0.045);
+    for (const point of path.getSpacedPoints(count).slice(0, -1)) positions.push(point.x, y, -point.y);
+  }
+  const indices: number[] = [];
+  for (let row = 0; row < rings.length - 1; row++) {
+    for (let i = 0; i < count; i++) {
+      const a = row * count + i, b = row * count + (i + 1) % count;
+      indices.push(a, b, a + count, b, b + count, a + count);
+    }
+  }
+  const base = (rings.length - 1) * count;
+  const center = positions.length / 3;
+  positions.push(bowl.x, rings[rings.length - 1].y, bowl.z);
+  for (let i = 0; i < count; i++) indices.push(center, base + i, base + (i + 1) % count);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return new THREE.Mesh(geometry, material);
+}
+
 function buildAppliance3D(
   wall: Wall,
   app: ApplianceItem,
@@ -2596,55 +2675,44 @@ function buildAppliance3D(
 
   if (app.kind === 'sink') {
     const isApron = app.sinkModel === 'ceramic-apron';
-    const isDouble = app.sinkModel === 'steel-2';
-    const hasTray = app.sinkModel === 'steel-tray-left' || app.sinkModel === 'steel-tray-right';
-    const rimW = aw - 0.04;
-    const rimD = Math.min(0.48, boxDepthCm * CM - 0.08);
-    const rim = new THREE.Mesh(
-      new THREE.BoxGeometry(rimW, 0.016, rimD),
-      isApron ? mats.matDoorModern : mats.matSteel
-    );
-    rim.position.set(ax, topY + 0.008, cz);
+    const { x, z, width, length: rimD, bowls } = sinkFootprint(app, boxDepthCm * CM, normalSign);
+    const material = isApron ? mats.matDoorModern : mats.matSteel;
+    const rimThickness = isApron ? 0.022 : 0.008;
+    const rim = new THREE.Mesh(sinkSlabGeometry(x, z, width, rimD, rimThickness, bowls, 0.045), material);
+    rim.position.y = topY + 0.002;
+    rim.receiveShadow = true;
     grp.add(rim);
-
-    // Basin recess look (dark chrome inset)
-    const basinW = hasTray ? rimW * 0.52 : rimW * 0.84;
-    const basinX =
-      app.sinkModel === 'steel-tray-right'
-        ? ax - rimW * 0.18
-        : app.sinkModel === 'steel-tray-left'
-        ? ax + rimW * 0.18
-        : ax;
-    if (isDouble) {
-      const b1 = new THREE.Mesh(new THREE.BoxGeometry(basinW * 0.45, 0.012, rimD * 0.78), mats.matDarkChrome);
-      b1.position.set(ax - basinW * 0.25, topY + 0.012, cz);
-      const b2 = new THREE.Mesh(new THREE.BoxGeometry(basinW * 0.45, 0.012, rimD * 0.78), mats.matDarkChrome);
-      b2.position.set(ax + basinW * 0.25, topY + 0.012, cz);
-      grp.add(b1, b2);
-    } else {
-      const b1 = new THREE.Mesh(new THREE.BoxGeometry(basinW, 0.012, rimD * 0.78), mats.matDarkChrome);
-      b1.position.set(basinX, topY + 0.012, cz);
-      grp.add(b1);
+    for (const bowl of bowls) {
+      const inset = buildSinkBowl(bowl, topY + rimThickness + 0.002, material);
+      inset.receiveShadow = true;
+      const drain = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.002, 24), mats.matDarkChrome);
+      drain.position.set(bowl.x, topY + rimThickness - 0.156, bowl.z);
+      grp.add(inset, drain);
     }
 
     if (isApron) {
       const apronH = APRON_SINK_DEPTH_CM * CM;
-      const apron = new THREE.Mesh(new THREE.BoxGeometry(aw - 0.02, apronH, 0.045), mats.matDoorModern);
+      const apron = new THREE.Mesh(new THREE.BoxGeometry(aw - 0.02, apronH, 0.045), material);
       apron.position.set(ax, topY - apronH / 2, normalSign * (boxDepthCm * CM + 0.022));
       grp.add(apron);
     }
 
-    // Goose-neck chrome faucet
-    const fZ = normalSign * (0.09);
-    const fStem = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.26, 12), mats.matSteel);
-    fStem.position.set(basinX, topY + 0.14, fZ);
-    const fNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.16, 10), mats.matSteel);
-    fNeck.rotation.x = Math.PI / 2;
-    fNeck.position.set(basinX, topY + 0.27, fZ + normalSign * 0.075);
-    const fSpout = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.012, 0.055, 10), mats.matSteel);
-    fSpout.position.set(basinX, topY + 0.24, fZ + normalSign * 0.145);
-    grp.add(fStem, fNeck, fSpout);
-
+    const faucetX = bowls.length === 1 ? bowls[0].x : x;
+    const faucetZ = z - normalSign * rimD * 0.45;
+    const faucetY = topY + rimThickness;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.026, 0.026, 24), mats.matSteel);
+    base.position.set(faucetX, faucetY + 0.013, faucetZ);
+    const reach = normalSign * 0.18;
+    const curve = new THREE.CurvePath<THREE.Vector3>();
+    const a = new THREE.Vector3(faucetX, faucetY + 0.018, faucetZ);
+    const b = a.clone().add(new THREE.Vector3(0, 0.20, 0));
+    const c = b.clone().add(new THREE.Vector3(0, 0.02, reach));
+    curve.add(new THREE.LineCurve3(a, b));
+    curve.add(new THREE.CubicBezierCurve3(b, b.clone().add(new THREE.Vector3(0, 0.15, 0)),
+      c.clone().add(new THREE.Vector3(0, 0.15, 0)), c));
+    const faucet = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.011, 12, false), mats.matSteel);
+    faucet.castShadow = true;
+    grp.add(base, faucet);
     if (isSelected) addOutlineHighlight(grp, aw, 0.3, rimD, ax, topY + 0.14, cz);
     return grp;
   }
@@ -2682,12 +2750,19 @@ function buildAppliance3D(
 
     // Connected Hood above gas
     const hoodD = 0.42;
-    const hoodY = 1.56;
+    const frameAbove = wall.boxes.flatMap(box => (box.frames ?? [])
+      .filter(frame => frame.side === 'top' && (box.type === 'wall' || box.type === 'wall-deep') &&
+        box.offsetX <= app.offsetX + app.width / 2 && box.offsetX + box.width >= app.offsetX + app.width / 2)
+      .map(frame => (box.elevY + box.height - frame.widthCm) * CM))
+      .filter(height => height > topY + 0.67);
+    const hoodTop = Math.min(wall.height * CM, ...frameAbove);
+    const hoodY = Math.min(hoodTop - 0.055, topY + 0.69);
     if (app.hoodKind === 'chimney') {
       const visor = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.06, hoodD), mats.matSteel);
       visor.position.set(ax, hoodY, normalSign * (hoodD / 2));
-      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.28, Math.max(0.4, wall.height * CM - hoodY), 0.26), mats.matSteel);
-      chimney.position.set(ax, hoodY + (wall.height * CM - hoodY) / 2, normalSign * 0.13);
+      const chimneyHeight = Math.min(0.48, Math.max(0.035, hoodTop - hoodY));
+      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.28, chimneyHeight, 0.26), mats.matSteel);
+      chimney.position.set(ax, hoodY + chimneyHeight / 2, normalSign * 0.13);
       grp.add(visor, chimney);
     } else {
       const hiddenHood = new THREE.Mesh(new THREE.BoxGeometry(aw * 0.85, 0.04, 0.28), mats.matSteel);

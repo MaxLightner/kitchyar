@@ -4,7 +4,7 @@ import {
   BrickWall,
   DoorClosed,
   Droplets,
-  Eraser,
+  Lightbulb,
   Eye,
   EyeOff,
   Flame,
@@ -33,6 +33,9 @@ interface BottomDockProps {
   onSelectTool: (tool: ToolId) => void;
   onToggleDoorsHidden?: () => void;
   onDeleteSelection?: () => void;
+  canToggleUnderLight: boolean;
+  lightsOn: boolean;
+  onToggleUnderLight: () => void;
 }
 
 export const BottomDock: React.FC<BottomDockProps> = ({
@@ -41,6 +44,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   doorsHidden = false,
   onSelectTool,
   onToggleDoorsHidden,
+  canToggleUnderLight, lightsOn, onToggleUnderLight,
 }) => {
   const btnCls = (active: boolean) =>
     `h-11 px-2 sm:px-2.5 rounded-lg border text-[13px] sm:text-[13px] font-bold inline-flex items-center gap-1 sm:gap-1.5 whitespace-nowrap shrink-0 transition active:scale-95 ${
@@ -262,13 +266,14 @@ export const BottomDock: React.FC<BottomDockProps> = ({
 
           <button
             type="button"
-            onClick={() => onSelectTool('eraser')}
-            aria-pressed={activeTool === 'eraser'}
-            aria-label="پاک‌کن"
-            title="پاک‌کن"
-            className={compactIconCls(activeTool === 'eraser', 'danger')}
+            onClick={onToggleUnderLight}
+            disabled={!canToggleUnderLight}
+            aria-pressed={lightsOn}
+            aria-label="چراغ زیر کابینت"
+            title="چراغ زیر کابینت"
+            className={compactIconCls(lightsOn, 'amber')}
           >
-            <Eraser className="w-4 h-4" />
+            <Lightbulb className="w-4 h-4" />
           </button>
         </div>
       </nav>

@@ -69,6 +69,7 @@ interface TopBarProps {
   canMirrorFront?: boolean;
   onAlignBox?: (pos: 'left' | 'center' | 'right') => void;
   onMoveUnit?: (dir: 'left' | 'right') => void;
+  cameraToolbarRef?: React.Ref<HTMLDivElement>;
 }
 
 const iconBtn =
@@ -118,6 +119,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   canMirrorFront = false,
   onAlignBox,
   onMoveUnit,
+  cameraToolbarRef,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -369,11 +371,13 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {viewMode !== 'ar' && (hasActiveBox || hasSelectedUnit || hasSelectedAppliance) && (
+      {(viewMode === '3d' || (viewMode === '2d' && (hasActiveBox || hasSelectedUnit || hasSelectedAppliance))) && (
+        <div className="h-9 bg-slate-50 border-t border-slate-200 flex items-center px-2 gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
+        {(hasActiveBox || hasSelectedUnit || hasSelectedAppliance) && (
         <div
           data-testid="selection-align-toolbar"
           aria-label="تراز و هم‌اندازه‌سازی آیتم‌های انتخابی"
-          className="h-9 bg-slate-50 border-t border-slate-200 flex items-center justify-start px-2 gap-1 overflow-x-auto no-scrollbar whitespace-nowrap [&>*]:shrink-0"
+          className="flex shrink-0 items-center gap-1 [&>*]:shrink-0"
         >
           {(selectedApplianceName || activeBoxName) && (
             <span className="text-[13px] font-extrabold text-slate-600 px-1.5 shrink-0">
@@ -422,6 +426,9 @@ export const TopBar: React.FC<TopBarProps> = ({
             className={subIconBtn}>
             <Rows3 className="w-4 h-4" />
           </button>
+        </div>
+        )}
+        {viewMode === '3d' && <div ref={cameraToolbarRef} className="ms-auto shrink-0" />}
         </div>
       )}
     </header>

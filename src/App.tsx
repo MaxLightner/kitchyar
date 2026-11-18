@@ -56,6 +56,7 @@ import {
   resizeWallCabinetsSynchronized,
   stripInvalidColumnAndCornerDividers,
   syncHoodUnitAboveGas,
+  getBifoldSplit,
   uid,
 } from './cad/doorRules';
 import {
@@ -152,7 +153,7 @@ function normalizeProject(raw: ProjectState): ProjectState {
           kind: ((d.kind as string) === 'oven' ? 'door' : d.kind) as DoorKind,
           doorStyle: migratedStyle,
           hardwareKind: migratedHardware,
-          drawerRatios: migratedHardware === 'lift-bifold' ? [0.5] : d.drawerRatios ?? [],
+          drawerRatios: migratedHardware === 'lift-bifold' ? [getBifoldSplit(b.height)] : d.drawerRatios ?? [],
         };
       }),
       unitDividers: b.unitDividers || [],
@@ -294,6 +295,7 @@ export default function App() {
     return 'welcome';
   });
   const [styleGalleryOpen, setStyleGalleryOpen] = useState(false);
+  const [cameraToolbarHost, setCameraToolbarHost] = useState<HTMLDivElement | null>(null);
   const [measurement, setMeasurement] = useState<{
     label: string; initial: number; min: number; max: number; allowRow?: boolean;
     other?: { label: string; initial: number; min: number; max: number };
@@ -968,18 +970,19 @@ export default function App() {
     showToast(`میز ناهارخوری ${diningSeats.toLocaleString('fa-IR')} نفره درج شد`);
   }, [commitState, diningSeats, diningRotation, showToast]);
 
-  const moveDining = useCallback((id: string, x: number, y: number, commit: boolean) => {
+  const moveDining = useCallback((id: string, x: number, y: number, commit: boolean, angle?: number) => {
     const current = getProject();
     const item = current.diningSets?.find(d => d.id === id);
     if (!item) return;
     const { xCm, yCm } = snapDiningPosition(x, y);
-    if (!commit && xCm === item.xCm && yCm === item.yCm) return;
+    const rotation = angle === undefined ? item.rotation : (Math.round(angle) % 360 + 360) % 360;
+    if (!commit && xCm === item.xCm && yCm === item.yCm && rotation === item.rotation) return;
     const replaceAt = (px: number, py: number) => ({
-      ...current, diningSets: current.diningSets?.map(d => d.id === id ? { ...d, xCm: px, yCm: py } : d),
+      ...current, diningSets: current.diningSets?.map(d => d.id === id ? { ...d, xCm: px, yCm: py, rotation } : d),
     });
     const base = dragCheckpointRef.current;
     const before = base?.diningSets?.find(d => d.id === id);
-    if (commit && base && before) {
+    if (commit && base && before && angle === undefined) {
       if (xCm === before.xCm && yCm === before.yCm) return;
       setMeasurement({
         label: 'مختصات X میز', initial: xCm, min: -10000, max: 10000,
@@ -2654,11 +2657,11 @@ export default function App() {
   );
 
   const handleApplyStylePreset = useCallback(
-    (preset: KitchenStylePreset) => {
-      const applied = applyKitchenStylePreset(project, preset);
+    (preset: KitchenStylePreset, applyCabinetModel: boolean) => {
+      const applied = applyKitchenStylePreset(project, preset, applyCabinetModel);
       if (!applied) return;
       commitState(applied.next, true);
-      setHoodKind(preset.defaultHoodKind);
+      if (applyCabinetModel) setHoodKind(preset.defaultHoodKind);
       setStyleGalleryOpen(false);
       showToast(`استایل «${preset.title}» روی پروژه اعمال شد`);
     },
@@ -2924,6 +2927,7 @@ export default function App() {
         canMirrorFront={canMirrorFront}
         onAlignBox={handleAlignBox}
         onMoveUnit={handleMoveUnit}
+        cameraToolbarRef={setCameraToolbarHost}
       />
       </div>
 
@@ -3075,6 +3079,7 @@ export default function App() {
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
+              cameraToolbarHost={viewMode === '3d' ? cameraToolbarHost : null}
               diningSeats={diningSeats} diningRotation={diningRotation}
               onPlaceDining={placeDining} onMoveDining={moveDining}
               onSelectDining={selectDining} onDeleteDining={deleteDining}
@@ -3813,6 +3818,9 @@ export default function App() {
           onSelectTool={handleSelectTool}
           onToggleDoorsHidden={handleToggleDoorsHidden}
           onDeleteSelection={handleDeleteCurrentSelection}
+          canToggleUnderLight={selectedLightBoxes.length > 0}
+          lightsOn={lightsOn}
+          onToggleUnderLight={toggleUnderCabinetLight}
         />
       )}
 

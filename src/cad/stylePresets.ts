@@ -1,5 +1,5 @@
 import { CABINET_FINISHES } from './constants';
-import { clearHoodUnitForGas, syncHoodUnitAboveGas } from './doorRules';
+import { clearHoodUnitForGas, createEmptyBox, syncHoodUnitAboveGas, uid } from './doorRules';
 import {
   BacksplashFinishId,
   CabinetFinishId,
@@ -8,6 +8,7 @@ import {
   DoorStyle,
   HandleStyle,
   ProjectState,
+  Wall,
 } from './types';
 
 export interface KitchenStylePreset {
@@ -24,6 +25,7 @@ export interface KitchenStylePreset {
   doorStyle: DoorStyle;
   handleStyle: HandleStyle;
   defaultHoodKind: 'chimney' | 'hidden';
+  twoTierWallCabinets?: boolean;
 }
 
 export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
@@ -36,6 +38,7 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     cabinetFinish: 'warm-white',
     upperCabinetFinish: 'natural-oak',
     wallDeepCabinetFinish: 'warm-white',
+    twoTierWallCabinets: true,
     backsplashFinish: 'calacatta-marble',
     countertopFinish: 'oak-butcher',
     doorStyle: 'flat',
@@ -129,6 +132,7 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
     cabinetFinish: 'greige',
     upperCabinetFinish: 'natural-oak',
     wallDeepCabinetFinish: 'greige',
+    twoTierWallCabinets: true,
     backsplashFinish: 'herringbone-charcoal',
     countertopFinish: 'dark-quartz',
     doorStyle: 'flat',
@@ -150,9 +154,56 @@ export const KITCHEN_STYLE_PRESETS: KitchenStylePreset[] = [
   },
 ];
 
+function applyTwoTierWallCabinets(wall: Wall) {
+  const lowers = wall.boxes.filter(box => box.type === 'wall' && !box.linkedToBoxId);
+  const uppers = wall.boxes.filter(box => box.type === 'wall-deep');
+  for (const lower of lowers) {
+    const overlapsWidth = (x: number, width: number) =>
+      x < lower.offsetX + lower.width - 0.1 && x + width > lower.offsetX + 0.1;
+    const matching = uppers.filter(box => overlapsWidth(box.offsetX, box.width) &&
+      Math.abs(box.elevY - lower.elevY - lower.height) < 0.1);
+    if (matching.length) {
+      if (matching.some(box => box.linkedToBoxId || box.offsetX < lower.offsetX - 0.1 ||
+          box.offsetX + box.width > lower.offsetX + lower.width + 0.1)) continue;
+      const total = Math.min(...matching.map(box => lower.height + box.height));
+      if (total < 75) continue;
+      const height = Math.min(40, Math.floor(total / 3));
+      const delta = lower.height - height;
+      lower.height = height;
+      for (const upper of matching) {
+        upper.elevY -= delta;
+        upper.height += delta;
+      }
+      continue;
+    }
+    const total = lower.height;
+    if (total < 75 || !lower.doors.length || uppers.some(box => overlapsWidth(box.offsetX, box.width) &&
+        box.elevY < lower.elevY + total && box.elevY + box.height > lower.elevY)) continue;
+    const height = Math.min(40, Math.floor(total / 3));
+    const upper = createEmptyBox('wall-deep', lower.offsetX, lower.width);
+    upper.width = lower.width;
+    upper.elevY = lower.elevY + height;
+    upper.height = total - height;
+    upper.unitDividers = [...lower.unitDividers];
+    upper.doors = lower.doors.map(door => ({ ...door, id: uid('door'),
+      kind: door.kind === 'lift' ? 'door' : door.kind,
+      hardwareKind: door.kind === 'lift' ? 'hinged' : door.hardwareKind, drawerRatios: [],
+    }));
+    upper.handles = lower.handles.flatMap(handle => {
+      const source = lower.doors.findIndex(door => door.id === handle.doorId);
+      if (source < 0 || (handle.rowIndex ?? 0) > 0) return [];
+      return [{ ...handle, id: uid('handle'), doorId: upper.doors[source].id, rowIndex: 0 }];
+    });
+    lower.height = height;
+    wall.boxes.push(upper);
+    uppers.push(upper);
+  }
+}
+
 export function applyKitchenStylePreset(
   project: ProjectState,
-  presetOrId: string | KitchenStylePreset
+  presetOrId: string | KitchenStylePreset,
+  applyCabinetModel = true,
 ): { next: ProjectState; preset: KitchenStylePreset } | null {
   const preset =
     typeof presetOrId === 'string'
@@ -161,17 +212,18 @@ export function applyKitchenStylePreset(
   if (!preset) return null;
 
   const next: ProjectState = JSON.parse(JSON.stringify(project));
-  next.designStyle = preset.designStyle;
+  if (applyCabinetModel) next.designStyle = preset.designStyle;
   next.cabinetFinish = preset.cabinetFinish;
   next.cabinetTexture = preset.cabinetFinish === 'natural-oak' ? 'oak' : preset.cabinetFinish === 'walnut' ? 'walnut' : 'satin';
   next.backsplashFinish = preset.backsplashFinish;
   next.countertopFinish = preset.countertopFinish;
   next.skipStylePrompt = true;
-  if (next.settings) {
+  if (applyCabinetModel && next.settings) {
     next.settings.defaultHoodKind = preset.defaultHoodKind;
   }
 
   for (const wall of next.walls) {
+    if (applyCabinetModel && preset.twoTierWallCabinets) applyTwoTierWallCabinets(wall);
     for (const box of wall.boxes) {
       if (box.type === 'fridge') continue;
       if (box.type === 'wall' && preset.upperCabinetFinish) {
@@ -188,6 +240,7 @@ export function applyKitchenStylePreset(
         delete box.finish;
       }
 
+      if (!applyCabinetModel) continue;
       for (const door of box.doors) {
         if (door.kind === 'door' || door.kind === 'drawer' || door.kind === 'lift') {
           if (door.doorStyle !== 'glass' && door.doorStyle !== 'glass-grid' && door.hardwareKind !== 'pantry-pullout') {
@@ -206,6 +259,7 @@ export function applyKitchenStylePreset(
         handle.lengthCm = handle.style === 'hidden' ? 14 : handle.style === 'knob' ? 3.6 : handle.style === 'tab' ? 9 : 16;
       }
     }
+    if (!applyCabinetModel) continue;
     for (const app of wall.appliances) {
       if (app.kind === 'gas') {
         clearHoodUnitForGas(wall, app.offsetX, app.offsetX + app.width, app.id);

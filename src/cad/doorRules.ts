@@ -4804,6 +4804,11 @@ export function applyDoorStyleToDoors(
  * Applies a dedicated HardwareKind ('hinged', 'pantry-pullout', 'lift-bifold', 'push-to-open', 'corner')
  * cleanly decoupled from visual panel style.
  */
+export function getBifoldSplit(boxHeightCm: number): number {
+  const lowerCm = Math.min(40, boxHeightCm / 3);
+  return 1 - lowerCm / boxHeightCm;
+}
+
 export function applyHardwareKindToDoors(
   box: CabinetBox,
   targetDoorIds: string[] | null,
@@ -4818,29 +4823,33 @@ export function applyHardwareKindToDoors(
 
     if (hardwareKind === 'lift-bifold' && (!isWall || door.kind === 'drawer')) continue;
     const previousHardware = door.hardwareKind;
+    const split = getBifoldSplit(box.height);
     door.hardwareKind = hardwareKind;
     if (previousHardware === 'lift-bifold' && hardwareKind === 'hinged') {
       door.kind = 'door';
-      door.drawerRatios = [];
       for (const handle of box.handles) {
         if (handle.doorId !== door.id) continue;
-        handle.yRatio = ((handle.rowIndex ?? 0) + handle.yRatio) / 2;
+        const previousSplit = door.drawerRatios[0] ?? split;
+        handle.yRatio = handle.rowIndex === 1
+          ? previousSplit + (1 - previousSplit) * handle.yRatio
+          : previousSplit * handle.yRatio;
         handle.rowIndex = 0;
       }
+      door.drawerRatios = [];
     }
     if (hardwareKind === 'pantry-pullout') {
       door.hingeSide = undefined;
     } else if (hardwareKind === 'lift-bifold') {
-      const split = door.kind === 'lift' ? [0, ...door.drawerRatios, 1] : [0, 1];
+      const previousRows = door.kind === 'lift' ? [0, ...door.drawerRatios, 1] : [0, 1];
       for (const handle of box.handles) {
         if (handle.doorId !== door.id) continue;
-        const row = Math.max(0, Math.min(split.length - 2, handle.rowIndex ?? 0));
-        const pos = split[row] + (split[row + 1] - split[row]) * handle.yRatio;
-        handle.rowIndex = pos >= 0.5 ? 1 : 0;
-        handle.yRatio = pos * 2 - handle.rowIndex;
+        const row = Math.max(0, Math.min(previousRows.length - 2, handle.rowIndex ?? 0));
+        const pos = previousRows[row] + (previousRows[row + 1] - previousRows[row]) * handle.yRatio;
+        handle.rowIndex = pos >= split ? 1 : 0;
+        handle.yRatio = pos >= split ? (pos - split) / (1 - split) : pos / split;
       }
       door.kind = 'lift';
-      door.drawerRatios = [0.5];
+      door.drawerRatios = [split];
     } else if (hardwareKind === 'hinged' && !door.hingeSide && door.kind === 'door') {
       door.hingeSide = door.startCm + door.widthCm / 2 > box.width / 2 ? 'right' : 'left';
     }
@@ -5189,7 +5198,13 @@ export function resizeWallCabinetsSynchronized(
   if (srcBox.type !== 'wall' && srcBox.type !== 'wall-deep') return false;
 
   const oldSrcTop = +(srcBox.elevY + srcBox.height).toFixed(1);
-  const clampedElev = Math.max(95, Math.min(srcWall.height - 25, Math.round(nextElevY)));
+  const srcLower = srcBox.type === 'wall' ? srcBox : srcWall.boxes.find(box => box.type === 'wall' &&
+    box.offsetX < srcBox.offsetX + srcBox.width - 2 && box.offsetX + box.width > srcBox.offsetX + 2);
+  const srcUpper = srcBox.type === 'wall-deep' && !srcBox.linkedToBoxId ? srcBox : srcWall.boxes.find(box =>
+    box.type === 'wall-deep' && !box.linkedToBoxId && box.offsetX < srcBox.offsetX + srcBox.width - 2 &&
+    box.offsetX + box.width > srcBox.offsetX + 2);
+  const maxBottom = srcBox.type === 'wall' && srcUpper ? srcUpper.elevY + srcUpper.height - 75 : srcWall.height - 25;
+  const clampedElev = Math.max(95, Math.min(maxBottom, Math.round(nextElevY)));
   let clampedH = Math.max(25, Math.min(srcWall.height - clampedElev, Math.round(nextHeight)));
   const bottomMoved = Math.abs(clampedElev - srcBox.elevY) >= 0.5;
   let newSrcTop = +(clampedElev + clampedH).toFixed(1);
@@ -5207,16 +5222,15 @@ export function resizeWallCabinetsSynchronized(
   );
 
   if (srcBox.type === 'wall') {
-    if (hasStackedTwoTier && !bottomMoved) {
+    if (hasStackedTwoTier) {
       const stackedWd = srcWall.boxes.find(
         (wd) => wd.type === 'wall-deep' && !wd.linkedToBoxId && horizOverlap(wd, srcBox)
       );
       if (stackedWd) {
-        const crownLimit = stackedWd.elevY + stackedWd.height - 25;
-        if (newSrcTop > crownLimit) {
-          clampedH = Math.max(25, Math.round(crownLimit - clampedElev));
-          newSrcTop = +(clampedElev + clampedH).toFixed(1);
-        }
+        const total = stackedWd.elevY + stackedWd.height - clampedElev;
+        if (total < 75) return false;
+        clampedH = Math.max(25, Math.min(clampedH, 40, Math.floor(total / 3)));
+        newSrcTop = clampedElev + clampedH;
       }
     }
 
@@ -5264,6 +5278,9 @@ export function resizeWallCabinetsSynchronized(
       }
     }
   } else {
+    if (srcLower && srcUpper && !bottomMoved) {
+      newSrcTop = Math.min(srcWall.height, Math.max(newSrcTop, srcLower.elevY + 3 * srcLower.height));
+    }
     // srcBox.type === 'wall-deep' (including over-fridge or stacked top row)
     for (const w of walls) {
       for (const wd of w.boxes) {
@@ -5276,7 +5293,9 @@ export function resizeWallCabinetsSynchronized(
         if (wallsBelow.length > 0 && bottomMoved) {
           // Dragging the middle seam (bottom of upper wall-deep): move seam while keeping crown top fixed
           const minWallElev = Math.max(...wallsBelow.map((wb) => wb.elevY));
-          const maxSeamElev = Math.min(w.height - 25, oldSrcTop - 25);
+          const crown = Math.min(w.height, oldSrcTop);
+          const maxSeamElev = Math.min(...wallsBelow.map(wb => wb.elevY + Math.min(40, Math.floor((crown - wb.elevY) / 3))));
+          if (maxSeamElev < minWallElev + 25) continue;
           const newWdElev = Math.max(minWallElev + 25, Math.min(maxSeamElev, clampedElev));
           for (const wb of wallsBelow) {
             wb.height = Math.max(25, newWdElev - wb.elevY);

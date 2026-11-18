@@ -1595,7 +1595,7 @@ test('All 9 style JSON files exist on disk, validate, and apply two-tone finishe
   }
 });
 
-test('Two-tier stacked upper cabinets resize synchronously along the middle seam without collapsing', () => {
+test('Two-tier stacked upper cabinets clamp the middle seam to the smaller lower tier', () => {
   const w = createWall('دیوار دو طبقه', 0, 0, 260, 0, 1, 270);
   const lowerWall = createEmptyBox('wall', 0, 200);
   lowerWall.elevY = 145;
@@ -1608,16 +1608,16 @@ test('Two-tier stacked upper cabinets resize synchronously along the middle seam
   // Move middle seam down by dragging bottom edge of wall-deep to 185 (crown stays at 240)
   const okDown = resizeWallCabinetsSynchronized([w], w.id, upperDeep.id, 185, 55);
   assert.equal(okDown, true);
-  assert.equal(upperDeep.elevY, 185);
-  assert.equal(upperDeep.height, 55);
+  assert.equal(upperDeep.elevY, 176);
+  assert.equal(upperDeep.height, 64);
   assert.equal(lowerWall.elevY, 145);
-  assert.equal(lowerWall.elevY + lowerWall.height, 185);
+  assert.equal(lowerWall.height, 31);
 
   // Move middle seam up by dragging top edge of lower wall to 210 (crown of wall-deep stays at 240)
   const okUp = resizeWallCabinetsSynchronized([w], w.id, lowerWall.id, 145, 65);
   assert.equal(okUp, true);
-  assert.equal(lowerWall.elevY + lowerWall.height, 210);
-  assert.equal(upperDeep.elevY, 210);
+  assert.equal(lowerWall.height, 31);
+  assert.equal(upperDeep.elevY, 176);
   assert.equal(upperDeep.elevY + upperDeep.height, 240);
 });
 

@@ -8,10 +8,11 @@ import { previewCabinetRow, continueCabinetRow, startCabinetRow, type CabinetRow
 import { logDiagnostic } from '../utils/diagnostics';
 import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { bakeKitchenEnvironment } from '../cad/kitchenEnvironment';
-import { DoorClosed, DoorOpen, Eye, Layers, ZoomIn } from 'lucide-react';
+import { loadKitchenEnvironment } from '../cad/kitchenEnvironment';
+import { DoorClosed, DoorOpen, ZoomIn } from 'lucide-react';
 import {
   APPLIANCE_CONFIGS,
   BACKSPLASH_FINISHES,
@@ -166,6 +167,7 @@ interface Scene3DCanvasProps {
   onSetDoorOrient?: (o: Orientation) => void;
   onSetHandleStyle?: (s: HandleStyle) => void;
   onSetHandleOrient?: (o: Orientation) => void;
+  cameraToolbarHost?: HTMLDivElement | null;
   onSelectWallAndBox: (
     wallId: string,
     boxId: string | null,
@@ -180,7 +182,7 @@ interface Scene3DCanvasProps {
   diningSeats: DiningSeats;
   diningRotation: number;
   onPlaceDining: (x: number, y: number) => void;
-  onMoveDining: (id: string, x: number, y: number, commit: boolean) => void;
+  onMoveDining: (id: string, x: number, y: number, commit: boolean, angle?: number) => void;
   onSelectDining: (id: string | null) => void;
   onDeleteDining: (id: string) => void;
   onAddRoomColumn?: (xCm: number, yCm: number, commit?: boolean) => RoomColumn | void;
@@ -234,7 +236,11 @@ interface Scene3DCanvasProps {
 }
 
 type Drag3D =
-  | { kind: 'move-dining'; diningId: string; offsetXCm: number; offsetYCm: number; lastX: number; lastY: number; moved: boolean }
+  | { kind: 'move-dining'; diningId: string; offsetXCm: number; offsetYCm: number;
+      lastX: number; lastY: number; moved: boolean; rotation: number;
+      primaryTouch?: { x: number; y: number };
+      rotationTouch?: { id: number; point: { x: number; y: number }; startAngle: number; startRotation: number };
+      rotated?: boolean }
   | { kind: 'move-shelf'; wallId: string; boxId: string; shelfId: string; startDot: number; startY: number; dx: number; dy: number }
   | {
       kind: 'move-box';
@@ -516,10 +522,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     scene.fog = new THREE.Fog('#eaeef3', 14, 34);
     sceneRef.current = scene;
 
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const envTex = bakeKitchenEnvironment(pmrem).texture;
-    scene.environment = envTex;
-    scene.environmentIntensity = 0.68;
+    const disposeEnvironment = loadKitchenEnvironment(renderer, target => {
+      scene.environment = target.texture;
+      requestRenderRef.current();
+    });
+    scene.environmentIntensity = 0.9;
     const reflectionProbe = isSoftwareGl ? null : createCabinetReflectionProbe(renderer, scene, () => requestRenderRef.current());
     reflectionProbeRef.current = reflectionProbe;
 
@@ -1424,8 +1431,21 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (dom.hasPointerCapture(pointerId)) dom.releasePointerCapture(pointerId);
     };
 
+    const angleBetween = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      Math.atan2(b.y - a.y, b.x - a.x);
+
     const onPointerDown = (e: PointerEvent) => {
-      if (dragPointerId !== null) return;
+      if (dragPointerId !== null) {
+        const drag = drag3DRef.current;
+        if (e.pointerType === 'touch' && drag?.kind === 'move-dining' && drag.primaryTouch && !drag.rotationTouch) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const point = { x: e.clientX, y: e.clientY };
+          drag.rotationTouch = { id: e.pointerId, point,
+            startAngle: angleBetween(drag.primaryTouch, point), startRotation: drag.rotation };
+        }
+        return;
+      }
       if (e.pointerType === 'touch' && propsRef.current.tool !== 'select') {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -1470,7 +1490,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             beginModelDrag(e.pointerId);
             drag3DRef.current = { kind: 'move-dining', diningId: item.id,
               offsetXCm: item.xCm - floor.xCm, offsetYCm: item.yCm - floor.yCm,
-              lastX: item.xCm, lastY: item.yCm, moved: false };
+              lastX: item.xCm, lastY: item.yCm, moved: false, rotation: item.rotation,
+              primaryTouch: e.pointerType === 'touch' ? { x: e.clientX, y: e.clientY } : undefined };
           }
           return;
         }
@@ -1697,6 +1718,22 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      const diningDrag = drag3DRef.current;
+      if (diningDrag?.kind === 'move-dining' && diningDrag.primaryTouch) {
+        const point = { x: e.clientX, y: e.clientY };
+        if (e.pointerId === dragPointerId) diningDrag.primaryTouch = point;
+        const touch = diningDrag.rotationTouch;
+        if (touch) {
+          if (e.pointerId === touch.id) touch.point = point;
+          if (e.pointerId === touch.id || e.pointerId === dragPointerId) {
+            const radians = angleBetween(diningDrag.primaryTouch, touch.point) - touch.startAngle;
+            diningDrag.rotation = touch.startRotation + radians * 180 / Math.PI;
+            diningDrag.rotated = true;
+            propsRef.current.onMoveDining(diningDrag.diningId, diningDrag.lastX, diningDrag.lastY, false, diningDrag.rotation);
+          }
+          return;
+        }
+      }
       if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       if(e.pointerType === 'touch' && surfaceCursorRef.current.dragging) {
         if(surfaceCursorRef.current.moving(e.pointerId,e.clientX,e.clientY))pinSurfaceCursor(e.clientX,e.clientY);
@@ -1844,6 +1881,17 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      const diningDrag = drag3DRef.current;
+      if (diningDrag?.kind === 'move-dining' && diningDrag.rotationTouch?.id === e.pointerId) {
+        diningDrag.rotationTouch = undefined;
+        const finger = diningDrag.primaryTouch;
+        const floor = finger && raycastFloorPointCm(finger.x, finger.y, false);
+        if (floor) {
+          diningDrag.offsetXCm = diningDrag.lastX - floor.xCm;
+          diningDrag.offsetYCm = diningDrag.lastY - floor.yCm;
+        }
+        return;
+      }
       if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       let actionX=e.clientX, actionY=e.clientY;
       if(e.pointerType==='touch' && (propsRef.current.tool!=='select' || surfaceCursorRef.current.dragging)) {
@@ -1872,7 +1920,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         if (dr.kind === 'move-box' && !dr.moved && isTap && cur.tool === 'select') onDoorTap(e);
         else doorTap.reset();
         if (dr.kind === 'move-dining') {
-          if (dr.moved) cur.onMoveDining(dr.diningId, dr.lastX, dr.lastY, true);
+          if (dr.moved || dr.rotated) cur.onMoveDining(dr.diningId, dr.lastX, dr.lastY, true, dr.rotated ? dr.rotation : undefined);
           cur.onFinishDrag();
           return;
         }
@@ -2773,6 +2821,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     dom.addEventListener('pointerleave', onPointerLeave);
     window.addEventListener('pointermove', onPointerMove);
     const onPointerCancel = (e: PointerEvent) => {
+      const diningDrag = drag3DRef.current;
+      if (diningDrag?.kind === 'move-dining' && diningDrag.rotationTouch?.id === e.pointerId) {
+        onPointerUp(e);
+        return;
+      }
       if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       if (dragPointerId === null && !dom.hasPointerCapture(e.pointerId) && e.target !== dom && !downClientRef.current) return;
       cancelModelDrag();
@@ -2828,8 +2881,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         disposeObject3D(builtRef.current.root);
         builtRef.current = null;
       }
-      envTex.dispose();
-      pmrem.dispose();
+      disposeEnvironment();
       renderer.dispose();
       if (dom.parentNode === container) container.removeChild(dom);
       if (rendererRef.current === renderer) rendererRef.current = null;
@@ -3015,11 +3067,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         : 'w-full h-full'} />
 
       {/* نوار شناور بالای نمای سه‌بعدی (دوربین، باز شدن درها، انتخاب دیوار) */}
-      <div
-        data-testid="scene-3d-floating-bar"
-        className="absolute top-2.5 right-3 left-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-[60]"
-      >
-        <div className="pointer-events-auto flex flex-wrap items-center gap-1 bg-white/95 border border-slate-300 rounded-xl p-1 shadow-sm max-w-full">
+      {props.cameraToolbarHost && createPortal(
+        <div data-testid="scene-3d-floating-bar" className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => handleSetCamPreset('iso')}
@@ -3093,46 +3142,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             <ZoomIn className="w-3.5 h-3.5" />
             <span>زوم روی انتخاب</span>
           </button>
-        </div>
-
-        {/* انتخاب دیوار فعال + نشانگر ابزار فعال در سه‌بعدی */}
-        <div
-          data-testid="wall-selector-3d"
-          className="pointer-events-auto flex items-center gap-1 bg-white/95 border border-slate-300 rounded-xl p-1 shadow-sm max-w-full overflow-x-auto no-scrollbar"
-        >
-          <Layers className="w-3.5 h-3.5 text-slate-400 mx-1 shrink-0" />
-          {project.walls.map((w) => {
-            const isSel = w.id === project.activeWallId;
-            return (
-              <button
-                key={w.id}
-                type="button"
-                data-wall-selector-id={w.id}
-                aria-pressed={isSel}
-                onClick={() => {
-                  props.onSelectWallAndBox(w.id, null, null);
-                  if (camPreset === 'front' || camPreset === 'iso') {
-                    applyCameraPreset(camPreset, undefined, w.id);
-                  }
-                }}
-                className={`h-7 px-2 rounded-lg text-[13px] font-bold whitespace-nowrap transition ${
-                  isSel
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                {w.name}
-              </button>
-            );
-          })}
-          {project.doorsHidden && (
-            <span className="h-7 px-2 rounded-lg bg-purple-100 text-purple-800 text-[13px] font-extrabold inline-flex items-center gap-1">
-              <Eye className="w-3 h-3" />
-              <span>یونیت‌ها</span>
-            </span>
-          )}
-        </div>
-      </div>
+        </div>,
+        props.cameraToolbarHost,
+      )}
 
       {/* راهنمای مختصر پایین سه‌بعدی */}
       <div className="pointer-events-none absolute bottom-2.5 left-3 bg-white/95 border border-slate-200 rounded-lg px-2.5 py-1 text-[13px] font-bold text-slate-600 shadow-xs">

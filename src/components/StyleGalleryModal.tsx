@@ -4,7 +4,7 @@ import { DOOR_STYLE_META } from '../cad/constants';
 import { KITCHEN_STYLE_PRESETS, KitchenStylePreset } from '../cad/stylePresets';
 
 interface StyleGalleryModalProps {
-  onApplyStyle: (preset: KitchenStylePreset) => void;
+  onApplyStyle: (preset: KitchenStylePreset, applyCabinetModel: boolean) => void;
   onClose: () => void;
 }
 
@@ -14,6 +14,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
 }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [applyCabinetModel, setApplyCabinetModel] = useState(false);
 
   const selectedPreset =
     KITCHEN_STYLE_PRESETS.find((p) => p.id === selectedId) || null;
@@ -37,7 +38,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
     } finally {
       setApplying(false);
     }
-    onApplyStyle(resolved);
+    onApplyStyle(resolved, applyCabinetModel);
     onClose();
   };
 
@@ -131,12 +132,17 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
           })}
         </div>
 
-        <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3 shrink-0">
+        <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="text-[13px] font-bold text-slate-600 truncate">
             {selectedPreset
               ? `انتخاب‌شده: ${selectedPreset.title}`
               : 'یک تصویر از گالری بالا انتخاب کنید'}
           </div>
+          <label className="inline-flex items-center gap-2 text-sm font-bold text-slate-700">
+            <input type="checkbox" checked={applyCabinetModel} disabled={applying}
+              onChange={event => setApplyCabinetModel(event.target.checked)} />
+            مدل کابینت هم اعمال شود
+          </label>
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"

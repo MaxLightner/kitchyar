@@ -12,7 +12,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildDiningFootprint3D } from '../cad/dining3d';
 import { snapDiningPosition } from '../cad/diningLayout';
 import type { DiningSeats } from '../cad/types';
-import { bakeKitchenEnvironment } from '../cad/kitchenEnvironment';
+import { loadKitchenEnvironment } from '../cad/kitchenEnvironment';
 import {
   AppWindow,
   BrickWall,
@@ -959,9 +959,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const envRT = bakeKitchenEnvironment(pmrem);
-    scene.environment = envRT.texture;
+    const disposeEnvironment = loadKitchenEnvironment(renderer, target => {
+      scene.environment = target.texture;
+    });
+    scene.environmentIntensity = 0.9;
 
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.04, 50);
     camera.position.set(2.4, 2.2, 3.6);
@@ -2298,8 +2299,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       builtSceneRef.current = null;
       disposeObject3D(diningGhost);
       if (diningGhostRef.current === diningGhost) diningGhostRef.current = null;
-      envRT.dispose();
-      pmrem.dispose();
+      disposeEnvironment();
       renderer.dispose();
     };
   }, []);
@@ -3552,10 +3552,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     wideRenderer.toneMappingExposure = arRenderer?.toneMappingExposure ?? 1.06;
     wideRenderer.shadowMap.enabled = arRenderer?.shadowMap.enabled ?? false;
     wideRenderer.shadowMap.type = arRenderer?.shadowMap.type ?? THREE.PCFSoftShadowMap;
-    const widePmrem = new THREE.PMREMGenerator(wideRenderer);
-    const wideEnvironment = bakeKitchenEnvironment(widePmrem);
-    widePmrem.dispose();
-    trackedWideEnvRef.current = wideEnvironment;
+    const disposeEnvironment = loadKitchenEnvironment(wideRenderer, target => {
+      trackedWideEnvRef.current = target;
+    });
     const canvas = wideRenderer.domElement;
     canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
     parent.appendChild(canvas);
@@ -3567,8 +3566,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         trackedWideRendererRef.current = null;
         trackedWideCameraRef.current = null;
       }
-      if (trackedWideEnvRef.current === wideEnvironment) trackedWideEnvRef.current = null;
-      wideEnvironment.dispose();
+      trackedWideEnvRef.current = null;
+      disposeEnvironment();
       wideRenderer.dispose();
       canvas.remove();
     };

@@ -24,11 +24,13 @@ test('dining capacity and geometry agree in plan and 3D', () => {
 
 test('the lower bifold leaf stays on the upper leaf hinge and both share an animation', () => {
   const box = createEmptyBox('wall', 0, 85);
+  box.height = 90;
   box.doors.push({ id: 'fixture-door', kind: 'door', startCm: 0, widthCm: 85, drawerRatios: [] });
   const door = box.doors[0];
   assert.equal(applyHardwareKindToDoors(box, null, 'lift-bifold'), 1);
   assert.equal(door.kind, 'lift');
-  assert.deepEqual(door.drawerRatios, [0.5]);
+  const lowerCm = (1 - door.drawerRatios[0]) * box.height;
+  assert.ok(Math.abs(lowerCm - 30) < 1e-6);
   assert.ok(canDoorOpenIn3D(box, door));
   for (const normalSign of [1, -1]) {
     const upper = new THREE.Group();
