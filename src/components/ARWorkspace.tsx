@@ -1768,8 +1768,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       if(!xrSessionRef.current && e.pointerType==='touch' && toolNow !== 'select' && toolNow !== 'move' && !toolNow.startsWith('calibrate-')) {
         e.preventDefault();e.stopImmediatePropagation();controls.enabled=false;
         if (!surfaceCursorRef.current.begin(e.pointerId, e.clientX, e.clientY)) return;
-        surfaceCursorRef.current.clearTarget();
-        pinSurfaceCursor(e.clientX, e.clientY);
+        if (!surfaceCursorRef.current.point) pinSurfaceCursor(e.clientX, e.clientY);
         try{dom.setPointerCapture(e.pointerId);}catch{}
         return;
       }

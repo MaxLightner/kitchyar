@@ -4,7 +4,7 @@ import * as THREE from 'three';
 export class SurfaceCursor {
   point: THREE.Vector3 | null = null;
   normal = new THREE.Vector3(0,1,0);
-  private gesture: {id:number; x:number; y:number;  moved:boolean; cancelled:boolean} | null = null;
+  private gesture: {id:number; x:number; y:number; moved:boolean; cancelled:boolean; hadTarget:boolean} | null = null;
   pin(point: THREE.Vector3, normal = new THREE.Vector3(0,1,0)) {
     this.point=point.clone();
     this.normal.copy(normal).normalize();
@@ -13,7 +13,7 @@ export class SurfaceCursor {
   clear() {this.clearTarget();this.gesture=null;}
   begin(id:number,x:number,y:number): boolean {
     if(this.gesture) {this.gesture.cancelled=true;return false;}
-    this.gesture={id,x,y,moved:false,cancelled:false};
+    this.gesture={id,x,y,moved:false,cancelled:false,hadTarget:!!this.point};
     return true;
   }
   moving(id:number,x:number,y:number) {
@@ -26,7 +26,7 @@ export class SurfaceCursor {
     const g=this.gesture;
     if(!g||g.id!==id)return false;
     this.gesture=null;
-    return !g.moved&&!g.cancelled;
+    return g.hadTarget && !!this.point && !g.moved && !g.cancelled;
   }
   cancelGesture() {if(this.gesture)this.gesture.cancelled=true;}
   resetGesture(id: number) { if (this.gesture?.id === id) this.gesture = null; }

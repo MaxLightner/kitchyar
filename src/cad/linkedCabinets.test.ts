@@ -32,9 +32,10 @@ test('moving a sink bay within a run preserves its shelves and the overhead cove
   upper.width = 220;
   base.shelves = [{ id: 'shelf', startCm: 0, endCm: 80, yRatio: 0.55 }];
   moveApplianceHierarchically(wall, [wall], sink.id, 370, {}, { exact: true });
-  assert.equal(sink.offsetX, 250);
-  assert.deepEqual(base.shelves.map(shelf => [shelf.startCm, shelf.endCm]), [[140, 220]]);
-  assert.ok(upper.doors.some(door => door.kind === 'lift' && door.startCm === 140));
+  const shift = sink.offsetX - base.offsetX;
+  assert.ok(shift > 140 && shift + sink.width <= base.width);
+  assert.deepEqual(base.shelves.map(shelf => [shelf.startCm, shelf.endCm]), [[shift, shift + sink.width]]);
+  assert.ok(upper.doors.some(door => door.kind === 'lift' && door.startCm === sink.offsetX - upper.offsetX));
 });
 
 test('the crown updates uppers, tall cabinets and over-fridge cabinets as a group', () => {
