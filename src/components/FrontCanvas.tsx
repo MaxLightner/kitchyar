@@ -1753,7 +1753,10 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         return;
       }
       if (hit) {
-        const doorId = target.closest('[data-door-id]')?.getAttribute('data-door-id') ?? undefined;
+        const hitDoor = document.elementsFromPoint(e.clientX, e.clientY)
+          .map(element => element.closest('[data-door-id][data-box-id]'))
+          .find(door => door && door.getAttribute('data-box-id') === hit.box.id && e.currentTarget.contains(door));
+        const doorId = hitDoor?.getAttribute('data-door-id') ?? undefined;
         onApplyFinish('box', wall.id, hit.box.id, undefined, doorId);
         return;
       }
