@@ -749,8 +749,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   }, [wall]);
 
   const backsplashSpans = useMemo(
-    () => (wall ? computeWallBacksplashSpans(wall) : []),
-    [wall]
+    () => (wall ? computeWallBacksplashSpans(wall, allWalls, cornerOwners) : []),
+    [wall, allWalls, cornerOwners]
   );
 
   const isPointOverCountertop = (pt: { x: number; y: number }) =>

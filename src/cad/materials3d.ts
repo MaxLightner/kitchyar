@@ -1,5 +1,6 @@
 import type { CabinetBox, CabinetTextureId } from './types';
 import * as THREE from 'three';
+import { readSurfaceFinish } from './surfaceFinish';
 import {
   BACKSPLASH_FINISHES,
   CABINET_FINISHES,
@@ -401,6 +402,27 @@ function createSatinMap(): THREE.CanvasTexture {
   return tex;
 }
 
+const finishSwatches = new Map<string, string>();
+
+export function getFinishSwatch(kind: 'cabinet' | 'countertop' | 'backsplash', id: string) {
+  if (kind === 'cabinet') {
+    const filename = id === 'natural-oak' ? WOOD_MAP.oak : id === 'walnut' ? WOOD_MAP.walnut : null;
+    return filename ? import.meta.env.BASE_URL + 'assets/materials/' + filename : undefined;
+  }
+  const key = kind + ':' + id;
+  const cached = finishSwatches.get(key);
+  if (cached) return cached;
+  const texture = kind === 'countertop' ? createCountertopTexture(id as CountertopFinishId) : null;
+  const tile = kind === 'backsplash' ? createBacksplashTextures(id as BacksplashFinishId) : null;
+  const map = texture ?? tile?.map;
+  if (!map) return undefined;
+  const result = (map.image as HTMLCanvasElement).toDataURL();
+  map.dispose();
+  tile?.normalMap.dispose();
+  finishSwatches.set(key, result);
+  return result;
+}
+
 export interface KitchenMaterialPack {
   matCarcass: THREE.MeshStandardMaterial;
   matPlinth: THREE.MeshStandardMaterial;
@@ -427,7 +449,7 @@ export interface KitchenMaterialPack {
 }
 
 export function createKitchenMaterialPack(project: ProjectState, onTextureReady?: () => void): KitchenMaterialPack {
-  const reflection = Math.min(2, Math.max(0, project.settings?.cabinetReflection ?? 1));
+  const settings = project.settings;
   const textures = new Map<CabinetTextureId, THREE.Texture>();
   const getSurface = (finish: CabinetFinishId, appearance?: CabinetAppearance) => {
     const id = appearance?.texture ?? (finish === 'natural-oak' ? 'oak' : finish === 'walnut' ? 'walnut' : project.cabinetTexture ?? 'smooth');
@@ -467,12 +489,9 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
   ctTex.repeat.set(3, 1);
   const matCountertop = new THREE.MeshPhysicalMaterial({
     map: ctTex,
-    roughness: ctFinish === 'concrete-grey' ? 0.55 : ctFinish === 'oak-butcher' ? 0.46 : 0.2,
-    metalness: 0.04,
-    clearcoat: ctFinish === 'oak-butcher' ? 0.23 : 0.55,
-    clearcoatRoughness: 0.17,
-    envMapIntensity: 1.3,
+    ...readSurfaceFinish(settings, 1, ctFinish === 'concrete-grey' ? 0.54 : ctFinish === 'oak-butcher' ? 0.44 : 0.21),
   });
+  matCountertop.userData.sceneReflection = true;
 
   // Dark recessed reveal shadow liner visible in the 4mm seams between closed doors
   const matDoorRevealDark = new THREE.MeshStandardMaterial({
@@ -486,12 +505,9 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     map: bsTex.map,
     normalMap: bsTex.normalMap,
     normalScale: new THREE.Vector2(0.45, 0.45),
-    roughness: bsFinish === 'subway-white' || bsFinish === 'calacatta-marble' ? 0.2 : 0.34,
-    metalness: 0.025,
-    clearcoat: 0.65,
-    clearcoatRoughness: 0.16,
-    envMapIntensity: 1.45,
+    ...readSurfaceFinish(settings, 2, bsFinish === 'subway-white' || bsFinish === 'calacatta-marble' ? 0.22 : 0.32),
   });
+  matBacksplashBase.userData.sceneReflection = true;
 
   const bodyCache = new Map<string, THREE.MeshStandardMaterial>();
   const doorCache = new Map<string, THREE.MeshStandardMaterial>();
@@ -506,11 +522,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     const mat = new THREE.MeshPhysicalMaterial({
       color: surface.color,
       map: surface.map,
-      roughness: Math.min(0.67, cfg.roughness + 0.04),
-      metalness: 0.025,
-      clearcoat: 0.25,
-      clearcoatRoughness: 0.31,
-      envMapIntensity: 1.25 * reflection,
+      ...readSurfaceFinish(settings, 0, Math.max(0.25, cfg.roughness * 0.78)),
     });
     mat.userData.cabinetReflection = true;
     bodyCache.set(key, mat);
@@ -543,11 +555,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
       color: surface.map ? surface.color : '#ffffff',
       normalMap: bevelNormal,
       normalScale: new THREE.Vector2(0.015, 0.015),
-      roughness: doorStyle === 'cnc' ? Math.min(0.62, cfg.roughness + 0.09) : cfg.roughness,
-      metalness: 0.025,
-      clearcoat: doorStyle === 'glass' || doorStyle === 'glass-grid' ? 0.66 : 0.3,
-      clearcoatRoughness: 0.24,
-      envMapIntensity: 1.35 * reflection,
+      ...readSurfaceFinish(settings, 0, Math.max(0.20, cfg.roughness * 0.68 + (doorStyle === 'cnc' ? 0.06 : 0))),
     });
     mat.userData.cabinetReflection = true;
     doorCache.set(key, mat);
@@ -575,16 +583,14 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     const nrmClone = bsTex.normalMap.clone();
     nrmClone.needsUpdate = true;
     nrmClone.repeat.set(Math.max(0.5, wCm / 60), Math.max(0.4, hCm / 60));
-    return new THREE.MeshPhysicalMaterial({
+    const tile = new THREE.MeshPhysicalMaterial({
       map: mapClone,
       normalMap: nrmClone,
       normalScale: new THREE.Vector2(0.48, 0.48),
-      roughness: bsFinish === 'subway-white' || bsFinish === 'calacatta-marble' ? 0.2 : 0.34,
-      metalness: 0.025,
-      clearcoat: 0.65,
-      clearcoatRoughness: 0.16,
-      envMapIntensity: 1.45,
+      ...readSurfaceFinish(settings, 2, bsFinish === 'subway-white' || bsFinish === 'calacatta-marble' ? 0.22 : 0.32),
     });
+    tile.userData.sceneReflection = true;
+    return tile;
   };
 
   const doorEdgeCache = new Map<string, THREE.MeshStandardMaterial>();

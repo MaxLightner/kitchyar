@@ -26,6 +26,8 @@ import {
   isDividerNearBlockedCorner,
   isDoorAdjacentToInsideCorner,
 } from './doorRules';
+import { buildDining3D, createDiningMaterials } from './dining3d';
+import { readSurfaceFinish } from './surfaceFinish';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, KitchenMaterialPack } from './materials3d';
 import { deriveFloorPolygon } from './floorPolygon';
@@ -63,6 +65,7 @@ export interface Scene3DHitData {
     | 'appliance'
     | 'opening'
     | 'column'
+    | 'dining'
     | 'box-handle'
     | 'drawer-resize-handle'
     | 'door-seam-handle';
@@ -74,6 +77,7 @@ export interface Scene3DHitData {
   appId?: string;
   openingId?: string;
   columnId?: string;
+  diningId?: string;
   frameId?: string;
   shelfId?: string;
   handleId?: string;
@@ -94,7 +98,7 @@ export interface Scene3DHitData {
 export interface AnimatedDoorHandle {
   doorId: string;
   group: THREE.Group;
-  kind: 'hinge-left' | 'hinge-right' | 'lift' | 'drawer';
+  kind: 'hinge-left' | 'hinge-right' | 'lift' | 'bifold' | 'drawer';
   normalSign: number;
   baseX: number;
   baseY: number;
@@ -103,7 +107,12 @@ export interface AnimatedDoorHandle {
   baseRotY: number;
   maxAngle?: number;
   maxSlide?: number;
+  lowerLeaf?: THREE.Group;
+  liftArms?: Array<{ mesh: THREE.Mesh; fixed: THREE.Vector3; moving: THREE.Vector3 }>;
 }
+
+const LIFT_X_AXIS = new THREE.Vector3(1, 0, 0);
+const LIFT_Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /**
  * Quintic ease-in-out curve for damped soft-close ("آرام‌بند") cabinet door motion.
@@ -131,9 +140,17 @@ export function applyAnimatedDoorProgress(
   } else if (handle.kind === 'hinge-right') {
     handle.group.rotation.y =
       handle.baseRotY + handle.normalSign * e * (handle.maxAngle ?? 1.38);
-  } else if (handle.kind === 'lift') {
-    handle.group.rotation.x =
-      handle.baseRotX - handle.normalSign * e * (handle.maxAngle ?? 1.25);
+  } else if (handle.kind === 'lift' || handle.kind === 'bifold') {
+    const angle = -handle.normalSign * e * (handle.maxAngle ?? 1.25);
+    handle.group.rotation.x = handle.baseRotX + angle;
+    if (handle.lowerLeaf) handle.lowerLeaf.rotation.x = -angle * 1.64;
+    for (const arm of handle.liftArms ?? []) {
+      const to = arm.moving.clone().applyAxisAngle(LIFT_X_AXIS, angle).add(handle.group.position);
+      const axis = to.clone().sub(arm.fixed);
+      arm.mesh.position.copy(arm.fixed).lerp(to, 0.5);
+      arm.mesh.scale.y = axis.length();
+      arm.mesh.quaternion.setFromUnitVectors(LIFT_Y_AXIS, axis.normalize());
+    }
   } else {
     handle.group.position.z =
       handle.baseZ + handle.normalSign * e * (handle.maxSlide ?? 0.34);
@@ -614,15 +631,12 @@ export function buildKitchen3DScene(
   const floorTex = createFloorTileTexture();
   const matFloor = new THREE.MeshPhysicalMaterial({
     map: floorTex,
-    roughness: 0.26,
-    metalness: 0.02,
-    clearcoat: 0.56,
-    clearcoatRoughness: 0.18,
-    envMapIntensity: 1.4,
+    ...readSurfaceFinish(project.settings, 3),
     transparent: (opts.floorOpacity ?? 1) < 1,
     opacity: Math.max(0, Math.min(1, opts.floorOpacity ?? 1)),
     depthWrite: (opts.floorOpacity ?? 1) >= 1,
   });
+  matFloor.userData.sceneReflection = true;
   const matWall = new THREE.MeshStandardMaterial({
     color: 0xf4f1ec,
     roughness: 0.9,
@@ -762,6 +776,8 @@ export function buildKitchen3DScene(
     }
   }
 
+  const stripMaterial = new THREE.MeshBasicMaterial({ color: 0xffe1aa, toneMapped: false });
+  let lightCount = 0;
   for (const wall of project.walls) {
     const v = getWallVectors(wall);
     const tangent = new THREE.Vector3(v.tx, 0, v.ty).normalize();
@@ -870,7 +886,7 @@ export function buildKitchen3DScene(
     }
 
     // Backsplash tile zones above base countertops (between base top and wall cabinets / hood)
-    const bsSpans = computeWallBacksplashSpans(wall);
+    const bsSpans = computeWallBacksplashSpans(wall, project.walls, project.cornerOwners);
     for (const sp of bsSpans) {
       const spanW = (sp.endCm - sp.startCm) * CM;
       const spanH = (sp.topY - sp.botY) * CM;
@@ -889,6 +905,37 @@ export function buildKitchen3DScene(
     }
 
     const blockedZones = getCornerBlockedZonesForWall(wall, project.walls, project.cornerOwners);
+
+    const litBoxes = wall.boxes.filter(b => b.underCabinetLight && (b.type === 'wall' || b.type === 'wall-deep'))
+      .sort((a, b) => a.offsetX - b.offsetX);
+    let runEnd = -Infinity;
+    let runY = -Infinity;
+    for (const box of litBoxes) {
+      const length = Math.max(0.08, box.width * CM - 0.05);
+      const y = box.elevY * CM - 0.007;
+      const x = (box.offsetX + box.width / 2) * CM;
+      const z = normalSign * Math.max(0.04, box.depth * CM - 0.06);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(length, 0.008, 0.012), stripMaterial);
+      strip.position.set(x, y, z);
+      wallGrp.add(strip);
+
+      // One direct light per contiguous run, keeping the mobile shader light count bounded.
+      if ((box.offsetX > runEnd + 2 || Math.abs(y - runY) > 0.02) && lightCount < 6) {
+        let end = box.offsetX + box.width;
+        for (const next of litBoxes) {
+          if (next.offsetX <= box.offsetX) continue;
+          if (next.offsetX > end + 2 || Math.abs(next.elevY - box.elevY) > 2) break;
+          end = next.offsetX + next.width;
+        }
+        const light = new THREE.SpotLight(0xffd6a1, Math.min(33, 14 + (end - box.offsetX) * 0.09), 1.35, 1.12, 0.72, 2);
+        light.position.set((box.offsetX + end) * CM / 2, y - 0.018, z);
+        light.target.position.set(light.position.x, y - 0.54, normalSign * 0.14);
+        wallGrp.add(light, light.target);
+        lightCount++;
+      }
+      runEnd = box.offsetX + box.width;
+      runY = y;
+    }
 
     // Render all Cabinet Boxes on this wall
     for (const box of wall.boxes) {
@@ -982,6 +1029,29 @@ export function buildKitchen3DScene(
     }
     root.add(colGrp);
     bounds.expandByObject(colGrp);
+  }
+
+  const diningSets = project.diningSets ?? [];
+  if (diningSets.length) {
+    const diningMaterials = createDiningMaterials(opts.onTextureReady);
+    for (const item of diningSets) {
+      const set = buildDining3D(item.seats, diningMaterials);
+      set.position.set(item.xCm * CM, 0, item.yCm * CM);
+      set.rotation.y = -item.rotation * Math.PI / 180;
+      const hit: Scene3DHitData = { kind: 'dining', wallId: '', diningId: item.id };
+      set.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        node.userData = hit;
+        interactables.push(node);
+      });
+      root.add(set);
+      const setBounds = new THREE.Box3().setFromObject(set);
+      bounds.union(setBounds);
+      if (project.selectedDiningId === item.id) {
+        const outline = new THREE.Box3Helper(setBounds, 0x6366f1);
+        root.add(outline);
+      }
+    }
   }
 
   // Solid architectural infill for upper cabinet corners (wall & wall-deep) so L/U upper corners are never hollow
@@ -2077,6 +2147,55 @@ function buildDoor3D(ctx: {
     }
   };
 
+  if (door.kind === 'lift' && door.hardwareKind === 'lift-bifold') {
+    const upper = new THREE.Group();
+    const lower = new THREE.Group();
+    const half = dh / 2;
+    const baseX = dxLeft + dw / 2;
+    const baseY = dyBot + dh;
+    upper.position.set(baseX, baseY, frontFaceZ);
+    lower.position.y = -half;
+    upper.add(lower);
+    makePanelMesh(dw, half - 0.003, 0, -half / 2 + 0.00075, upper);
+    makePanelMesh(dw, half - 0.003, 0, -half / 2 - 0.00075, lower);
+    grp.add(upper);
+
+    for (const h of box.handles) {
+      if (h.doorId !== door.id) continue;
+      const grip = buildHandleMesh(h.style, h.orient, h.lengthCm || 16, dw, half,
+        doorThick, normalSign, mats.matDarkChrome, mats.matHiddenTrim, h.xRatio, h.yRatio);
+      grip.position.set((h.xRatio - 0.5) * dw, -half * h.yRatio, 0);
+      grip.userData = { ...doorHit, kind: 'handle', handleId: h.id };
+      ((h.rowIndex ?? 0) === 0 ? upper : lower).add(grip);
+      grip.traverse(child => { if (child instanceof THREE.Mesh) interactables.push(child); });
+    }
+
+    upper.traverse(child => {
+      if (child instanceof THREE.Mesh || child.userData.kind === 'handle')
+        child.userData = { ...child.userData, animationId: door.id };
+    });
+
+    if (canDoorOpenIn3D(box, door)) {
+      const armGeometry = new THREE.CylinderGeometry(0.009, 0.009, 1, 10);
+      const liftArms = [-1, 1].map(side => {
+        const x = side * (dw / 2 - Math.min(0.035, dw / 6));
+        const fixed = new THREE.Vector3(baseX + x, baseY - half * 0.82, frontFaceZ - normalSign * Math.min(carcD * 0.52, 0.15));
+        const moving = new THREE.Vector3(x, -half * 0.73, -normalSign * 0.012);
+        const mesh = new THREE.Mesh(armGeometry, mats.matDarkChrome);
+        mesh.castShadow = true;
+        grp.add(mesh);
+        return { mesh, fixed, moving };
+      });
+      const anim: AnimatedDoorHandle = {
+        doorId: door.id, group: upper, lowerLeaf: lower, liftArms, kind: 'bifold',
+        normalSign, baseX, baseY, baseZ: frontFaceZ, baseRotX: 0, baseRotY: 0, maxAngle: 1.85,
+      };
+      applyAnimatedDoorProgress(anim, doorOpenProgress);
+      animatedDoors.push(anim);
+    }
+    return;
+  }
+
   // Drawers or stacked Lift doors
   if (door.kind === 'drawer' || (door.kind === 'lift' && door.drawerRatios.length > 0)) {
     const pts = [0, ...door.drawerRatios, 1];
@@ -2186,9 +2305,10 @@ function buildDoor3D(ctx: {
           boxId: box.id,
           doorId: door.id,
           handleId: h.id,
+          animationId: partId,
         } as Scene3DHitData;
         rowGrp.add(hMesh);
-        interactables.push(hMesh);
+        hMesh.traverse(child => { if (child instanceof THREE.Mesh) interactables.push(child); });
       }
 
       rowGrp.traverse((child) => {
@@ -2250,7 +2370,7 @@ function buildDoor3D(ctx: {
         handleId: h.id,
       } as Scene3DHitData;
       pivot.add(hMesh);
-      interactables.push(hMesh);
+      hMesh.traverse(child => { if (child instanceof THREE.Mesh) interactables.push(child); });
     }
 
     grp.add(pivot);
@@ -2309,7 +2429,7 @@ function buildDoor3D(ctx: {
         handleId: h.id,
       } as Scene3DHitData;
       pivot.add(hMesh);
-      interactables.push(hMesh);
+      hMesh.traverse(child => { if (child instanceof THREE.Mesh) interactables.push(child); });
     }
 
     grp.add(pivot);
@@ -2436,7 +2556,7 @@ function buildDoor3D(ctx: {
       handleId: h.id,
     } as Scene3DHitData;
     pivot.add(hMesh);
-    interactables.push(hMesh);
+    hMesh.traverse(child => { if (child instanceof THREE.Mesh) interactables.push(child); });
   }
 
   grp.add(pivot);

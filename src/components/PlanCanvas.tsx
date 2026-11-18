@@ -1,3 +1,5 @@
+import { diningLayout, snapDiningPosition } from '../cad/diningLayout';
+import type { DiningSet, DiningSeats } from '../cad/types';
 import { isPlanPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
 import { cabinetStarterSegment, previewCabinetRow, resolveCabinetPlacement, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { snapWallEndpoint } from '../cad/wallSnap';
@@ -53,7 +55,37 @@ const emptyCabSweep = {
 };
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
 
+function DiningPlanSymbol({ item, scale, selected, ghost }: { item: DiningSet; scale: number; selected?: boolean; ghost?: boolean }) {
+  const design = diningLayout(item.seats);
+  const line = ghost ? '#059669' : selected ? '#4338ca' : '#795d47';
+  return (
+    <g data-dining-id={ghost ? undefined : item.id} opacity={ghost ? 0.62 : 1}
+      pointerEvents={ghost ? 'none' : undefined}
+      transform={`translate(${item.xCm * scale} ${item.yCm * scale}) rotate(${item.rotation}) scale(${scale})`}>
+      {design.chairs.map((chair, i) => (
+        <g key={i} transform={`translate(${chair.x} ${chair.z}) rotate(${-chair.yaw * 180 / Math.PI})`}>
+          <rect x={-22} y={-22} width={44} height={42} rx={9} fill="#a9b09a" stroke={line} strokeWidth={1.5} />
+          <path d="M -16 -16 Q 0 -24 16 -16" fill="none" stroke="#6b725d" strokeWidth={3} strokeLinecap="round" />
+        </g>
+      ))}
+      <rect x={-design.width / 2} y={-design.depth / 2} width={design.width} height={design.depth}
+        rx={design.round ? design.width / 2 : 20} fill="#d6b38c" stroke={line} strokeWidth={selected ? 3 : 1.8} />
+      <text y={4} textAnchor="middle" fill="#4c392d" fontSize={12} fontWeight={700}>
+        {item.seats.toLocaleString('fa-IR')} نفره
+      </text>
+    </g>
+  );
+}
+
 interface PlanCanvasProps {
+  diningSets: DiningSet[];
+  selectedDiningId?: string | null;
+  diningSeats: DiningSeats;
+  diningRotation: number;
+  onPlaceDining: (x: number, y: number) => void;
+  onMoveDining: (id: string, x: number, y: number, commit: boolean) => void;
+  onSelectDining: (id: string | null) => void;
+  onDeleteDining: (id: string) => void;
   onBeginDrag: () => void;
   onResizeCabinet: (wallId: string, boxId: string, side: 'left' | 'right', dxCm: number, dyCm: number, commit: boolean) => void;
   onCancelDrag: () => void;
@@ -150,6 +182,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   settings,
   walls,
   columns = [],
+  diningSets, selectedDiningId, diningSeats, diningRotation,
+  onPlaceDining, onMoveDining, onSelectDining, onDeleteDining,
   cornerOwners,
   activeWallId,
   activeBoxId,
@@ -244,7 +278,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         start: { x: number; y: number }; dx: number; moved: boolean }
     | { mode: 'pan'; startX: number; startY: number; origX: number; origY: number }
     | {
-        mode: 'move-column';
+        mode: 'move-column' | 'move-dining';
         columnId: string;
         startPtCm: { x: number; y: number };
         origX: number;
@@ -478,6 +512,25 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     }
 
     const targetEl = e.target as Element;
+    if (tool === 'dining') {
+      const pt = clientToCm(e.clientX, e.clientY);
+      onPlaceDining(pt.x, pt.y);
+      return;
+    }
+    if (tool === 'select' || tool === 'eraser') {
+      const id = targetEl.closest('[data-dining-id]')?.getAttribute('data-dining-id');
+      const item = diningSets.find(d => d.id === id);
+      if (item) {
+        if (tool === 'eraser') { onDeleteDining(item.id); return; }
+        onSelectDining(item.id);
+        e.currentTarget.setPointerCapture(e.pointerId);
+        onBeginDrag();
+        dragOp.current = { mode: 'move-dining', columnId: item.id, startPtCm: clientToCm(e.clientX, e.clientY),
+          origX: item.xCm, origY: item.yCm, lastX: item.xCm, lastY: item.yCm };
+        return;
+      }
+      if (selectedDiningId) onSelectDining(null);
+    }
 
     const cornerEl = targetEl.closest('[data-corner-key]');
     if (cornerEl && !confirmed) {
@@ -636,7 +689,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             targetKind
           );
         } else {
-          onToast('روی یک باکس زمینی در پلان دابل‌کلیک کنید');
+          onToast('نشانگر را روی یک باکس زمینی در پلان بگذارید');
         }
         return;
       }
@@ -894,13 +947,14 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           x: op.origX + (e.clientX - op.startX),
           y: op.origY + (e.clientY - op.startY),
         });
-      } else if (op.mode === 'move-column') {
+      } else if (op.mode === 'move-column' || op.mode === 'move-dining') {
         const nx = Math.round((op.origX + (ptCm.x - op.startPtCm.x)) / 5) * 5;
         const ny = Math.round((op.origY + (ptCm.y - op.startPtCm.y)) / 5) * 5;
         if (nx !== op.lastX || ny !== op.lastY) {
           op.lastX = nx;
           op.lastY = ny;
-          onUpdateRoomColumn?.(op.columnId, { xCm: nx, yCm: ny }, false);
+          if (op.mode === 'move-dining') onMoveDining(op.columnId, nx, ny, false);
+          else onUpdateRoomColumn?.(op.columnId, { xCm: nx, yCm: ny }, false);
         }
       } else if (op.mode === 'resize-box') {
         const radians = op.angle * Math.PI / 180;
@@ -954,6 +1008,14 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         op.lastOffsetX = target;
         onMoveApplianceFromPlan(op.wallId, op.appId, target, false, op.sessionId);
       }
+      return;
+    }
+
+    if (tool === 'dining') {
+      const { xCm, yCm } = snapDiningPosition(ptCm.x, ptCm.y);
+      setPlanHoverFloorCm({ x: xCm, y: yCm });
+      setPlanHoverWall(null);
+      setPlanHoverStatus('valid');
       return;
     }
 
@@ -1038,9 +1100,10 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       }
       const op = dragOp.current;
       dragOp.current = null;
-      if (op.mode === 'move-column') {
+      if (op.mode === 'move-column' || op.mode === 'move-dining') {
         if (op.lastX !== op.origX || op.lastY !== op.origY) {
-          onUpdateRoomColumn?.(op.columnId, { xCm: op.lastX, yCm: op.lastY }, true);
+          if (op.mode === 'move-dining') onMoveDining(op.columnId, op.lastX, op.lastY, true);
+          else onUpdateRoomColumn?.(op.columnId, { xCm: op.lastX, yCm: op.lastY }, true);
         }
       } else if (op.mode === 'resize-box') {
         if (op.moved) onResizeCabinet(op.wallId, op.boxId, op.side, op.dx, 0, true);
@@ -2210,6 +2273,12 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         )}
 
         {/* ستون‌های آزاد داخل کف آشپزخانه */}
+        {diningSets.map(item => <DiningPlanSymbol key={item.id} item={item} scale={s} selected={selectedDiningId === item.id} />)}
+        {tool === 'dining' && planHoverFloorCm && (!touchPointerMode.current || touchTarget) && (
+          <DiningPlanSymbol ghost scale={s}
+            item={{ id: '', xCm: planHoverFloorCm.x, yCm: planHoverFloorCm.y, rotation: diningRotation, seats: diningSeats }} />
+        )}
+
         {columns.map((col) => {
           const isSel = col.id === selectedColumnId;
           const cw = col.widthCm * s;

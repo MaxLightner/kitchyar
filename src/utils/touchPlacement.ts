@@ -18,7 +18,7 @@ export function placementAt(svg: SVGSVGElement | null, point: PlacementPoint): C
 
 export function isPlanPlacement(tool: ToolId) {
   return tool === 'wall' || tool === 'cab-draw' || tool === 'fridge' || tool === 'opening' ||
-    tool === 'sink' || tool === 'gas' || tool === 'appliance';
+    tool === 'sink' || tool === 'gas' || tool === 'appliance' || tool === 'dining';
 }
 
 export function isFrontPlacement(tool: ToolId) {

@@ -13,6 +13,9 @@ import {
   Flame,
   Frame,
   GripVertical,
+  Lightbulb,
+  RotateCw,
+  Utensils,
   Layers,
   LayoutGrid,
   MousePointer2,
@@ -90,6 +93,11 @@ import {
 type RailTab = 'tool' | 'box' | 'item' | 'multi';
 
 interface SideInspectorProps {
+  diningSelected?: boolean;
+  onRotateDining?: () => void;
+  canToggleUnderLight?: boolean;
+  underLightOn?: boolean;
+  onToggleUnderLight?: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   activeTool: ToolId;
@@ -323,6 +331,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
         return <Palette className="w-4 h-4" />;
       case 'fridge':
         return <Refrigerator className="w-4 h-4" />;
+      case 'dining':
+        return <Utensils className="w-4 h-4" />;
       case 'sink':
         return <Droplets className="w-4 h-4" />;
       case 'gas':
@@ -406,6 +416,19 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
         className={railBtnCls(false) + ' disabled:opacity-35 disabled:cursor-not-allowed'}>
         <Copy className="w-4 h-4" />
       </button>
+
+      <button type="button" data-testid="rail-under-cabinet-light" onClick={props.onToggleUnderLight}
+        disabled={!props.canToggleUnderLight} aria-pressed={Boolean(props.underLightOn)}
+        aria-label="نور زیر کابینت" title="نور زیر کابینت هوایی انتخاب‌شده"
+        className={railBtnCls(Boolean(props.underLightOn)) + ' disabled:opacity-35 disabled:cursor-not-allowed'}>
+        <Lightbulb className="w-4 h-4" />
+      </button>
+      {props.diningSelected && (
+        <button type="button" data-testid="rail-rotate-dining" onClick={props.onRotateDining}
+          title="چرخاندن میز" aria-label="چرخاندن میز انتخاب‌شده" className={railBtnCls(false)}>
+          <RotateCw className="w-4 h-4" />
+        </button>
+      )}
 
       {/* ۱. آیکون تنظیمات ابزار فعال */}
       <button

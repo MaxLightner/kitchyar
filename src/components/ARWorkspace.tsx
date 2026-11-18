@@ -1,7 +1,7 @@
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import { NumberPadDialog } from './NumberPadDialog';
 import { DoorTapSequence } from '../utils/doorTapSequence';
-import { previewCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
+import { previewCabinetRow, continueCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { AimTap, aimCenter, calibrationPinsAtView } from '../ar/centerAim';
 import { snapArWallEndpointsCm } from '../ar/arCalibration';
 import { logDiagnostic } from '../utils/diagnostics';
@@ -9,7 +9,10 @@ import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { buildDiningFootprint3D } from '../cad/dining3d';
+import { snapDiningPosition } from '../cad/diningLayout';
+import type { DiningSeats } from '../cad/types';
+import { bakeKitchenEnvironment } from '../cad/kitchenEnvironment';
 import {
   AppWindow,
   BrickWall,
@@ -155,6 +158,7 @@ export type ArToolId =
   | 'sink'
   | 'gas'
   | 'appliance'
+  | 'dining'
   | 'opening'
   | 'doors'
   | 'hardware'
@@ -183,6 +187,11 @@ function isArDetailTool(t: ArToolId): boolean {
 }
 
 interface ARWorkspaceProps {
+  diningSeats: DiningSeats;
+  diningRotation: number;
+  onPlaceDining: (x: number, y: number) => void;
+  onSelectDining: (id: string | null) => void;
+  onDeleteDining: (id: string) => void;
   active: boolean;
   overlayRootRef: React.RefObject<HTMLDivElement | null>;
   project: ProjectState;
@@ -587,6 +596,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   sharedTool,
   onSessionEnded,
   dialogOpen = false,
+  diningSeats, diningRotation, onPlaceDining, onSelectDining, onDeleteDining,
   onFloorConfirmed,
   wideViewModeExternal,
   onWideViewModeChange,
@@ -639,6 +649,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const lastHoverCoordsRef = useRef<{ x: number; y: number } | null>(null);
 
   const propsRef = useRef({
+    diningSeats, diningRotation, onPlaceDining, onSelectDining, onDeleteDining,
     onUpdateProject,
     onBeginDrag,
     onResizeCabinet,
@@ -699,6 +710,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onConfirmHiddenHandle,
   });
   propsRef.current = {
+    diningSeats, diningRotation, onPlaceDining, onSelectDining, onDeleteDining,
     onUpdateProject,
     onBeginDrag,
     onResizeCabinet,
@@ -870,6 +882,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   // Chido Wide View: virtual scene uses XR tracking, but a separate perspective
   // from the physical camera; no OrbitControls are enabled during a live scan.
   const trackedWideRendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const trackedWideEnvRef = useRef<THREE.WebGLRenderTarget | null>(null);
+  const diningGhostRef = useRef<THREE.Group | null>(null);
   const trackedWideCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -946,7 +960,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     sceneRef.current = scene;
 
     const pmrem = new THREE.PMREMGenerator(renderer);
-    const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    const envRT = bakeKitchenEnvironment(pmrem);
     scene.environment = envRT.texture;
 
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.04, 50);
@@ -1029,6 +1043,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     placementGhost.renderOrder = 9;
     floorGroup.add(placementGhost);
     placementGhostRef.current = placementGhost;
+    const diningGhost = new THREE.Group();
+    diningGhost.visible = false;
+    floorGroup.add(diningGhost);
+    diningGhostRef.current = diningGhost;
+    let lastDiningSeats: DiningSeats | null = null;
 
     const handleGhostGroup = new THREE.Group();
     handleGhostGroup.renderOrder = 14;
@@ -1175,7 +1194,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           let obj: THREE.Object3D | null = hit.object;
           while (obj) {
             const data = obj.userData as Scene3DHitData | undefined;
-            if (data?.kind && data.wallId) return { data, point: hit.point.clone() };
+            if (data?.kind && (data.wallId || data.kind === 'dining')) return { data, point: hit.point.clone() };
             obj = obj.parent;
           }
         }
@@ -1185,7 +1204,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         let obj: THREE.Object3D | null = hit.object;
         while (obj) {
           const data = obj.userData as Scene3DHitData | undefined;
-          if (data?.kind && data.wallId) return { data, point: hit.point.clone() };
+          if (data?.kind && (data.wallId || data.kind === 'dining')) return { data, point: hit.point.clone() };
           obj = obj.parent;
         }
       }
@@ -1217,7 +1236,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
     };
     placementPointAtClientRef.current = (x, y) => {
-      if (arToolRef.current !== 'wall' && !arToolRef.current.startsWith('calibrate-')) {
+      if (arToolRef.current !== 'wall' && arToolRef.current !== 'dining' && !arToolRef.current.startsWith('calibrate-')) {
         const hit = detailedPickAtClientRef.current(x, y);
         const group = floorGroupRef.current;
         if (hit && group) {
@@ -1299,6 +1318,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       if (!wallGhost || !placement) return { status: 'neutral' };
       wallGhost.visible = false;
       placement.visible = false;
+      diningGhost.visible = false;
       clearHandleGhost();
 
       const tool = arToolRef.current;
@@ -1330,6 +1350,24 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       }
 
       const choices = propsRef.current;
+      if (tool === 'dining') {
+        if (lastDiningSeats !== choices.diningSeats) {
+          for (const child of [...diningGhost.children]) {
+            diningGhost.remove(child);
+            disposeObject3D(child);
+          }
+          diningGhost.add(buildDiningFootprint3D(choices.diningSeats));
+          lastDiningSeats = choices.diningSeats;
+        }
+        const model = floorLocalToModelXZ(localPt);
+        const { xCm, yCm } = snapDiningPosition(model.x * 100, model.z * 100);
+        diningGhost.position.set(al.x + al.scale * (xCm * c + yCm * sn) / 100, 0,
+          al.z + al.scale * (-xCm * sn + yCm * c) / 100);
+        diningGhost.rotation.y = al.yaw - choices.diningRotation * Math.PI / 180;
+        diningGhost.scale.setScalar(al.scale);
+        diningGhost.visible = true;
+        return { status: 'valid' };
+      }
 
       // Cabinet-front & eraser/finish detail tools raycast cabinet/scene meshes directly
       if (isArDetailTool(tool) && clientX !== undefined && clientY !== undefined) {
@@ -1705,6 +1743,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       if (toolNow === 'select') {
         const picked = detailedPickAtClientRef.current(e.clientX, e.clientY);
+        if (picked?.data.kind === 'dining' && picked.data.diningId) {
+          propsRef.current.onSelectDining(picked.data.diningId);
+          doorTap.reset();
+          e.stopImmediatePropagation();
+          return;
+        }
+        if (projectRef.current.selectedDiningId) propsRef.current.onSelectDining(null);
         const partId = picked?.data.animationId || picked?.data.doorId;
         if (partId && (picked?.data.kind === 'door' || picked?.data.kind === 'handle') &&
             (propsRef.current.selectionMode ?? 'single') === 'single') {
@@ -2269,11 +2314,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const ghostRes = floor ? updateArGhostRef.current(floor, pt.x, pt.y) : { status: 'invalid' as const };
       setCursorPreview({ x: pt.x, y: pt.y, status: ghostRes.status, sweepWidthCm: ghostRes.sweepWidthCm, previewDoorWidths: ghostRes.previewDoorWidths });
     }
-  }, [active, arTool, fridgeModel, sinkModel, gasWidth, applianceKind, openingKind, handleStyle, handleOrient, doorOrient, doorVertCount, drawerPatIdx, liftPatIdx, hardwareBrush, doorStyleBrush, cabinetFinishBrush, frameWidthCm, shelfOrient, shelfCount]);
+  }, [active, arTool, fridgeModel, sinkModel, gasWidth, applianceKind, openingKind, handleStyle, handleOrient, doorOrient, doorVertCount, drawerPatIdx, liftPatIdx, hardwareBrush, doorStyleBrush, cabinetFinishBrush, frameWidthCm, shelfOrient, shelfCount, diningSeats, diningRotation]);
 
   useEffect(() => {
     if (kitchenMountRef.current) kitchenMountRef.current.visible = !hideKitchen;
     if (hideKitchen) {
+      if (diningGhostRef.current) diningGhostRef.current.visible = false;
       if (wallGhostRef.current) wallGhostRef.current.visible = false;
       if (placementGhostRef.current) placementGhostRef.current.visible = false;
       if (sweepGhostGroupRef.current) sweepGhostGroupRef.current.visible = false;
@@ -2446,6 +2492,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const choices = propsRef.current;
 
     if (toolNow === 'select') return;
+    if (toolNow === 'dining') {
+      choices.onPlaceDining(modelPt.x * 100, modelPt.z * 100);
+      return;
+    }
 
     if (toolNow === 'calibrate-a') {
       const curA = pointARef.current;
@@ -2552,7 +2602,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const row = previewCabinetRow(proj, pendingSweep, hitWall.wall.id, hitWall.offsetCm);
       if (!row.valid) return onToast('انتهای ردیف را روی بخش آزاد همان دیوار یا دیوار متصل بگذارید');
       if (choices.onCreateBoxesFromSweep(row.requested, pendingSweep.kind, row.suggestedOwners)) {
-        setPendingCabSweep(null);
+        setPendingCabSweep(continueCabinetRow(pendingSweep, hitWall.wall.id, hitWall.offsetCm, row.segments));
       }
       return;
     }
@@ -2680,6 +2730,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       } else {
         onToast('ابتدا روی قسمت معتبر یک کابینت لمس کنید');
       }
+      return;
+    }
+
+    if (picked.data.kind === 'dining' && picked.data.diningId) {
+      if (toolNow === 'eraser') choices.onDeleteDining(picked.data.diningId);
       return;
     }
 
@@ -3050,6 +3105,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const handleCancelAction = () => {
     setPendingWallStart(null);
     setPendingCabSweep(null);
+    if (diningGhostRef.current) diningGhostRef.current.visible = false;
     arDragRef.current = null;
     if (wallGhostRef.current) wallGhostRef.current.visible = false;
     if (placementGhostRef.current) placementGhostRef.current.visible = false;
@@ -3382,6 +3438,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           if (!local) {
             if (wallGhostRef.current) wallGhostRef.current.visible = false;
             if (placementGhostRef.current) placementGhostRef.current.visible = false;
+            if (diningGhostRef.current) diningGhostRef.current.visible = false;
           }
           if (reticleRef.current) reticleRef.current.visible = false;
         }
@@ -3424,7 +3481,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           wideCamera.updateProjectionMatrix();
           wideCamera.updateMatrixWorld(true);
           try {
-            wideRenderer.render(sceneRef.current, wideCamera);
+            const wideScene = sceneRef.current;
+            const xrEnvironment = wideScene.environment;
+            wideScene.environment = trackedWideEnvRef.current?.texture ?? null;
+            try { wideRenderer.render(wideScene, wideCamera); }
+            finally { wideScene.environment = xrEnvironment; }
           } catch {
             // A tablet can lose its secondary WebGL context under memory pressure.
             // Return to the tracked physical camera rather than breaking the XR loop.
@@ -3489,6 +3550,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     wideRenderer.toneMappingExposure = arRenderer?.toneMappingExposure ?? 1.06;
     wideRenderer.shadowMap.enabled = arRenderer?.shadowMap.enabled ?? false;
     wideRenderer.shadowMap.type = arRenderer?.shadowMap.type ?? THREE.PCFSoftShadowMap;
+    const widePmrem = new THREE.PMREMGenerator(wideRenderer);
+    const wideEnvironment = bakeKitchenEnvironment(widePmrem);
+    widePmrem.dispose();
+    trackedWideEnvRef.current = wideEnvironment;
     const canvas = wideRenderer.domElement;
     canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
     parent.appendChild(canvas);
@@ -3500,6 +3565,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         trackedWideRendererRef.current = null;
         trackedWideCameraRef.current = null;
       }
+      if (trackedWideEnvRef.current === wideEnvironment) trackedWideEnvRef.current = null;
+      wideEnvironment.dispose();
       wideRenderer.dispose();
       canvas.remove();
     };

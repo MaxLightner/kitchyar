@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import { SURFACES } from '../cad/surfaceFinish';
 import { DEFAULT_PROJECT_SETTINGS } from '../cad/constants';
 import { ProjectSettings } from '../cad/types';
 
@@ -153,12 +154,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          <label className="block space-y-1 font-bold">
-            <span>شدت بازتاب کابینت: {Math.round((form.cabinetReflection ?? 1) * 100)}٪</span>
-            <input type="range" min={0} max={2} step={0.05} value={form.cabinetReflection ?? 1}
-              onChange={e => setForm(prev => ({ ...prev, cabinetReflection: Number(e.target.value) }))}
-              className="w-full accent-indigo-600" />
-          </label>
+          <fieldset className="space-y-2">
+            <legend className="mb-1 font-extrabold text-slate-800">بازتاب سطوح</legend>
+            {SURFACES.map(surface => (
+              <div key={surface.reflection} className="rounded-lg border border-slate-200 p-2">
+                <div className="mb-1 font-bold">{surface.label}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <span>شدت {Math.round((form[surface.reflection] ?? surface.strength) * 100)}٪</span>
+                    <input type="range" aria-label={`شدت بازتاب ${surface.label}`} min={0} max={2} step={0.05}
+                      value={form[surface.reflection] ?? surface.strength}
+                      onChange={e => setForm(prev => ({ ...prev, [surface.reflection]: Number(e.target.value) }))}
+                      className="w-full accent-indigo-600" />
+                  </label>
+                  <label className="space-y-1">
+                    <span>{form[surface.roughness] === undefined ? 'مات یا براق · پیش‌فرض متریال' : `ماتی ${Math.round(form[surface.roughness]! * 100)}٪`}</span>
+                    <input type="range" aria-label={`ماتی ${surface.label}`} min={0.09} max={0.9} step={0.01}
+                      value={form[surface.roughness] ?? surface.spread}
+                      onChange={e => setForm(prev => ({ ...prev, [surface.roughness]: Number(e.target.value) }))}
+                      className="w-full accent-indigo-600" />
+                  </label>
+                </div>
+              </div>
+            ))}
+          </fieldset>
           <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
             <input
               type="checkbox"

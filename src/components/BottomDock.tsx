@@ -16,12 +16,18 @@ import {
   RectangleHorizontal,
   Refrigerator,
   WashingMachine,
+  Utensils,
   Wrench,
 } from 'lucide-react';
-import { ToolId } from '../cad/types';
+import { DINING_SEATS } from '../cad/diningLayout';
+import { DiningSeats, ToolId } from '../cad/types';
 
 interface BottomDockProps {
   activeTool: ToolId;
+  diningSeats: DiningSeats;
+  diningRotation: number;
+  onDiningSeats: (seats: DiningSeats) => void;
+  onRotateDining: () => void;
   hasAnySelection?: boolean;
   doorsHidden?: boolean;
   onSelectTool: (tool: ToolId) => void;
@@ -31,6 +37,7 @@ interface BottomDockProps {
 
 export const BottomDock: React.FC<BottomDockProps> = ({
   activeTool,
+  diningSeats, diningRotation, onDiningSeats, onRotateDining,
   doorsHidden = false,
   onSelectTool,
   onToggleDoorsHidden,
@@ -59,6 +66,19 @@ export const BottomDock: React.FC<BottomDockProps> = ({
 
   return (
     <div data-testid="bottom-dock" className="relative shrink-0 z-30 bg-white border-t border-slate-200">
+      {activeTool === 'dining' && (
+        <div role="group" aria-label="ظرفیت میز ناهارخوری"
+          className="absolute bottom-full left-1/2 mb-1 flex max-w-[calc(100vw-16px)] -translate-x-1/2 items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+          {DINING_SEATS.map(seats => (
+            <button type="button" key={seats} data-testid={`dining-seats-${seats}`}
+              aria-pressed={diningSeats === seats} onClick={() => onDiningSeats(seats)}
+              className={btnCls(diningSeats === seats)}>{seats.toLocaleString('fa-IR')} نفره</button>
+          ))}
+          <button type="button" className={btnCls(false)} onClick={onRotateDining} title="چرخاندن میز" aria-label="چرخاندن میز">
+            ↻ {diningRotation.toLocaleString('fa-IR')}°
+          </button>
+        </div>
+      )}
       <nav
         aria-label="ابزارهای درج و طراحی"
         className="flex flex-col divide-y divide-slate-100"
@@ -127,6 +147,13 @@ export const BottomDock: React.FC<BottomDockProps> = ({
           >
             <WashingMachine className="w-3.5 h-3.5" />
             <span>تجهیزات</span>
+          </button>
+
+          <button type="button" data-testid="dock-tool-dining"
+            onClick={() => onSelectTool(activeTool === 'dining' ? 'select' : 'dining')}
+            aria-pressed={activeTool === 'dining'} className={btnCls(activeTool === 'dining')}>
+            <Utensils className="w-3.5 h-3.5" />
+            <span>میز ناهارخوری</span>
           </button>
 
           <button

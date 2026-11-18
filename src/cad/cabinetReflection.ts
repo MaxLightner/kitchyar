@@ -13,7 +13,7 @@ export function createCabinetReflectionProbe(renderer: THREE.WebGLRenderer, scen
     root.traverse(node => {
       if (!(node instanceof THREE.Mesh)) return;
       for (const mat of Array.isArray(node.material) ? node.material : [node.material]) {
-        if (mat.userData.cabinetReflection && mat.envMapIntensity > 0) mats.add(mat as THREE.MeshStandardMaterial);
+        if (mat.userData.sceneReflection && mat.envMapIntensity > 0) mats.add(mat as THREE.MeshStandardMaterial);
       }
     });
     return mats;

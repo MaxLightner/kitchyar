@@ -70,6 +70,7 @@ export type ToolId =
   | 'sink'
   | 'gas'
   | 'appliance'
+  | 'dining'
   | 'opening'
   | 'doors'
   | 'hardware'
@@ -149,6 +150,7 @@ export interface CabinetBox {
   finish?: CabinetFinishId;
   color?: string;
   texture?: CabinetTextureId;
+  underCabinetLight?: boolean;
   /** Links e.g. over-fridge upper cabinet to its parent fridge box */
   linkedToBoxId?: string;
   doors: DoorUnit[];
@@ -180,6 +182,16 @@ export interface WallOpening {
   /** Depth protruding into the room in cm (especially columns/ducts, 1cm increments) */
   depthCm?: number;
   swingDir?: DoorSwing;
+}
+
+export type DiningSeats = 2 | 4 | 6 | 8;
+
+export interface DiningSet {
+  id: string;
+  xCm: number;
+  yCm: number;
+  seats: DiningSeats;
+  rotation: number;
 }
 
 export interface RoomColumn {
@@ -246,6 +258,13 @@ export interface ProjectSettings {
   wallCabElevCm: number;
   wallCabHeightCm: number;
   cabinetReflection?: number;
+  cabinetRoughness?: number;
+  countertopReflection?: number;
+  countertopRoughness?: number;
+  backsplashReflection?: number;
+  backsplashRoughness?: number;
+  floorReflection?: number;
+  floorRoughness?: number;
   defaultHoodKind?: 'chimney' | 'hidden';
 }
 
@@ -265,6 +284,8 @@ export interface ArCalibrationState {
 export interface ProjectState {
   walls: Wall[];
   columns?: RoomColumn[];
+  diningSets?: DiningSet[];
+  selectedDiningId?: string | null;
   cornerOwners: Record<string, string>;
   activeWallId: string | null;
   activeBoxId: string | null;

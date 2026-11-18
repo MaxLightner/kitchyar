@@ -28,6 +28,7 @@ import {
   detectCornerJunctions,
   getBoxTier,
   getCornerBlockedZonesForWall,
+  getWallVectors,
   isBoxIntervalBlocked,
 } from './cornerLogic';
 import { findCollidingOpening, getWallColumnSpans } from './openingRules';
@@ -373,7 +374,7 @@ export function canDoorOpenIn3D(
 ): boolean {
   if (door.kind === 'fridge') return true;
   if (door.kind === 'open' || door.kind === 'rail') return false;
-  if (door.hardwareKind === 'push-to-open') return true;
+  if (door.hardwareKind === 'push-to-open' || door.hardwareKind === 'lift-bifold') return true;
   return box.handles.some((h) => {
     if (h.doorId !== door.id) return false;
     if (rowIndex !== undefined && (door.kind === 'drawer' || door.kind === 'lift')) {
@@ -4815,16 +4816,31 @@ export function applyHardwareKindToDoors(
     if (door.kind === 'fridge' || door.kind === 'open' || door.kind === 'rail') continue;
     if (targetDoorIds && !targetDoorIds.includes(door.id)) continue;
 
+    if (hardwareKind === 'lift-bifold' && (!isWall || door.kind === 'drawer')) continue;
+    const previousHardware = door.hardwareKind;
     door.hardwareKind = hardwareKind;
+    if (previousHardware === 'lift-bifold' && hardwareKind === 'hinged') {
+      door.kind = 'door';
+      door.drawerRatios = [];
+      for (const handle of box.handles) {
+        if (handle.doorId !== door.id) continue;
+        handle.yRatio = ((handle.rowIndex ?? 0) + handle.yRatio) / 2;
+        handle.rowIndex = 0;
+      }
+    }
     if (hardwareKind === 'pantry-pullout') {
       door.hingeSide = undefined;
     } else if (hardwareKind === 'lift-bifold') {
-      if (isWall && door.kind !== 'drawer') {
-        door.kind = 'lift';
-        if (!door.drawerRatios.length) {
-          door.drawerRatios = getWallHorizontalDrawerRatios(box);
-        }
+      const split = door.kind === 'lift' ? [0, ...door.drawerRatios, 1] : [0, 1];
+      for (const handle of box.handles) {
+        if (handle.doorId !== door.id) continue;
+        const row = Math.max(0, Math.min(split.length - 2, handle.rowIndex ?? 0));
+        const pos = split[row] + (split[row + 1] - split[row]) * handle.yRatio;
+        handle.rowIndex = pos >= 0.5 ? 1 : 0;
+        handle.yRatio = pos * 2 - handle.rowIndex;
       }
+      door.kind = 'lift';
+      door.drawerRatios = [0.5];
     } else if (hardwareKind === 'hinged' && !door.hingeSide && door.kind === 'door') {
       door.hingeSide = door.startCm + door.widthCm / 2 > box.width / 2 ? 'right' : 'left';
     }
@@ -5406,11 +5422,56 @@ export interface BacksplashSpan {
  * up to underside of wall cabinets / chimney hoods, trimming under windows
  * and excluding tall/fridge/closet/door/column obstructions.
  */
-export function computeWallBacksplashSpans(wall: Wall): BacksplashSpan[] {
-  const bases = wall.boxes
-    .filter((b) => b.type === 'base' && b.width >= 5)
-    .sort((a, b) => a.offsetX - b.offsetX);
-  if (!bases.length) return [];
+export function computeWallBacksplashSpans(
+  wall: Wall,
+  walls: Wall[] = [wall],
+  cornerOwners: Record<string, string> = {},
+): BacksplashSpan[] {
+  const bases = wall.boxes.filter(b => b.type === 'base' && b.width >= 5);
+  const surfaces = bases.map(b => ({ start: b.offsetX, end: b.offsetX + b.width, top: b.elevY + b.height }));
+  const v = getWallVectors(wall);
+
+  for (const junction of detectCornerJunctions(walls, cornerOwners)) {
+    const isA = junction.wallAId === wall.id;
+    if (!isA && junction.wallBId !== wall.id) continue;
+    const other = walls.find(w => w.id === (isA ? junction.wallBId : junction.wallAId));
+    if (!other) continue;
+    const hereEnd = isA ? junction.wallAEnd : junction.wallBEnd;
+    const otherEnd = isA ? junction.wallBEnd : junction.wallAEnd;
+    const corner = analyzeCornerJunction(wall, hereEnd, other, otherEnd);
+    if (corner.kind === 'outside' || corner.kind === 'mismatched') continue;
+
+    const n = getWallVectors(other);
+    const dx = wall.x1Cm - other.x1Cm;
+    const dy = wall.y1Cm - other.y1Cm;
+    const along = dx * n.tx + dy * n.ty;
+    const depth = dx * n.nx + dy * n.ny;
+    const alongRate = v.tx * n.tx + v.ty * n.ty;
+    const depthRate = v.tx * n.nx + v.ty * n.ny;
+    for (const base of other.boxes) {
+      if (base.type !== 'base' || base.countertopCm <= 0) continue;
+      let start = 0;
+      let end = wall.length;
+      const clip = (origin: number, rate: number, low: number, high: number) => {
+        if (Math.abs(rate) < 1e-6) return origin >= low && origin <= high;
+        const a = (low - origin) / rate;
+        const b = (high - origin) / rate;
+        start = Math.max(start, Math.min(a, b));
+        end = Math.min(end, Math.max(a, b));
+        return end > start;
+      };
+      if (!clip(along, alongRate, base.offsetX - 1, base.offsetX + base.width + 1)) continue;
+      if (!clip(depth, depthRate, -1, base.depth + 2)) continue;
+      const cuts = [start, end, ...surfaces.flatMap(span => [span.start, span.end]).filter(x => x > start && x < end)]
+        .sort((a, b) => a - b);
+      for (let i = 0; i + 1 < cuts.length; i++) {
+        const mid = (cuts[i] + cuts[i + 1]) / 2;
+        if (!surfaces.some(span => mid >= span.start && mid <= span.end))
+          surfaces.push({ start: cuts[i], end: cuts[i + 1], top: base.elevY + base.height });
+      }
+    }
+  }
+  if (!surfaces.length) return [];
 
   const wallCabs = wall.boxes.filter((b) => b.type === 'wall' || b.type === 'wall-deep');
   const defaultWallElev =
@@ -5426,10 +5487,10 @@ export function computeWallBacksplashSpans(wall: Wall): BacksplashSpan[] {
 
   const raw: BacksplashSpan[] = [];
 
-  for (const base of bases) {
-    const bStart = base.offsetX;
-    const bEnd = base.offsetX + base.width;
-    const botY = base.elevY + base.height;
+  for (const surface of surfaces) {
+    const bStart = surface.start;
+    const bEnd = surface.end;
+    const botY = surface.top;
 
     const cutSet = new Set<number>([bStart, bEnd]);
     for (const wc of wallCabs) {

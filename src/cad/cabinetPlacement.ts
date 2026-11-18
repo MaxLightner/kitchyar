@@ -156,6 +156,7 @@ export interface CabinetRowDraft {
   starter: SweepSegment;
   offsetCm: number;
   flipOverrides?: Record<string, 1 | -1>;
+  continued?: boolean;
 }
 
 type CabinetProject = Pick<ProjectState, 'walls' | 'cornerOwners' | 'settings'>;
@@ -170,6 +171,27 @@ export function startCabinetRow(
   return starter ? { kind, starter, offsetCm, flipOverrides } : null;
 }
 
+export function continueCabinetRow(
+  draft: CabinetRowDraft, wallId: string, targetCm: number, pieces: SweepSegment[],
+): CabinetRowDraft | null {
+  let nearest: { edge: number; distance: number } | undefined;
+  for (const piece of pieces) {
+    if (piece.wallId !== wallId) continue;
+    const choices = draft.starter.wallId === wallId
+      ? [targetCm >= draft.offsetCm ? piece.startCm + piece.widthCm : piece.startCm]
+      : [piece.startCm, piece.startCm + piece.widthCm];
+    for (const edge of choices) {
+      const distance = Math.abs(targetCm - edge);
+      if (!nearest || distance < nearest.distance) nearest = { edge, distance };
+    }
+  }
+  if (!nearest) return null;
+  return {
+    kind: draft.kind, offsetCm: nearest.edge, continued: true,
+    starter: { wallId, startCm: nearest.edge, widthCm: 0 },
+  };
+}
+
 export function previewCabinetRow(project: CabinetProject, draft: CabinetRowDraft, targetWallId: string, targetCm: number) {
   const { kind, starter, offsetCm, flipOverrides } = draft;
   const walls = flipOverrides
@@ -179,6 +201,18 @@ export function previewCabinetRow(project: CabinetProject, draft: CabinetRowDraf
     walls, starter.wallId, offsetCm, targetWallId, targetCm, kind, project.cornerOwners, true, starter
   );
   const resolved = resolveCabinetPlacement(project, requested, kind, suggestedOwners, flipOverrides);
+  if (draft.continued) {
+    const sameWall = targetWallId === starter.wallId;
+    const direction = Math.sign(targetCm - offsetCm);
+    const segments = sameWall
+      ? resolved.segments.filter(segment => direction > 0
+        ? Math.abs(segment.startCm - offsetCm) <= 1.1
+        : direction < 0 && Math.abs(segment.startCm + segment.widthCm - offsetCm) <= 1.1)
+      : resolved.segments;
+    const valid = (!sameWall || Math.abs(targetCm - offsetCm) >= 15) &&
+      segments.some(segment => segment.wallId === targetWallId);
+    return { requested: valid ? segments : [], suggestedOwners, segments: valid ? segments : [], valid };
+  }
   const keepsStarter = resolved.segments.some(segment =>
     segment.wallId === starter.wallId &&
     segment.startCm <= starter.startCm + 0.5 &&
