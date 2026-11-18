@@ -1943,6 +1943,16 @@ function buildDoor3D(ctx: {
     mats,
   } = ctx;
 
+  // Exposed washing machines keep their own white factory finish. Cabinet-style
+  // door faces must not render over the appliance and pick up the kitchen color.
+  if (box.type === 'base' && wall.appliances.some((appliance) => {
+    if (appliance.kind !== 'washing') return false;
+    const doorStart = box.offsetX + door.startCm;
+    const doorEnd = doorStart + door.widthCm;
+    const overlap = Math.max(0, Math.min(doorEnd, appliance.offsetX + appliance.width) - Math.max(doorStart, appliance.offsetX));
+    return overlap > door.widthCm * 0.5;
+  })) return;
+
   // Compute apron sink extra top inset if door sits right beneath ceramic apron sink
   let apronExtraM = 0;
   if (box.type === 'base') {
