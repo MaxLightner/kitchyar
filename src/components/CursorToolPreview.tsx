@@ -1,3 +1,4 @@
+import { getFinishSwatch } from '../cad/materials3d';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useEffect, useState } from 'react';
 import {
@@ -471,39 +472,18 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
       </svg>
     );
   } else if (tool === 'finish') {
-    if (hoverTarget === 'backsplash') {
-      const cfg = BACKSPLASH_FINISHES[backsplashBrush];
-      badgeLabel = cfg.shortLabel;
-      graphic = (
-        <div
-          className="w-8 h-8 rounded-lg border-2 border-slate-700 shrink-0 relative overflow-hidden"
-          style={{ backgroundColor: cfg.baseHex }}
-        >
-          <div className="absolute inset-x-0 top-1/2 h-px" style={{ backgroundColor: cfg.groutHex }} />
-          <div className="absolute inset-y-0 left-1/2 w-px" style={{ backgroundColor: cfg.groutHex }} />
-        </div>
-      );
-    } else if (hoverTarget === 'countertop') {
-      const cfg = COUNTERTOP_FINISHES[countertopBrush];
-      badgeLabel = cfg.shortLabel;
-      graphic = (
-        <div
-          className="w-8 h-8 rounded-lg border-2 border-slate-700 shrink-0"
-          style={{ backgroundColor: cfg.hex }}
-        />
-      );
-    } else {
-      const cfg = CABINET_FINISHES[cabinetFinishBrush];
-      badgeLabel = cfg.shortLabel;
-      graphic = (
-        <div
-          className="w-8 h-8 rounded-lg border-2 border-slate-700 shrink-0"
-          style={{
-            background: `linear-gradient(180deg, ${cfg.hex} 0%, ${cfg.hexDark} 100%)`,
-          }}
-        />
-      );
-    }
+    const kind = hoverTarget === 'backsplash' || hoverTarget === 'countertop' ? hoverTarget : 'cabinet';
+    const id = kind === 'backsplash' ? backsplashBrush : kind === 'countertop' ? countertopBrush : cabinetFinishBrush;
+    const cfg = kind === 'backsplash' ? BACKSPLASH_FINISHES[backsplashBrush]
+      : kind === 'countertop' ? COUNTERTOP_FINISHES[countertopBrush] : CABINET_FINISHES[cabinetFinishBrush];
+    badgeLabel = cfg.shortLabel;
+    const texture = getFinishSwatch(kind, id);
+    graphic = (
+      <div data-testid="material-swatch" className="h-[72px] w-[120px] shrink-0 overflow-hidden rounded-lg border border-slate-800/30"
+        style={{ backgroundColor: 'baseHex' in cfg ? cfg.baseHex : cfg.hex }}>
+        {texture && <img src={texture} className="h-full w-full object-cover" alt="" />}
+      </div>
+    );
   } else if (tool === 'frame') {
     badgeLabel = `فریم ${frameWidthCm}cm`;
     graphic = (
