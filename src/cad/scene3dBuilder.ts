@@ -1,5 +1,4 @@
 import { fitHandleLengthCm } from './handleGeometry';
-import type { HandleStyle } from './types';
 import * as THREE from 'three';
 import {
   APPLIANCE_CONFIGS,
@@ -1900,7 +1899,7 @@ function buildBox3D(ctx: {
   // Selection wireframe + 3D move/resize handles
   if (isBoxSel) {
     addOutlineHighlight(grp, bw, bh, bd, bx + bw / 2, by + bh / 2, normalSign * (bd / 2));
-    if (box.type !== 'fridge' && (!tool || tool === 'select')) {
+    if (!tool || tool === 'select') {
       addBox3DHandles(grp, wall.id, box, by, bh, bd, normalSign, mats.matHandleGizmo, interactables);
     }
   }

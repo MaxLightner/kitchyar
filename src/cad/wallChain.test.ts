@@ -3,21 +3,25 @@ import test from 'node:test';
 import { buildArScannedWall, snapArWallEndpointsCm } from '../ar/arCalibration';
 import { createWall } from './doorRules';
 import { snapWallEndpoint } from './wallSnap';
+import type { Wall } from './types';
 
 test('AR chain continues at the committed endpoint and closes without a gap', () => {
-  const walls = [];
+  const walls: Wall[] = [];
   let start = { x: 0, z: 0 };
   for (const target of [{ x: 3.12, z: .28 }, { x: 3.2, z: 3 }, { x: .03, z: 3 }, { x: .03, z: .03 }]) {
     const wall = buildArScannedWall(walls, start, target, 265);
-    if (walls.length) {
-      assert.equal(wall.x1Cm, walls.at(-1).x2Cm);
-      assert.equal(wall.y1Cm, walls.at(-1).y2Cm);
+    const previous = walls.at(-1);
+    if (previous) {
+      assert.equal(wall.x1Cm, previous.x2Cm);
+      assert.equal(wall.y1Cm, previous.y2Cm);
     }
     walls.push(wall);
     start = { x: wall.x2Cm / 100, z: wall.y2Cm / 100 };
   }
-  assert.equal(walls.at(-1).x2Cm, walls[0].x1Cm);
-  assert.equal(walls.at(-1).y2Cm, walls[0].y1Cm);
+  const last = walls.at(-1);
+  assert.ok(last);
+  assert.equal(last.x2Cm, walls[0].x1Cm);
+  assert.equal(last.y2Cm, walls[0].y1Cm);
 });
 
 test('endpoint welding wins over angle assistance and picks the nearest endpoint', () => {

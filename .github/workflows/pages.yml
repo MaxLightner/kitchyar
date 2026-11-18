@@ -18,10 +18,72 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - run: bun test src/cad/diningAndFinishes.test.ts src/cad/editorFit.test.ts src/cad/cabinetPlacement.test.ts
-      - name: Type diagnostics
-        continue-on-error: true
-        run: bun run lint
+      - run: bun run lint
+      - run: bun test src/cad/diningAndFinishes.test.ts src/cad/editorFit.test.ts src/cad/cabinetPlacement.test.ts src/cad/wallChain.test.ts
+      - name: Browser smoke
+        run: |
+          npm install --prefix "$RUNNER_TEMP/kitchyar-browser" playwright
+          node "$RUNNER_TEMP/kitchyar-browser/node_modules/playwright/cli.js" install chromium
+          bun run dev --port 3077 > "$RUNNER_TEMP/kitchyar-vite.log" 2>&1 &
+          for attempt in {1..30}; do curl -fsS http://127.0.0.1:3077 >/dev/null 2>&1 && break; sleep 1; done
+          cat > "$RUNNER_TEMP/kitchyar-smoke.cjs" <<'KITCHYAR_SMOKE'
+          const assert = require('node:assert/strict');
+          const { chromium } = require(process.env.RUNNER_TEMP + '/kitchyar-browser/node_modules/playwright');
+          const url = 'http://127.0.0.1:3077';
+          async function openProject(page) {
+            await page.goto(url);
+            await page.getByTestId('welcome-primary-start').click();
+            await page.getByTestId('editor-shell').waitFor();
+          }
+          async function capacities(page, expected) {
+            await page.waitForFunction(wanted => {
+              const id = localStorage.getItem('kichiyar_active_project_id_v2');
+              const items = JSON.parse(localStorage.getItem('kichiyar_projects_v2') || '[]')
+                .find(entry => entry.id === id)?.state?.diningSets || [];
+              return JSON.stringify(items.map(item => item.seats)) === JSON.stringify(wanted);
+            }, expected);
+          }
+          (async () => {
+            const browser = await chromium.launch({args: ['--enable-webgl', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']});
+            try {
+              const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+              const errors = [];
+              desktop.on('pageerror', error => errors.push(error.message));
+              await openProject(desktop);
+              await desktop.getByTestId('dock-tool-dining').click();
+              await desktop.getByTestId('dining-seats-8').click();
+              const plan = await desktop.getByTestId('plan-svg').boundingBox();
+              await desktop.mouse.click(plan.x + plan.width * 0.52, plan.y + plan.height * 0.56);
+              await capacities(desktop, [8]);
+              assert.equal(await desktop.locator('[data-dining-id]').count(), 1);
+              await desktop.getByRole('button', { name: 'نمای سه‌بعدی', exact: true }).click();
+              const scene = desktop.getByTestId('scene-3d-canvas');
+              await scene.waitFor();
+              await desktop.getByTestId('dining-seats-6').click();
+              const view = await scene.boundingBox();
+              await desktop.mouse.move(view.x + view.width * 0.58, view.y + view.height * 0.65);
+              await desktop.mouse.click(view.x + view.width * 0.58, view.y + view.height * 0.65);
+              await capacities(desktop, [8, 6]);
+              await desktop.getByRole('button', { name: 'تنظیمات استاندارد پروژه', exact: true }).click();
+              await desktop.getByRole('slider', { name: 'شدت بازتاب صفحهٔ کابینت' }).waitFor();
+              await desktop.getByRole('slider', { name: 'ماتی کاشی بین‌کابینتی' }).waitFor();
+              assert.deepEqual(errors, []);
+              await desktop.close();
+              const touch = await browser.newPage({ viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true });
+              await openProject(touch);
+              await touch.getByTestId('dock-tool-dining').tap();
+              await touch.getByTestId('dining-seats-2').tap();
+              const tabletPlan = await touch.getByTestId('plan-svg').boundingBox();
+              await touch.touchscreen.tap(tabletPlan.x + tabletPlan.width * 0.52, tabletPlan.y + tabletPlan.height * 0.55);
+              await touch.getByTestId('plan-confirm-placement').waitFor();
+              await capacities(touch, []);
+              await touch.getByTestId('plan-confirm-placement').tap();
+              await capacities(touch, [2]);
+              console.log('Desktop plan and 3D insert, material controls, and touch confirm passed');
+            } finally { await browser.close(); }
+          })().catch(error => { console.error(error); process.exit(1); });
+          KITCHYAR_SMOKE
+          node "$RUNNER_TEMP/kitchyar-smoke.cjs"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
