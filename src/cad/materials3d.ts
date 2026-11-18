@@ -483,7 +483,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
   const bsFinish: BacksplashFinishId = project.backsplashFinish || 'calacatta-marble';
   const ctFinish: CountertopFinishId = project.countertopFinish || 'dark-quartz';
 
-  const bevelNormal = doorBevelTexture ??= shareKitchenTexture(createDoorBevelNormalMap(5));
+  const bevelNormal = doorBevelTexture ??= shareKitchenTexture(createDoorBevelNormalMap());
 
   const matCarcass = new THREE.MeshStandardMaterial({
     color: 0xf4f2ed,
@@ -577,7 +577,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
       map: tex,
       color: surface.map ? surface.color : '#ffffff',
       normalMap: bevelNormal,
-      normalScale: new THREE.Vector2(0.05, 0.05),
+      normalScale: new THREE.Vector2(0.72, 0.72),
       ...readSurfaceFinish(settings, 0, Math.max(0.20, cfg.roughness * 0.68 + (doorStyle === 'cnc' ? 0.06 : 0))),
     });
     mat.userData.sceneReflection = true;
