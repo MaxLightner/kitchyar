@@ -123,9 +123,9 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <header className="bg-white border-b border-slate-200 flex flex-col shrink-0 z-30 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <div className="min-h-[46px] flex flex-wrap lg:flex-nowrap items-center justify-between px-2 sm:px-3 py-1 gap-1.5 sm:gap-2">
+      <div className="flex min-h-10 flex-nowrap items-center justify-between gap-1 px-2 py-0.5">
         {/* Home and fullscreen remain first/visible on narrow tablet screens. */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1 sm:gap-1.5 min-w-0 max-w-full">
+        <div className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto no-scrollbar [&>*]:shrink-0">
           {/* بخش ناوبری و فایل پروژه */}
           <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/80 rounded-lg p-0.5 shrink-0">
             {onOpenWelcome && (
@@ -373,7 +373,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div
           data-testid="selection-align-toolbar"
           aria-label="تراز و هم‌اندازه‌سازی آیتم‌های انتخابی"
-          className="h-10 bg-slate-50 border-t border-slate-200 flex items-center justify-center px-2 gap-2 overflow-x-auto no-scrollbar whitespace-nowrap"
+          className="h-9 bg-slate-50 border-t border-slate-200 flex items-center justify-start px-2 gap-1 overflow-x-auto no-scrollbar whitespace-nowrap [&>*]:shrink-0"
         >
           {(selectedApplianceName || activeBoxName) && (
             <span className="text-[13px] font-extrabold text-slate-600 px-1.5 shrink-0">

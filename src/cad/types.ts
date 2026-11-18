@@ -19,6 +19,8 @@ export type HardwareKind =
   | 'corner';
 export type DesignStyle = 'modern' | 'neoclassic';
 
+export type CabinetTextureId = 'smooth' | 'oak' | 'walnut' | 'satin';
+
 export type CabinetFinishId =
   | 'warm-white'
   | 'cashmere'
@@ -45,7 +47,7 @@ export type CountertopFinishId =
 
 export type SelectionMode = 'single' | 'add' | 'subtract';
 
-export type HandleStyle = 'simple' | 'knob' | 'hidden';
+export type HandleStyle = 'simple' | 'knob' | 'hidden' | 'arch' | 'tab';
 export type Orientation = 'vertical' | 'horizontal';
 
 export type ApplianceKind = 'sink' | 'gas' | 'dishwasher' | 'washing';
@@ -85,6 +87,7 @@ export interface BoxFrameItem {
   id: string;
   side: FrameSide;
   widthCm: number;
+  color?: string;
   /** Offset in cm from box left when side === 'seam' */
   seamCm?: number;
 }
@@ -144,6 +147,8 @@ export interface CabinetBox {
   fridgeModel?: FridgeModel;
   /** Per-box cabinet door/body finish override */
   finish?: CabinetFinishId;
+  color?: string;
+  texture?: CabinetTextureId;
   /** Links e.g. over-fridge upper cabinet to its parent fridge box */
   linkedToBoxId?: string;
   doors: DoorUnit[];
@@ -240,6 +245,7 @@ export interface ProjectSettings {
   countertopCm: number;
   wallCabElevCm: number;
   wallCabHeightCm: number;
+  cabinetReflection?: number;
   defaultHoodKind?: 'chimney' | 'hidden';
 }
 
@@ -276,6 +282,7 @@ export interface ProjectState {
   doorsHidden?: boolean;
   designStyle?: DesignStyle;
   cabinetFinish?: CabinetFinishId;
+  cabinetTexture?: CabinetTextureId;
   backsplashFinish?: BacksplashFinishId;
   countertopFinish?: CountertopFinishId;
   skipStylePrompt?: boolean;

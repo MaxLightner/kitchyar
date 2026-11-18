@@ -580,7 +580,7 @@ test('Clicking existing appliance replaces it directly, and optimizeBoxWithAppli
   const opt = optimizeBoxWithAppliances(w, [w], base, {});
   assert.equal(opt.ok, true);
   const dw = w.appliances.find((a) => a.id === 'dw1');
-  assert.equal(dw?.offsetX, 90); // snapped flush next to 90cm sink, leaving full 100cm span on right!
+  assert.equal(dw?.offsetX, 91); // retain a 1 cm installation gap at the sink unit
 });
 
 test('Fridge auto-carves continuous existing base, wall, and tall cabinets into valid >=30cm remainders', () => {
@@ -768,7 +768,7 @@ test('Reversible appliance deletion cleans dedicated doors, handles, orphan divi
   const base = createEmptyBox('base', 0, 300);
   w.boxes.push(base);
 
-  // Sink at 0..90 (div at 90) and adjacent Dishwasher at 90..150 (divs at 90, 150) and Gas at 180..260 (divs at 180, 260)
+  // Sink at 0..90 (div at 90) and adjacent Dishwasher at 91..151 (divs at 90, 150) and Gas at 180..260 (divs at 180, 260)
   const sRes = placeApplianceWithCabinetRules(w, [w], 'sink', base, 0, {});
   const dRes = placeApplianceWithCabinetRules(w, [w], 'dishwasher', base, 90, {});
   const gRes = placeApplianceWithCabinetRules(w, [w], 'gas', base, 180, {});
@@ -787,9 +787,9 @@ test('Reversible appliance deletion cleans dedicated doors, handles, orphan divi
   assert.equal(base.unitDividers.includes(260), false);
   assert.equal(base.frames?.some((f) => f.side === 'seam'), false);
 
-  // Delete Dishwasher at 90..150 -> div at 150 removed, BUT shared div at 90 stays because Sink owns 0..90!
+  // Delete Dishwasher at 91..151 -> div at 151 removed, BUT shared div at 90 stays because Sink owns 0..90!
   deleteApplianceHierarchically(w, dRes.appliance!.id);
-  assert.equal(base.unitDividers.includes(150), false);
+  assert.equal(base.unitDividers.includes(151), false);
   assert.equal(base.unitDividers.includes(90), true);
 
   // Delete Sink at 0..90 -> removes under-sink doors, their handles, and now-orphan div at 90

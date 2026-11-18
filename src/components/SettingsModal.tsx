@@ -153,6 +153,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
+          <label className="block space-y-1 font-bold">
+            <span>شدت بازتاب کابینت: {Math.round((form.cabinetReflection ?? 1) * 100)}٪</span>
+            <input type="range" min={0} max={2} step={0.05} value={form.cabinetReflection ?? 1}
+              onChange={e => setForm(prev => ({ ...prev, cabinetReflection: Number(e.target.value) }))}
+              className="w-full accent-indigo-600" />
+          </label>
           <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
             <input
               type="checkbox"

@@ -163,6 +163,7 @@ export function applyKitchenStylePreset(
   const next: ProjectState = JSON.parse(JSON.stringify(project));
   next.designStyle = preset.designStyle;
   next.cabinetFinish = preset.cabinetFinish;
+  next.cabinetTexture = preset.cabinetFinish === 'natural-oak' ? 'oak' : preset.cabinetFinish === 'walnut' ? 'walnut' : 'satin';
   next.backsplashFinish = preset.backsplashFinish;
   next.countertopFinish = preset.countertopFinish;
   next.skipStylePrompt = true;
@@ -196,6 +197,13 @@ export function applyKitchenStylePreset(
       }
       for (const handle of box.handles) {
         handle.style = preset.handleStyle;
+        if (handle.style === 'hidden') {
+          const door = box.doors.find(item => item.id === handle.doorId);
+          if (door && (box.type === 'base' || box.type === 'wall' || box.type === 'wall-deep' || door.kind === 'drawer')) {
+            handle.orient = 'horizontal';
+          }
+        }
+        handle.lengthCm = handle.style === 'hidden' ? 14 : handle.style === 'knob' ? 3.6 : handle.style === 'tab' ? 9 : 16;
       }
     }
     for (const app of wall.appliances) {

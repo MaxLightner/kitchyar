@@ -1,3 +1,5 @@
+import { fitHandleLengthCm } from './handleGeometry';
+import type { HandleStyle } from './types';
 import * as THREE from 'three';
 import {
   APPLIANCE_CONFIGS,
@@ -246,7 +248,7 @@ function addOutlineHighlight(
 }
 
 export function buildHandleMesh(
-  style: 'simple' | 'knob' | 'hidden',
+  style: HandleStyle,
   orient: 'vertical' | 'horizontal',
   lengthCm: number,
   w: number,
@@ -254,7 +256,9 @@ export function buildHandleMesh(
   thick: number,
   normalSign: number,
   matDarkChrome: THREE.Material,
-  matHiddenTrim: THREE.Material
+  matHiddenTrim: THREE.Material,
+  xRatio = 0.5,
+  yRatio = 0.5
 ): THREE.Object3D {
   const grp = new THREE.Group();
   const frontOutZ = normalSign * (thick * 0.5 + 0.008);
@@ -277,16 +281,31 @@ export function buildHandleMesh(
     return grp;
   }
 
-  if (style === 'hidden') {
-    const stripW = orient === 'horizontal' ? Math.max(0.06, w - 0.01) : 0.018;
-    const stripH = orient === 'vertical' ? Math.max(0.08, h - 0.01) : 0.018;
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(stripW, stripH, 0.008), matHiddenTrim);
-    strip.position.set(0, 0, normalSign * (thick * 0.5 + 0.003));
+  const lenM = fitHandleLengthCm(style, orient, lengthCm, w / CM, h / CM, xRatio, yRatio) * CM;
+  const vertical = orient === 'vertical';
+  if (style === 'hidden' || style === 'tab') {
+    const width = vertical ? 0.012 : lenM;
+    const height = vertical ? lenM : 0.012;
+    const recess = style === 'hidden';
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(width, height, recess ? 0.0008 : 0.01),
+      recess ? matHiddenTrim : matDarkChrome);
+    strip.position.z = normalSign * (thick * 0.5 + (recess ? 0.0006 : 0.006));
     grp.add(strip);
+    if (recess) {
+      const shadow = new THREE.Mesh(new THREE.BoxGeometry(width * (vertical ? 0.53 : 0.96),
+        height * (vertical ? 0.96 : 0.53), 0.0006), matDarkChrome);
+      shadow.position.z = normalSign * (thick * 0.5 + 0.0013);
+      grp.add(shadow);
+    }
     return grp;
   }
-
-  const lenM = Math.max(0.09, Math.min(orient === 'vertical' ? h - 0.04 : w - 0.04, lengthCm * CM));
+  if (style === 'arch') {
+    const point = (t: number, z: number) => new THREE.Vector3(vertical ? 0 : t, vertical ? t : 0,
+      normalSign * (thick * 0.5 + z));
+    const curve = new THREE.QuadraticBezierCurve3(point(-lenM / 2, 0.004), point(0, 0.048), point(lenM / 2, 0.004));
+    grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.0055, 7, false), matDarkChrome));
+    return grp;
+  }
   const barGeo =
     orient === 'vertical'
       ? new THREE.BoxGeometry(0.01, lenM, 0.012)
@@ -569,7 +588,7 @@ export function attachHandleCandidateSpots(
 
 export function buildKitchen3DScene(
   project: ProjectState,
-  opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number; tool?: ToolId } = {}
+  opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number; tool?: ToolId; onTextureReady?: () => void } = {}
 ): BuiltKitchenScene {
   const root = new THREE.Group();
   const interactables: THREE.Object3D[] = [];
@@ -591,7 +610,7 @@ export function buildKitchen3DScene(
   const doorOpenProgress = Math.max(0, Math.min(1, opts.doorOpenProgress ?? 0));
 
   // Shared procedural material pack (finishes, gradient+bevel normal doors, tiles, countertops)
-  const matPack = createKitchenMaterialPack(project);
+  const matPack = createKitchenMaterialPack(project, opts.onTextureReady);
   const floorTex = createFloorTileTexture();
   const matFloor = new THREE.MeshPhysicalMaterial({
     map: floorTex,
@@ -660,15 +679,17 @@ export function buildKitchen3DScene(
     roughness: 0.25,
     metalness: 0.85,
   });
+  const matWasher = new THREE.MeshPhysicalMaterial({ color: 0xf1f2f3, roughness: 0.27, clearcoat: 0.25 });
+  const matPorcelain = new THREE.MeshPhysicalMaterial({ color: 0xf5f2ec, roughness: 0.23, clearcoat: 0.45 });
   const matDarkChrome = new THREE.MeshStandardMaterial({
     color: 0x1e293b,
     roughness: 0.26,
     metalness: 0.82,
   });
   const matHiddenTrim = new THREE.MeshStandardMaterial({
-    color: 0x475569,
-    roughness: 0.3,
-    metalness: 0.72,
+    color: 0x252932,
+    roughness: 0.52,
+    metalness: 0.15,
   });
   const matGlassCooktop = new THREE.MeshStandardMaterial({
     color: 0x0f172a,
@@ -922,7 +943,8 @@ export function buildKitchen3DScene(
           matDarkChrome,
           matGlassCooktop,
           matCarcass,
-          matDoorModern,
+          matDoorModern: matPorcelain,
+          matWasher,
           matGlass,
         })
       );
@@ -1253,7 +1275,7 @@ function buildBox3D(ctx: {
   grp.userData = { kind: 'box', wallId: wall.id, boxId: box.id } as Scene3DHitData;
 
   const boxFinish: CabinetFinishId = box.finish || project.cabinetFinish || 'warm-white';
-  const boxBodyMat = matPack.getCabinetBodyMaterial(boxFinish);
+  const boxBodyMat = matPack.getCabinetBodyMaterial(boxFinish, box);
 
   const bx = box.offsetX * CM;
   const bw = box.width * CM;
@@ -1574,7 +1596,7 @@ function buildBox3D(ctx: {
     }
     const fM = fr.widthCm * CM;
     const isFSel = fr.id === project.selectedFrameId;
-    const fMat = isFSel ? mats.matHandleGizmo : mats.matFrame;
+    const fMat = fr.color ? new THREE.MeshStandardMaterial({ color: fr.color, roughness: 0.4 }) : isFSel ? mats.matHandleGizmo : mats.matFrame;
     let mesh: THREE.Mesh | null = null;
     if (fr.side === 'left') {
       mesh = new THREE.Mesh(new THREE.BoxGeometry(fM, bodyH, 0.022), fMat);
@@ -1975,7 +1997,7 @@ function buildDoor3D(ctx: {
 
   const dStyle: DoorStyle = door.doorStyle || 'flat';
   const isClosed = doorOpenProgress < 0.08;
-  const doorMat = matPack.getDoorMaterial(boxFinish, dStyle, isClosed, isSel);
+  const doorMat = matPack.getDoorMaterial(boxFinish, dStyle, isClosed, isSel, box);
   const doorEdgeMat = matPack.getDoorEdgeMaterial(boxFinish, isClosed, isSel);
   const doorBoxMats: THREE.Material[] = [doorEdgeMat, doorEdgeMat, doorEdgeMat, doorEdgeMat, doorMat, doorMat];
   const doorCncInnerMat = matPack.getDoorInnerCncMaterial(boxFinish, isSel);
@@ -2143,7 +2165,9 @@ function buildDoor3D(ctx: {
           doorThick,
           normalSign,
           mats.matDarkChrome,
-          mats.matHiddenTrim
+          mats.matHiddenTrim,
+          h.xRatio,
+          h.yRatio
         );
         hMesh.position.set(hx, hy, 0);
         hMesh.userData = {
@@ -2203,7 +2227,9 @@ function buildDoor3D(ctx: {
         doorThick,
         normalSign,
         mats.matDarkChrome,
-        mats.matHiddenTrim
+        mats.matHiddenTrim,
+          h.xRatio,
+          h.yRatio
       );
       hMesh.position.set(hx, hy, 0);
       hMesh.userData = {
@@ -2260,7 +2286,9 @@ function buildDoor3D(ctx: {
         doorThick,
         normalSign,
         mats.matDarkChrome,
-        mats.matHiddenTrim
+        mats.matHiddenTrim,
+          h.xRatio,
+          h.yRatio
       );
       hMesh.position.set(hx, hy, 0);
       hMesh.userData = {
@@ -2385,7 +2413,9 @@ function buildDoor3D(ctx: {
       doorThick,
       normalSign,
       mats.matDarkChrome,
-      mats.matHiddenTrim
+      mats.matHiddenTrim,
+          h.xRatio,
+          h.yRatio
     );
     hMesh.position.set(hx, hy, 0);
     hMesh.userData = {
@@ -2413,6 +2443,7 @@ function buildAppliance3D(
     matGlassCooktop: THREE.Material;
     matCarcass: THREE.Material;
     matDoorModern: THREE.Material;
+    matWasher: THREE.Material;
     matGlass: THREE.Material;
   }
 ): THREE.Group {
@@ -2547,7 +2578,7 @@ function buildAppliance3D(
   const machD = Math.max(0.5, boxDepthCm * CM - 0.01);
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(machW, machH, machD),
-    app.kind === 'dishwasher' ? mats.matSteel : mats.matDoorModern
+    app.kind === 'dishwasher' ? mats.matSteel : mats.matWasher
   );
   body.position.set(ax, machH / 2, normalSign * (machD / 2));
   body.castShadow = true;

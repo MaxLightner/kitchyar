@@ -1,3 +1,4 @@
+import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useEffect, useState } from 'react';
 import {
   APPLIANCE_CONFIGS,
@@ -400,7 +401,7 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
       </svg>
     );
   } else if (tool === 'handle') {
-    const hName = handleStyle === 'knob' ? 'قارچی' : handleStyle === 'hidden' ? 'مخفی' : 'ساده';
+    const hName = HANDLE_STYLES.find(style => style.id === handleStyle)?.label ?? 'دستگیره';
     const hDir = handleStyle === 'knob' ? '' : handleOrient === 'horizontal' ? ' افقی' : ' عمودی';
     badgeLabel = `${hName}${hDir}`;
     graphic = (

@@ -2231,6 +2231,27 @@ export function ensureHorizontalDoorsAboveSink(
   return updatedCount;
 }
 
+const SINK_UNIT_CLEARANCE_CM = 1;
+type ApplianceSpan = [number, number];
+
+function protectedSinkSpans(wall: Wall, blocked: BlockedZone[]): ApplianceSpan[] {
+  return wall.appliances.filter(app => app.kind === 'sink').map(sink => {
+    const box = findParentBoxForAppliance(wall, sink);
+    const mid = sink.offsetX + sink.width / 2 - (box?.offsetX ?? 0);
+    const unit = box?.unitDividers.length ? getUnitsInBox(box, blocked).find(u => mid >= u.startCm && mid <= u.endCm) : undefined;
+    const start = unit && box ? Math.min(sink.offsetX, box.offsetX + unit.startCm) : sink.offsetX;
+    const end = unit && box ? Math.max(sink.offsetX + sink.width, box.offsetX + unit.endCm) : sink.offsetX + sink.width;
+    return [start - SINK_UNIT_CLEARANCE_CM, end + SINK_UNIT_CLEARANCE_CM];
+  });
+}
+
+function nearestClearApplianceOffset(desired: number, min: number, max: number, width: number, blockers: ApplianceSpan[]) {
+  return [Math.max(min, Math.min(max, desired)), min, max, ...blockers.flatMap(([a,b]) => [a - width, b])]
+    .filter(x => x >= min - 0.005 && x <= max + 0.005 &&
+      blockers.every(([a,b]) => x + width <= a + 0.005 || x >= b - 0.005))
+    .sort((a,b) => Math.abs(a-desired) - Math.abs(b-desired))[0];
+}
+
 export function placeApplianceWithCabinetRules(
   wall: Wall,
   allWalls: Wall[],
@@ -2330,9 +2351,18 @@ export function placeApplianceWithCabinetRules(
   const clickCenter = desiredOffsetX + width / 2;
 
   // Check if the user clicked directly over an existing appliance -> replace it cleanly!
+  const isMachine = kind === 'dishwasher' || kind === 'washing';
   const directHit = wall.appliances.find(
-    (other) => clickCenter >= other.offsetX && clickCenter <= other.offsetX + other.width
+    (other) => (!isMachine || other.kind === 'dishwasher' || other.kind === 'washing') &&
+      clickCenter >= other.offsetX && clickCenter <= other.offsetX + other.width
   );
+  const safeMachineX = isMachine ? nearestClearApplianceOffset(desiredClamped, minX, maxX, width,
+    [...protectedSinkSpans(wall, blocked),
+      ...wall.appliances.filter(app => app !== directHit && app.kind !== 'sink')
+        .map((app): ApplianceSpan => [app.offsetX, app.offsetX + app.width])]) : undefined;
+  if (isMachine && safeMachineX === undefined) {
+    return { ok: false, message: 'برای نصب تجهیز با فاصلهٔ ۱ سانتی‌متر از یونیت سینک جا نیست' };
+  }
 
   let replaced = false;
   if (directHit) {
@@ -2360,7 +2390,7 @@ export function placeApplianceWithCabinetRules(
   const overlapsAny = (x: number) =>
     wall.appliances.some((other) => x < other.offsetX + other.width - 1 && x + width > other.offsetX + 1);
 
-  let offsetX = desiredClamped;
+  let offsetX = safeMachineX ?? desiredClamped;
 
   // Smart snap for gas / sink when placed AFTER doors: align to adjacent seam/divider (<20cm) to prevent <30cm dead slivers
   if (!replaced && (kind === 'gas' || kind === 'sink') && targetBox.doors.length > 0) {
@@ -2452,7 +2482,7 @@ export function placeApplianceWithCabinetRules(
   }
 
   // When replacing a 90cm sink with 80cm gas (etc.), keep aligned cleanly if flush
-  if (replaced && directHit && directHit.offsetX >= minX && directHit.offsetX + width <= maxX + width) {
+  if (!isMachine && replaced && directHit && directHit.offsetX >= minX && directHit.offsetX + width <= maxX + width) {
     offsetX = Math.max(minX, Math.min(maxX, directHit.offsetX));
   }
 
@@ -2702,58 +2732,42 @@ export function optimizeBoxWithAppliances(
     return { ok: false, message: 'ظرفشویی یا لباسشویی روی این باکس وجود ندارد' };
   }
 
-  const fixedApps = boxApps.filter((a) => a.kind === 'sink' || a.kind === 'gas');
-  const sink = fixedApps.find((a) => a.kind === 'sink');
-
-  // Remove loose apps temporarily and clear their old dividers
-  for (const la of looseApps) {
-    const ls = +(la.offsetX - box.offsetX).toFixed(1);
-    const le = +(ls + la.width).toFixed(1);
-    box.unitDividers = box.unitDividers.filter(
-      (u) => Math.abs(u - ls) > 1.5 && Math.abs(u - le) > 1.5
-    );
-  }
-
-  // Collect free continuous spans around fixed apps inside [minX, maxX]
-  const occupied = fixedApps.map((a) => [a.offsetX, a.offsetX + a.width] as [number, number]).sort((a, b) => a[0] - b[0]);
-  const freeSpans: Array<{ start: number; end: number }> = [];
-  let cur = minX;
-  for (const [s, e] of occupied) {
-    if (s - cur >= 60) freeSpans.push({ start: cur, end: s });
-    cur = Math.max(cur, e);
-  }
-  if (maxX - cur >= 60) freeSpans.push({ start: cur, end: maxX });
-
-  for (const la of looseApps) {
-    // Prefer a span touching sink edge first, else widest span
-    let targetSpan =
-      (sink &&
-        freeSpans.find(
-          (sp) =>
-            sp.end - sp.start >= la.width &&
-            (Math.abs(sp.start - (sink.offsetX + sink.width)) < 2 || Math.abs(sp.end - sink.offsetX) < 2)
-        )) ||
-      freeSpans
-        .filter((sp) => sp.end - sp.start >= la.width)
-        .sort((a, b) => b.end - b.start - (a.end - a.start))[0];
-
-    if (!targetSpan) continue;
-
-    // Anchor flush to sink edge if touching sink, else flush to left/right edge of span
-    let newX = targetSpan.start;
-    if (sink && Math.abs(targetSpan.end - sink.offsetX) < 2) {
-      newX = targetSpan.end - la.width;
-      targetSpan.end = newX;
-    } else {
-      targetSpan.start += la.width;
+  const sinkSpans = protectedSinkSpans(wall, blocked);
+  const occupied: ApplianceSpan[] = [
+    ...sinkSpans,
+    ...wall.appliances.filter(app => !looseApps.includes(app) && app.kind !== 'sink')
+      .map((app): ApplianceSpan => [app.offsetX, app.offsetX + app.width]),
+  ];
+  const plan = new Map<ApplianceItem, number>();
+  for (const app of looseApps) {
+    const adjacent = sinkSpans.flatMap(([a,b]) => [a - app.width, b])
+      .sort((a,b) => Math.abs(a - app.offsetX) - Math.abs(b - app.offsetX));
+    const offset = adjacent.find(x => x >= minX && x + app.width <= maxX &&
+      occupied.every(([a,b]) => x + app.width <= a + 0.005 || x >= b - 0.005))
+      ?? nearestClearApplianceOffset(app.offsetX, minX, maxX - app.width, app.width, occupied);
+    if (offset === undefined) {
+      return { ok: false, message: 'برای چیدمان تجهیزات با فاصلهٔ ۱ سانتی‌متر از یونیت سینک جا نیست' };
     }
+    plan.set(app, offset);
+    occupied.push([offset, offset + app.width]);
+  }
 
-    la.offsetX = newX;
-    const ls = +(newX - box.offsetX).toFixed(1);
-    const le = +(ls + la.width).toFixed(1);
-    box.doors = box.doors.filter((d) => d.startCm + d.widthCm <= ls + 1 || d.startCm >= le - 1);
-    if (ls > 2 && !box.unitDividers.includes(ls)) box.unitDividers.push(ls);
-    if (le < box.width - 2 && !box.unitDividers.includes(le)) box.unitDividers.push(le);
+  for (const [app, offset] of plan) {
+    if (Math.abs(app.offsetX - offset) < 0.005) continue;
+    const oldStart = app.offsetX - box.offsetX;
+    const oldEnd = oldStart + app.width;
+    box.unitDividers = box.unitDividers.filter(u =>
+      Math.abs(u - oldStart) > 1.5 && Math.abs(u - oldEnd) > 1.5 ||
+      sinkSpans.some(([a,b]) => Math.abs(box.offsetX + u - a - SINK_UNIT_CLEARANCE_CM) <= 0.1 ||
+        Math.abs(box.offsetX + u - b + SINK_UNIT_CLEARANCE_CM) <= 0.1));
+    app.offsetX = offset;
+    const start = +(offset - box.offsetX).toFixed(1);
+    const end = +(start + app.width).toFixed(1);
+    const removed = new Set(box.doors.filter(d => d.startCm + d.widthCm > start + 1 && d.startCm < end - 1).map(d => d.id));
+    box.doors = box.doors.filter(d => !removed.has(d.id));
+    box.handles = box.handles.filter(h => !removed.has(h.doorId));
+    if (start > 2 && !box.unitDividers.includes(start)) box.unitDividers.push(start);
+    if (end < box.width - 2 && !box.unitDividers.includes(end)) box.unitDividers.push(end);
   }
 
   box.unitDividers.sort((a, b) => a - b);
@@ -3495,18 +3509,19 @@ export function moveBoxHierarchically(
   allWalls: Wall[],
   boxId: string,
   desiredOffsetX: number,
-  cornerOwners: Record<string, string>
+  cornerOwners: Record<string, string>,
+  opts?: { exact?: boolean }
 ): { offsetX: number; minX: number; maxX: number; leftGap: number; rightGap: number } | null {
   const box = wall.boxes.find((b) => b.id === boxId);
   if (!box) return null;
 
   const { minX, maxX, snapTargets } = getFreeMoveRangeForBox(wall, allWalls, box, cornerOwners);
-  let target = Math.max(minX, Math.min(maxX, Math.round(desiredOffsetX / 5) * 5));
+  let target = Math.max(minX, Math.min(maxX, opts?.exact ? desiredOffsetX : Math.round(desiredOffsetX / 5) * 5));
 
   const closestSnap = snapTargets
     .filter((st) => st >= minX && st <= maxX && Math.abs(desiredOffsetX - st) <= 4)
     .sort((a, b) => Math.abs(desiredOffsetX - a) - Math.abs(desiredOffsetX - b))[0];
-  if (closestSnap !== undefined) target = Math.round(closestSnap);
+  if (!opts?.exact && closestSnap !== undefined) target = Math.round(closestSnap);
 
   const oldX = box.offsetX;
   const delta = target - oldX;
@@ -3744,6 +3759,13 @@ export function moveApplianceHierarchically(
         break;
       }
     }
+  }
+
+  if (app.kind === 'dishwasher' || app.kind === 'washing') {
+    const protectedSpans = protectedSinkSpans(wall, getCornerBlockedZonesForWall(wall, allWalls, cornerOwners));
+    const safe = nearestClearApplianceOffset(target, minX, maxX, app.width, protectedSpans);
+    if (safe === undefined) return null;
+    target = safe;
   }
 
   const oldX = app.offsetX;

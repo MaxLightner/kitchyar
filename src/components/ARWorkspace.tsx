@@ -1,3 +1,5 @@
+import { HANDLE_STYLES } from '../cad/handleGeometry';
+import { NumberPadDialog } from './NumberPadDialog';
 import { DoorTapSequence } from '../utils/doorTapSequence';
 import { previewCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { AimTap, aimCenter, calibrationPinsAtView } from '../ar/centerAim';
@@ -78,7 +80,7 @@ import {
 } from '../cad/constants';
 
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
-const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
+const HANDLE_STYLE_ORDER = HANDLE_STYLES.map(style => style.id);
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 import {
@@ -246,11 +248,13 @@ interface ARWorkspaceProps {
     flipOverrides?: Record<string, 1 | -1>
   ) => boolean;
   onConfirmHiddenHandle?: (onConfirm: () => void) => void;
+  onMoveShelf: (wallId: string, boxId: string, shelfId: string, dx: number, dy: number, commit: boolean) => void;
   onResizeCabinet: (wallId: string, boxId: string, side: 'left' | 'right' | 'top' | 'bottom', dxCm: number, dyCm: number, commit: boolean) => void;
   onBeginDrag: () => void;
   onCancelDrag: () => void;
   onFinishDrag: () => void;
-  onUpdateProject: (updater: (prev: ProjectState) => ProjectState, toastMsg?: string) => void;
+  onUpdateProject: (updater: (prev: ProjectState) => ProjectState, toastMsg?: string, pushHistory?: boolean) => void;
+  dialogOpen?: boolean;
   onSwitchViewMode: (mode: '2d' | '3d' | 'ar') => void;
   onToast: (msg: string) => void;
   sessionKillSignal?: number;
@@ -280,6 +284,7 @@ interface StoredAnchorEntry {
 }
 
 type ArDragState =
+  | { kind: 'move-shelf'; wallId: string; boxId: string; shelfId: string; startX: number; startY: number; dx: number; dy: number; moved: boolean }
   | { kind: 'resize-box'; wallId: string; boxId: string; side: 'left' | 'right' | 'top' | 'bottom';
       startX: number; startY: number; dx: number; dy: number; moved: boolean }
   | { kind: 'drag-a'; startWorld: XZPoint; moved: boolean }
@@ -571,6 +576,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   onUpdateProject,
   onBeginDrag,
   onResizeCabinet,
+  onMoveShelf,
   onCancelDrag,
   onFinishDrag,
   onSwitchViewMode,
@@ -580,6 +586,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   embeddedIn3D = false,
   sharedTool,
   onSessionEnded,
+  dialogOpen = false,
   onFloorConfirmed,
   wideViewModeExternal,
   onWideViewModeChange,
@@ -607,6 +614,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const [occlusionStatus, setOcclusionStatus] = useState<OcclusionStatus>('idle');
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [kitchenHidden, setKitchenHidden] = useState(false);
+  const [scaleConfirmed, setScaleConfirmed] = useState(false);
+  const rescanOriginRef = useRef<{ x: number; z: number; yaw: number } | null>(null);
+  const hideKitchen = kitchenHidden || ((xrActive || embeddedIn3D) && (!floorLocked || !scaleConfirmed));
   const [reticleEnabled, setReticleEnabled] = useState(true);
   const [localWideViewMode, setLocalWideViewMode] = useState<WideViewMode>('normal');
   const wideViewMode = wideViewModeExternal ?? localWideViewMode;
@@ -632,6 +642,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onUpdateProject,
     onBeginDrag,
     onResizeCabinet,
+    onMoveShelf,
     onCancelDrag,
     onFinishDrag,
     selectionMode,
@@ -691,6 +702,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onUpdateProject,
     onBeginDrag,
     onResizeCabinet,
+    onMoveShelf,
     onCancelDrag,
     onFinishDrag,
     selectionMode,
@@ -783,6 +795,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const placementPointAtClientRef = useRef<(x: number, y: number) => THREE.Vector3 | null>(() => null);
 
   const activeRef = useRef(active);
+  const dialogOpenRef = useRef(false);
+  dialogOpenRef.current = dialogOpen || showScaleDialog;
   activeRef.current = active;
   const projectRef = useRef(project);
   projectRef.current = project;
@@ -977,6 +991,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     gridHelperRef.current = grid;
 
     const kitchenMount = new THREE.Group();
+    kitchenMount.visible = !embeddedIn3D;
     floorGroup.add(kitchenMount);
     kitchenMountRef.current = kitchenMount;
 
@@ -1191,7 +1206,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     updateAimSurfaceRef.current = (x, y) => {
       getPointerRay(x, y);
       const built = builtSceneRef.current;
-      const hit = arToolRef.current !== 'wall' && built ? raycaster.intersectObjects(built.interactables, false)[0] : null;
+      const hit = kitchenMount.visible && arToolRef.current !== 'wall' && built ? raycaster.intersectObjects(built.interactables, false)[0] : null;
       if (hit) {
         const normal = hit.face ? hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize() : new THREE.Vector3(0,1,0);
         surfaceCursorRef.current.pin(hit.point, normal);
@@ -1630,7 +1645,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const cursorScreen = (x:number,y:number)=>xrSessionRef.current ? aimCenter(dom.getBoundingClientRect()) : surfaceCursorRef.current.screen(pickingCamera(),dom)||{x,y};
 
     const onPointerDownCapture = (e: PointerEvent) => {
-      if (e.button !== 0 || !activeRef.current || arDragRef.current) return;
+      if (e.button !== 0 || !activeRef.current || arDragRef.current || dialogOpenRef.current) return;
       if (xrSessionRef.current && !floorLockedRef.current) {
         onToast('اسکن کف هنوز در حال تثبیت است');
         return;
@@ -1739,7 +1754,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
                 selectedDoorId: selMode === 'subtract' ? null : (data.doorId || null),
                 multiSelection: total > 0 ? curMs : undefined,
               };
-            });
+            }, undefined, false);
             return;
           }
 
@@ -1760,9 +1775,22 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             selectedShelfId: data.kind === 'shelf' ? (data.shelfId || null) : null,
             selectedHandleId: data.kind === 'handle' ? (data.handleId || null) : null,
             multiSelection: undefined,
-          }));
+          }), undefined, false);
 
           const wall = projectRef.current.walls.find((x) => x.id === data.wallId);
+          if (wall && data.kind === 'shelf' && data.boxId && data.shelfId) {
+            const point = projectArPointerOntoWallRef.current(wall.id, e.clientX, e.clientY);
+            if (point) {
+              e.stopPropagation();
+              controls.enabled = false;
+              try { dom.setPointerCapture(e.pointerId); } catch {}
+              propsRef.current.onBeginDrag();
+              dragPointerIdRef.current = e.pointerId;
+              arDragRef.current = { kind: 'move-shelf', wallId: wall.id, boxId: data.boxId, shelfId: data.shelfId,
+                startX: point.xCm, startY: point.yCm, dx: 0, dy: 0, moved: false };
+            }
+            return;
+          }
           if (wall && data.openingId) {
             const op = wall.openings?.find((o) => o.id === data.openingId);
             const proj = projectArPointerOntoWallRef.current(data.wallId, e.clientX, e.clientY);
@@ -1893,17 +1921,17 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
           return;
         }
-        if (dr.kind === 'resize-box') {
+        if (dr.kind === 'resize-box' || dr.kind === 'move-shelf') {
           const point = projectArPointerOntoWallRef.current(dr.wallId, e.clientX, e.clientY);
           if (!point) return;
-          const isWidth = dr.side === 'left' || dr.side === 'right';
-          const dx = isWidth ? Math.round(point.xCm - dr.startX) : 0;
-          const dy = isWidth ? 0 : Math.round(point.yCm - dr.startY);
+          const dx = Math.round(point.xCm - dr.startX);
+          const dy = Math.round(point.yCm - dr.startY);
           if (dx !== dr.dx || dy !== dr.dy) {
             dr.dx = dx;
             dr.dy = dy;
             dr.moved = true;
-            propsRef.current.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dx, dy, false);
+            if (dr.kind === 'resize-box') propsRef.current.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dx, dy, false);
+            else propsRef.current.onMoveShelf(dr.wallId, dr.boxId, dr.shelfId, dx, dy, false);
           }
           return;
         }
@@ -1990,7 +2018,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
       if (!dr || (dr.kind === 'move-box' && !dr.moved)) handleDoorRelease(e);
       else { doorPress = null; doorTap.reset(); }
-      if (dr?.kind === 'resize-box' && dr.moved) {
+      if (dr?.kind === 'move-shelf' && dr.moved) {
+        propsRef.current.onMoveShelf(dr.wallId, dr.boxId, dr.shelfId, dr.dx, dr.dy, true);
+      } else if (dr?.kind === 'resize-box' && dr.moved) {
         propsRef.current.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dr.dx, dr.dy, true);
       } else if (dr?.kind === 'move-box' && dr.moved && dr.lastTargetX !== dr.origX) {
         propsRef.current.onMoveBox?.(dr.wallId, dr.boxId, dr.lastTargetX, true, dr.sessionId);
@@ -2020,7 +2050,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const idx = Math.max(0, HANDLE_STYLE_ORDER.indexOf(cur.handleStyle));
         const nxt = HANDLE_STYLE_ORDER[(idx + (dir > 0 ? 1 : HANDLE_STYLE_ORDER.length - 1)) % HANDLE_STYLE_ORDER.length];
         cur.onHandleStyleChange?.(nxt);
-        onToast(`دستگیره: ${nxt === 'knob' ? 'دکمه‌ای' : nxt === 'hidden' ? 'مخفی' : 'میله‌ای'}`);
+        onToast(`دستگیره: ${HANDLE_STYLES.find(style => style.id === nxt)?.label}`);
       } else if (toolNow === 'fridge') {
         const idx = Math.max(0, FRIDGE_MODEL_ORDER.indexOf(cur.fridgeModel));
         const nxt = FRIDGE_MODEL_ORDER[(idx + (dir > 0 ? 1 : FRIDGE_MODEL_ORDER.length - 1)) % FRIDGE_MODEL_ORDER.length];
@@ -2149,7 +2179,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     };
 
     const onPlacementKey=(event:KeyboardEvent)=>{
-      if (activeRef.current && event.key === 'Enter' && !event.repeat && !(event.target as HTMLElement)?.closest('input, textarea, select, button, [contenteditable=true]')) {
+      if (activeRef.current && !dialogOpenRef.current && event.key === 'Enter' && !event.repeat && !(event.target as HTMLElement)?.closest('input, textarea, select, button, [contenteditable=true]')) {
         event.preventDefault();confirmActionRef.current();
       }
     };
@@ -2242,8 +2272,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   }, [active, arTool, fridgeModel, sinkModel, gasWidth, applianceKind, openingKind, handleStyle, handleOrient, doorOrient, doorVertCount, drawerPatIdx, liftPatIdx, hardwareBrush, doorStyleBrush, cabinetFinishBrush, frameWidthCm, shelfOrient, shelfCount]);
 
   useEffect(() => {
-    if (kitchenMountRef.current) kitchenMountRef.current.visible = !kitchenHidden;
-    if (kitchenHidden) {
+    if (kitchenMountRef.current) kitchenMountRef.current.visible = !hideKitchen;
+    if (hideKitchen) {
       if (wallGhostRef.current) wallGhostRef.current.visible = false;
       if (placementGhostRef.current) placementGhostRef.current.visible = false;
       if (sweepGhostGroupRef.current) sweepGhostGroupRef.current.visible = false;
@@ -2255,7 +2285,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       if (wallStartMarkerRef.current) wallStartMarkerRef.current.visible = Boolean(pendingWallStart);
     }
     renderOnceRef.current();
-  }, [kitchenHidden, pendingWallStart]);
+  }, [hideKitchen, pendingWallStart]);
 
   // Update 3D kitchen meshes inside AR floor group whenever project/alignment/doorsOpen updates
   useEffect(() => {
@@ -2265,7 +2295,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     let built: BuiltKitchenScene;
     try {
-      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72, tool: (arTool === 'select' ? 'select' : 'cab-draw') });
+      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72, onTextureReady: () => renderOnceRef.current(), tool: (arTool === 'select' ? 'select' : 'cab-draw') });
     } catch (error) {
       logDiagnostic('ar-scene-build-failed', error);
       onToast('خطای نمایش ثبت شد؛ صحنه قبلی حفظ شد');
@@ -2305,7 +2335,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     mount.scale.setScalar(alignment.scale);
 
     for (const obj of [pinARef.current, pinBRef.current, lineABRef.current, rulerTicksRef.current]) {
-      if (obj) obj.visible = floorLocked;
+      if (obj) obj.visible = floorLocked && !scaleConfirmed;
     }
     // Sync calibration A/B pins, connected lineAB, AND perpendicular ruler ticks
     if (pinARef.current && pinBRef.current && lineABRef.current && rulerTicksRef.current) {
@@ -2367,7 +2397,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     if (placementGhostRef.current && (!active || (!floorLocked && xrActive))) placementGhostRef.current.visible = false;
 
     renderOnceRef.current();
-  }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, active, reticleEnabled]);
+  }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, scaleConfirmed, active, reticleEnabled]);
 
   // Show the exact handle placement + interactive candidate spot markers on 3D doors in AR.
   useEffect(() => {
@@ -2540,8 +2570,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         }
         next.activeWallId = w.id;
         next.activeBoxId = res.fridgeId || null;
+        onToast(`یخچال ${FRIDGE_MODELS[choices.fridgeModel].shortLabel} در AR نصب شد`);
         return next;
-      }, `یخچال ${FRIDGE_MODELS[choices.fridgeModel].shortLabel} در AR نصب شد`);
+      });
       return;
     }
 
@@ -2976,7 +3007,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       handleLockFloor();
       return;
     }
-    if (kitchenHidden && !arToolRef.current.startsWith('calibrate-')) return;
+    if (hideKitchen && !arToolRef.current.startsWith('calibrate-')) return;
     if (arToolRef.current === 'wall' && pendingWallStartRef.current && renderer) {
       const rect = renderer.domElement.getBoundingClientRect();
       const centerLocal = floorPointAtClientRef.current(
@@ -3084,6 +3115,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       anchorStabilizerRef.current = new AnchorStabilizer();
       anchorLastTimeRef.current = 0;
       pendingAnchorCreateRef.current = false;
+      rescanOriginRef.current = null;
+      setScaleConfirmed(false);
       setFloorLocked(false);
 
       session.addEventListener('end', () => {
@@ -3091,6 +3124,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         xrSessionRef.current = null;
         floorTrackingRef.current.dispose();
         setXrActive(false);
+        rescanOriginRef.current = null;
+        setScaleConfirmed(false);
         setFloorLocked(false);
         setScanReady(false);
         fallbackLocalSpaceRef.current = null;
@@ -3264,7 +3299,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             if (fitted.status !== 'insufficient') {
               const floorPt = chidoTransformPoint([origin.x, origin.y, origin.z], fitted.pose);
               floorGroupRef.current.position.set(...floorPt);
-              floorGroupRef.current.rotation.y = fitted.pose.yaw;
+              floorGroupRef.current.rotation.y = origin.yaw + fitted.pose.yaw;
             }
           }
           // Keep the central hit-test source active: a user can press
@@ -3449,10 +3484,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     wideRenderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
     wideRenderer.setClearColor(0xf3f4f6, 1);
     wideRenderer.outputColorSpace = THREE.SRGBColorSpace;
-    wideRenderer.toneMapping = THREE.ReinhardToneMapping;
-    wideRenderer.toneMappingExposure = 1.12;
-    wideRenderer.shadowMap.enabled = true;
-    wideRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    const arRenderer = rendererRef.current;
+    wideRenderer.toneMapping = arRenderer?.toneMapping ?? THREE.ACESFilmicToneMapping;
+    wideRenderer.toneMappingExposure = arRenderer?.toneMappingExposure ?? 1.06;
+    wideRenderer.shadowMap.enabled = arRenderer?.shadowMap.enabled ?? false;
+    wideRenderer.shadowMap.type = arRenderer?.shadowMap.type ?? THREE.PCFSoftShadowMap;
     const canvas = wideRenderer.domElement;
     canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
     parent.appendChild(canvas);
@@ -3477,8 +3513,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
     const pt = evidence?.point || floorScannerRef.current.point;
     if (xrActive && pt && floorGroupRef.current) {
-      basePoseRef.current = { x: pt.x, y: pt.y, z: pt.z, yaw: 0 };
-      floorGroupRef.current.position.set(pt.x, pt.y, pt.z);
+      const origin = rescanOriginRef.current ?? pt;
+      basePoseRef.current = { x: origin.x, y: pt.y, z: origin.z, yaw: rescanOriginRef.current?.yaw ?? 0 };
+      floorGroupRef.current.position.set(origin.x, pt.y, origin.z);
+      floorGroupRef.current.rotation.y = basePoseRef.current.yaw;
       for (const entry of anchorsRef.current) {
         try { entry.anchor.delete(); } catch {}
       }
@@ -3494,7 +3532,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
     const renderer = rendererRef.current;
     const group = floorGroupRef.current;
-    if (renderer && group) {
+    if (renderer && group && !rescanOriginRef.current) {
       const cam = renderer.xr.getCamera().cameras[0] || renderer.xr.getCamera();
       const pins = calibrationPinsAtView(cam, group);
       const a = floorLocalToModelXZ(pins.a), b = floorLocalToModelXZ(pins.b);
@@ -3503,24 +3541,25 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       setRealDistanceInput(String(Math.round(pins.a.distanceTo(pins.b) * 100)));
     }
     surfaceCursorRef.current.clear(); setSurfaceCursorActive(false);
-    setShowScaleDialog(false); setShowCalibPanel(false);
+    rescanOriginRef.current = null;
+    setScaleConfirmed(false);
+    setShowScaleDialog(false); setShowCalibPanel(true);
     for (const c of crossesPoolRef.current) c.visible = false;
     floorLockedRef.current = true;
     setFloorLocked(true);
     setArTool('select');
     onFloorConfirmed?.();
-    onToast('کف تأیید شد؛ ابزار انتخاب فعال است');
+    onToast('کف تثبیت شد. نقاط A و B و فاصلهٔ واقعی را تأیید کنید');
   };
 
-  const handleApplyRealDistance = () => {
-    const cm = Number(realDistanceInput);
+  const handleApplyRealDistance = (cm: number) => {
     if (!Number.isFinite(cm) || cm < 10 || cm > 1000) {
       onToast('فاصله باید بین ۱۰ و ۱۰۰۰ سانتی‌متر باشد'); return;
     }
     const prev = alignmentRef.current;
     const dx = pointB.x - pointA.x, dz = pointB.z - pointA.z;
     const modelLength = Math.hypot(dx, dz);
-    if (modelLength < .001) return;
+    if (modelLength < .001) { onToast('نقطه‌های A و B باید از هم فاصله داشته باشند'); return; }
     // The physical A/B pins are measurements, not a request to enlarge them.
     const physicalLength = modelLength * prev.scale;
     const nextScale = physicalLength / (cm / 100);
@@ -3530,7 +3569,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const next = { ...prev, scale: nextScale, x: prev.x + (prev.scale - nextScale) * ax, z: prev.z + (prev.scale - nextScale) * az };
     alignmentRef.current = next; setAlignment(next);
     pointBRef.current = calibratedB; setPointB(calibratedB);
+    setRealDistanceInput(String(cm));
     setShowScaleDialog(false);
+    setShowCalibPanel(false);
+    setScaleConfirmed(true);
+    setKitchenHidden(false);
+    setArTool('select');
     propsRef.current.onUpdateProject(prevProject => ({ ...prevProject, arCalibration: { a: pointA, b: calibratedB, realDistanceCm: cm } }));
     onToast(`مقیاس AR روی فاصله واقعی ${cm}cm تنظیم شد (ضریب ${nextScale})`);
   };
@@ -3641,8 +3685,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           No duplicate scanner toolbar: XR provides only its camera and floor UI. */}
       {/* The scanned camera is only a layer of the existing 3D editor. */}
       {/* Post-scan overlay banner removed once floorLocked is true so nothing crowds the viewport */}
-      {embeddedIn3D ? (
-        !floorLocked ? (
+      {embeddedIn3D && !floorLocked ? (
           <div className="absolute top-[58px] left-3 right-3 z-20 pointer-events-none flex justify-center" dir="rtl">
             <section
               data-testid="chido-floor-scan-readiness"
@@ -3729,16 +3772,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               </div>
             </section>
           </div>
-        ) : null
       ) : (
         <>
       {/* Top Floating AR Status & Calibration Card */}
       <div
         data-testid="ar-floating-bar"
-        className="absolute top-2.5 right-2.5 left-2.5 flex flex-wrap items-start justify-between gap-2 pointer-events-none z-20"
+        style={dialogOpenRef.current ? { display: 'none' } : undefined}
+        className="absolute top-2 inset-x-2 z-20 flex flex-wrap items-start justify-between gap-1 pointer-events-none"
       >
-        <div className="pointer-events-auto bg-white/95 border border-slate-200 rounded-xl shadow-md px-3 py-2 flex flex-wrap items-center gap-2 text-[13px]">
-          {xrSupported && !xrActive ? (
+        <div className="pointer-events-auto flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white/95 p-1 text-[13px] whitespace-nowrap [&>*]:shrink-0">
+          {!embeddedIn3D && (xrSupported && !xrActive ? (
             <button
               type="button"
               onClick={() => void startWebXrSession()}
@@ -3752,7 +3795,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               <Camera className="w-3.5 h-3.5" />
               <span>{xrActive ? 'سشن WebXR زنده' : 'پیش‌نمایش کالیبراسیون AR'}</span>
             </span>
-          )}
+          ))}
 
           {xrActive && !floorLocked && (
             <button
@@ -3774,9 +3817,15 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => {
+                const origin = floorGroupRef.current;
+                rescanOriginRef.current = xrSessionRef.current && origin
+                  ? { x: origin.position.x, z: origin.position.z, yaw: origin.rotation.y } : null;
                 floorScannerRef.current.reset();
-                anchorsRef.current = [];
+                floorConfirmationRef.current.reset();
+                floorLockedRef.current = false;
+                setScaleConfirmed(false);
                 setKitchenHidden(false);
+                setShowScaleDialog(false);
                 setFloorLocked(false);
                 setScanReady(false);
               }}
@@ -3866,6 +3915,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             <button
               type="button"
               onClick={() => setShowCalibPanel((v) => !v)}
+              disabled={scaleConfirmed}
               className="text-[13px] font-bold text-indigo-600 hover:underline"
             >
               {showCalibPanel ? 'بستن' : 'بازکردن'}
@@ -3882,7 +3932,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
               {kitchenHidden ? 'نمایش آشپزخانه' : 'مخفی کردن آشپزخانه'}
             </button>
           )}
-          {showCalibPanel && (
+          {showCalibPanel && !scaleConfirmed && (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-1.5">
                 <button
@@ -3929,7 +3979,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
                 />
                 <button
                   type="button"
-                  onClick={handleApplyRealDistance}
+                  onClick={() => setShowScaleDialog(true)}
                   aria-label="اعمال مقیاس A-B"
                   className="h-8 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold inline-flex items-center gap-1"
                 >
@@ -3963,24 +4013,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         </>
       )}
 
-      {showScaleDialog && floorLocked && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/25 p-4 pointer-events-auto" onPointerDown={e => e.stopPropagation()}>
-          <section role="dialog" aria-modal="true" aria-labelledby="ar-scale-title" dir="rtl" className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl space-y-4">
-            <h2 id="ar-scale-title" className="text-lg font-bold text-slate-900">تثبیت مقیاس</h2>
-            <label htmlFor="ar-scale-distance" className="block text-sm text-slate-700">فاصله واقعی بین A و B (سانتی‌متر)</label>
-            <input readOnly id="ar-scale-distance" type="text" inputMode="none" value={realDistanceInput} className="w-full h-12 rounded-xl border border-slate-300 px-3 text-lg text-slate-900" />
-            <div className="grid grid-cols-3 gap-2" aria-label="صفحه کلید مقیاس">
-              {['1','2','3','4','5','6','7','8','9','پاک','0','⌫'].map(key => <button key={key} type="button" className="h-11 rounded-lg bg-slate-100 text-lg font-bold text-slate-900" onClick={() => setRealDistanceInput(value => key === 'پاک' ? '' : key === '⌫' ? value.slice(0,-1) : String(Math.min(1000, Number(value + key))))}>{key}</button>)}
-            </div>
-            <div className="flex gap-2">
-              <button type="button" onClick={handleApplyRealDistance} className="min-h-12 flex-1 rounded-xl bg-emerald-600 text-white font-bold">تأیید مقیاس</button>
-              <button type="button" onClick={() => setShowScaleDialog(false)} className="min-h-12 px-4 rounded-xl border border-slate-300 text-slate-700">ادامه تنظیم</button>
-            </div>
-          </section>
-        </div>
+      {showScaleDialog && floorLocked && !dialogOpen && (
+        <NumberPadDialog label="فاصلهٔ واقعی A و B" initial={Number(realDistanceInput)} min={10} max={1000}
+          onApply={handleApplyRealDistance} onClose={() => setShowScaleDialog(false)} />
       )}
       {/* Confirm (تأیید) and Cancel (لغو) floating AR editing actions */}
-      {(arTool !== 'select' || pendingWallStart || surfaceCursorActive || (xrActive && !floorLocked)) && (
+      {!dialogOpen && !showScaleDialog && !(embeddedIn3D && !floorLocked) &&
+        (arTool.startsWith('calibrate-') || (!hideKitchen && (arTool !== 'select' || pendingWallStart || surfaceCursorActive))) && (
         <div className="pointer-events-auto absolute bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-white/95 border border-slate-200 rounded-xl shadow-lg px-2.5 py-1.5">
           <button
             type="button"

@@ -9,6 +9,7 @@ interface WelcomeScreenProps {
   latestProject: SavedProjectRecord | null;
   onStartMode: (mode: '2d' | '3d' | 'ar', preset?: PresetMode) => void;
   onContinueLatest: (mode: '2d' | '3d' | 'ar') => void;
+  onNewProject: () => void;
   onOpenProjects: () => void;
   onOpenStyles: () => void;
 }
@@ -20,6 +21,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onStartMode,
   onContinueLatest,
   onOpenProjects,
+  onNewProject,
   onOpenStyles,
 }) => {
   return (
@@ -77,6 +79,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               <Layers className="w-4 h-4" />
               <span>{latestProject ? 'ادامه آخرین پروژه' : 'شروع طراحی جدید'}</span>
             </button>
+            {latestProject && (
+              <button type="button" data-testid="welcome-new-project" onClick={onNewProject}
+                className="flex h-12 items-center justify-center rounded-xl border border-indigo-300 bg-indigo-50 px-4 font-bold text-indigo-800 hover:bg-indigo-100">
+                پروژهٔ جدید
+              </button>
+            )}
 
             <button
               type="button"

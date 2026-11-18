@@ -1,3 +1,5 @@
+import { NumberPadDialog } from './components/NumberPadDialog';
+import type { CabinetTextureId } from './cad/types';
 import { useProjectHistory } from './hooks/useProjectHistory';
 import { getStorageFailure, STORAGE_STATUS_EVENT } from './cad/projectStorage';
 import { logDiagnostic, setDiagnosticContext } from './utils/diagnostics';
@@ -27,6 +29,8 @@ import {
   carveBoxesForPlacedBox,
   clearHoodUnitForGas,
   clampBoxInternalsAfterResize,
+  clampShelfRatioWithMinGap,
+  getBoxFrameInsets,
   compactDisconnectedDoorsInBox,
   createEmptyBox,
   deleteApplianceHierarchically,
@@ -284,6 +288,11 @@ export default function App() {
     return 'welcome';
   });
   const [styleGalleryOpen, setStyleGalleryOpen] = useState(false);
+  const [measurement, setMeasurement] = useState<{
+    label: string; initial: number; min: number; max: number; allowRow?: boolean;
+    other?: { label: string; initial: number; min: number; max: number };
+    base: ProjectState; resolve: (value: number, row: boolean, secondary?: number) => ProjectState | null;
+  } | null>(null);
 
   const { project, setProject, history, historyIdx, commitState, resetHistory, travelHistory, getProject } = useProjectHistory(initialProject);
   const [storageFailure, setStorageFailure] = useState(getStorageFailure);
@@ -566,51 +575,6 @@ export default function App() {
     );
   }, [project, commitState, showToast]);
 
-  const executeNewProject = useCallback(() => {
-    const empty: ProjectState = {
-      walls: [],
-      columns: [],
-      cornerOwners: {},
-      activeWallId: null,
-      activeBoxId: null,
-      selectedDoorId: null,
-      selectedOpeningId: null,
-      selectedColumnId: null,
-      selectedApplianceId: null,
-      selectedShelfId: null,
-      selectedHandleId: null,
-      selectedFrameId: null,
-      selectedUnitDivider: null,
-      selectedUnit: null,
-      doorsLocked: false,
-      doorsHidden: false,
-      designStyle: 'modern',
-      cabinetFinish: 'warm-white',
-      backsplashFinish: 'calacatta-marble',
-      countertopFinish: 'dark-quartz',
-      skipStylePrompt: false,
-      settings: project.settings || { ...DEFAULT_PROJECT_SETTINGS },
-    };
-    dragBaseRef.current = null;
-    commitState(empty, true);
-    setTool('select');
-    showToast('صفحه خالی شد؛ ابزار انتخاب فعال است (با بازگشت قابل بازیابی است)');
-  }, [project.settings, commitState, showToast]);
-
-  const handleNewProject = () => {
-    if (project.walls.length > 0) {
-      setConfirmModal({
-        title: 'شروع پروژه جدید؟',
-        message: 'با شروع پروژه جدید، تمام دیوارها و کابینت‌های فعلی از صفحه پاک می‌شوند. آیا مطمئن هستید؟',
-        confirmLabel: 'بله، پروژه جدید',
-        danger: true,
-        onConfirm: executeNewProject,
-      });
-      return;
-    }
-    executeNewProject();
-  };
-
   const mutateWallById = useCallback(
     (wallId: string, mutator: (wall: Wall) => void, commitHistory = true, toastMsg?: string) => {
       commitState((prev) => {
@@ -641,66 +605,116 @@ export default function App() {
     [commitState, showToast]
   );
 
-  const handleResizeWallCabinetsSynced = useCallback(
-    (
-      wallId: string,
-      boxId: string,
-      nextElevY: number,
-      nextHeight: number,
-      commit: boolean,
-      sessionId?: string
-    ) => {
-      const sid = sessionId || `sync_wall_${boxId}`;
-      let baseProject = project;
-      if (!dragBaseRef.current || dragBaseRef.current.id !== sid) {
-        dragBaseRef.current = { id: sid, project: cloneProject(project) };
+  const editCabinetDimension = useCallback((
+    wallId: string, boxId: string, field: 'width' | 'height' | 'elevY', requested: number,
+    commit: boolean, keepTop = false, keepRight = false
+  ) => {
+    const current = getProject();
+    const base = dragCheckpointRef.current || current;
+    const wall = base.walls.find(w => w.id === wallId);
+    const box = wall?.boxes.find(b => b.id === boxId);
+    if (!wall || !box || box.type === 'fridge') return;
+    const upper = box.type === 'wall' || box.type === 'wall-deep';
+    const min = field === 'elevY' ? Math.min(95, box.elevY) : field === 'width' ? Math.min(40, box.width) : 25;
+    const max = field === 'width'
+      ? (keepRight ? box.offsetX + box.width : wall.length - box.offsetX)
+      : field === 'elevY' ? (keepTop ? box.elevY + box.height - 25 : wall.height - box.height)
+      : wall.height - box.elevY;
+    if (max < min) return;
+    const resolve = (value: number, row: boolean): ProjectState | null => {
+      const next = cloneProject(base);
+      const w = next.walls.find(w => w.id === wallId)!;
+      const selected = w.boxes.find(b => b.id === boxId)!;
+      const peers = [selected];
+      if (row && upper && field !== 'width') {
+        for (let i = 0; i < peers.length; i++) {
+          const a = peers[i];
+          for (const b of w.boxes) {
+            if (b.type !== selected.type || peers.includes(b)) continue;
+            const gap = Math.max(a.offsetX, b.offsetX) - Math.min(a.offsetX + a.width, b.offsetX + b.width);
+            if (gap <= 1 && Math.abs(a.elevY - b.elevY) <= 1) peers.push(b);
+          }
+        }
       }
-      baseProject = dragBaseRef.current.project;
-      const next = cloneProject(baseProject);
-      const ok = resizeWallCabinetsSynchronized(next.walls, wallId, boxId, nextElevY, nextHeight);
-      if (!ok) {
-        if (commit) dragBaseRef.current = null;
-        return;
+      for (const b of peers) {
+        const before = { offsetX: b.offsetX, width: b.width, elevY: b.elevY, height: b.height };
+        b[field] = Math.round(value * 10) / 10;
+        if (field === 'width' && keepRight) b.offsetX = before.offsetX + before.width - b.width;
+        if (field === 'elevY' && keepTop) b.height = before.elevY + before.height - b.elevY;
+        if (b.height < 25 || b.elevY + b.height > w.height || b.offsetX < 0 ||
+            b.offsetX + b.width > w.length + 0.01) return null;
+        const overlaps = (v: typeof before, other: typeof b) =>
+          v.offsetX < other.offsetX + other.width - 0.1 && v.offsetX + v.width > other.offsetX + 0.1 &&
+          v.elevY < other.elevY + other.height - 0.1 && v.elevY + v.height > other.elevY + 0.1;
+        if (w.boxes.some(other => !peers.includes(other) && overlaps(b, other) && !overlaps(before, other))) return null;
+        clampBoxInternalsAfterResize(b);
       }
-      if (commit) dragBaseRef.current = null;
-      commitState(next, commit);
-      if (commit) {
-        showToast('ارتفاع کابینت‌های هوایی، باکس یخچال و کمدهای قدی متصل یکپارچه شد');
-      }
-    },
-    [project, commitState, showToast]
-  );
+      return next;
+    };
+    const draft = Math.max(min, Math.min(max, requested));
+    const next = resolve(draft, false);
+    if (!commit) {
+      if (next) commitState(next, false);
+      return;
+    }
+    const shown = current.walls.find(w => w.id === wallId)?.boxes.find(b => b.id === boxId)?.[field] ?? box[field];
+    if (dragCheckpointRef.current && (Math.abs(shown - box[field]) > 0.05 || Math.abs(draft - box[field]) > 0.05)) {
+      setMeasurement({
+        label: field === 'height' ? 'ارتفاع کابینت' : field === 'width' ? 'عرض کابینت' : 'ارتفاع پایین کابینت از کف',
+        initial: next ? draft : shown, min, max, allowRow: upper && field !== 'width', base, resolve,
+      });
+      return;
+    }
+    if (next && Math.abs(draft - box[field]) > 0.05) commitState(next, true);
+  }, [commitState, getProject]);
+
+  const handleResizeWallCabinetsSynced = useCallback((
+    wallId: string, boxId: string, elev: number, height: number, commit: boolean
+  ) => {
+    const box = (dragCheckpointRef.current || getProject()).walls.find(w => w.id === wallId)?.boxes.find(b => b.id === boxId);
+    if (!box) return;
+    if (Math.abs(elev - box.elevY) > 0.05) editCabinetDimension(wallId, boxId, 'elevY', elev, commit, true);
+    else editCabinetDimension(wallId, boxId, 'height', height, commit);
+  }, [editCabinetDimension, getProject]);
 
   const resizeCabinetFromHandle = useCallback((
     wallId: string, boxId: string, side: 'left' | 'right' | 'top' | 'bottom',
-    dxCm: number, dyCm: number, commit: boolean
+    dx: number, dy: number, commit: boolean
   ) => {
-    const next = cloneProject(dragCheckpointRef.current || getProject());
-    const wall = next.walls.find(w => w.id === wallId);
-    const box = wall?.boxes.find(b => b.id === boxId);
-    if (!wall || !box || box.type === 'fridge') return;
-    if ((box.type === 'wall' || box.type === 'wall-deep') && (side === 'top' || side === 'bottom')) {
-      const top = box.elevY + box.height;
-      const elev = side === 'bottom' ? Math.max(95, Math.min(top - 25, box.elevY + dyCm)) : box.elevY;
-      const height = side === 'top' ? Math.max(25, Math.min(wall.height - elev, box.height + dyCm)) : top - elev;
-      if (!resizeWallCabinetsSynchronized(next.walls, wallId, boxId, elev, height)) {
-        if (commit) commitState(getProject(), true);
-        return;
-      }
-    } else {
-      const minWidth = Math.min(40, box.width);
-      if (side === 'left') {
-        const offset = Math.max(0, Math.min(box.offsetX + box.width - minWidth, box.offsetX + dxCm));
-        box.width += box.offsetX - offset;
-        box.offsetX = offset;
-      } else if (side === 'right') {
-        box.width = Math.max(minWidth, Math.min(wall.length - box.offsetX, box.width + dxCm));
-      } else if (side === 'top') {
-        box.height = Math.max(40, Math.min(wall.height - box.elevY, box.height + dyCm));
-      }
-      clampBoxInternalsAfterResize(box);
-    }
-    commitState(next, commit);
+    const box = (dragCheckpointRef.current || getProject()).walls.find(w => w.id === wallId)?.boxes.find(b => b.id === boxId);
+    if (!box) return;
+    if (side === 'left' || side === 'right') editCabinetDimension(wallId, boxId, 'width', box.width + (side === 'left' ? -dx : dx), commit, false, side === 'left');
+    else if (side === 'bottom') editCabinetDimension(wallId, boxId, 'elevY', box.elevY + dy, commit, true);
+    else editCabinetDimension(wallId, boxId, 'height', box.height + dy, commit);
+  }, [editCabinetDimension, getProject]);
+
+  const moveShelfPrecisely = useCallback((
+    wallId: string, boxId: string, shelfId: string, dx: number, dy: number, commit: boolean
+  ) => {
+    const base = dragCheckpointRef.current || getProject();
+    const box = base.walls.find(w => w.id === wallId)?.boxes.find(b => b.id === boxId);
+    const shelf = box?.shelves.find(sh => sh.id === shelfId);
+    if (!box || !shelf) return;
+    const horizontal = shelf.orient !== 'vertical';
+    const inset = getBoxFrameInsets(box);
+    const span = horizontal ? Math.max(1, box.height - box.countertopCm - box.plinth - inset.top - inset.bottom)
+      : Math.max(1, shelf.endCm - shelf.startCm);
+    const before = horizontal ? (1 - shelf.yRatio) * span : (shelf.xRatio ?? 0.5) * span;
+    const min = span * (horizontal ? 0.08 : 0.15);
+    const max = span - min;
+    const requested = Math.max(min, Math.min(max, before + (horizontal ? dy : dx)));
+    const resolve = (n: number) => {
+      const next = cloneProject(base);
+      const b = next.walls.find(w => w.id === wallId)!.boxes.find(b => b.id === boxId)!;
+      const sh = b.shelves.find(sh => sh.id === shelfId)!;
+      if (horizontal) sh.yRatio = clampShelfRatioWithMinGap(b, 1 - n / span, sh.startCm, sh.endCm, sh.id).ratio;
+      else sh.xRatio = n / span;
+      return next;
+    };
+    if (!commit) { commitState(resolve(requested), false); return; }
+    if (Math.abs(requested - before) < 0.05) return;
+    setMeasurement({ label: horizontal ? 'ارتفاع طبقه از کف داخلی باکس' : 'فاصلهٔ جداکننده از ابتدای یونیت',
+      initial: requested, min: Math.ceil(min * 10) / 10, max: Math.floor(max * 10) / 10, base, resolve });
   }, [commitState, getProject]);
 
   const handleMoveUnit = useCallback(
@@ -896,24 +910,26 @@ export default function App() {
     showToast(`${OPENING_LABELS[openingKind]} ثبت شد؛ لبه‌ها را بکشید تا اندازه دقیق شود`);
   };
 
-  const handleMoveOpening = (
-    wallId: string,
-    openingId: string,
-    offsetX: number,
-    commit: boolean
-  ) => {
-    if (commit && offsetX < 0) {
-      commitState(cloneProject(project), true);
+  const handleMoveOpening = (wallId: string, openingId: string, offsetX: number, commit: boolean) => {
+    const current = getProject();
+    const base = dragCheckpointRef.current || current;
+    const before = base.walls.find(w => w.id === wallId)?.openings?.find(o => o.id === openingId);
+    const live = current.walls.find(w => w.id === wallId)?.openings?.find(o => o.id === openingId);
+    if (!before || !live) return;
+    const resolve = (value: number) => {
+      const next = cloneProject(current);
+      const wall = next.walls.find(w => w.id === wallId)!;
+      updateOpeningGeometry(wall.openings!.find(o => o.id === openingId)!, wall, { offsetX: value });
+      return next;
+    };
+    const value = offsetX < 0 ? live.offsetX : offsetX;
+    if (commit && dragCheckpointRef.current && Math.abs(value - before.offsetX) > 0.05) {
+      const wall = current.walls.find(w => w.id === wallId)!;
+      setMeasurement({ label: 'جای بازشو از ابتدای دیوار', initial: value, min: 0,
+        max: Math.max(0, wall.length - live.width), base, resolve });
       return;
     }
-    const next = cloneProject(project);
-    const w = next.walls.find((x) => x.id === wallId);
-    const op = w?.openings?.find((o) => o.id === openingId);
-    if (!w || !op) return;
-    if (offsetX >= 0) {
-      updateOpeningGeometry(op, w, { offsetX });
-    }
-    commitState(next, commit);
+    commitState(resolve(value), commit);
   };
 
   const handleUpdateOpeningNumeric = (
@@ -949,29 +965,29 @@ export default function App() {
     [project, commitState, showToast]
   );
 
-  const handleUpdateRoomColumn = useCallback(
-    (
-      columnId: string,
-      patch: Partial<Pick<RoomColumn, 'xCm' | 'yCm' | 'widthCm' | 'depthCm' | 'heightCm'>>,
-      commit = true,
-      sessionId?: string
-    ) => {
-      let baseProject = project;
-      if (sessionId) {
-        if (!dragBaseRef.current || dragBaseRef.current.id !== sessionId) {
-          dragBaseRef.current = { id: sessionId, project: cloneProject(project) };
-        }
-        baseProject = dragBaseRef.current.project;
-      }
-      const next = cloneProject(baseProject);
-      const col = next.columns?.find((c) => c.id === columnId);
-      if (!col) return;
-      updateRoomColumn(col, patch);
-      if (commit) dragBaseRef.current = null;
-      commitState(next, commit);
-    },
-    [project, commitState]
-  );
+  const handleUpdateRoomColumn = useCallback((
+    id: string, patch: Partial<Pick<RoomColumn, 'xCm' | 'yCm' | 'widthCm' | 'depthCm' | 'heightCm'>>,
+    commit = true, _sessionId?: string
+  ) => {
+    const current = getProject();
+    const next = cloneProject(current);
+    const col = next.columns?.find(c => c.id === id);
+    if (!col) return;
+    updateRoomColumn(col, patch);
+    const base = dragCheckpointRef.current;
+    const before = base?.columns?.find(c => c.id === id);
+    if (commit && base && before && (before.xCm !== col.xCm || before.yCm !== col.yCm)) {
+      setMeasurement({ label: 'مختصات X ستون', initial: col.xCm, min: -10000, max: 10000,
+        other: { label: 'مختصات Y ستون', initial: col.yCm, min: -10000, max: 10000 }, base,
+        resolve: (x, _row, y) => {
+          const final = cloneProject(next);
+          updateRoomColumn(final.columns!.find(c => c.id === id)!, { xCm: x, yCm: y });
+          return final;
+        } });
+      return;
+    }
+    commitState(next, commit);
+  }, [commitState, getProject]);
 
   const handleDeleteSelectedColumn = useCallback(() => {
     if (!project.selectedColumnId) return;
@@ -1814,108 +1830,106 @@ export default function App() {
     showToast('باکس و زیرمجموعه‌های متصل حذف شدند');
   }, [activeBox, project, commitState, showToast]);
 
-  const handleMoveWallNode = (
-    refs: WallNodeRef[],
-    x: number,
-    y: number,
-    commit: boolean
-  ) => {
+  const handleMoveWallNode = (refs: WallNodeRef[], x: number, y: number, commit: boolean) => {
     const base = dragCheckpointRef.current || getProject();
-    const next = cloneProject(base);
-    if (!moveSmartWallNode(next.walls, refs, x, y, true)) {
-      if (commit) {
-        setProject(base);
-        showToast('این تغییر کمتر از طول مجاز است یا برای متعلقات دیوار جا نمی‌گذارد');
-      }
+    const resolvePoint = (px: number, _row: boolean, py = y) => {
+      const next = cloneProject(base);
+      return moveSmartWallNode(next.walls, refs, px, py, true) ? next : null;
+    };
+    const next = resolvePoint(x, false);
+    if (!next) {
+      if (commit) { setProject(base); showToast('این اندازه برای دیوار یا متعلقاتش جا نمی‌گذارد'); }
+      return;
+    }
+    const ref = refs[0];
+    const wall = base.walls.find(w => w.id === ref?.wallId);
+    const oldX = ref?.end === 'start' ? wall?.x1Cm : wall?.x2Cm;
+    const oldY = ref?.end === 'start' ? wall?.y1Cm : wall?.y2Cm;
+    if (commit && dragCheckpointRef.current && (x !== oldX || y !== oldY)) {
+      setMeasurement({ label: 'مختصات X گوشه', initial: x, min: -10000, max: 10000,
+        other: { label: 'مختصات Y گوشه', initial: y, min: -10000, max: 10000 }, base, resolve: resolvePoint });
       return;
     }
     commitState(next, commit);
   };
 
-  const handleMoveWall = useCallback(
-    (
-      wallId: string,
-      dxCm: number,
-      dyCm: number,
-      moveEntireComponent: boolean,
-      commit: boolean,
-      sessionId?: string
-    ) => {
-      let baseProject = project;
-      if (sessionId) {
-        if (!dragBaseRef.current || dragBaseRef.current.id !== sessionId) {
-          dragBaseRef.current = { id: sessionId, project: cloneProject(project) };
-        }
-        baseProject = dragBaseRef.current.project;
-      }
+  const handleMoveWall = useCallback((
+    wallId: string, dx: number, dy: number, component: boolean, commit: boolean, _sessionId?: string
+  ) => {
+    const base = dragCheckpointRef.current || getProject();
+    const resolveWall = (x: number, _row: boolean, y = dy) => {
+      const next = cloneProject(base);
+      return moveConnectedWall(next.walls, wallId, x, y, component, true) ? next : null;
+    };
+    const next = resolveWall(dx, false);
+    if (!next) {
+      if (commit) { setProject(base); showToast('جابه‌جایی برای دیوار متصل یا متعلقاتش جا نمی‌گذارد'); }
+      return;
+    }
+    if (commit && dragCheckpointRef.current && (dx || dy)) {
+      setMeasurement({ label: 'جابه‌جایی X دیوار', initial: dx, min: -10000, max: 10000,
+        other: { label: 'جابه‌جایی Y دیوار', initial: dy, min: -10000, max: 10000 }, base, resolve: resolveWall });
+      return;
+    }
+    commitState(next, commit);
+  }, [commitState, getProject, setProject, showToast]);
 
-      const next = cloneProject(baseProject);
-      const ok = moveConnectedWall(next.walls, wallId, dxCm, dyCm, moveEntireComponent, true);
-      if (!ok) {
-        if (commit) {
-          dragBaseRef.current = null;
-          setProject(cloneProject(baseProject));
-          showToast('این جابه‌جایی طول دیوار متصل را بیش از حد کم می‌کند یا برای متعلقات آن جا نمی‌گذارد');
-        }
-        return;
-      }
-      if (commit) dragBaseRef.current = null;
-      commitState(next, commit);
-    },
-    [project, commitState, showToast]
-  );
+  const handleMoveBox = useCallback((
+    wallId: string, boxId: string, desiredOffsetX: number, commit: boolean, _sessionId?: string
+  ) => {
+    const current = getProject();
+    const base = dragCheckpointRef.current || current;
+    const original = base.walls.find(w => w.id === wallId)?.boxes.find(item => item.id === boxId);
+    if (!original) return;
+    const resolve = (value: number, exact = false) => {
+      const next = cloneProject(base);
+      const w = next.walls.find(w => w.id === wallId)!;
+      moveBoxHierarchically(w, next.walls, boxId, value, next.cornerOwners, { exact });
+      return next;
+    };
+    const next = resolve(desiredOffsetX);
+    const wall = next.walls.find(w => w.id === wallId)!;
+    const item = wall.boxes.find(item => item.id === boxId);
+    if (commit && dragCheckpointRef.current && item && Math.abs(item.offsetX - original.offsetX) > 0.05) {
+      setMeasurement({ label: 'جای کابینت از ابتدای دیوار', initial: item.offsetX, min: 0,
+        max: Math.max(0, wall.length - item.width), base, resolve: value => {
+          const moved = resolve(value, true);
+          const wall = moved.walls.find(w => w.id === wallId)!;
+          const result = [...wall.boxes, ...wall.appliances].find(part => part.id === item.id);
+          return result && Math.abs(result.offsetX - value) <= 0.1 ? moved : null;
+        } });
+      return;
+    }
+    commitState(next, commit);
+  }, [getProject, commitState]);
 
-  const handleMoveBox = useCallback(
-    (
-      wallId: string,
-      boxId: string,
-      desiredOffsetX: number,
-      commit: boolean,
-      sessionId?: string
-    ) => {
-      let baseProject = project;
-      if (sessionId) {
-        if (!dragBaseRef.current || dragBaseRef.current.id !== sessionId) {
-          dragBaseRef.current = { id: sessionId, project: cloneProject(project) };
-        }
-        baseProject = dragBaseRef.current.project;
-      }
-      const next = cloneProject(baseProject);
-      const w = next.walls.find((x) => x.id === wallId);
-      if (!w) return;
-      moveBoxHierarchically(w, next.walls, boxId, desiredOffsetX, next.cornerOwners);
-      if (commit) dragBaseRef.current = null;
-      commitState(next, commit);
-    },
-    [project, commitState]
-  );
-
-  const handleMoveAppliance = useCallback(
-    (
-      wallId: string,
-      appId: string,
-      desiredOffsetX: number,
-      commit: boolean,
-      sessionId?: string
-    ) => {
-      let baseProject = project;
-      if (sessionId) {
-        if (!dragBaseRef.current || dragBaseRef.current.id !== sessionId) {
-          dragBaseRef.current = { id: sessionId, project: cloneProject(project) };
-        }
-        baseProject = dragBaseRef.current.project;
-      }
-      const next = cloneProject(baseProject);
-      const w = next.walls.find((x) => x.id === wallId);
-      if (!w) return;
-      moveApplianceHierarchically(w, next.walls, appId, desiredOffsetX, next.cornerOwners, {
-        refitAdjacentDoors: true,
-      });
-      if (commit) dragBaseRef.current = null;
-      commitState(next, commit);
-    },
-    [project, commitState]
-  );
+  const handleMoveAppliance = useCallback((
+    wallId: string, appId: string, desiredOffsetX: number, commit: boolean, _sessionId?: string
+  ) => {
+    const current = getProject();
+    const base = dragCheckpointRef.current || current;
+    const original = base.walls.find(w => w.id === wallId)?.appliances.find(item => item.id === appId);
+    if (!original) return;
+    const resolve = (value: number, exact = false) => {
+      const next = cloneProject(base);
+      const w = next.walls.find(w => w.id === wallId)!;
+      moveApplianceHierarchically(w, next.walls, appId, value, next.cornerOwners, { refitAdjacentDoors: true, exact });
+      return next;
+    };
+    const next = resolve(desiredOffsetX);
+    const wall = next.walls.find(w => w.id === wallId)!;
+    const item = wall.appliances.find(item => item.id === appId);
+    if (commit && dragCheckpointRef.current && item && Math.abs(item.offsetX - original.offsetX) > 0.05) {
+      setMeasurement({ label: 'جای تجهیز از ابتدای دیوار', initial: item.offsetX, min: 0,
+        max: Math.max(0, wall.length - item.width), base, resolve: value => {
+          const moved = resolve(value, true);
+          const result = moved.walls.find(w => w.id === wallId)?.appliances.find(part => part.id === appId);
+          return result && Math.abs(result.offsetX - value) <= 0.1 ? moved : null;
+        } });
+      return;
+    }
+    commitState(next, commit);
+  }, [getProject, commitState]);
 
   const executeDeleteWall = useCallback(
     (wallId: string) => {
@@ -2638,6 +2652,7 @@ export default function App() {
     return (
       <>
         <WelcomeScreen
+          onNewProject={() => handleCreateAndOpenProject('2d')}
           arAvailable={arAvailable}
           projectsCount={projects.length}
           latestProject={activeProjectRecord}
@@ -2735,6 +2750,22 @@ export default function App() {
     );
   }
 
+  const dialogOpen = Boolean(measurement || confirmModal || hiddenHandleWarnModal || stylePromptModal?.open || settingsOpen || styleGalleryOpen);
+  const setBoxAppearance = (patch: { color?: string; texture?: CabinetTextureId }) => {
+    if (!activeBox || activeBox.type === 'fridge') return;
+    mutateActiveWall(w => {
+      const box = w.boxes.find(b => b.id === activeBox.id);
+      if (box) Object.assign(box, patch);
+    }, true);
+  };
+  const setFrameColor = (color?: string) => {
+    if (!selectedFrame || !activeBox) return;
+    mutateActiveWall(w => {
+      const frame = w.boxes.find(b => b.id === activeBox.id)?.frames?.find(f => f.id === selectedFrame.id);
+      if (frame) frame.color = color;
+    }, true);
+  };
+
   return (
     <div
       ref={editorOverlayRef}
@@ -2744,6 +2775,7 @@ export default function App() {
         floorScanActive || viewMode === 'ar' ? 'bg-transparent' : 'bg-slate-50'
       }`}
     >
+      <div className="flex shrink-0 flex-col z-30" inert={dialogOpen}>
       <TopBar
         canUndo={historyIdx > 0}
         canRedo={historyIdx < history.length - 1}
@@ -2777,7 +2809,7 @@ export default function App() {
         onOpenStyles={() => setStyleGalleryOpen(true)}
         onSmartDesign={handleSmartDesign}
         onSmartUnitize={() => handleSmartUnitize(activeBox ? 'box' : 'all')}
-        onNewProject={handleNewProject}
+        onNewProject={() => handleCreateAndOpenProject('2d')}
         onUndo={handleUndo}
         onRedo={handleRedo}
         onSelectViewMode={handleSwitchViewMode}
@@ -2800,8 +2832,9 @@ export default function App() {
         onAlignBox={handleAlignBox}
         onMoveUnit={handleMoveUnit}
       />
+      </div>
 
-      <div className="kitchiyar-editor-main flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+      <div inert={dialogOpen} className="kitchiyar-editor-main flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
         {viewMode !== 'ar' && (
           <div className={`flex-1 min-h-0 min-w-0 flex overflow-hidden relative z-20 ${floorScanActive ? 'bg-transparent' : 'bg-slate-50'}`}>
             <SideInspector
@@ -2816,6 +2849,8 @@ export default function App() {
               selectedShelfId={project.selectedShelfId}
               selectedHandleId={project.selectedHandleId}
               selectedFrame={selectedFrame}
+              onSetBoxAppearance={setBoxAppearance}
+              onSetFrameColor={setFrameColor}
               selectedUnitDivider={project.selectedUnitDivider}
               selectedUnit={project.selectedUnit ?? null}
               multiSelection={project.multiSelection}
@@ -2942,6 +2977,8 @@ export default function App() {
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
+              onResizeCabinet={resizeCabinetFromHandle}
+              onMoveShelf={moveShelfPrecisely}
               onBeginDrag={handleBeginDrag}
               onCancelDrag={handleCancelDrag}
               onFinishDrag={handleFinishDrag}
@@ -3175,6 +3212,8 @@ export default function App() {
             />
                   {floorScanActive && (
                   <ARWorkspace
+            dialogOpen={dialogOpen}
+            onMoveShelf={moveShelfPrecisely}
             onResizeCabinet={resizeCabinetFromHandle}
             onBeginDrag={handleBeginDrag}
             onCancelDrag={handleCancelDrag}
@@ -3189,7 +3228,7 @@ export default function App() {
               setTrackedFloorConfirmed(true);
               setTool('select');
               setSharedWideMode('normal');
-              showToast('کف تثبیت شد؛ دوربین AR فعال است (برای نمای سه‌بعدی دکمه 3D را بزنید)');
+              showToast('کف تثبیت شد؛ فاصلهٔ مرجع A و B را تأیید کنید');
             }}
             wideViewModeExternal={sharedWideMode}
             onWideViewModeChange={setSharedWideMode}
@@ -3249,8 +3288,8 @@ export default function App() {
             sessionKillSignal={arSessionKillSignal}
             onSwitchViewMode={handleSwitchViewMode}
             onToast={showToast}
-            onUpdateProject={(updater, toastMsg) => {
-              commitState(updater, true);
+            onUpdateProject={(updater, toastMsg, pushHistory = true) => {
+              commitState(updater, pushHistory);
               if (toastMsg) showToast(toastMsg);
             }}
           />
@@ -3420,6 +3459,9 @@ export default function App() {
               </div>
 
               <FrontCanvas
+                onConfirmOpeningMove={openingId => activeWall && handleMoveOpening(activeWall.id, openingId, -1, true)}
+                onResizeCabinet={(boxId, side, dx, dy, commit) => activeWall && resizeCabinetFromHandle(activeWall.id, boxId, side, dx, dy, commit)}
+                onMoveShelf={(boxId, shelfId, dx, dy, commit) => activeWall && moveShelfPrecisely(activeWall.id, boxId, shelfId, dx, dy, commit)}
                 onBeginDrag={handleBeginDrag}
                 onCancelDrag={handleCancelDrag}
                 onFinishDrag={handleFinishDrag}
@@ -3654,7 +3696,7 @@ export default function App() {
         )}
       </div>
 
-      {viewMode !== 'ar' && (
+      {viewMode !== 'ar' && !dialogOpen && (
         <BottomDock
           activeTool={tool}
           hasAnySelection={hasAnySelection}
@@ -3665,14 +3707,25 @@ export default function App() {
         />
       )}
 
-      {styleGalleryOpen && (
+      {measurement && (
+        <NumberPadDialog label={measurement.label} initial={measurement.initial} min={measurement.min}
+          max={measurement.max} allowRow={measurement.allowRow} other={measurement.other}
+          onClose={() => { setProject(measurement.base); setMeasurement(null); }}
+          onApply={(value, row, secondary) => {
+            const next = measurement.resolve(value, row, secondary);
+            if (!next) { showToast('این اندازه با فضای موجود یا کابینت مجاور تداخل دارد'); return; }
+            commitState(next, true);
+            setMeasurement(null);
+          }} />
+      )}
+      {styleGalleryOpen && !measurement && !confirmModal && !hiddenHandleWarnModal && !stylePromptModal?.open && !settingsOpen && (
         <StyleGalleryModal
           onApplyStyle={handleApplyStylePreset}
           onClose={() => setStyleGalleryOpen(false)}
         />
       )}
 
-      {settingsOpen && (
+      {settingsOpen && !measurement && !confirmModal && !hiddenHandleWarnModal && !stylePromptModal?.open && (
         <SettingsModal
           settings={project.settings || DEFAULT_PROJECT_SETTINGS}
           onSave={handleSaveSettings}
@@ -3680,7 +3733,7 @@ export default function App() {
         />
       )}
 
-      {stylePromptModal?.open && (
+      {stylePromptModal?.open && !measurement && !confirmModal && !hiddenHandleWarnModal && (
         <div
           role="dialog"
           aria-modal="true"
@@ -3753,7 +3806,7 @@ export default function App() {
         </div>
       )}
 
-      {hiddenHandleWarnModal && (
+      {hiddenHandleWarnModal && !measurement && !confirmModal && (
         <div
           role="dialog"
           aria-modal="true"
@@ -3795,7 +3848,7 @@ export default function App() {
         </div>
       )}
 
-      {confirmModal && (
+      {confirmModal && !measurement && (
         <div
           data-testid="confirm-modal"
           role="dialog"

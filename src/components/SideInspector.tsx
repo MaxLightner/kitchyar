@@ -1,3 +1,5 @@
+import type { CabinetTextureId } from '../cad/types';
+import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AppWindow,
@@ -101,6 +103,8 @@ interface SideInspectorProps {
   selectedShelfId?: string | null;
   selectedHandleId?: string | null;
   selectedFrame?: BoxFrameItem | null;
+  onSetBoxAppearance?: (patch: { color?: string; texture?: CabinetTextureId }) => void;
+  onSetFrameColor?: (color?: string) => void;
   selectedUnitDivider?: { boxId: string; seamCm: number } | null;
   selectedUnit?: { boxId: string; startCm: number; endCm: number } | null;
   multiSelection?: MultiSelection;
@@ -1271,11 +1275,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   <section className="space-y-2.5">
                     <div className="grid grid-cols-3 gap-1">
                       {(
-                        [
-                          { id: 'simple', label: 'ساده' },
-                          { id: 'knob', label: 'قارچی' },
-                          { id: 'hidden', label: 'مخفی' },
-                        ] as Array<{ id: HandleStyle; label: string }>
+                        HANDLE_STYLES
                       ).map((st) => (
                         <button
                           key={st.id}
@@ -1937,6 +1937,32 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   </section>
                 )}
 
+                {activeBox && activeBox.type !== 'fridge' && props.onSetBoxAppearance && (
+                  <section className="grid grid-cols-2 items-center gap-1.5 border-t pt-2">
+                    <label className="text-xs font-bold">رنگ باکس
+                      <input aria-label="رنگ دستی کابینت" type="color" className="block h-8 w-full"
+                        value={activeBox.color ?? (CABINET_FINISHES[activeBox.finish ?? props.projectCabinetFinish]?.hex ?? '#cccccc')}
+                        onChange={e => props.onSetBoxAppearance?.({ color: e.target.value })} />
+                    </label>
+                    <label className="text-xs font-bold">تکسچر باکس
+                      <select className="block h-8 w-full rounded border" value={activeBox.texture ?? ''}
+                        onChange={e => props.onSetBoxAppearance?.({ texture: (e.target.value || undefined) as CabinetTextureId | undefined })}>
+                        <option value="">استایل</option>
+                        <option value="smooth">صاف</option>
+                        <option value="satin">ساتن</option>
+                        <option value="oak">بلوط</option>
+                        <option value="walnut">گردو</option>
+                      </select>
+                    </label>
+                    {activeBox.color && <button type="button" className="text-xs text-indigo-700" onClick={() => props.onSetBoxAppearance?.({ color: undefined })}>بازگشت به رنگ استایل</button>}
+                  </section>
+                )}
+                {selectedFrame && props.onSetFrameColor && (
+                  <label className="block border-t pt-2 text-xs font-bold">رنگ همین فریم
+                    <input aria-label="رنگ فریم انتخاب‌شده" type="color" className="block h-8 w-full"
+                      value={selectedFrame.color ?? '#64748b'} onChange={e => props.onSetFrameColor?.(e.target.value)} />
+                  </label>
+                )}
                 {selectedFrame && props.onDeleteSelectedFrame && (
                   <button
                     type="button"

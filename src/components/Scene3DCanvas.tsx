@@ -1,3 +1,5 @@
+import { createCabinetReflectionProbe } from '../cad/cabinetReflection';
+import { HANDLE_STYLES } from '../cad/handleGeometry';
 import { DoorTapSequence } from '../utils/doorTapSequence';
 import { previewCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { logDiagnostic } from '../utils/diagnostics';
@@ -99,9 +101,11 @@ import { wideViewVerticalFov, WideViewMode } from '../ar/wideView';
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
-const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
+const HANDLE_STYLE_ORDER = HANDLE_STYLES.map(style => style.id);
 
 interface Scene3DCanvasProps {
+  onResizeCabinet: (wallId: string, boxId: string, side: 'left'|'right'|'top'|'bottom', dx: number, dy: number, commit: boolean) => void;
+  onMoveShelf: (wallId: string, boxId: string, shelfId: string, dx: number, dy: number, commit: boolean) => void;
   onBeginDrag: () => void;
   onCancelDrag: () => void;
   onFinishDrag: () => void;
@@ -221,6 +225,7 @@ interface Scene3DCanvasProps {
 }
 
 type Drag3D =
+  | { kind: 'move-shelf'; wallId: string; boxId: string; shelfId: string; startDot: number; startY: number; dx: number; dy: number }
   | {
       kind: 'move-box';
       wallId: string;
@@ -268,6 +273,8 @@ type Drag3D =
       origH: number;
       lastElev: number;
       lastH: number;
+      dx?: number;
+      dy?: number;
       startDot: number;
       startY: number;
     }
@@ -331,6 +338,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const { project, tool } = props;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const surfaceCursorRef = useRef(new SurfaceCursor());
+  const reflectionProbeRef = useRef<ReturnType<typeof createCabinetReflectionProbe> | null>(null);
   const commitPlacementRef = useRef<() => void>(()=>{});
   const cancelPlacementRef = useRef<() => void>(() => {});
   const [hasPlacementCursor, setHasPlacementCursor] = useState(false);
@@ -502,6 +510,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = envTex;
     scene.environmentIntensity = 0.52;
+    const reflectionProbe = isSoftwareGl ? null : createCabinetReflectionProbe(renderer, scene, () => requestRenderRef.current());
+    reflectionProbeRef.current = reflectionProbe;
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0xcbd5e1, 0.56);
     scene.add(hemi);
@@ -1599,6 +1609,15 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             cur.onSelectFrame(wall.id, data.boxId, data.frameId);
           } else if (data.kind === 'shelf' && data.shelfId) {
             cur.onSelectShelf(wall.id, data.boxId, data.shelfId);
+            if (wallProj) {
+              controls.enabled = false;
+              e.stopPropagation();
+              try { dom.setPointerCapture(e.pointerId); } catch {}
+              beginModelDrag(e.pointerId);
+              drag3DRef.current = { kind: 'move-shelf', wallId: wall.id, boxId: data.boxId, shelfId: data.shelfId,
+                startDot: wallProj.xCm, startY: wallProj.yCm, dx: 0, dy: 0 };
+            }
+            return;
           } else if (data.kind === 'handle' && data.handleId) {
             cur.onSelectHandle(wall.id, data.boxId, data.handleId);
           } else {
@@ -1695,46 +1714,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           dr.lastTargetX = target;
           cur.onMoveOpening?.(dr.wallId, dr.openingId, target, false);
         }
-      } else if (dr.kind === 'resize-box') {
+      } else if (dr.kind === 'resize-box' || dr.kind === 'move-shelf') {
         const dx = Math.round(proj.xCm - dr.startDot);
         const dy = Math.round(proj.yCm - dr.startY);
-        const wall = cur.project.walls.find((x) => x.id === dr.wallId);
-        const box = wall?.boxes.find((b) => b.id === dr.boxId);
-        if (!wall || !box) return;
-
-        if ((box.type === 'wall' || box.type === 'wall-deep') && (dr.side === 'top' || dr.side === 'bottom')) {
-          let nextElev = dr.origElev;
-          let nextH = dr.origH;
-          if (dr.side === 'top') {
-            nextH = Math.max(25, Math.min(wall.height - dr.origElev, dr.origH + dy));
-          } else {
-            nextElev = Math.max(95, Math.min(dr.origElev + dr.origH - 25, dr.origElev + dy));
-            nextH = dr.origH + (dr.origElev - nextElev);
-          }
-          dr.lastElev = nextElev;
-          dr.lastH = nextH;
-          cur.onResizeWallBoxesSynced(dr.wallId, dr.boxId, nextElev, nextH, false);
-          return;
-        }
-
-        cur.onMutateWallById(
-          dr.wallId,
-          (w) => {
-            const b = w.boxes.find((x) => x.id === dr.boxId);
-            if (!b) return;
-            if (dr.side === 'right') {
-              b.width = Math.max(40, Math.min(w.length - b.offsetX, dr.origW + dx));
-            } else if (dr.side === 'left') {
-              const newOff = Math.max(0, Math.min(dr.origX + dr.origW - 40, dr.origX + dx));
-              b.width = dr.origW + (dr.origX - newOff);
-              b.offsetX = newOff;
-            } else if (dr.side === 'top') {
-              b.height = Math.max(40, Math.min(w.height - b.elevY, dr.origH + dy));
-            }
-            clampBoxInternalsAfterResize(b);
-          },
-          false
-        );
+        if (dx === dr.dx && dy === dr.dy) return;
+        dr.dx = dx;
+        dr.dy = dy;
+        if (dr.kind === 'resize-box') cur.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dx, dy, false);
+        else cur.onMoveShelf(dr.wallId, dr.boxId, dr.shelfId, dx, dy, false);
       } else if (dr.kind === 'resize-drawer') {
         const dxCm = Math.round(proj.xCm - dr.startDot);
         const desiredW = dr.edge === 'left' ? dr.origW - dxCm : dr.origW + dxCm;
@@ -1833,13 +1820,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         } else if (dr.kind === 'move-opening' && dr.moved && dr.lastTargetX !== dr.origX) {
           cur.onMoveOpening?.(dr.wallId, dr.openingId, dr.lastTargetX, true);
         } else if (dr.kind === 'resize-box') {
-          const wall = cur.project.walls.find((x) => x.id === dr.wallId);
-          const box = wall?.boxes.find((b) => b.id === dr.boxId);
-          if (box && (box.type === 'wall' || box.type === 'wall-deep') && (dr.side === 'top' || dr.side === 'bottom')) {
-            cur.onResizeWallBoxesSynced(dr.wallId, dr.boxId, dr.lastElev, dr.lastH, true);
-          } else {
-            cur.onMutateWallById(dr.wallId, () => {}, true);
-          }
+          if (dr.dx || dr.dy) cur.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dr.dx ?? 0, dr.dy ?? 0, true);
+        } else if (dr.kind === 'move-shelf') {
+          if (dr.dx || dr.dy) cur.onMoveShelf(dr.wallId, dr.boxId, dr.shelfId, dr.dx, dr.dy, true);
         } else if (dr.kind === 'resize-drawer' || dr.kind === 'resize-door-seam') {
           if (dr.moved) {
             cur.onMutateWallById(dr.wallId, () => {}, true);
@@ -2480,7 +2463,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         const idx = Math.max(0, HANDLE_STYLE_ORDER.indexOf(cur.handleStyle));
         const nxt = HANDLE_STYLE_ORDER[(idx + (dir > 0 ? 1 : HANDLE_STYLE_ORDER.length - 1)) % HANDLE_STYLE_ORDER.length];
         cur.onSetHandleStyle?.(nxt);
-        cur.onToast(`مدل دستگیره: ${nxt === 'knob' ? 'دکمه‌ای' : nxt === 'hidden' ? 'مخفی' : 'میله‌ای'}`);
+        cur.onToast(`مدل دستگیره: ${HANDLE_STYLES.find(style => style.id === nxt)?.label}`);
         return true;
       }
       if (cur.tool === 'cab-draw') {
@@ -2751,6 +2734,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       controls.removeEventListener('start', cancelFocusAnim);
       controls.removeEventListener('change', requestRender);
       controls.dispose();
+      reflectionProbe?.dispose();
+      if (reflectionProbeRef.current === reflectionProbe) reflectionProbeRef.current = null;
       clearGhost();
       clearWallFloorPreview();
       disposeObject3D(floorWallGroup);
@@ -2817,7 +2802,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     if (!scene) return;
 
     let built: BuiltKitchenScene;
-    try { built = buildKitchen3DScene(project, { doorOpenProgress: 0, tool }); }
+    try { built = buildKitchen3DScene(project, { doorOpenProgress: 0, tool, onTextureReady: () => requestRenderRef.current() }); }
     catch (error) { logDiagnostic('scene-build-failed', error); props.onToast('خطای نمایش ثبت شد؛ صحنه قبلی حفظ شد'); return; }
     if (builtRef.current) {
       scene.remove(builtRef.current.root);
@@ -2847,6 +2832,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       applyCameraPreset('iso', built.bounds);
     } else {
       requestRenderRef.current();
+    }
+    if (!built.bounds.isEmpty() && reflectionProbeRef.current) {
+      const position = built.bounds.getCenter(new THREE.Vector3());
+      const view = cameraRef.current?.position;
+      if (view) {
+        const towardRoom = view.clone().sub(position).setY(0);
+        if (towardRoom.lengthSq() > 0.001) position.addScaledVector(towardRoom.normalize(), 0.68);
+      }
+      position.y = 1.45;
+      reflectionProbeRef.current.schedule(built.root, position);
     }
     if (!props.scanMode && tool === 'cab-draw') {
       const bounds = rendererRef.current?.domElement.getBoundingClientRect();

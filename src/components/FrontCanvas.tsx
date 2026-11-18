@@ -1,3 +1,4 @@
+import { HANDLE_STYLES, fitHandleLengthCm } from '../cad/handleGeometry';
 import { isFrontPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -94,12 +95,15 @@ import { PacedGestureStepper } from '../utils/gesturePacing';
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
-const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
+const HANDLE_STYLE_ORDER = HANDLE_STYLES.map(style => style.id);
 
 interface FrontCanvasProps {
   onBeginDrag: () => void;
   onCancelDrag: () => void;
   onFinishDrag: () => void;
+  onConfirmOpeningMove: (openingId: string) => void;
+  onResizeCabinet: (boxId: string, side: 'left'|'right'|'top'|'bottom', dx: number, dy: number, commit: boolean) => void;
+  onMoveShelf: (boxId: string, shelfId: string, dx: number, dy: number, commit: boolean) => void;
   wall: Wall | null;
   allWalls: Wall[];
   columns?: RoomColumn[];
@@ -241,6 +245,8 @@ type DragOp =
       origH: number;
       lastElev?: number;
       lastH?: number;
+      deltaX?: number;
+      deltaY?: number;
     }
   | {
       mode: 'move-box';
@@ -314,6 +320,9 @@ type DragOp =
       innerHeightPx: number;
       innerLeftPx?: number;
       innerWidthPx?: number;
+      startPt: { x: number; y: number };
+      deltaX?: number;
+      deltaY?: number;
     }
   | {
       mode: 'resize-unit-div';
@@ -330,6 +339,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   onBeginDrag,
   onCancelDrag,
   onFinishDrag,
+  onConfirmOpeningMove,
+  onResizeCabinet,
+  onMoveShelf,
   wall,
   allWalls,
   columns = [],
@@ -850,7 +862,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       const idx = Math.max(0, HANDLE_STYLE_ORDER.indexOf(handleStyle));
       const nxt = HANDLE_STYLE_ORDER[(idx + (dir > 0 ? 1 : HANDLE_STYLE_ORDER.length - 1)) % HANDLE_STYLE_ORDER.length];
       onHandleStyleChange(nxt);
-      onToast(`مدل دستگیره: ${nxt === 'knob' ? 'دکمه‌ای' : nxt === 'hidden' ? 'مخفی' : 'میله‌ای'}`);
+      onToast(`مدل دستگیره: ${HANDLE_STYLES.find(style => style.id === nxt)?.label}`);
       return true;
     }
     if (tool === 'sink' && (anywhere || (contextBox && contextBox.type === 'base'))) {
@@ -1848,6 +1860,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
             mode: 'move-shelf',
             boxId: bId,
             shelfId: sId,
+            startPt: pt,
             orient: shelfObj.orient || 'horizontal',
             innerTopPx,
             innerHeightPx,
@@ -2463,44 +2476,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       op.currPt = pt;
       setMarquee({ startX: op.startPt.x, startY: op.startPt.y, currX: pt.x, currY: pt.y });
     } else if (op.mode === 'resize-box') {
-      const dxCm = Math.round((pt.x - op.startPt.x) / s);
-      const dyCm = Math.round((pt.y - op.startPt.y) / s);
-      const liveBox = wall.boxes.find((x) => x.id === op.boxId);
-      const isWallCab = liveBox && (liveBox.type === 'wall' || liveBox.type === 'wall-deep');
-      if (isWallCab && (op.side === 'top' || op.side === 'bottom') && onResizeWallBoxesSynced) {
-        let nextElev = op.origElev;
-        let nextH = op.origH;
-        if (op.side === 'top') {
-          nextH = Math.max(25, Math.min(wall.height - op.origElev, op.origH - dyCm));
-        } else {
-          const deltaElev = -dyCm;
-          nextElev = Math.max(95, Math.min(op.origElev + op.origH - 25, op.origElev + deltaElev));
-          nextH = op.origH + (op.origElev - nextElev);
-        }
-        op.lastElev = nextElev;
-        op.lastH = nextH;
-        onResizeWallBoxesSynced(op.boxId, nextElev, nextH, false);
-        return;
-      }
-
-      onMutateWall((w) => {
-        const b = w.boxes.find((x) => x.id === op.boxId);
-        if (!b) return;
-        if (op.side === 'right') {
-          b.width = Math.max(40, Math.min(w.length - b.offsetX, op.origW + dxCm));
-        } else if (op.side === 'left') {
-          const newOff = Math.max(0, Math.min(op.origX + op.origW - 40, op.origX + dxCm));
-          b.width = op.origW + (op.origX - newOff);
-          b.offsetX = newOff;
-        } else if (op.side === 'top') {
-          b.height = Math.max(40, Math.min(w.height - b.elevY, op.origH - dyCm));
-        } else if (op.side === 'bottom') {
-          const newElev = Math.max(0, Math.min(op.origElev + op.origH - 25, op.origElev - dyCm));
-          b.height = op.origH + (op.origElev - newElev);
-          b.elevY = newElev;
-        }
-        clampBoxInternalsAfterResize(b);
-      }, false);
+      op.deltaX = Math.round((pt.x - op.startPt.x) / s);
+      op.deltaY = Math.round((op.startPt.y - pt.y) / s);
+      onResizeCabinet(op.boxId, op.side, op.deltaX, op.deltaY, false);
     } else if (op.mode === 'resize-unit-div') {
       const targetCm = ((pt.x - op.bx) / s - op.insetsLeft) / op.scaleX;
       let nextSeam = op.currentSeamCm;
@@ -2585,36 +2563,19 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           op.orient === 'vertical'
             ? ((pt.y - op.startPt.y) / s) * 2
             : ((pt.x - op.startPt.x) / s) * 2;
-        const maxLen = op.orient === 'vertical' ? Math.max(16, b.height - 20) : 54;
-        h.lengthCm = Math.round(Math.max(8, Math.min(maxLen, op.origLen + deltaCm)));
+        const door = b.doors.find(leaf => leaf.id === h.doorId);
+        if (!door) return;
+        const rows = [0, ...door.drawerRatios, 1];
+        const ri = h.rowIndex ?? 0;
+        const rowHeight = Math.max(8, 1 * (b.height - b.plinth - b.countertopCm) *
+          ((rows[ri + 1] ?? 1) - (rows[ri] ?? 0)));
+        h.lengthCm = Math.round(fitHandleLengthCm(h.style, op.orient, op.origLen + deltaCm,
+          door.widthCm, rowHeight, h.xRatio, h.yRatio) * 10) / 10;
       }, false);
     } else if (op.mode === 'move-shelf') {
-      if (op.orient === 'vertical') {
-        const rawXRatio = Math.max(
-          0.15,
-          Math.min(0.85, (pt.x - (op.innerLeftPx ?? 0)) / Math.max(1, op.innerWidthPx ?? 1))
-        );
-        const snapped = Math.abs(rawXRatio - 0.5) <= 0.07 ? 0.5 : +rawXRatio.toFixed(3);
-        onMutateWall((w) => {
-          const b = w.boxes.find((x) => x.id === op.boxId);
-          const sh = b?.shelves.find((x) => x.id === op.shelfId);
-          if (b && sh) {
-            sh.xRatio = snapped;
-          }
-        }, false);
-      } else {
-        const desiredRatio = Math.max(
-          0.08,
-          Math.min(0.92, +((pt.y - op.innerTopPx) / op.innerHeightPx).toFixed(2))
-        );
-        onMutateWall((w) => {
-          const b = w.boxes.find((x) => x.id === op.boxId);
-          const sh = b?.shelves.find((x) => x.id === op.shelfId);
-          if (b && sh) {
-            sh.yRatio = clampShelfRatioWithMinGap(b, desiredRatio, sh.startCm, sh.endCm, sh.id).ratio;
-          }
-        }, false);
-      }
+      op.deltaX = (pt.x - op.startPt.x) / s;
+      op.deltaY = (op.startPt.y - pt.y) / s;
+      onMoveShelf(op.boxId, op.shelfId, op.deltaX, op.deltaY, false);
     } else if (op.mode === 'move-opening') {
       const dxCm = Math.round(((pt.x - op.startPt.x) / s) / 5) * 5;
       const dyCm = Math.round(((op.startPt.y - pt.y) / s) / 5) * 5;
@@ -2762,17 +2723,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     setDragGuides(null);
     if (op.mode === 'resize-box') {
-      const liveBox = wall?.boxes.find((x) => x.id === op.boxId);
-      const isWallCab = liveBox && (liveBox.type === 'wall' || liveBox.type === 'wall-deep');
-      if (isWallCab && (op.side === 'top' || op.side === 'bottom') && onResizeWallBoxesSynced) {
-        onResizeWallBoxesSynced(
-          op.boxId,
-          op.lastElev ?? liveBox.elevY,
-          op.lastH ?? liveBox.height,
-          true
-        );
-        return;
-      }
+      if (op.deltaX || op.deltaY) onResizeCabinet(op.boxId, op.side, op.deltaX ?? 0, op.deltaY ?? 0, true);
+      return;
+    }
+    if (op.mode === 'move-shelf') {
+      if (op.deltaX || op.deltaY) onMoveShelf(op.boxId, op.shelfId, op.deltaX ?? 0, op.deltaY ?? 0, true);
+      return;
     }
     if (op.mode === 'move-box') {
       if (op.lastTargetX !== op.origX) {
@@ -2784,6 +2740,10 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       if (op.lastTargetX !== op.origX) {
         onMoveAppliance(op.appId, op.lastTargetX, true, op.sessionId);
       }
+      return;
+    }
+    if (op.mode === 'move-opening') {
+      onConfirmOpeningMove(op.openingId);
       return;
     }
     if (op.mode !== 'pan') {
@@ -2920,7 +2880,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     };
 
     const activeFinishId = box.finish || projectCabinetFinish;
-    const finishCfg = CABINET_FINISHES[activeFinishId];
+    const finishCfg = box.color ? { ...CABINET_FINISHES[activeFinishId], hex: box.color, hexDark: box.color } : CABINET_FINISHES[activeFinishId];
     const isDarkPanel =
       activeFinishId === 'navy-matte' || activeFinishId === 'charcoal' || activeFinishId === 'walnut';
     const panelFill =
@@ -3836,7 +3796,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     width={bw}
                     height={bodyH}
                     rx={2}
-                    fill={CABINET_FINISHES[box.finish || projectCabinetFinish].hexDark}
+                    fill={box.color ?? CABINET_FINISHES[box.finish || projectCabinetFinish].hexDark}
                     fillOpacity={box.type === 'wall-deep' ? 0.85 : 0.96}
                     stroke={isAct ? '#4f46e5' : box.type === 'wall-deep' ? '#0284c7' : '#64748b'}
                     strokeWidth={isAct ? 2.2 : 1.5}
@@ -3915,7 +3875,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   {(box.frames || []).map((fr) => {
                     const fW = fr.widthCm * s;
                     const isFSel = fr.id === selectedFrameId;
-                    const fFill = isFSel ? '#4f46e5' : '#64748b';
+                    const fFill = fr.color ?? (isFSel ? '#4f46e5' : '#64748b');
                     const fStroke = isFSel ? '#312e81' : '#334155';
                     const cur =
                       tool === 'eraser' ? 'not-allowed' : tool === 'select' ? 'pointer' : undefined;
@@ -4348,7 +4308,11 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
                     const cx = dx + dw * h.xRatio;
                     const cy = rowY + rowH * h.yRatio;
-                    const lenPx = (h.lengthCm || 16) * s;
+                    const ratios = [0, ...door.drawerRatios, 1];
+                    const ri = h.rowIndex ?? 0;
+                    const handleHeightCm = (dh / s) * ((ratios[ri + 1] ?? 1) - (ratios[ri] ?? 0));
+                    const lenPx = fitHandleLengthCm(h.style, h.orient, h.lengthCm, dw / s,
+                      handleHeightCm, h.xRatio, h.yRatio) * s;
                     const isHSel = h.id === selectedHandleId;
 
                     return (
