@@ -405,8 +405,7 @@ export interface HandleSpotOverlaySet {
  */
 export function attachHandleCandidateSpots(
   built: BuiltKitchenScene,
-  project: ProjectState,
-  handleOrient: Orientation
+  project: ProjectState
 ): HandleSpotOverlaySet {
   const overlays: THREE.Object3D[] = [];
   const spotInteractables: THREE.Object3D[] = [];
@@ -469,7 +468,7 @@ export function attachHandleCandidateSpots(
       if (box.type === 'fridge') continue;
       for (const door of box.doors) {
         if (door.kind === 'fridge' || door.kind === 'open' || door.kind === 'rail') continue;
-        const spots = computeDoorHandleSpots(box, door, handleOrient);
+        const spots = computeDoorHandleSpots(box, door);
         if (!spots.length) continue;
 
         const key = `${wall.id}:${box.id}:${door.id}`;
@@ -1811,7 +1810,9 @@ function buildBox3D(ctx: {
   // Selection wireframe + 3D move/resize handles
   if (isBoxSel) {
     addOutlineHighlight(grp, bw, bh, bd, bx + bw / 2, by + bh / 2, normalSign * (bd / 2));
-    addBox3DHandles(grp, wall.id, box, by, bh, bd, normalSign, mats.matHandleGizmo, interactables);
+    if (box.type !== 'fridge' && (!tool || tool === 'select')) {
+      addBox3DHandles(grp, wall.id, box, by, bh, bd, normalSign, mats.matHandleGizmo, interactables);
+    }
   }
 
   return grp;
@@ -1845,7 +1846,14 @@ function addBox3DHandles(
     m.position.set(px, py, pz);
     m.userData = { kind: 'box-handle', wallId, boxId: box.id, handleSide } as Scene3DHitData;
     grp.add(m);
-    interactables.push(m);
+    const hit = new THREE.Mesh(
+      new THREE.BoxGeometry(Math.max(w, 0.095), Math.max(h, 0.095), Math.max(d, 0.06)),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    hit.position.copy(m.position);
+    hit.userData = m.userData;
+    grp.add(hit);
+    interactables.push(hit);
   };
 
   // Left & Right width resize pills

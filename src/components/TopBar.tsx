@@ -11,6 +11,7 @@ import {
   Download,
   FilePlus2,
   FolderOpen,
+  FlipHorizontal2,
   House,
   Maximize2,
   Minimize2,
@@ -65,6 +66,7 @@ interface TopBarProps {
   onCompactDoorsAndAppliances?: () => void;
   onAlignWallAndBaseDoors?: () => void;
   onMirrorBox?: () => void;
+  canMirrorFront?: boolean;
   onAlignBox?: (pos: 'left' | 'center' | 'right') => void;
   onMoveUnit?: (dir: 'left' | 'right') => void;
 }
@@ -113,6 +115,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onCompactDoorsAndAppliances,
   onAlignWallAndBaseDoors,
   onMirrorBox,
+  canMirrorFront = false,
   onAlignBox,
   onMoveUnit,
 }) => {
@@ -366,8 +369,6 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* Exactly five alignment operations: left, right, box-center,
-          equal selected upright door widths, equal selected drawer heights. */}
       {viewMode !== 'ar' && (hasActiveBox || hasSelectedUnit || hasSelectedAppliance) && (
         <div
           data-testid="selection-align-toolbar"
@@ -399,6 +400,12 @@ export const TopBar: React.FC<TopBarProps> = ({
             title="وسط‌چین نسبت به مرکز باکس کابینت؛ مناسب گاز و سینک"
             className={subIconBtn}>
             <AlignCenterHorizontal className="w-4 h-4" />
+          </button>
+          <button type="button" data-testid="mirror-selected-front" onClick={onMirrorBox} disabled={!canMirrorFront}
+            aria-label="میرور افقی در و دستگیره"
+            title="عوض کردن سمت لولا و دستگیره"
+            className={subIconBtn}>
+            <FlipHorizontal2 className="w-4 h-4" />
           </button>
           <div className="h-5 w-px bg-slate-300 shrink-0" />
           <button type="button" data-testid="align-selected-vertical-widths"

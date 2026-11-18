@@ -1,4 +1,4 @@
-import { cabinetStarterSegment, resolveCabinetPlacement } from '../cad/cabinetPlacement';
+import { previewCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { AimTap, aimCenter, calibrationPinsAtView } from '../ar/centerAim';
 import { snapArWallEndpointsCm } from '../ar/arCalibration';
 import { logDiagnostic } from '../utils/diagnostics';
@@ -81,7 +81,6 @@ const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 import {
-  computeMultiWallSweep,
   getCornerBlockedZonesForWall,
   getWallVectors,
   SweepSegment,
@@ -246,6 +245,7 @@ interface ARWorkspaceProps {
     flipOverrides?: Record<string, 1 | -1>
   ) => boolean;
   onConfirmHiddenHandle?: (onConfirm: () => void) => void;
+  onResizeCabinet: (wallId: string, boxId: string, side: 'left' | 'right' | 'top' | 'bottom', dxCm: number, dyCm: number, commit: boolean) => void;
   onBeginDrag: () => void;
   onCancelDrag: () => void;
   onFinishDrag: () => void;
@@ -279,6 +279,8 @@ interface StoredAnchorEntry {
 }
 
 type ArDragState =
+  | { kind: 'resize-box'; wallId: string; boxId: string; side: 'left' | 'right' | 'top' | 'bottom';
+      startX: number; startY: number; dx: number; dy: number; moved: boolean }
   | { kind: 'drag-a'; startWorld: XZPoint; moved: boolean }
   | { kind: 'drag-b'; anchorA: XZPoint; moved: boolean }
   | {
@@ -577,6 +579,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   onConfirmHiddenHandle,
   onUpdateProject,
   onBeginDrag,
+  onResizeCabinet,
   onCancelDrag,
   onFinishDrag,
   onSwitchViewMode,
@@ -636,6 +639,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const propsRef = useRef({
     onUpdateProject,
     onBeginDrag,
+    onResizeCabinet,
     onCancelDrag,
     onFinishDrag,
     selectionMode,
@@ -694,6 +698,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   propsRef.current = {
     onUpdateProject,
     onBeginDrag,
+    onResizeCabinet,
     onCancelDrag,
     onFinishDrag,
     selectionMode,
@@ -750,7 +755,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onConfirmHiddenHandle,
   };
 
-  const lastSelectTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const toggleXrDoorAtPointRef = useRef<(x: number, y: number) => boolean>(() => false);
   const detailedPickAtClientRef = useRef<
     (x: number, y: number) => { data: Scene3DHitData; point: THREE.Vector3 } | null
@@ -812,7 +816,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         : sharedTool;
     setArTool(mapped);
   }, [embeddedIn3D, sharedTool, drawBoxKind]);
-  const [pendingCabSweep, setPendingCabSweep] = useState<{wallId: string; startCm: number; kind: BoxKind} | null>(null);
+  const [pendingCabSweep, setPendingCabSweep] = useState<CabinetRowDraft | null>(null);
   const pendingCabSweepRef = useRef(pendingCabSweep);
   pendingCabSweepRef.current = pendingCabSweep;
   const pendingWallStartRef = useRef(pendingWallStart);
@@ -1494,24 +1498,20 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const boxElev =
           kind === 'wall' ? projectRef.current.settings?.wallCabElevCm ?? cfg.elevY : cfg.elevY;
 
-        if (!pendingSweep && kind !== 'base') return { status: 'valid' };
-        const { segments, suggestedOwners } = pendingSweep
-          ? computeMultiWallSweep(
-              projectRef.current.walls, pendingSweep.wallId, pendingSweep.startCm, w.id, result.offsetCm,
-              kind, projectRef.current.cornerOwners, true
-            )
-          : { segments: [cabinetStarterSegment(w, result.offsetCm)], suggestedOwners: {} };
-        const resolved = resolveCabinetPlacement(projectRef.current, segments.filter(seg => seg.widthCm >= 30), kind, suggestedOwners);
-        const totalW = resolved.segments.reduce((sum, seg) => sum + seg.widthCm, 0);
+        const row = pendingSweep ? previewCabinetRow(projectRef.current, pendingSweep, w.id, result.offsetCm) : null;
+        const draft = pendingSweep ?? startCabinetRow(projectRef.current, w, result.offsetCm, kind);
+        if (!draft) return { status: 'invalid' };
+        const segments = row?.segments ?? [draft.starter];
+        const totalW = segments.reduce((sum, seg) => sum + seg.widthCm, 0);
         const swGrp = sweepGhostGroupRef.current;
-        if (swGrp && resolved.segments.length) {
+        if (swGrp && segments.length) {
           const ghostMat = new THREE.MeshBasicMaterial({
-            color: 0x4f46e5,
+            color: row?.valid === false ? 0xdc2626 : 0x4f46e5,
             transparent: true,
             opacity: 0.34,
             depthWrite: false,
           });
-          for (const seg of resolved.segments) {
+          for (const seg of segments) {
             const sw = projectRef.current.walls.find((x) => x.id === seg.wallId);
             if (!sw) continue;
             const sv = getWallVectors(sw);
@@ -1532,7 +1532,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             swGrp.add(segM);
           }
         }
-        return { status: totalW >= 30 ? 'valid' : 'invalid', sweepWidthCm: totalW };
+        return { status: row?.valid === false ? 'invalid' : 'valid', sweepWidthCm: totalW };
       } else if (tool === 'fridge') {
         const cfg = FRIDGE_MODELS[choices.fridgeModel];
         width = cfg.width + FRIDGE_FRAME_CM * 2;
@@ -1609,6 +1609,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       toggleDoorByRay(pointerNdc(clientX, clientY), pickingCamera());
 
     const dom = renderer.domElement;
+    dom.style.setProperty('-webkit-touch-callout', 'none');
+    const suppressContextMenu = (event: MouseEvent) => event.preventDefault();
+    dom.addEventListener('contextmenu', suppressContextMenu);
 
     // Native capture-phase pointerdown intercepts A/B handles & base/wall/tall cabinets BEFORE OrbitControls!
 
@@ -1685,30 +1688,32 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       // Only activate placement surface cursor on non-select, non-calibrate tools
       if(!xrSessionRef.current && e.pointerType==='touch' && toolNow!=='select' && !toolNow.startsWith('calibrate-')) {
         e.preventDefault();e.stopImmediatePropagation();controls.enabled=false;
-        surfaceCursorRef.current.begin(e.pointerId,e.clientX,e.clientY);
-        if(!surfaceCursorRef.current.point)pinSurfaceCursor(e.clientX,e.clientY);
+        if (!surfaceCursorRef.current.begin(e.pointerId, e.clientX, e.clientY)) return;
+        surfaceCursorRef.current.clearTarget();
+        pinSurfaceCursor(e.clientX, e.clientY);
         try{dom.setPointerCapture(e.pointerId);}catch{}
         return;
       }
 
       if (toolNow === 'select') {
         const picked = detailedPickAtClientRef.current(e.clientX, e.clientY);
-        const now = performance.now();
-        const prev = lastSelectTapRef.current;
-        const repeated = Boolean(
-          e.pointerType === 'touch' && prev && now - prev.time < 380 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 44
-        );
-        lastSelectTapRef.current = repeated ? null : { time: now, x: e.clientX, y: e.clientY };
-
-        if (repeated && toggleXrDoorAtPointRef.current(e.clientX, e.clientY)) {
-          e.preventDefault();
-          e.stopPropagation();
-          onToast('درب انتخاب‌شده باز یا بسته شد');
-          return;
-        }
-
         if (picked) {
           const data = picked.data;
+          if (data.kind === 'box-handle' && data.boxId && data.handleSide) {
+            const point = projectArPointerOntoWallRef.current(data.wallId, e.clientX, e.clientY);
+            if (!point) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            controls.enabled = false;
+            try { dom.setPointerCapture(e.pointerId); } catch {}
+            propsRef.current.onBeginDrag();
+            dragPointerIdRef.current = e.pointerId;
+            arDragRef.current = {
+              kind: 'resize-box', wallId: data.wallId, boxId: data.boxId, side: data.handleSide,
+              startX: point.xCm, startY: point.yCm, dx: 0, dy: 0, moved: false,
+            };
+            return;
+          }
           const selMode = propsRef.current.selectionMode || 'single';
           if (selMode !== 'single' && data.boxId) {
             propsRef.current.onUpdateProject((prevProject) => {
@@ -1838,7 +1843,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         return;
       }
 
-      lastSelectTapRef.current = null;
       if (isArDetailTool(toolNow)) {
         handleArDetailActionRef.current(e.clientX, e.clientY);
         return;
@@ -1895,6 +1899,20 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             const distCm = Math.round(Math.hypot(b.x - a.x, b.z - a.z) * sol.scale * 100);
             setRealDistanceInput(String(distCm));
             requestPreviewRender();
+          }
+          return;
+        }
+        if (dr.kind === 'resize-box') {
+          const point = projectArPointerOntoWallRef.current(dr.wallId, e.clientX, e.clientY);
+          if (!point) return;
+          const isWidth = dr.side === 'left' || dr.side === 'right';
+          const dx = isWidth ? Math.round(point.xCm - dr.startX) : 0;
+          const dy = isWidth ? 0 : Math.round(point.yCm - dr.startY);
+          if (dx !== dr.dx || dy !== dr.dy) {
+            dr.dx = dx;
+            dr.dy = dy;
+            dr.moved = true;
+            propsRef.current.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dx, dy, false);
           }
           return;
         }
@@ -1967,7 +1985,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         return;
       }
       if(!arDragRef.current && e.pointerType==='touch' && arToolRef.current!=='select' && !arToolRef.current.startsWith('calibrate-')) {
-        if(surfaceCursorRef.current.end(e.pointerId))confirmActionRef.current();
+        if (surfaceCursorRef.current.end(e.pointerId) && surfaceCursorRef.current.point) confirmActionRef.current();
         return;
       }
       const dr = arDragRef.current;
@@ -1979,7 +1997,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
       } catch {}
 
-      if (dr?.kind === 'move-box' && dr.moved && dr.lastTargetX !== dr.origX) {
+      if (dr?.kind === 'resize-box' && dr.moved) {
+        propsRef.current.onResizeCabinet(dr.wallId, dr.boxId, dr.side, dr.dx, dr.dy, true);
+      } else if (dr?.kind === 'move-box' && dr.moved && dr.lastTargetX !== dr.origX) {
         propsRef.current.onMoveBox?.(dr.wallId, dr.boxId, dr.lastTargetX, true, dr.sessionId);
       } else if (dr?.kind === 'move-app' && dr.moved && dr.lastTargetX !== dr.origX) {
         propsRef.current.onMoveAppliance?.(dr.wallId, dr.appId, dr.lastTargetX, true, dr.sessionId);
@@ -2136,7 +2156,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     };
 
     const onPlacementKey=(event:KeyboardEvent)=>{
-      if(activeRef.current && event.key==='Enter' && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target as HTMLElement)?.isContentEditable)) {
+      if (activeRef.current && event.key === 'Enter' && !event.repeat && !(event.target as HTMLElement)?.closest('input, textarea, select, button, [contenteditable=true]')) {
         event.preventDefault();confirmActionRef.current();
       }
     };
@@ -2149,8 +2169,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     window.addEventListener('pointermove', onPointerMove);
     const onPointerCancel = (e: PointerEvent) => {
       if (arDragRef.current && e.pointerId !== dragPointerIdRef.current) return;
-      aimTapRef.current.cancel();
-      surfaceCursorRef.current.cancelGesture();
+      aimTapRef.current.reset(e.pointerId);
+      surfaceCursorRef.current.resetGesture(e.pointerId);
       const dr = arDragRef.current;
       arDragRef.current = null;
       dragPointerIdRef.current = null;
@@ -2185,6 +2205,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
+      dom.removeEventListener('contextmenu', suppressContextMenu);
       dom.removeEventListener('pointerdown', onPointerDownCapture, { capture: true });
       window.removeEventListener('keydown',onPlacementKey);
       disposeObject3D(surfaceMarker);
@@ -2234,7 +2255,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     let built: BuiltKitchenScene;
     try {
-      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72 });
+      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72, tool: (arTool === 'select' ? 'select' : 'cab-draw') });
     } catch (error) {
       logDiagnostic('ar-scene-build-failed', error);
       onToast('خطای نمایش ثبت شد؛ صحنه قبلی حفظ شد');
@@ -2350,7 +2371,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const previews = attachSelectedHandlePreviews(built, project, handleStyle, handleOrient);
     const spotsSet = project.doorsHidden
       ? null
-      : attachHandleCandidateSpots(built, project, handleOrient);
+      : attachHandleCandidateSpots(built, project);
     handleSpotsRef.current = spotsSet;
     renderOnceRef.current();
     return () => {
@@ -2480,31 +2501,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           : choices.drawBoxKind === 'closet'
           ? 'closet'
           : 'tall';
-      if (!pendingSweep && kind === 'base') {
-        choices.onCreateBoxesFromSweep([cabinetStarterSegment(hitWall.wall, hitWall.offsetCm)], kind);
-        return;
-      }
       if (!pendingSweep) {
-        setPendingCabSweep({ wallId: hitWall.wall.id, startCm: hitWall.offsetCm, kind });
-        onToast('شروع باکس ثبت شد؛ نشانگر را روی دیوار (یا دیوار مجاور در کنج) حرکت دهید و تأیید بزنید');
+        const draft = startCabinetRow(proj, hitWall.wall, hitWall.offsetCm, kind);
+        if (!draft) return onToast('برای شروع ردیف فضای آزاد کافی نیست');
+        setPendingCabSweep(draft);
+        onToast('شروع ردیف مشخص شد؛ انتها را انتخاب و ثبت کنید');
         return;
       }
-      const sweepRes = computeMultiWallSweep(
-        proj.walls,
-        pendingSweep.wallId,
-        pendingSweep.startCm,
-        hitWall.wall.id,
-        hitWall.offsetCm,
-        pendingSweep.kind,
-        proj.cornerOwners,
-        true
-      );
-      const validSegments = sweepRes.segments.filter((seg) => seg.widthCm >= 30);
-      if (validSegments.length === 0) {
-        onToast('برای رسم باکس، حداقل ۳۰ سانتی‌متر روی دیوار پیش بروید');
-        return;
-      }
-      if (choices.onCreateBoxesFromSweep(validSegments, pendingSweep.kind, sweepRes.suggestedOwners)) {
+      const row = previewCabinetRow(proj, pendingSweep, hitWall.wall.id, hitWall.offsetCm);
+      if (!row.valid) return onToast('انتهای ردیف را روی بخش آزاد همان دیوار یا دیوار متصل بگذارید');
+      if (choices.onCreateBoxesFromSweep(row.requested, pendingSweep.kind, row.suggestedOwners)) {
         setPendingCabSweep(null);
       }
       return;
@@ -2515,7 +2521,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const next: ProjectState = JSON.parse(JSON.stringify(prev));
         const w = next.walls.find((x) => x.id === hitWall.wall.id);
         if (!w) return prev;
-        const wCenter = hitWall.offsetCm - (FRIDGE_MODELS[choices.fridgeModel].width + 10) / 2;
+        const wCenter = hitWall.offsetCm - (FRIDGE_MODELS[choices.fridgeModel].width + 2 * FRIDGE_FRAME_CM) / 2;
         const res = placeFridgeOnWall(w, next.walls, choices.fridgeModel, wCenter, next.cornerOwners, true, next.settings);
         if (!res.ok) {
           onToast(res.message);
@@ -2789,6 +2795,12 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         return;
       }
 
+      const { rowIndex, xRatio, yRatio } = picked.data;
+      if (picked.data.kind !== 'handle-spot' || rowIndex === undefined || xRatio === undefined || yRatio === undefined) {
+        onToast('یکی از نقاط نصب روی در را انتخاب کنید');
+        return;
+      }
+
       const runSingle = () => {
         let feedback = '';
         propsRef.current.onUpdateProject((prev) => {
@@ -2798,41 +2810,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           const targetDoor = box?.doors.find((d) => d.id === doorNow.id);
           if (!w || !box || !targetDoor) return prev;
           const zones = getCornerBlockedZonesForWall(w, next.walls, next.cornerOwners);
-
-          let rowIndex = 0;
-          let yRatio = box.type === 'wall' || box.type === 'wall-deep' ? 0.82 : 0.18;
-          let xRatio = 0.5;
-
-          if (
-            picked.data.kind === 'handle-spot' &&
-            picked.data.rowIndex !== undefined &&
-            picked.data.xRatio !== undefined &&
-            picked.data.yRatio !== undefined
-          ) {
-            rowIndex = picked.data.rowIndex;
-            xRatio = picked.data.xRatio;
-            yRatio = picked.data.yRatio;
-          } else {
-            const innerBot = box.elevY + box.plinth;
-            const innerH = Math.max(10, box.height - box.plinth - box.countertopCm);
-            const normY = Math.max(0, Math.min(1, 1 - (yCm - innerBot) / innerH));
-            if ((targetDoor.kind === 'drawer' || targetDoor.kind === 'lift') && targetDoor.drawerRatios.length > 0) {
-              const pts = [0, ...targetDoor.drawerRatios, 1];
-              for (let ri = 0; ri < pts.length - 1; ri++) {
-                if (normY >= pts[ri] && normY <= pts[ri + 1]) {
-                  rowIndex = ri;
-                  yRatio = 0.5;
-                  break;
-                }
-              }
-            } else if (targetDoor.kind === 'door' && targetDoor.hardwareKind === 'pantry-pullout') {
-              yRatio = 0.5;
-            }
-            if (targetDoor.kind === 'door' && targetDoor.hardwareKind !== 'pantry-pullout') {
-              const isRightEdge = localXNow >= targetDoor.startCm + targetDoor.widthCm / 2;
-              xRatio = isRightEdge ? 0.86 : 0.14;
-            }
-          }
 
           const bayCheck = canPlaceHandleInBay(box, targetDoor, zones);
           if (!bayCheck.ok) {
@@ -3990,8 +3967,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             className="h-11 px-3.5 rounded-lg disabled:opacity-40 bg-emerald-600 hover:bg-emerald-700 text-white text-[13px] font-black inline-flex items-center gap-1.5 transition active:scale-95"
           >
             <Check className="w-4 h-4" />
-            <span>تأیید</span>
+            <span>{arTool === 'cab-base' || arTool === 'cab-wall' || arTool === 'cab-tall'
+              ? (pendingCabSweep ? 'ثبت ردیف' : 'شروع ردیف') : 'تأیید'}</span>
           </button>
+          {arTool === 'handle' && (
+            <button type="button" className="h-10 whitespace-nowrap rounded-lg border border-slate-300 px-3 font-bold"
+              data-testid="ar-handle-orientation"
+              onClick={() => onHandleOrientChange?.(handleOrient === 'vertical' ? 'horizontal' : 'vertical')}>
+              {handleOrient === 'vertical' ? 'دستگیره عمودی' : 'دستگیره افقی'}
+            </button>
+          )}
           <button
             type="button"
             data-testid="ar-cancel-btn"

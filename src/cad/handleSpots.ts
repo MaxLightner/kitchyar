@@ -75,97 +75,28 @@ export function canPlaceHandleInBay(
 export function computeDoorHandleSpots(
   box: CabinetBox,
   door: DoorUnit,
-  handleOrient: Orientation
 ): DoorHandleSpotSpec[] {
   if (door.kind === 'fridge' || door.kind === 'open' || door.kind === 'rail') return [];
   const spots: DoorHandleSpotSpec[] = [];
-
-  if (door.kind === 'drawer' || (door.kind === 'lift' && door.drawerRatios.length > 0)) {
-    const pts = [0, ...door.drawerRatios, 1];
-    for (let r = 0; r < pts.length - 1; r++) {
-      const rowPts =
-        handleOrient === 'horizontal'
-          ? [
-              { xr: 0.18, yr: 0.5 },
-              { xr: 0.5, yr: 0.5 },
-              { xr: 0.82, yr: 0.5 },
-              { xr: 0.5, yr: 0.22 },
-            ]
-          : [
-              { xr: 0.14, yr: 0.5 },
-              { xr: 0.86, yr: 0.5 },
-            ];
-      rowPts.forEach((sp, i) => {
-        spots.push({
-          spotId: `${door.id}_r${r}_${i}`,
-          boxId: box.id,
-          doorId: door.id,
-          rowIndex: r,
-          xRatio: sp.xr,
-          yRatio: sp.yr,
-          leafYRatio: sp.yr,
-        });
+  const add = (rowIndex: number, xs: number[], ys: number[]) => {
+    for (const yRatio of ys) for (const xRatio of xs) {
+      spots.push({
+        spotId: `${door.id}_r${rowIndex}_${xRatio}_${yRatio}`,
+        boxId: box.id, doorId: door.id, rowIndex, xRatio, yRatio, leafYRatio: yRatio,
       });
     }
-    return spots;
+  };
+  if (door.kind === 'drawer' || (door.kind === 'lift' && door.drawerRatios.length > 0)) {
+    for (let row = 0; row <= door.drawerRatios.length; row++) add(row, [0.18, 0.5, 0.82], [0.5]);
+  } else if (box.type === 'wall' || box.type === 'wall-deep') {
+    add(0, [0.18, 0.5, 0.82], [0.82]);
+  } else if (box.type === 'base') {
+    add(0, [0.18, 0.5, 0.82], [0.18]);
+  } else if (door.kind === 'lift') {
+    add(0, [0.18, 0.5, 0.82], [0.82]);
+  } else {
+    add(0, [0.18, 0.5, 0.82], [0.18, 0.5, 0.82]);
   }
-
-  if (door.kind === 'lift') {
-    const liftPts =
-      handleOrient === 'horizontal'
-        ? [
-            { xr: 0.18, yr: 0.86 },
-            { xr: 0.5, yr: 0.86 },
-            { xr: 0.82, yr: 0.86 },
-          ]
-        : [
-            { xr: 0.14, yr: 0.5 },
-            { xr: 0.86, yr: 0.5 },
-          ];
-    liftPts.forEach((sp, i) => {
-      spots.push({
-        spotId: `${door.id}_r0_${i}`,
-        boxId: box.id,
-        doorId: door.id,
-        rowIndex: 0,
-        xRatio: sp.xr,
-        yRatio: sp.yr,
-        leafYRatio: sp.yr,
-      });
-    });
-    return spots;
-  }
-
-  const doorPts =
-    handleOrient === 'vertical'
-      ? [
-          { xr: 0.14, yr: 0.18 },
-          { xr: 0.14, yr: 0.5 },
-          { xr: 0.14, yr: 0.82 },
-          { xr: 0.86, yr: 0.18 },
-          { xr: 0.86, yr: 0.5 },
-          { xr: 0.86, yr: 0.82 },
-        ]
-      : [
-          { xr: 0.18, yr: 0.14 },
-          { xr: 0.5, yr: 0.14 },
-          { xr: 0.82, yr: 0.14 },
-          { xr: 0.18, yr: 0.86 },
-          { xr: 0.5, yr: 0.86 },
-          { xr: 0.82, yr: 0.86 },
-        ];
-  doorPts.forEach((sp, i) => {
-    spots.push({
-      spotId: `${door.id}_r0_${i}`,
-      boxId: box.id,
-      doorId: door.id,
-      rowIndex: 0,
-      xRatio: sp.xr,
-      yRatio: sp.yr,
-      leafYRatio: sp.yr,
-    });
-  });
-
   return spots;
 }
 

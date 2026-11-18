@@ -1,3 +1,4 @@
+import { isFrontPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   APPLIANCE_CONFIGS,
@@ -502,9 +503,11 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
   const dragOp = useRef<DragOp | null>(null);
   const dragPointerId = useRef<number | null>(null);
+  const [touchTarget, setTouchTarget] = useState<PlacementPoint | null>(null);
+  const touchTargetPointer = useRef<number | null>(null);
+  const touchPointerMode = useRef(false);
+  useEffect(() => { setTouchTarget(null); touchTargetPointer.current = null; }, [tool, wall?.id]);
   const activePointersRef = useRef<Set<number>>(new Set());
-  const lastMultiTouchMsRef = useRef(0);
-  const lastPlaceTapRef = useRef<{ ts: number; x: number; y: number; tool: ToolId } | null>(null);
   const touchPinch = useRef<{
     dist: number;
     midX: number;
@@ -643,7 +646,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         const dy = by + topPad + insets.top * s + apronExtraPx + 1.5;
         const dh = Math.max(8, bodyH - topPad - (insets.top + insets.bottom) * s - apronExtraPx - 3);
 
-        const doorSpots = computeDoorHandleSpots(box, door, handleOrient);
+        const doorSpots = computeDoorHandleSpots(box, door);
         if (door.kind === 'drawer' || (door.kind === 'lift' && door.drawerRatios.length > 0)) {
           const pts = [0, ...door.drawerRatios, 1];
           for (const sp of doorSpots) {
@@ -679,7 +682,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       });
     });
     return spots;
-  }, [wall, tool, handleOrient, originX, floorY, s]);
+  }, [wall, tool, originX, floorY, s]);
 
   const doorPreview = useMemo(() => {
     if (!wall || tool !== 'doors' || !doorHover) return null;
@@ -1011,8 +1014,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
   const handleTouchStart = (e: React.TouchEvent<SVGSVGElement>) => {
     if (e.touches.length >= 2) {
-      lastMultiTouchMsRef.current = performance.now();
-      lastPlaceTapRef.current = null;
+      touchTargetPointer.current = null;
+      setTouchTarget(null);
       cancelCurrentDrag();
       gestureStepperRef.current.resetTouch();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -1041,7 +1044,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   touchMoveHandlerRef.current = (e: TouchEvent) => {
     if (e.touches.length === 2 && touchPinch.current) {
       e.preventDefault();
-      lastMultiTouchMsRef.current = performance.now();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.hypot(dx, dy);
@@ -1252,55 +1254,32 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     };
   };
 
-  const isSpacedDoublePlacement = (e: React.PointerEvent<SVGSVGElement>, toolId: ToolId): boolean => {
-    const now = performance.now();
-    if (now - lastMultiTouchMsRef.current < 420 || activePointersRef.current.size > 1) {
-      lastPlaceTapRef.current = null;
-      return false;
-    }
-    // All mouse/pen design actions are ONE click: inserting door, handle,
-    // appliance, frame and clicking empty space to switch orientation.
-    // Keep existing deliberate double-tap semantics only on touch screens
-    // to avoid accidental painting while zooming/panning.
-    if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
-      lastPlaceTapRef.current = null;
-      return true;
-    }
-    const prev = lastPlaceTapRef.current;
-    const minGap = e.pointerType === 'touch' ? 75 : 0;
-    if (
-      prev &&
-      prev.tool === toolId &&
-      now - prev.ts >= minGap &&
-      now - prev.ts <= 750 &&
-      Math.hypot(e.clientX - prev.x, e.clientY - prev.y) <= 38
-    ) {
-      lastPlaceTapRef.current = null;
-      return true;
-    }
-    lastPlaceTapRef.current = { ts: now, x: e.clientX, y: e.clientY, tool: toolId };
-    return false;
-  };
-
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    touchPointerMode.current = e.pointerType === 'touch';
     if (e.button === 2 || !wall) return;
     activePointersRef.current.add(e.pointerId);
-    if (
-      (e.pointerType === 'touch' && activePointersRef.current.size >= 2) ||
-      performance.now() - lastMultiTouchMsRef.current < 420
-    ) {
-      if (e.pointerType === 'touch' && activePointersRef.current.size >= 2) {
-        lastMultiTouchMsRef.current = performance.now();
-      }
-      lastPlaceTapRef.current = null;
+    if (e.pointerType === 'touch' && activePointersRef.current.size >= 2) {
+      touchTargetPointer.current = null;
+      setTouchTarget(null);
       cancelCurrentDrag();
       return;
     }
+    if (e.pointerType === 'touch' && isFrontPlacement(tool) && !(tool === 'handle' && (e.target as Element).closest('[data-handle-id]'))) {
+      touchTargetPointer.current = e.pointerId;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      handlePointerMove(e);
+      return;
+    }
+    setTouchTarget(null);
+    applyPointerAction(e);
+  };
 
+  const applyPointerAction = (e: CanvasAction, confirmed = false) => {
+    if (!wall) return;
     if (dragPointerId.current !== null) return;
 
     // Middle-click or Space + Left-click always pans cleanly in ANY tool!
-    if (e.button === 1 || spaceDown) {
+    if (!confirmed && (e.button === 1 || spaceDown)) {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
       beginDrag(e.pointerId);
@@ -1334,7 +1313,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         }
       }
       const handEl = target.closest('[data-handle-id]');
-      if (handEl) {
+      if (handEl && !confirmed) {
         const hId = handEl.getAttribute('data-handle-id');
         const bId = handEl.getAttribute('data-box-id') || hit?.box.id;
         if (bId && hId) {
@@ -1421,7 +1400,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 1. Interactive Opening Resize Handles
     const openHandleEl = target.closest('[data-opening-handle]');
-    if (openHandleEl) {
+    if (openHandleEl && !confirmed) {
       const oId = openHandleEl.getAttribute('data-opening-id');
       const side = openHandleEl.getAttribute('data-opening-handle') as 'left' | 'right' | 'top' | 'bottom';
       const op = wall.openings?.find((o) => o.id === oId);
@@ -1444,7 +1423,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 2. Box resize handles
     const boxHandleEl = target.closest('[data-box-handle]');
-    if (boxHandleEl) {
+    if (boxHandleEl && !confirmed) {
       const bId = boxHandleEl.getAttribute('data-box-id');
       const side = boxHandleEl.getAttribute('data-box-handle') as 'left' | 'right' | 'top' | 'bottom';
       const box = wall.boxes.find((b) => b.id === bId);
@@ -1469,7 +1448,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 2b. Unit divider drag resize handle
     const unitDivResizeEl = target.closest('[data-unit-div-resize]');
-    if (unitDivResizeEl) {
+    if (unitDivResizeEl && !confirmed) {
       const seamVal = Number(unitDivResizeEl.getAttribute('data-unit-div-resize'));
       const bId = unitDivResizeEl.getAttribute('data-box-id');
       const boxObj = wall.boxes.find((b) => b.id === bId);
@@ -1517,7 +1496,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     // 3b. Standalone / Drawer left-or-right resize handle
     const doorResizeLeftEl = target.closest('[data-door-resize-left]');
     const doorResizeEl = doorResizeLeftEl || target.closest('[data-door-resize]');
-    if (doorResizeEl) {
+    if (doorResizeEl && !confirmed) {
       const edge: 'left' | 'right' = doorResizeLeftEl ? 'left' : 'right';
       const dId = doorResizeLeftEl
         ? doorResizeLeftEl.getAttribute('data-door-resize-left')
@@ -1591,7 +1570,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     // 5. Handle Tool
     if (tool === 'handle') {
       if (!hit) {
-        if (!isSpacedDoublePlacement(e, 'handle')) return;
         onHandleOrientChange(handleOrient === 'vertical' ? 'horizontal' : 'vertical');
         onToast(`جهت دستگیره: ${handleOrient === 'vertical' ? 'افقی' : 'عمودی'}`);
         return;
@@ -1618,7 +1596,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
       const spotEl = target.closest('[data-hand-spot]');
       if (spotEl) {
-        if (!isSpacedDoublePlacement(e, 'handle')) return;
         const sp = computedSpots.find(
           (x) => x.spotId === spotEl.getAttribute('data-hand-spot')
         );
@@ -1722,7 +1699,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 5a. Door Model Brush (`door-style`)
     if (tool === 'door-style') {
-      if (!isSpacedDoublePlacement(e, 'door-style')) return;
       if (!hit || hit.box.type === 'fridge') {
         const idx = Math.max(0, DOOR_STYLE_ORDER.indexOf(doorStyleBrush));
         const next = DOOR_STYLE_ORDER[(idx + 1) % DOOR_STYLE_ORDER.length];
@@ -1759,7 +1735,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 5a-2. Finish / Color Brush (`finish`)
     if (tool === 'finish') {
-      if (!isSpacedDoublePlacement(e, 'finish')) return;
       if (isPointOverCountertop(pt) || target.closest('[data-countertop-zone]')) {
         onApplyFinish('countertop', wall.id);
         return;
@@ -1782,7 +1757,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 5b. Frame Tool (`frame`) — spaced double-click edge or seam & drag
     if (tool === 'frame') {
-      if (!isSpacedDoublePlacement(e, 'frame')) return;
       const fTarget = resolveFrameTargetAtPoint(pt);
       if (!fTarget) {
         onToast('برای فریم‌کشی روی لبه آزاد یا درز بین درب‌ها کلیک کنید');
@@ -1988,7 +1962,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 7. Door Brush Mode (`doors`) — spaced double-click/tap required
     if (tool === 'doors') {
-      if (!isSpacedDoublePlacement(e, 'doors')) return;
       if (!hit) {
         const next = doorOrient === 'vertical' ? 'horizontal' : 'vertical';
         onDoorOrientChange(next);
@@ -2023,7 +1996,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 7b. Hardware Kind Tool (`hardware`) — click door/box to assign opening hardware, empty space to cycle
     if (tool === 'hardware') {
-      if (!isSpacedDoublePlacement(e, 'hardware')) return;
       if (!hit || hit.box.type === 'fridge') {
         const idx = Math.max(0, HARDWARE_KIND_ORDER.indexOf(hardwareBrush));
         const nxt = HARDWARE_KIND_ORDER[(idx + 1) % HARDWARE_KIND_ORDER.length];
@@ -2054,13 +2026,11 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     // 8. Pencil / Skeleton Mode (spaced double-click/tap required)
     if (tool === 'pencil' || tool === 'skeleton') {
       if (!hit) {
-        if (!isSpacedDoublePlacement(e, tool)) return;
         const nxtOrient: Orientation = shelfOrient === 'vertical' ? 'horizontal' : 'vertical';
         onShelfOrientChange?.(nxtOrient);
         onToast(`جهت طبقه‌بندی: ${nxtOrient === 'vertical' ? 'عمودی' : 'افقی'}`);
         return;
       }
-      if (!isSpacedDoublePlacement(e, tool)) return;
       onSelectBoxAndDoor(hit.box.id, null);
       const insets = getEffectiveBoxInsets(hit.box);
       const scaleX = Math.max(
@@ -2152,7 +2122,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 9. Sink / Gas / Appliance Tool (spaced double-click/tap required)
     if (tool === 'sink' || tool === 'gas' || tool === 'appliance') {
-      if (!isSpacedDoublePlacement(e, tool)) return;
       const clickXCm = (pt.x - originX) / s;
       let targetBase: CabinetBox | undefined = hit && hit.box.type === 'base' ? hit.box : undefined;
 
@@ -2203,16 +2172,14 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // 10. Fridge Placement directly in Front view (spaced double-click/tap required)
     if (tool === 'fridge') {
-      if (!isSpacedDoublePlacement(e, 'fridge')) return;
       const cfg = FRIDGE_MODELS[fridgeModel];
-      const desiredOffset = (pt.x - originX) / s - cfg.width / 2;
+      const desiredOffset = (pt.x - originX) / s - (cfg.width + 2 * FRIDGE_FRAME_CM) / 2;
       onPlaceFridge(desiredOffset);
       return;
     }
 
     // 11. Opening Placement directly in Front view (spaced double-click/tap required)
     if (tool === 'opening') {
-      if (!isSpacedDoublePlacement(e, 'opening')) return;
       const def = OPENING_DEFAULTS[openingKind];
       const desiredOffset = (pt.x - originX) / s - def.width / 2;
       const desiredElev =
@@ -2224,6 +2191,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     }
 
     // Fallback pan
+    if (confirmed) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     beginDrag(e.pointerId);
     dragOp.current = {
@@ -2236,6 +2204,10 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch' && activePointersRef.current.size > 1) return;
+    if (touchTargetPointer.current === e.pointerId) {
+      setTouchTarget({ clientX: e.clientX, clientY: e.clientY });
+    }
     if (dragPointerId.current !== null && e.pointerId !== dragPointerId.current) return;
     setHoverClientPt({ x: e.clientX, y: e.clientY });
     if (!wall) return;
@@ -2694,6 +2666,11 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
   const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
     activePointersRef.current.delete(e.pointerId);
+    if (touchTargetPointer.current === e.pointerId) {
+      touchTargetPointer.current = null;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+      return;
+    }
     if (!dragOp.current || dragPointerId.current !== e.pointerId) return;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -3446,10 +3423,11 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         data-testid="front-svg"
         data-front-direction={wall?.flipSide === -1 ? 'reversed' : 'forward'}
         viewBox={viewBox}
-        className={`w-full h-full block touch-none ${wall?.flipSide === -1 ? 'front-elevation-reversed' : ''}`}
+        className={`w-full h-full block touch-none [-webkit-touch-callout:none] ${wall?.flipSide === -1 ? 'front-elevation-reversed' : ''}`}
         style={{ transform: wall?.flipSide === -1 ? 'scaleX(-1)' : undefined, cursor: spaceDown ? 'grab' : tool === 'eraser' ? 'not-allowed' : undefined }}
         onContextMenu={(e) => {
           e.preventDefault();
+          if (touchPointerMode.current) return;
           cancelCurrentDrag();
           if (tool !== 'select') {
             onExitToSelect();
@@ -3459,9 +3437,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onTouchEnd={() => {
           touchPinch.current = null;
           gestureStepperRef.current.resetTouch();
-          lastMultiTouchMsRef.current = performance.now();
         }}
         onPointerLeave={() => {
+          if (touchTarget) return;
           setDoorHover(null);
           setPencilHover(null);
           setAppHover(null);
@@ -3475,6 +3453,10 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={(e) => {
           activePointersRef.current.delete(e.pointerId);
+          if (touchTargetPointer.current === e.pointerId) {
+            touchTargetPointer.current = null;
+            setTouchTarget(null);
+          }
           if (dragPointerId.current === e.pointerId) cancelCurrentDrag();
         }}
       >
@@ -4454,8 +4436,17 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     );
                   })}
 
-                  {isAct && tool === 'select' && (
+                  {isAct && tool === 'select' && box.type !== 'fridge' && (
                     <>
+                      {([
+                        ['left', bx - 1, by + bodyH / 2],
+                        ['right', bx + bw + 1, by + bodyH / 2],
+                        ['top', bx + bw / 2, by - 1],
+                        ...(box.type === 'wall' || box.type === 'wall-deep' ? [['bottom', bx + bw / 2, by + bodyH + 1]] : []),
+                      ] as [string, number, number][]).map(([side, x, y]) => (
+                        <rect key={side} x={x - 15} y={y - 15} width={30} height={30} fill="transparent"
+                          data-box-handle={side} data-box-id={box.id} style={{ cursor: side === 'left' || side === 'right' ? 'ew-resize' : 'ns-resize' }} />
+                      ))}
                       <rect
                         x={bx - 5}
                         y={by + bodyH / 2 - 14}
@@ -4929,7 +4920,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   key={sp.spotId}
                   cx={sp.x}
                   cy={sp.y}
-                  r={5.5}
+                  r={8}
                   fill="rgba(79,70,229,0.22)"
                   stroke="#4f46e5"
                   strokeWidth={1.6}
@@ -4937,6 +4928,16 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   data-hand-spot={sp.spotId}
                 />
               ))}
+
+            {tool === 'handle' && cursorPt && (() => {
+              const spot = computedSpots.find(sp => Math.hypot(sp.x - cursorPt.x, sp.y - cursorPt.y) <= 8);
+              if (!spot) return null;
+              const span = handleStyle === 'knob' ? 7 : Math.max(12, 16 * s);
+              const width = handleOrient === 'horizontal' ? span : 5;
+              const height = handleOrient === 'vertical' ? span : 5;
+              return <rect pointerEvents="none" x={spot.x - width / 2} y={spot.y - height / 2}
+                width={width} height={height} rx={2.5} fill="#4338ca" opacity={0.85} />;
+            })()}
 
             {/* مستطیل شبح کم‌رنگ دنبال‌کننده موس برای براش درب */}
             {tool === 'doors' && cursorPt && !doorPreview && (
@@ -5461,6 +5462,33 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           </>
         )}
       </svg>
+      {((touchTarget && isFrontPlacement(tool)) || tool === 'handle') && (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 flex gap-2 whitespace-nowrap rounded-xl border bg-white p-1.5 shadow">
+          {tool === 'handle' && (
+            <button type="button" data-testid="front-handle-orientation" className="h-10 rounded-lg border border-slate-300 px-3 font-bold"
+              onClick={() => onHandleOrientChange(handleOrient === 'vertical' ? 'horizontal' : 'vertical')}>
+              {handleOrient === 'vertical' ? 'دستگیره عمودی' : 'دستگیره افقی'}
+            </button>
+          )}
+          {touchTarget && (
+            <>
+              <button type="button" data-testid="front-confirm-placement" className="h-10 rounded-lg bg-emerald-700 px-4 font-bold text-white"
+                onClick={() => {
+                  const action = placementAt(svgRef.current, touchTarget);
+                  if (!action) return;
+                  if (tool === 'handle' && !(action.target as Element).closest('[data-hand-spot]')) {
+                    onToast('یکی از نقاط نصب دستگیره را لمس کنید');
+                    return;
+                  }
+                  setTouchTarget(null);
+                  applyPointerAction(action, true);
+                }}>تأیید</button>
+              <button type="button" className="h-10 rounded-lg px-3 font-bold"
+                onClick={() => { setTouchTarget(null); setCursorPt(null); setDoorHover(null); setAppHover(null); setPencilHover(null); }}>لغو</button>
+            </>
+          )}
+        </div>
+      )}
 
       {(hoverClientPt || tool !== 'select') && !dragOp.current && (
         <CursorToolPreview

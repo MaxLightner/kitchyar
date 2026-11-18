@@ -1,5 +1,5 @@
 import { BOX_PRESETS, DEFAULT_PROJECT_SETTINGS } from './constants';
-import { analyzeCornerJunction, detectCornerJunctions, getBoxTier, type SweepSegment } from './cornerLogic';
+import { analyzeCornerJunction, computeMultiWallSweep, detectCornerJunctions, getBoxTier, type SweepSegment } from './cornerLogic';
 import type { BoxKind, ProjectState, Wall } from './types';
 
 function subtractBlockedIntervals(
@@ -148,4 +148,42 @@ export function resolveCabinetPlacement(
     });
   });
   return { segments: placements, owners, blockedByOpening };
+}
+
+
+export interface CabinetRowDraft {
+  kind: BoxKind;
+  starter: SweepSegment;
+  offsetCm: number;
+  flipOverrides?: Record<string, 1 | -1>;
+}
+
+type CabinetProject = Pick<ProjectState, 'walls' | 'cornerOwners' | 'settings'>;
+
+export function startCabinetRow(
+  project: CabinetProject, wall: Wall, offsetCm: number, kind: BoxKind,
+  flipOverrides?: Record<string, 1 | -1>
+): CabinetRowDraft | null {
+  const { segments } = resolveCabinetPlacement(project, [cabinetStarterSegment(wall, offsetCm)], kind, undefined, flipOverrides);
+  const starter = segments.find(segment => offsetCm >= segment.startCm && offsetCm <= segment.startCm + segment.widthCm)
+    ?? segments[0];
+  return starter ? { kind, starter, offsetCm, flipOverrides } : null;
+}
+
+export function previewCabinetRow(project: CabinetProject, draft: CabinetRowDraft, targetWallId: string, targetCm: number) {
+  const { kind, starter, offsetCm, flipOverrides } = draft;
+  const walls = flipOverrides
+    ? project.walls.map(wall => flipOverrides[wall.id] ? { ...wall, flipSide: flipOverrides[wall.id] } : wall)
+    : project.walls;
+  const { segments: requested, suggestedOwners } = computeMultiWallSweep(
+    walls, starter.wallId, offsetCm, targetWallId, targetCm, kind, project.cornerOwners, true, starter
+  );
+  const resolved = resolveCabinetPlacement(project, requested, kind, suggestedOwners, flipOverrides);
+  const keepsStarter = resolved.segments.some(segment =>
+    segment.wallId === starter.wallId &&
+    segment.startCm <= starter.startCm + 0.5 &&
+    segment.startCm + segment.widthCm >= starter.startCm + starter.widthCm - 0.5
+  );
+  const valid = keepsStarter && resolved.segments.some(segment => segment.wallId === targetWallId);
+  return { requested, suggestedOwners, segments: valid ? resolved.segments : [starter], valid };
 }

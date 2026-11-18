@@ -622,7 +622,8 @@ export function computeMultiWallSweep(
   targetOffsetCm: number,
   boxKind: BoxKind,
   cornerOwners: Record<string, string>,
-  hasDragged: boolean
+  hasDragged: boolean,
+  starter?: SweepSegment
 ): { segments: SweepSegment[]; suggestedOwners: Record<string, string> } {
   const startWall = walls.find((w) => w.id === startWallId);
   const targetWall = walls.find((w) => w.id === targetWallId);
@@ -666,6 +667,11 @@ export function computeMultiWallSweep(
 
     let s = snapToWallAndBoxes(Math.min(startOffsetCm, targetOffsetCm), startWall);
     let e = snapToWallAndBoxes(Math.max(startOffsetCm, targetOffsetCm), startWall);
+    if (starter?.wallId === startWall.id) {
+      const starterEnd = starter.startCm + starter.widthCm;
+      s = targetOffsetCm < starter.startCm ? Math.min(s, starter.startCm) : starter.startCm;
+      e = targetOffsetCm > starterEnd ? Math.max(e, starterEnd) : starterEnd;
+    }
     if (e - s < 30) {
       if (s + 30 <= startWall.length) e = s + 30;
       else s = Math.max(0, e - 30);
@@ -744,7 +750,9 @@ export function computeMultiWallSweep(
     const w = walls.find((x) => x.id === wId)!;
     if (idx === 0) {
       const exitEnd = chainSteps[0].exitEndOnPrev!;
-      const sOff = snapToWallAndBoxes(startOffsetCm, w);
+      const sOff = starter?.wallId === wId
+        ? starter.startCm + (exitEnd === 'start' ? starter.widthCm : 0)
+        : snapToWallAndBoxes(startOffsetCm, w);
       spans.set(
         wId,
         exitEnd === 'end'

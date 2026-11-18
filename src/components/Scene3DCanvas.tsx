@@ -1,4 +1,4 @@
-import { cabinetStarterSegment, resolveCabinetPlacement } from '../cad/cabinetPlacement';
+import { previewCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { logDiagnostic } from '../utils/diagnostics';
 import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useRef, useState } from 'react';
@@ -31,7 +31,6 @@ import {
   SINK_MODEL_ORDER,
 } from '../cad/constants';
 import {
-  computeMultiWallSweep,
   getCornerBlockedZonesForWall,
   SweepSegment,
 } from '../cad/cornerLogic';
@@ -333,6 +332,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const surfaceCursorRef = useRef(new SurfaceCursor());
   const commitPlacementRef = useRef<() => void>(()=>{});
+  const cancelPlacementRef = useRef<() => void>(() => {});
   const [hasPlacementCursor, setHasPlacementCursor] = useState(false);
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [camPreset, setCamPreset] = useState<'iso' | 'front' | 'top'>('iso');
@@ -368,7 +368,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const camInitDoneRef = useRef(false);
   const doorStatesRef = useRef<Map<string, { cur: number; target: number }>>(new Map());
   const pendingWallStart3DRef = useRef<{ xCm: number; yCm: number } | null>(null);
-  const pendingCabDraw3DRef = useRef<{ wallId: string; startXCm: number; boxKind: BoxKind } | null>(null);
+  const pendingCabDraw3DRef = useRef<CabinetRowDraft | null>(null);
   const clearWallPreviewRef = useRef<() => void>(() => {});
   const updateWallPreviewRef = useRef<(clientX: number, clientY: number) => void>(() => {});
   const updateGhostAndHoverRef = useRef<(clientX: number, clientY: number) => void>(() => {});
@@ -948,21 +948,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       // Active 2-click multi-wall cab-draw sweep tracks across connected walls around corners!
       const pendingSweep = pendingCabDraw3DRef.current;
       if (cur.tool === 'cab-draw' && pendingSweep) {
-        const target = resolveCabSweepTarget(clientX, clientY, pendingSweep.wallId, pendingSweep.boxKind);
+        const target = resolveCabSweepTarget(clientX, clientY, pendingSweep.starter.wallId, pendingSweep.kind);
         if (target) {
-          const kindNow = pendingSweep.boxKind;
+          const kindNow = pendingSweep.kind;
           const preset = BOX_PRESETS[kindNow] || BOX_PRESETS.base;
-          const sweepRes = computeMultiWallSweep(
-            cur.project.walls,
-            pendingSweep.wallId,
-            pendingSweep.startXCm,
-            target.wallId,
-            target.xCm,
-            kindNow,
-            cur.project.cornerOwners,
-            true
-          );
-          const placement = resolveCabinetPlacement(cur.project, sweepRes.segments.filter(seg => seg.widthCm >= 30), kindNow, sweepRes.suggestedOwners);
+          const placement = previewCabinetRow(cur.project, pendingSweep, target.wallId, target.xCm);
           const totalWidthCm = placement.segments.reduce((sum, seg) => sum + seg.widthCm, 0);
           disposeGhostChildren();
           ghostGroup.position.set(0, 0, 0);
@@ -991,7 +981,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
               Math.max(0.02, boxH * CM),
               Math.max(0.015, preset.depth * CM)
             );
-            const mesh = new THREE.Mesh(geo, totalWidthCm >= 30 ? ghostMatIndigo : ghostMatDanger);
+            const mesh = new THREE.Mesh(geo, placement.valid ? ghostMatIndigo : ghostMatDanger);
             mesh.position.set(
               (seg.startCm + seg.widthCm / 2) * CM,
               (boxElev + boxH / 2) * CM,
@@ -1003,11 +993,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             line.position.copy(mesh.position);
             segGrp.add(line);
 
-            if (seg.wallId === pendingSweep.wallId) {
+            if (seg.wallId === pendingSweep.starter.wallId) {
               const pinGeo = new THREE.BoxGeometry(0.028, Math.max(0.05, boxH * CM + 0.04), 0.028);
               const pinMesh = new THREE.Mesh(pinGeo, ghostMatTeal);
               pinMesh.position.set(
-                pendingSweep.startXCm * CM,
+                pendingSweep.starter.startCm * CM,
                 (boxElev + boxH / 2) * CM,
                 segTr.normalSign * (preset.depth + 2) * CM
               );
@@ -1022,7 +1012,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             clientX,
             clientY,
             hoverTarget: null,
-            targetStatus: totalWidthCm >= 30 ? 'valid' : 'invalid',
+            targetStatus: placement.valid ? 'valid' : 'invalid',
             sweepWidthCm: totalWidthCm,
           });
           requestRender();
@@ -1112,17 +1102,18 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       let previewDoorWidths: number[] | undefined;
 
       if (cur.tool === 'cab-draw') {
-        targetStatus = 'valid';
-        if (cur.drawBoxKind === 'base') {
-          const preset = BOX_PRESETS.base;
-          const placement = resolveCabinetPlacement(cur.project, [cabinetStarterSegment(wall, hitXCm)], 'base');
-          const height = cur.project.settings?.baseHeightCm ?? preset.height;
-          for (const segment of placement.segments) {
-            addGhostBox(segment.startCm, preset.elevY, 0, segment.widthCm, height, preset.depth, ghostMatIndigo);
-          }
-          hasGhost = placement.segments.length > 0;
-          targetStatus = hasGhost ? 'valid' : 'invalid';
-          previewSweepWidth = placement.segments.reduce((sum, seg) => sum + seg.widthCm, 0);
+        const kind = cur.drawBoxKind;
+        const preset = BOX_PRESETS[kind] || BOX_PRESETS.base;
+        const draft = startCabinetRow(cur.project, wall, hitXCm, kind);
+        targetStatus = draft ? 'valid' : 'invalid';
+        if (draft) {
+          const { starter } = draft;
+          const height = kind === 'base' ? cur.project.settings?.baseHeightCm ?? preset.height
+            : kind === 'wall' ? cur.project.settings?.wallCabHeightCm ?? preset.height : preset.height;
+          const elev = kind === 'wall' ? cur.project.settings?.wallCabElevCm ?? preset.elevY : preset.elevY;
+          addGhostBox(starter.startCm, elev, 0, starter.widthCm, height, preset.depth, ghostMatIndigo);
+          hasGhost = true;
+          previewSweepWidth = starter.widthCm;
         }
       } else if (cur.tool === 'fridge') {
         const cfg = FRIDGE_MODELS[cur.fridgeModel];
@@ -1399,16 +1390,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     const onPointerDown = (e: PointerEvent) => {
       if (dragPointerId !== null) return;
-      const pinnedScreen=surfaceCursorRef.current.screen(camera,renderer.domElement);
-      const nearCursor=pinnedScreen && Math.hypot(e.clientX-pinnedScreen.x,e.clientY-pinnedScreen.y)<34;
-      // Never auto-pin a placement cursor while in select mode on touch (fixes touch select & tap-hijack bug).
-      void nearCursor;
       if (e.pointerType === 'touch' && propsRef.current.tool !== 'select') {
         e.preventDefault();
         e.stopImmediatePropagation();
         controls.enabled = false;
-        surfaceCursorRef.current.begin(e.pointerId, e.clientX, e.clientY);
-        if (!surfaceCursorRef.current.point) pinSurfaceCursor(e.clientX, e.clientY);
+        if (!surfaceCursorRef.current.begin(e.pointerId, e.clientX, e.clientY)) return;
+        surfaceCursorRef.current.clearTarget();
+        pinSurfaceCursor(e.clientX, e.clientY);
         try {
           renderer.domElement.setPointerCapture(e.pointerId);
         } catch {}
@@ -1785,7 +1773,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onDoorSingleClick = (e: PointerEvent) => {
-      if (!builtRef.current) return;
+      if (!builtRef.current || e.pointerType === 'touch') return;
       raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
       const hits = raycaster.intersectObjects(builtRef.current.interactables, false);
       if (!hits.length) return;
@@ -1828,8 +1816,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if(e.pointerType==='touch' && (propsRef.current.tool!=='select' || surfaceCursorRef.current.dragging)) {
         const commit=surfaceCursorRef.current.end(e.pointerId);
         controls.enabled=propsRef.current.tool!=='wall'&&propsRef.current.tool!=='cab-draw';
-        if(!commit||propsRef.current.tool==='select')return;
-        const pinned=cursorScreen(actionX,actionY);
+        if (!commit || propsRef.current.tool === 'select') return;
+        const pinned = surfaceCursorRef.current.screen(camera, dom);
+        if (!pinned) return;
         actionX=pinned.x;actionY=pinned.y;
         downClientRef.current={x:actionX,y:actionY};
       }
@@ -1908,35 +1897,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         return;
       }
 
-      // Complete 2-click multi-wall cab-draw sweep around corners (identical to 2D!)
-      if (cur.tool === 'cab-draw' && pendingCabDraw3DRef.current) {
-        const pending = pendingCabDraw3DRef.current;
-        const target = resolveCabSweepTarget(actionX, actionY, pending.wallId, pending.boxKind);
-        if (target) {
-          const sweepRes = computeMultiWallSweep(
-            cur.project.walls,
-            pending.wallId,
-            pending.startXCm,
-            target.wallId,
-            target.xCm,
-            pending.boxKind,
-            cur.project.cornerOwners,
-            true
-          );
-          const validSegments = sweepRes.segments.filter((seg) => seg.widthCm >= 30);
-          if (validSegments.length > 0) {
-            if (cur.onCreateBoxesFromSweep(validSegments, pending.boxKind, sweepRes.suggestedOwners)) {
-              pendingCabDraw3DRef.current = null;
-              clearGhost();
-            } else {
-              updateGhostAndHover(actionX, actionY);
-            }
-            return;
-          }
-          cur.onToast('عرض باکس باید حداقل ۳۰ سانتی‌متر باشد');
-          return;
+      const pendingRow = pendingCabDraw3DRef.current;
+      if (cur.tool === 'cab-draw' && pendingRow) {
+        const target = resolveCabSweepTarget(actionX, actionY, pendingRow.starter.wallId, pendingRow.kind);
+        if (!target) return cur.onToast('انتهای ردیف را روی دیوار مشخص کنید');
+        const row = previewCabinetRow(cur.project, pendingRow, target.wallId, target.xCm);
+        if (!row.valid) return cur.onToast('انتهای ردیف را روی بخش آزاد همان دیوار یا دیوار متصل بگذارید');
+        if (cur.onCreateBoxesFromSweep(row.requested, pendingRow.kind, row.suggestedOwners)) {
+          pendingCabDraw3DRef.current = null;
+          clearGhost();
         }
-        cur.onToast('نقطه پایان را روی دیوار مشخص کنید؛ نقطه شروع حفظ شده است');
         return;
       }
 
@@ -1996,25 +1966,18 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const hitXCm = Math.max(0, Math.min(wall.length, scratchRel.dot(tr.tangent) / CM));
       const hitYCm = Math.max(0, Math.min(wall.height, topPoint.y / CM));
 
-      if (cur.tool === 'cab-draw' && cur.drawBoxKind === 'base') {
-        if (cur.onCreateBoxesFromSweep([cabinetStarterSegment(wall, hitXCm)], 'base')) clearGhost();
-        return;
-      }
       if (cur.tool === 'cab-draw') {
-        const startXCm = Math.max(0, Math.min(wall.length, Math.round(hitXCm / 5) * 5));
-        pendingCabDraw3DRef.current = {
-          wallId: wall.id,
-          startXCm,
-          boxKind: cur.drawBoxKind,
-        };
+        const draft = startCabinetRow(cur.project, wall, hitXCm, cur.drawBoxKind);
+        if (!draft) return cur.onToast('برای شروع ردیف فضای آزاد کافی نیست');
+        pendingCabDraw3DRef.current = draft;
         updateGhostAndHover(actionX, actionY);
-        cur.onToast('نقطه شروع باکس ثبت شد — موس را روی دیوار (یا دیوار مجاور در کنج) بکشید و کلیک دوم بزنید');
+        cur.onToast('شروع ردیف مشخص شد؛ انتها را انتخاب و ثبت کنید');
         return;
       }
 
       if (cur.tool === 'fridge') {
         const cfg = FRIDGE_MODELS[cur.fridgeModel];
-        cur.onPlaceFridge(wall.id, hitXCm - cfg.width / 2);
+        cur.onPlaceFridge(wall.id, hitXCm - (cfg.width + 2 * FRIDGE_FRAME_CM) / 2);
         return;
       }
 
@@ -2360,39 +2323,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           return;
         }
 
-        let rowIndex = 0;
-        let yRatio = box.type === 'wall' || box.type === 'wall-deep' ? 0.82 : 0.18;
-        let xRatio = 0.5;
-
-        if (
-          data.kind === 'handle-spot' &&
-          data.rowIndex !== undefined &&
-          data.xRatio !== undefined &&
-          data.yRatio !== undefined
-        ) {
-          rowIndex = data.rowIndex;
-          xRatio = data.xRatio;
-          yRatio = data.yRatio;
-        } else {
-          const innerBot = box.elevY + box.plinth;
-          const innerH = Math.max(10, box.height - box.plinth - box.countertopCm);
-          const normY = Math.max(0, Math.min(1, 1 - (hitYCm - innerBot) / innerH));
-          if ((door.kind === 'drawer' || door.kind === 'lift') && door.drawerRatios.length > 0) {
-            const pts = [0, ...door.drawerRatios, 1];
-            for (let ri = 0; ri < pts.length - 1; ri++) {
-              if (normY >= pts[ri] && normY <= pts[ri + 1]) {
-                rowIndex = ri;
-                yRatio = 0.5;
-                break;
-              }
-            }
-          } else if (door.kind === 'door' && door.hardwareKind === 'pantry-pullout') {
-            yRatio = 0.5;
-          }
-          if (door.kind === 'door' && door.hardwareKind !== 'pantry-pullout') {
-            const midDoorCm = door.startCm + door.widthCm / 2;
-            xRatio = localX >= midDoorCm ? 0.86 : 0.14;
-          }
+        const { rowIndex, xRatio, yRatio } = data;
+        if (data.kind !== 'handle-spot' || rowIndex === undefined || xRatio === undefined || yRatio === undefined) {
+          cur.onToast('یکی از نقاط نصب روی در را انتخاب کنید');
+          return;
         }
 
         const blockedZones = getCornerBlockedZonesForWall(wall, cur.project.walls, cur.project.cornerOwners);
@@ -2518,6 +2452,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     };
 
+    cancelPlacementRef.current = () => {
+      pendingCabDraw3DRef.current = null;
+      pendingWallStart3DRef.current = null;
+      surfaceCursorRef.current.clear();
+      setHasPlacementCursor(false);
+      setHoverPreview(null);
+      clearGhost();
+      clearWallFloorPreview();
+      requestRender();
+    };
     commitPlacementRef.current = () => {
       if(propsRef.current.tool==='select')return;
       const pinned=surfaceCursorRef.current.screen(camera,renderer.domElement);
@@ -2682,6 +2626,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
+      if (!rightDownClientRef.current) return;
       rightDownClientRef.current = null;
 
       if (pendingWallStart3DRef.current) {
@@ -2753,8 +2698,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const dom = renderer.domElement;
+    dom.style.setProperty('-webkit-touch-callout', 'none');
     const onPlacementKey = (event:KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target as HTMLElement)?.isContentEditable) {
+      if ((event.target as HTMLElement)?.closest('input, textarea, select, button, [contenteditable=true]') || event.repeat) {
         return;
       }
       if (event.key === 'Enter') {
@@ -2779,7 +2725,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       if (dragPointerId === null && !dom.hasPointerCapture(e.pointerId) && e.target !== dom && !downClientRef.current) return;
       cancelModelDrag();
-      surfaceCursorRef.current.cancelGesture();
+      surfaceCursorRef.current.resetGesture(e.pointerId);
       downClientRef.current = null;
       rightDownClientRef.current = null;
       if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
@@ -2856,7 +2802,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       surfaceCursorRef.current.clear();
       setHasPlacementCursor(false);
     }
-    if (tool !== 'cab-draw' || pendingCabDraw3DRef.current?.boxKind !== props.drawBoxKind) {
+    if (tool !== 'cab-draw' || pendingCabDraw3DRef.current?.kind !== props.drawBoxKind) {
       pendingCabDraw3DRef.current = null;
     }
     if (tool === 'wall') {
@@ -2934,7 +2880,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const previews = attachSelectedHandlePreviews(built, project, props.handleStyle, props.handleOrient);
     const spotsSet = project.doorsHidden
       ? null
-      : attachHandleCandidateSpots(built, project, props.handleOrient);
+      : attachHandleCandidateSpots(built, project);
     handleSpotsRef.current = spotsSet;
     requestRenderRef.current();
     return () => {
@@ -3126,16 +3072,25 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         {tool === 'wall'
           ? 'نشانگر روی زمین را حرکت دهید و با کلیک نقطه‌ها دیوار بکشید (راست‌کلیک = انتخاب)'
           : tool === 'select'
-          ? 'کلیک روی دیوار/باکس = انتخاب · دابل‌کلیک روی هر درب = انیمیشن آرام‌بند · کشیدن = چرخش'
+          ? 'لمس یا کلیک = انتخاب · دستگیرهٔ بنفش را بکشید تا اندازه تغییر کند'
           : 'موس روی دیوار = پیش‌نمایش و اسکرول تغییر مدل · راست‌کلیک = بازگشت به انتخاب'}
       </div>
 
-      {!props.scanMode && hasPlacementCursor && tool !== 'select' && (
+      {!props.scanMode && ((hasPlacementCursor && tool !== 'select') || tool === 'handle') && (
         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50 pointer-events-auto flex gap-2">
-          <button type="button" data-testid="scene-confirm-placement" onClick={()=>commitPlacementRef.current()}
-            className="h-11 rounded-xl px-5 bg-emerald-700 text-white font-bold">تأیید</button>
-          <button type="button" data-testid="scene-reset-cursor" onClick={()=>{surfaceCursorRef.current.clear();setHasPlacementCursor(false);requestRenderRef.current();}}
-            className="h-11 rounded-xl px-3 bg-white border border-slate-300">جابجایی نشانگر</button>
+          {tool === 'handle' && (
+            <button type="button" className="h-11 rounded-xl border border-slate-300 bg-white px-3 font-bold"
+              data-testid="scene-handle-orientation"
+              onClick={() => props.onSetHandleOrient?.(props.handleOrient === 'vertical' ? 'horizontal' : 'vertical')}>
+              {props.handleOrient === 'vertical' ? 'دستگیره عمودی' : 'دستگیره افقی'}
+            </button>
+          )}
+          {hasPlacementCursor && <button type="button" data-testid="scene-confirm-placement" onClick={()=>commitPlacementRef.current()}
+            className="h-11 rounded-xl px-5 bg-emerald-700 text-white font-bold">
+              {tool === 'cab-draw' ? (pendingCabDraw3DRef.current ? 'ثبت ردیف' : 'شروع ردیف') : 'تأیید'}
+          </button>}
+          {hasPlacementCursor && <button type="button" className="h-11 rounded-xl border border-slate-300 bg-white px-3 font-bold"
+            onClick={() => cancelPlacementRef.current()}>لغو</button>}
         </div>
       )}
       {!props.scanMode && (hoverPreview || tool !== 'select') && !drag3DRef.current && (

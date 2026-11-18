@@ -4,15 +4,17 @@ import * as THREE from 'three';
 export class SurfaceCursor {
   point: THREE.Vector3 | null = null;
   normal = new THREE.Vector3(0,1,0);
-  private gesture: {id:number; x:number; y:number; hadTarget:boolean; moved:boolean; cancelled:boolean} | null = null;
+  private gesture: {id:number; x:number; y:number;  moved:boolean; cancelled:boolean} | null = null;
   pin(point: THREE.Vector3, normal = new THREE.Vector3(0,1,0)) {
     this.point=point.clone();
     this.normal.copy(normal).normalize();
   }
-  clear() {this.point=null;this.gesture=null;}
-  begin(id:number,x:number,y:number) {
-    if(this.gesture) {this.gesture.cancelled=true;return;}
-    this.gesture={id,x,y,hadTarget:!!this.point,moved:false,cancelled:false};
+  clearTarget() { this.point = null; }
+  clear() {this.clearTarget();this.gesture=null;}
+  begin(id:number,x:number,y:number): boolean {
+    if(this.gesture) {this.gesture.cancelled=true;return false;}
+    this.gesture={id,x,y,moved:false,cancelled:false};
+    return true;
   }
   moving(id:number,x:number,y:number) {
     const g=this.gesture;
@@ -24,9 +26,10 @@ export class SurfaceCursor {
     const g=this.gesture;
     if(!g||g.id!==id)return false;
     this.gesture=null;
-    return g.hadTarget&&!g.moved&&!g.cancelled;
+    return !g.moved&&!g.cancelled;
   }
   cancelGesture() {if(this.gesture)this.gesture.cancelled=true;}
+  resetGesture(id: number) { if (this.gesture?.id === id) this.gesture = null; }
   get dragging() {return !!this.gesture;}
   screen(camera:THREE.Camera, element:HTMLElement) {
     if(!this.point)return null;

@@ -26,6 +26,7 @@ import {
   autoUnitizeBoxForHandles,
   carveBoxesForPlacedBox,
   clearHoodUnitForGas,
+  clampBoxInternalsAfterResize,
   compactDisconnectedDoorsInBox,
   createEmptyBox,
   deleteApplianceHierarchically,
@@ -38,7 +39,6 @@ import {
   getBoxSideExposure,
   getFreeMoveRangeForBox,
   getUnitsInBox,
-  mirrorBoxLayout,
   moveApplianceHierarchically,
   moveBoxHierarchically,
   moveUnitInBoxWithDoorsSync,
@@ -670,6 +670,38 @@ export default function App() {
     },
     [project, commitState, showToast]
   );
+
+  const resizeCabinetFromHandle = useCallback((
+    wallId: string, boxId: string, side: 'left' | 'right' | 'top' | 'bottom',
+    dxCm: number, dyCm: number, commit: boolean
+  ) => {
+    const next = cloneProject(dragCheckpointRef.current || getProject());
+    const wall = next.walls.find(w => w.id === wallId);
+    const box = wall?.boxes.find(b => b.id === boxId);
+    if (!wall || !box || box.type === 'fridge') return;
+    if ((box.type === 'wall' || box.type === 'wall-deep') && (side === 'top' || side === 'bottom')) {
+      const top = box.elevY + box.height;
+      const elev = side === 'bottom' ? Math.max(95, Math.min(top - 25, box.elevY + dyCm)) : box.elevY;
+      const height = side === 'top' ? Math.max(25, Math.min(wall.height - elev, box.height + dyCm)) : top - elev;
+      if (!resizeWallCabinetsSynchronized(next.walls, wallId, boxId, elev, height)) {
+        if (commit) commitState(getProject(), true);
+        return;
+      }
+    } else {
+      const minWidth = Math.min(40, box.width);
+      if (side === 'left') {
+        const offset = Math.max(0, Math.min(box.offsetX + box.width - minWidth, box.offsetX + dxCm));
+        box.width += box.offsetX - offset;
+        box.offsetX = offset;
+      } else if (side === 'right') {
+        box.width = Math.max(minWidth, Math.min(wall.length - box.offsetX, box.width + dxCm));
+      } else if (side === 'top') {
+        box.height = Math.max(40, Math.min(wall.height - box.elevY, box.height + dyCm));
+      }
+      clampBoxInternalsAfterResize(box);
+    }
+    commitState(next, commit);
+  }, [commitState, getProject]);
 
   const handleMoveUnit = useCallback(
     (dir: 'left' | 'right') => {
@@ -1652,15 +1684,41 @@ export default function App() {
     run();
   };
 
+  const canMirrorFront = Boolean(
+    project.selectedHandleId || project.selectedDoorId || project.multiSelection?.doorIds.length ||
+    project.multiSelection?.boxIds.length || (!project.selectedApplianceId && activeBox?.doors.length)
+  );
+
   const handleMirrorBox = () => {
-    if (!activeWall || !activeBox) return;
-    const next = cloneProject(project);
-    const w = next.walls.find((x) => x.id === activeWall.id);
-    const b = w?.boxes.find((x) => x.id === activeBox.id);
-    if (!w || !b) return;
-    mirrorBoxLayout(b, w, next.walls, next.cornerOwners);
+    const current = getProject();
+    const next = cloneProject(current);
+    const selected = current.multiSelection;
+    const doorIds = new Set(selected?.doorIds ?? []);
+    const boxIds = new Set(selected?.boxIds ?? []);
+    if (current.selectedDoorId) doorIds.add(current.selectedDoorId);
+    if (!doorIds.size && !boxIds.size && !current.selectedHandleId && current.activeBoxId) {
+      boxIds.add(current.activeBoxId);
+    }
+    let changed = false;
+    for (const wall of next.walls) for (const box of wall.boxes) {
+      const selectedHandle = box.handles.find(handle => handle.id === current.selectedHandleId);
+      for (const door of box.doors) {
+        if (!doorIds.has(door.id) && !boxIds.has(box.id) && selectedHandle?.doorId !== door.id) continue;
+        const handles = box.handles.filter(handle => handle.doorId === door.id);
+        if (door.kind === 'door' && door.hardwareKind !== 'pantry-pullout') {
+          const fallback = handles[0] && handles[0].xRatio <= 0.35 ? 'right' : 'left';
+          door.hingeSide = (door.hingeSide ?? fallback) === 'left' ? 'right' : 'left';
+          changed = true;
+        }
+        for (const handle of handles) {
+          handle.xRatio = +(1 - handle.xRatio).toFixed(4);
+          changed = true;
+        }
+      }
+    }
+    if (!changed) return;
     commitState(next, true);
-    showToast('چیدمان باکس در فضای رویه قرینه شد');
+    showToast('سمت لولا و دستگیره قرینه شد');
   };
 
   const handleAlignBox = (pos: 'left' | 'center' | 'right') => {
@@ -2738,6 +2796,7 @@ export default function App() {
         onCompactDoorsAndAppliances={handleCompactDoorsAndAppliances}
         onAlignWallAndBaseDoors={handleAlignWallAndBaseDoors}
         onMirrorBox={handleMirrorBox}
+        canMirrorFront={canMirrorFront}
         onAlignBox={handleAlignBox}
         onMoveUnit={handleMoveUnit}
       />
@@ -3116,6 +3175,7 @@ export default function App() {
             />
                   {floorScanActive && (
                   <ARWorkspace
+            onResizeCabinet={resizeCabinetFromHandle}
             onBeginDrag={handleBeginDrag}
             onCancelDrag={handleCancelDrag}
             onFinishDrag={handleFinishDrag}
@@ -3201,6 +3261,7 @@ export default function App() {
             <>
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
+                  onResizeCabinet={resizeCabinetFromHandle}
                   settings={project.settings}
                   onFinishDrag={handleFinishDrag}
                   onBeginDrag={handleBeginDrag}

@@ -1,4 +1,5 @@
-import { cabinetStarterSegment, resolveCabinetPlacement } from '../cad/cabinetPlacement';
+import { isPlanPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
+import { cabinetStarterSegment, previewCabinetRow, resolveCabinetPlacement, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
 import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -54,6 +55,7 @@ const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'cl
 
 interface PlanCanvasProps {
   onBeginDrag: () => void;
+  onResizeCabinet: (wallId: string, boxId: string, side: 'left' | 'right', dxCm: number, dyCm: number, commit: boolean) => void;
   onCancelDrag: () => void;
   onFinishDrag: () => void;
   settings?: ProjectSettings;
@@ -142,6 +144,7 @@ interface PlanCanvasProps {
 
 export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   onBeginDrag,
+  onResizeCabinet,
   onCancelDrag,
   onFinishDrag,
   settings,
@@ -206,6 +209,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     snappedCorner: boolean;
    }>(emptyWallDraw);
 
+  const [touchRow, setTouchRow] = useState<CabinetRowDraft | null>(null);
   const [cabSweep, setCabSweep] = useState<{
     active: boolean;
     startWallId: string | null;
@@ -221,6 +225,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   }, [tool]);
   useEffect(() => {
     setCabSweep(emptyCabSweep);
+    setTouchRow(null);
   }, [tool, drawBoxKind]);
 
   const [planHoverWall, setPlanHoverWall] = useState<{
@@ -235,6 +240,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   const gestureStepperRef = useRef(new PacedGestureStepper());
 
   const dragOp = useRef<
+    | { mode: 'resize-box'; wallId: string; boxId: string; side: 'left' | 'right'; angle: number;
+        start: { x: number; y: number }; dx: number; moved: boolean }
     | { mode: 'pan'; startX: number; startY: number; origX: number; origY: number }
     | {
         mode: 'move-column';
@@ -291,9 +298,11 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     | null
   >(null);
 
+  const [touchTarget, setTouchTarget] = useState<PlacementPoint | null>(null);
+  const touchTargetPointer = useRef<number | null>(null);
+  const touchPointerMode = useRef(false);
+  useEffect(() => { setTouchTarget(null); touchTargetPointer.current = null; }, [tool, drawBoxKind]);
   const activePointersRef = useRef<Set<number>>(new Set());
-  const lastMultiTouchMsRef = useRef(0);
-  const lastPlaceTapRef = useRef<{ ts: number; x: number; y: number; tool: ToolId } | null>(null);
 
   const touchPinch = useRef<{
     dist: number;
@@ -402,27 +411,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     return best;
   };
 
-  const isSpacedDoublePlacement = (e: React.PointerEvent<SVGSVGElement>, toolId: ToolId): boolean => {
-    const now = performance.now();
-    if (now - lastMultiTouchMsRef.current < 420 || activePointersRef.current.size > 1) {
-      lastPlaceTapRef.current = null;
-      return false;
-    }
-    const prev = lastPlaceTapRef.current;
-    const minGap = e.pointerType === 'touch' ? 75 : 0;
-    if (
-      prev &&
-      prev.tool === toolId &&
-      now - prev.ts >= minGap &&
-      now - prev.ts <= 750 &&
-      Math.hypot(e.clientX - prev.x, e.clientY - prev.y) <= 38
-    ) {
-      lastPlaceTapRef.current = null;
-      return true;
-    }
-    lastPlaceTapRef.current = { ts: now, x: e.clientX, y: e.clientY, tool: toolId };
-    return false;
-  };
+
 
   const cancelCurrentDrag = () => {
     const op = dragOp.current;
@@ -431,7 +420,6 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       setPan({ x: op.origX, y: op.origY });
       onFinishDrag();
     } else if (op) onCancelDrag();
-    lastPlaceTapRef.current = null;
     touchPinch.current = null;
     gestureStepperRef.current.resetTouch();
     setCabSweep(emptyCabSweep);
@@ -455,22 +443,26 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    touchPointerMode.current = e.pointerType === 'touch';
     if (e.button === 2) return;
     activePointersRef.current.add(e.pointerId);
-    if (
-      (e.pointerType === 'touch' && activePointersRef.current.size >= 2) ||
-      performance.now() - lastMultiTouchMsRef.current < 420
-    ) {
-      if (e.pointerType === 'touch' && activePointersRef.current.size >= 2) {
-        lastMultiTouchMsRef.current = performance.now();
-      }
-      lastPlaceTapRef.current = null;
+    if (e.pointerType === 'touch' && activePointersRef.current.size >= 2) {
+      touchTargetPointer.current = null;
+      setTouchTarget(null);
       cancelCurrentDrag();
-      if (cabSweep.active) {
-        setCabSweep(emptyCabSweep);
-      }
       return;
     }
+    if (e.pointerType === 'touch' && isPlanPlacement(tool)) {
+      touchTargetPointer.current = e.pointerId;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      handlePointerMove(e);
+      return;
+    }
+    setTouchTarget(null);
+    applyPointerAction(e);
+  };
+
+  const applyPointerAction = (e: CanvasAction, confirmed = false) => {
     if (e.button === 1) {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -488,7 +480,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     const targetEl = e.target as Element;
 
     const cornerEl = targetEl.closest('[data-corner-key]');
-    if (cornerEl) {
+    if (cornerEl && !confirmed) {
       const key = cornerEl.getAttribute('data-corner-key');
       if (key) {
         onToggleCornerOwner(key);
@@ -515,6 +507,19 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     }
 
     const ptCm = clientToCm(e.clientX, e.clientY);
+
+    const resizeTarget = !confirmed && tool === 'select' ? targetEl.closest('[data-plan-resize]') : null;
+    if (resizeTarget) {
+      const wall = walls.find(w => w.id === resizeTarget.getAttribute('data-wall-id'));
+      const box = wall?.boxes.find(b => b.id === resizeTarget.getAttribute('data-box-id'));
+      const side = resizeTarget.getAttribute('data-plan-resize');
+      if (wall && box && (side === 'left' || side === 'right')) {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        onBeginDrag();
+        dragOp.current = { mode: 'resize-box', wallId: wall.id, boxId: box.id, side, angle: wall.angle, start: ptCm, dx: 0, moved: false };
+      }
+      return;
+    }
 
     if (tool === 'wall') {
       const snapped = snapWallPoint(ptCm, wallDraw.startPt);
@@ -599,9 +604,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     if (tool === 'fridge') {
       const hit = projectPointToWalls(ptCm, walls);
       if (hit) {
-        if (!isSpacedDoublePlacement(e, 'fridge')) return;
         const cfg = FRIDGE_MODELS[fridgeModel];
-        onPlaceFridgeFromPlan(hit.wall.id, hit.offsetCm - cfg.width / 2);
+        onPlaceFridgeFromPlan(hit.wall.id, hit.offsetCm - (cfg.width + 2 * FRIDGE_FRAME_CM) / 2);
         return;
       }
     }
@@ -610,7 +614,6 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     if (tool === 'sink' || tool === 'gas' || tool === 'appliance') {
       const hit = projectPointToWalls(ptCm, walls);
       if (hit) {
-        if (!isSpacedDoublePlacement(e, tool)) return;
         const targetKind: ApplianceKind =
           tool === 'sink' ? 'sink' : tool === 'gas' ? 'gas' : applianceKind;
         const targetWidth =
@@ -646,7 +649,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       const col = columns.find((c) => c.id === colId);
       if (col) {
         onSelectColumn?.(col.id);
-        if (tool === 'select' || tool === 'opening') {
+        if (!confirmed && (tool === 'select' || tool === 'opening')) {
           e.currentTarget.setPointerCapture(e.pointerId);
           onBeginDrag();
           dragOp.current = {
@@ -667,7 +670,6 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     if (tool === 'opening') {
       const hit = projectPointToWalls(ptCm, walls);
       if (hit) {
-        if (!isSpacedDoublePlacement(e, 'opening')) return;
         const def = OPENING_DEFAULTS[openingKind];
         onPlaceOpeningFromPlan(hit.wall.id, hit.offsetCm - def.width / 2);
         return;
@@ -683,6 +685,23 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
 
     if (tool === 'cab-draw') {
       const hit = projectPointToWalls(ptCm, walls);
+      if (confirmed) {
+        if (!hit) return onToast('نشانگر را روی دیوار بگذارید');
+        const project = { walls, cornerOwners, settings };
+        if (!touchRow) {
+          const draft = startCabinetRow(project, hit.wall, hit.offsetCm, drawBoxKind, getCabinetFlips(hit.wall, hit.signedPerp));
+          if (draft) setTouchRow(draft);
+          else onToast('برای شروع ردیف فضای آزاد کافی نیست');
+        } else {
+          const row = previewCabinetRow(project, touchRow, hit.wall.id, hit.offsetCm);
+          if (!row.valid) return onToast('انتهای ردیف را روی بخش آزاد همان دیوار یا دیوار متصل بگذارید');
+          if (onCreateBoxesFromSweep(row.requested, touchRow.kind, row.suggestedOwners, touchRow.flipOverrides)) {
+            setTouchRow(null);
+            setTouchTarget(null);
+          }
+        }
+        return;
+      }
       if (hit) {
         e.currentTarget.setPointerCapture(e.pointerId);
 
@@ -804,6 +823,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       }
     }
 
+    if (confirmed) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     onBeginDrag();
     dragOp.current = {
@@ -816,6 +836,10 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch' && activePointersRef.current.size > 1) return;
+    if (touchTargetPointer.current === e.pointerId) {
+      setTouchTarget({ clientX: e.clientX, clientY: e.clientY });
+    }
     setPlanHoverClientPt({ x: e.clientX, y: e.clientY });
     const ptCm = clientToCm(e.clientX, e.clientY);
 
@@ -877,6 +901,14 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           op.lastX = nx;
           op.lastY = ny;
           onUpdateRoomColumn?.(op.columnId, { xCm: nx, yCm: ny }, false);
+        }
+      } else if (op.mode === 'resize-box') {
+        const radians = op.angle * Math.PI / 180;
+        const dx = Math.round((ptCm.x - op.start.x) * Math.cos(radians) + (ptCm.y - op.start.y) * Math.sin(radians));
+        if (dx !== op.dx) {
+          op.dx = dx;
+          op.moved = true;
+          onResizeCabinet(op.wallId, op.boxId, op.side, dx, 0, false);
         }
       } else if (op.mode === 'move-opening') {
         const w = walls.find((x) => x.id === op.wallId);
@@ -981,6 +1013,11 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
 
   const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
     activePointersRef.current.delete(e.pointerId);
+    if (touchTargetPointer.current === e.pointerId) {
+      touchTargetPointer.current = null;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+      return;
+    }
     if (cabSweep.active) {
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -1005,6 +1042,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         if (op.lastX !== op.origX || op.lastY !== op.origY) {
           onUpdateRoomColumn?.(op.columnId, { xCm: op.lastX, yCm: op.lastY }, true);
         }
+      } else if (op.mode === 'resize-box') {
+        if (op.moved) onResizeCabinet(op.wallId, op.boxId, op.side, op.dx, 0, true);
       } else if (op.mode === 'move-opening') {
         onMoveOpening(op.wallId, op.openingId, -1, true);
       } else if (op.mode === 'move-node') {
@@ -1026,7 +1065,6 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
 
   const handleTouchStart = (e: React.TouchEvent<SVGSVGElement>) => {
     if (e.touches.length >= 2) {
-      lastMultiTouchMsRef.current = performance.now();
       cancelCurrentDrag();
       if (cabSweep.active) {
         setCabSweep(emptyCabSweep);
@@ -1123,7 +1161,6 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   touchMoveHandlerRef.current = (e: TouchEvent) => {
     if (e.touches.length === 2 && touchPinch.current) {
       e.preventDefault();
-      lastMultiTouchMsRef.current = performance.now();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.hypot(dx, dy);
@@ -1177,17 +1214,25 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   const s = planScale;
 
   const sweepPreviewData = useMemo(() => {
-    const hoverWall = !cabSweep.active && tool === 'cab-draw' && drawBoxKind === 'base'
+    const hoverWall = !cabSweep.active && tool === 'cab-draw' && (drawBoxKind === 'base' || touchTarget)
       ? walls.find(wall => wall.id === planHoverWall?.wallId)
       : undefined;
     const requested = hoverWall && planHoverWall
       ? [cabinetStarterSegment(hoverWall, planHoverWall.offsetCm)]
       : cabSweep.active ? cabSweep.segments : [];
-    if (!requested.length) return null;
-    const flips = hoverWall && planHoverWall
+    if (!requested.length && !touchRow) return null;
+    const flips = touchRow?.flipOverrides ?? (hoverWall && planHoverWall
       ? getCabinetFlips(hoverWall, planHoverWall.signedPerp)
-      : cabSweep.flipOverrides;
-    const placement = resolveCabinetPlacement({ walls, cornerOwners, settings }, requested, drawBoxKind, cabSweep.suggestedOwners, flips);
+      : cabSweep.flipOverrides);
+    const project = { walls, cornerOwners, settings };
+    const initial = hoverWall && planHoverWall && touchTarget && !touchRow
+      ? startCabinetRow(project, hoverWall, planHoverWall.offsetCm, drawBoxKind, flips) : null;
+    const row = touchRow && planHoverWall
+      ? previewCabinetRow(project, touchRow, planHoverWall.wallId, planHoverWall.offsetCm) : null;
+    const placement = touchRow
+      ? { segments: row?.segments ?? [touchRow.starter], owners: { ...cornerOwners, ...row?.suggestedOwners } }
+      : initial ? resolveCabinetPlacement(project, [initial.starter], drawBoxKind, undefined, flips)
+      : resolveCabinetPlacement(project, requested, drawBoxKind, cabSweep.suggestedOwners, flips);
     if (!placement.segments.length) return null;
     const dummyMap = new Map<string, CabinetBox>();
     const tempWalls: Wall[] = walls.map((wall) => {
@@ -1215,7 +1260,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
 
     const previewBridges = getOutsideCornerBridges(tempWalls, mergedOwners);
     return { polys, previewBridges };
-  }, [cabSweep.active, cabSweep.segments, cabSweep.suggestedOwners, cabSweep.flipOverrides, drawBoxKind, cornerOwners, walls, settings, tool, planHoverWall]);
+  }, [cabSweep.active, cabSweep.segments, cabSweep.suggestedOwners, cabSweep.flipOverrides, drawBoxKind, cornerOwners, walls, settings, tool, planHoverWall, touchRow, touchTarget]);
 
   return (
     <section
@@ -1289,9 +1334,10 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         ref={svgRef}
         data-testid="plan-svg"
         viewBox={viewBox}
-        className="w-full h-full block touch-none"
+        className="w-full h-full block touch-none [-webkit-touch-callout:none]"
         onContextMenu={(e) => {
           e.preventDefault();
+          if (touchPointerMode.current) return;
           cancelCurrentDrag();
           if (wallDraw.startPt) {
             setWallDraw({ startPt: null, currPt: null, lengthCm: 0, snappedCorner: false });
@@ -1307,9 +1353,9 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         onTouchEnd={() => {
           touchPinch.current = null;
           gestureStepperRef.current.resetTouch();
-          lastMultiTouchMsRef.current = performance.now();
         }}
         onPointerLeave={() => {
+          if (touchTarget) return;
           setPlanHoverWall(null);
           setPlanHoverFloorCm(null);
           setPlanHoverClientPt(null);
@@ -1320,6 +1366,10 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={(e) => {
           activePointersRef.current.delete(e.pointerId);
+          if (touchTargetPointer.current === e.pointerId) {
+            touchTargetPointer.current = null;
+            setTouchTarget(null);
+          }
           cancelCurrentDrag();
           if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
         }}
@@ -1857,6 +1907,21 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                 );
               })}
 
+              {tool === 'select' && w.boxes.filter(box => box.id === activeBoxId && box.type !== 'fridge').map(box => (
+                <g key={box.id}>
+                  {(['left', 'right'] as const).map(side => {
+                    const x = (box.offsetX + (side === 'right' ? box.width : 0)) * s;
+                    const y = flip * box.depth * s / 2;
+                    return (
+                      <g key={side} data-plan-resize={side} data-wall-id={w.id} data-box-id={box.id} style={{ cursor: 'ew-resize' }}>
+                        <rect x={x - 13} y={y - 18} width={26} height={36} fill="transparent" />
+                        <rect x={x - 4} y={y - 12} width={8} height={24} rx={4} fill="#4f46e5" stroke="white" />
+                      </g>
+                    );
+                  })}
+                </g>
+              ))}
+
               {/* پیش‌نمایش شبح درج تجهیز/یخچال/پنجره روی این دیوار در پلان */}
               {planHoverWall &&
                 planHoverWall.wallId === w.id &&
@@ -2216,7 +2281,21 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         )}
       </svg>
 
-      {selectedColumnId && (
+      {touchTarget && isPlanPlacement(tool) && (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 flex gap-2 rounded-xl border bg-white p-1.5 shadow">
+          <button type="button" data-testid="plan-confirm-placement" className="h-10 whitespace-nowrap rounded-lg bg-emerald-700 px-4 font-bold text-white"
+            onClick={() => {
+              const action = placementAt(svgRef.current, touchTarget);
+              if (!action) return;
+              if (tool !== 'cab-draw') setTouchTarget(null);
+              applyPointerAction(action, true);
+            }}>{tool === 'cab-draw' ? (touchRow ? 'ثبت ردیف' : 'شروع ردیف') : 'تأیید'}</button>
+          <button type="button" className="h-10 rounded-lg px-3 font-bold"
+            onClick={() => { setTouchTarget(null); setTouchRow(null); setPlanHoverWall(null); setPlanHoverFloorCm(null); }}>لغو</button>
+        </div>
+      )}
+
+      {selectedColumnId && !touchTarget && (
         <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-white/95 border border-indigo-200 rounded-xl px-3 py-1.5 shadow-sm">
           <span className="text-[12px] font-bold text-slate-700">ستون آزاد انتخاب شد</span>
           <button

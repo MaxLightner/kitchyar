@@ -32,6 +32,7 @@ export class AimTap {
     if (this.gesture?.id === id && Math.hypot(x - this.gesture.x, y - this.gesture.y) > 8) this.cancel();
   }
   cancel() { if (this.gesture) this.gesture.cancelled = true; }
+  reset(id: number) { if (this.gesture?.id === id) this.gesture = null; }
   end(id: number) {
     if (this.gesture?.id !== id) return false;
     const confirm = !this.gesture.cancelled; this.gesture = null; return confirm;
