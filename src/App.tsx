@@ -53,10 +53,8 @@ import {
   syncHoodUnitAboveGas,
 } from './cad/doorRules';
 import {
-  analyzeCornerJunction,
   autoOrientWallsOnAdd,
   detectCornerJunctions,
-  getBoxTier,
   getCornerBlockedZonesForWall,
   moveConnectedWall,
   moveSmartWallNode,
@@ -64,6 +62,7 @@ import {
   toggleCornerOwner,
   WallNodeRef,
 } from './cad/cornerLogic';
+import { resolveCabinetPlacement } from './cad/cabinetPlacement';
 import { autoPlaceHandlesForUnit } from './cad/handleSpots';
 import {
   createRoomColumn,
@@ -259,27 +258,6 @@ function loadInitialProject(): ProjectState {
     // fallback to preset
   }
   return buildPresetProject('L');
-}
-
-function subtractBlockedIntervals(
-  startCm: number,
-  endCm: number,
-  blocked: Array<{ start: number; end: number }>
-): Array<{ start: number; end: number }> {
-  let spans = [{ start: startCm, end: endCm }];
-  for (const b of blocked) {
-    const next: Array<{ start: number; end: number }> = [];
-    for (const sp of spans) {
-      if (b.end <= sp.start + 1 || b.start >= sp.end - 1) {
-        next.push(sp);
-      } else {
-        if (b.start - sp.start >= 30) next.push({ start: sp.start, end: b.start });
-        if (sp.end - b.end >= 30) next.push({ start: b.end, end: sp.end });
-      }
-    }
-    spans = next;
-  }
-  return spans;
 }
 
 export default function App() {
@@ -487,6 +465,10 @@ export default function App() {
   const handleBeginDrag = useCallback(() => {
     dragCheckpointRef.current = cloneProject(getProject());
   }, [getProject]);
+  const handleFinishDrag = useCallback(() => {
+    dragCheckpointRef.current = null;
+    dragBaseRef.current = null;
+  }, []);
   const handleCancelDrag = useCallback(() => {
     if (dragCheckpointRef.current) setProject(dragCheckpointRef.current);
     dragCheckpointRef.current = null;
@@ -727,143 +709,39 @@ export default function App() {
     kind: BoxKind,
     suggestedOwners?: Record<string, string>,
     flipOverrides?: Record<string, 1 | -1>
-  ) => {
-    const next = cloneProject(project);
-    const settings = next.settings || DEFAULT_PROJECT_SETTINGS;
-
-    if (flipOverrides) {
-      for (const w of next.walls) {
-        if (flipOverrides[w.id]) {
-          w.flipSide = flipOverrides[w.id];
-        }
-      }
+  ): boolean => {
+    const current = getProject();
+    const placement = resolveCabinetPlacement(current, segments, kind, suggestedOwners, flipOverrides);
+    if (!placement.segments.length) {
+      showToast(placement.blockedByOpening
+        ? 'این قسمت با بازشوی دیوار تداخل دارد'
+        : 'برای این کابینت دست‌کم ۳۰ سانتی‌متر فضای آزاد لازم است');
+      return false;
     }
-
-    if (suggestedOwners) {
-      for (const [key, ownerId] of Object.entries(suggestedOwners)) {
-        if (!next.cornerOwners[key]) {
-          next.cornerOwners[key] = ownerId;
-        }
-      }
+    const next = cloneProject(current);
+    next.cornerOwners = placement.owners;
+    for (const wall of next.walls) {
+      if (flipOverrides?.[wall.id]) wall.flipSide = flipOverrides[wall.id];
     }
-
-    if (segments.length === 1) {
-      const seg = segments[0];
-      const w = next.walls.find((x) => x.id === seg.wallId);
-      if (w) {
-        const tier = kind === 'wall' ? 'wall-lower' : kind === 'wall-deep' ? 'wall-upper' : 'lower';
-        const depthSetback = kind === 'wall' ? 32 : kind === 'wall-deep' ? 58 : kind === 'fridge' ? 70 : 60;
-        const junctions = detectCornerJunctions(next.walls, next.cornerOwners);
-        for (const j of junctions) {
-          const isA = j.wallAId === w.id;
-          const isB = j.wallBId === w.id;
-          if (!isA && !isB) continue;
-          const myEnd = isA ? j.wallAEnd : j.wallBEnd;
-          const otherId = isA ? j.wallBId : j.wallAId;
-          const otherEnd = isA ? j.wallBEnd : j.wallAEnd;
-          const otherWall = next.walls.find((x) => x.id === otherId);
-          if (!otherWall) continue;
-          const geom = analyzeCornerJunction(w, myEnd, otherWall, otherEnd);
-          if (geom.kind !== 'inside-90') continue;
-
-          const touchesCorner =
-            (myEnd === 'start' && seg.startCm <= 5) ||
-            (myEnd === 'end' && seg.startCm + seg.widthCm >= w.length - 5);
-          if (!touchesCorner) continue;
-
-          const otherHasCornerBox = otherWall.boxes.some((ob) => {
-            if (getBoxTier(ob) !== tier) return false;
-            return otherEnd === 'start' ? ob.offsetX <= 5 : ob.offsetX + ob.width >= otherWall.length - 5;
-          });
-
-          if (otherHasCornerBox) {
-            next.cornerOwners[j.key] = otherWall.id;
-            if (myEnd === 'start' && seg.startCm < depthSetback) {
-              const delta = depthSetback - seg.startCm;
-              seg.startCm = depthSetback;
-              seg.widthCm = Math.max(0, seg.widthCm - delta);
-            } else if (myEnd === 'end' && seg.startCm + seg.widthCm > w.length - depthSetback) {
-              seg.widthCm = Math.max(0, w.length - depthSetback - seg.startCm);
-            }
-          } else if (!next.cornerOwners[j.key]) {
-            next.cornerOwners[j.key] = w.id;
-          }
-        }
-      }
-    }
-
     let firstBoxId: string | null = null;
-    let firstWallId: string | null = null;
-    let blockedByOpening = false;
-
-    const boxPreset = BOX_PRESETS[kind] || BOX_PRESETS.base;
-    const candElevY = kind === 'wall' ? settings.wallCabElevCm : boxPreset.elevY;
-    const candH =
-      kind === 'base'
-        ? settings.baseHeightCm
-        : kind === 'wall'
-        ? settings.wallCabHeightCm
-        : boxPreset.height;
-
-    segments.forEach((seg) => {
-      if (seg.widthCm < 30) return;
-      const w = next.walls.find((x) => x.id === seg.wallId);
-      if (!w) return;
-
-      const newTier = kind === 'wall' ? 'wall-lower' : kind === 'wall-deep' ? 'wall-upper' : 'lower';
-      const blockedSpans: Array<{ start: number; end: number }> = [];
-
-      for (const existing of w.boxes) {
-        if (kind === 'tall') {
-          if (existing.type === 'tall' || existing.type === 'fridge' || existing.type === 'closet') {
-            blockedSpans.push({ start: existing.offsetX, end: existing.offsetX + existing.width });
-          }
-          continue;
-        }
-        if (getBoxTier(existing) !== newTier) continue;
-        blockedSpans.push({ start: existing.offsetX, end: existing.offsetX + existing.width });
-      }
-      for (const op of w.openings || []) {
-        const opTop = op.elevY + op.height;
-        const boxTop = candElevY + candH;
-        if (candElevY < opTop - 1 && boxTop > op.elevY + 1) {
-          blockedSpans.push({ start: op.offsetX, end: op.offsetX + op.width });
-          blockedByOpening = true;
-        }
-      }
-
-      const validSpans = subtractBlockedIntervals(seg.startCm, seg.startCm + seg.widthCm, blockedSpans);
-      validSpans.forEach((sp) => {
-        const finalW = Math.round(sp.end - sp.start);
-        if (finalW < 30) return;
-        const box = createEmptyBox(kind, sp.start, finalW, { settings });
-        w.boxes.push(box);
-        if (kind === 'tall') {
-          carveBoxesForPlacedBox(w, box);
-        }
-        if (!firstBoxId) {
-          firstBoxId = box.id;
-          firstWallId = w.id;
-        }
-      });
-    });
-
-    if (firstBoxId && firstWallId) {
-      next.activeWallId = firstWallId;
-      next.activeBoxId = firstBoxId;
-      next.selectedDoorId = null;
-      next.selectedOpeningId = null;
-      next.selectedApplianceId = null;
-      next.selectedShelfId = null;
-      next.selectedHandleId = null;
-      commitState(next, true);
-      const w = next.walls.find((x) => x.id === firstWallId) || null;
-      fitWallToView(w);
-      setTool('doors');
-      showToast(segments.length > 1 ? 'کابینت پیوسته در کنج ساخته شد' : 'باکس جدید اضافه شد');
-    } else if (blockedByOpening) {
-      showToast('این بخش با پنجره، درب ورودی یا ستون دیوار تداخل دارد');
+    for (const segment of placement.segments) {
+      const wall = next.walls.find(w => w.id === segment.wallId)!;
+      const box = createEmptyBox(kind, segment.startCm, segment.widthCm, { settings: next.settings });
+      wall.boxes.push(box);
+      if (kind === 'tall') carveBoxesForPlacedBox(wall, box);
+      firstBoxId ??= box.id;
     }
+    next.activeWallId = placement.segments[0].wallId;
+    next.activeBoxId = firstBoxId;
+    next.selectedDoorId = null;
+    next.selectedOpeningId = null;
+    next.selectedApplianceId = null;
+    next.selectedShelfId = null;
+    next.selectedHandleId = null;
+    commitState(next, true);
+    if (viewMode === '2d') fitWallToView(next.walls.find(w => w.id === next.activeWallId) || null);
+    showToast(placement.segments.length > 1 ? 'کابینت‌ها اضافه شدند' : 'باکس جدید اضافه شد');
+    return true;
   };
 
   const handleToggleCornerOwner = (cornerKey: string) => {
@@ -1884,10 +1762,13 @@ export default function App() {
     y: number,
     commit: boolean
   ) => {
-    const next = cloneProject(project);
-    const ok = moveSmartWallNode(next.walls, refs, x, y);
-    if (!ok) {
-      if (commit) showToast('حداقل طول مجاز دیوار ۴۰ سانتی‌متر است');
+    const base = dragCheckpointRef.current || getProject();
+    const next = cloneProject(base);
+    if (!moveSmartWallNode(next.walls, refs, x, y, true)) {
+      if (commit) {
+        setProject(base);
+        showToast('این تغییر کمتر از طول مجاز است یا برای متعلقات دیوار جا نمی‌گذارد');
+      }
       return;
     }
     commitState(next, commit);
@@ -1911,12 +1792,12 @@ export default function App() {
       }
 
       const next = cloneProject(baseProject);
-      const ok = moveConnectedWall(next.walls, wallId, dxCm, dyCm, moveEntireComponent);
+      const ok = moveConnectedWall(next.walls, wallId, dxCm, dyCm, moveEntireComponent, true);
       if (!ok) {
         if (commit) {
           dragBaseRef.current = null;
           setProject(cloneProject(baseProject));
-          showToast('طول دیوارهای متصل نباید از ۴۰ سانتی‌متر کمتر شود');
+          showToast('این جابه‌جایی طول دیوار متصل را بیش از حد کم می‌کند یا برای متعلقات آن جا نمی‌گذارد');
         }
         return;
       }
@@ -2554,13 +2435,8 @@ export default function App() {
         return;
       }
       if (nextMode === '3d' && floorScanActive) {
-        setArSessionKillSignal((n) => n + 1);
-        setFloorScanActive(false);
-        setTrackedFloorConfirmed(false);
-        setInitialXrSession(null);
-        setSharedWideMode('normal');
         setViewMode('3d');
-        showToast('ورود به نمای سه‌بعدی تعاملی');
+        if (trackedFloorConfirmed) setSharedWideMode('wide');
         return;
       }
       if (nextMode === '2d') {
@@ -2569,7 +2445,7 @@ export default function App() {
       }
       setViewMode(nextMode);
     },
-    [project.walls, project.activeWallId, fitWallToView, beginTrackedFloorScan, floorScanActive, showToast]
+    [project.walls, project.activeWallId, fitWallToView, beginTrackedFloorScan, floorScanActive, trackedFloorConfirmed]
   );
 
   const handleLoadRecordIntoEditor = useCallback(
@@ -2849,6 +2725,7 @@ export default function App() {
         onSelectViewMode={handleSwitchViewMode}
         arAvailable={arAvailable}
         floorScanActive={floorScanActive}
+        arViewActive={floorScanActive && viewMode === '3d' && sharedWideMode === 'normal'}
         onToggleFloorScan={() => {
           beginTrackedFloorScan();
         }}
@@ -3006,6 +2883,9 @@ export default function App() {
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
+              onBeginDrag={handleBeginDrag}
+              onCancelDrag={handleCancelDrag}
+              onFinishDrag={handleFinishDrag}
               scanMode={floorScanActive}
               wideViewModeExternal={sharedWideMode}
               onWideViewModeChange={setSharedWideMode}
@@ -3238,6 +3118,7 @@ export default function App() {
                   <ARWorkspace
             onBeginDrag={handleBeginDrag}
             onCancelDrag={handleCancelDrag}
+            onFinishDrag={handleFinishDrag}
             active={viewMode === '3d'}
             embeddedIn3D={true}
             sharedTool={tool}
@@ -3320,6 +3201,8 @@ export default function App() {
             <>
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
+                  settings={project.settings}
+                  onFinishDrag={handleFinishDrag}
                   onBeginDrag={handleBeginDrag}
                   onCancelDrag={handleCancelDrag}
                   walls={project.walls}
@@ -3476,6 +3359,9 @@ export default function App() {
               </div>
 
               <FrontCanvas
+                onBeginDrag={handleBeginDrag}
+                onCancelDrag={handleCancelDrag}
+                onFinishDrag={handleFinishDrag}
                 wall={activeWall}
                 allWalls={project.walls}
                 columns={project.columns || []}

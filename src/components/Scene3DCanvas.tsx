@@ -1,3 +1,4 @@
+import { cabinetStarterSegment, resolveCabinetPlacement } from '../cad/cabinetPlacement';
 import { logDiagnostic } from '../utils/diagnostics';
 import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useRef, useState } from 'react';
@@ -41,10 +42,8 @@ import {
   applyHandlesToBoxDoors,
   autoUnitizeBoxForHandles,
   canDoorOpenIn3D,
-  carveBoxesForPlacedBox,
   clampBoxInternalsAfterResize,
   computeDoorBrushPreview,
-  createEmptyBox,
   createWall,
   deleteApplianceHierarchically,
   deleteBoxHierarchically,
@@ -104,6 +103,9 @@ const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'cl
 const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
 
 interface Scene3DCanvasProps {
+  onBeginDrag: () => void;
+  onCancelDrag: () => void;
+  onFinishDrag: () => void;
   /** Keep the entire 3D editor mounted during scanning, without painting its
    * virtual WebGL canvas over the real camera passthrough. */
   scanMode?: boolean;
@@ -208,12 +210,12 @@ interface Scene3DCanvasProps {
   onPlaceOpening: (wallId: string, desiredOffsetX: number, desiredElevY?: number) => void;
   onMoveOpening?: (wallId: string, openingId: string, offsetX: number, commit: boolean) => void;
   onDeleteOpening: (wallId: string, openingId: string) => void;
-  onCreateBoxesFromSweep?: (
+  onCreateBoxesFromSweep: (
     segments: SweepSegment[],
     kind: BoxKind,
     suggestedOwners?: Record<string, string>,
     flipOverrides?: Record<string, 1 | -1>
-  ) => void;
+  ) => boolean;
   onConfirmHiddenHandle?: (onConfirm: () => void) => void;
   onExitToSelect: () => void;
   onToast: (msg: string) => void;
@@ -946,9 +948,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       // Active 2-click multi-wall cab-draw sweep tracks across connected walls around corners!
       const pendingSweep = pendingCabDraw3DRef.current;
       if (cur.tool === 'cab-draw' && pendingSweep) {
-        const target = resolveCabSweepTarget(clientX, clientY, pendingSweep.wallId, cur.drawBoxKind);
+        const target = resolveCabSweepTarget(clientX, clientY, pendingSweep.wallId, pendingSweep.boxKind);
         if (target) {
-          const kindNow = cur.drawBoxKind;
+          const kindNow = pendingSweep.boxKind;
           const preset = BOX_PRESETS[kindNow] || BOX_PRESETS.base;
           const sweepRes = computeMultiWallSweep(
             cur.project.walls,
@@ -960,14 +962,14 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             cur.project.cornerOwners,
             true
           );
-          const totalWidthCm = Math.round(sweepRes.segments.reduce((s, seg) => s + seg.widthCm, 0));
+          const placement = resolveCabinetPlacement(cur.project, sweepRes.segments.filter(seg => seg.widthCm >= 30), kindNow, sweepRes.suggestedOwners);
+          const totalWidthCm = placement.segments.reduce((sum, seg) => sum + seg.widthCm, 0);
           disposeGhostChildren();
           ghostGroup.position.set(0, 0, 0);
           ghostGroup.quaternion.identity();
 
           let renderedAny = false;
-          for (const seg of sweepRes.segments) {
-            if (seg.widthCm < 5) continue;
+          for (const seg of placement.segments) {
             const segTr = builtRef.current.wallTransforms.get(seg.wallId);
             if (!segTr) continue;
             const segGrp = new THREE.Group();
@@ -1026,6 +1028,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           requestRender();
           return;
         }
+        clearGhost();
+        setHoverPreview({ clientX, clientY, hoverTarget: null, targetStatus: 'invalid' });
+        return;
       }
 
       const { topData: data, topPoint } = raycastWithHandleSpots(clientX, clientY);
@@ -1107,13 +1112,18 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       let previewDoorWidths: number[] | undefined;
 
       if (cur.tool === 'cab-draw') {
-        const preset = BOX_PRESETS[cur.drawBoxKind] || BOX_PRESETS.base;
-        const wCm = Math.min(60, Math.max(30, wall.length));
-        const startCm = Math.max(0, Math.min(wall.length - wCm, Math.round((hitXCm - wCm / 2) / 5) * 5));
-        addGhostBox(startCm, preset.elevY, 0, wCm, preset.height, preset.depth, ghostMatIndigo);
-        hasGhost = true;
         targetStatus = 'valid';
-        previewSweepWidth = wCm;
+        if (cur.drawBoxKind === 'base') {
+          const preset = BOX_PRESETS.base;
+          const placement = resolveCabinetPlacement(cur.project, [cabinetStarterSegment(wall, hitXCm)], 'base');
+          const height = cur.project.settings?.baseHeightCm ?? preset.height;
+          for (const segment of placement.segments) {
+            addGhostBox(segment.startCm, preset.elevY, 0, segment.widthCm, height, preset.depth, ghostMatIndigo);
+          }
+          hasGhost = placement.segments.length > 0;
+          targetStatus = hasGhost ? 'valid' : 'invalid';
+          previewSweepWidth = placement.segments.reduce((sum, seg) => sum + seg.widthCm, 0);
+        }
       } else if (cur.tool === 'fridge') {
         const cfg = FRIDGE_MODELS[cur.fridgeModel];
         const fw = cfg.width + FRIDGE_FRAME_CM * 2;
@@ -1373,7 +1383,22 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
     const cursorScreen = (x:number,y:number) => surfaceCursorRef.current.screen(camera,renderer.domElement) || {x,y};
 
+    let dragPointerId: number | null = null;
+    const beginModelDrag = (pointerId: number) => {
+      dragPointerId = pointerId;
+      propsRef.current.onBeginDrag();
+    };
+    const cancelModelDrag = () => {
+      const pointerId = dragPointerId;
+      if (pointerId === null) return;
+      dragPointerId = null;
+      drag3DRef.current = null;
+      propsRef.current.onCancelDrag();
+      if (dom.hasPointerCapture(pointerId)) dom.releasePointerCapture(pointerId);
+    };
+
     const onPointerDown = (e: PointerEvent) => {
+      if (dragPointerId !== null) return;
       const pinnedScreen=surfaceCursorRef.current.screen(camera,renderer.domElement);
       const nearCursor=pinnedScreen && Math.hypot(e.clientX-pinnedScreen.x,e.clientY-pinnedScreen.y)<34;
       // Never auto-pin a placement cursor while in select mode on touch (fixes touch select & tap-hijack bug).
@@ -1417,6 +1442,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           try {
             dom.setPointerCapture(e.pointerId);
           } catch {}
+          beginModelDrag(e.pointerId);
           drag3DRef.current = {
             kind: 'move-column',
             columnId: col.id,
@@ -1448,6 +1474,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           try {
             dom.setPointerCapture(e.pointerId);
           } catch {}
+          beginModelDrag(e.pointerId);
           drag3DRef.current = {
             kind: 'move-app',
             wallId: wall.id,
@@ -1472,6 +1499,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             try {
               dom.setPointerCapture(e.pointerId);
             } catch {}
+            beginModelDrag(e.pointerId);
             drag3DRef.current = {
               kind: 'resize-drawer',
               wallId: wall.id,
@@ -1491,6 +1519,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           try {
             dom.setPointerCapture(e.pointerId);
           } catch {}
+          beginModelDrag(e.pointerId);
           drag3DRef.current = {
             kind: 'resize-door-seam',
             wallId: wall.id,
@@ -1509,6 +1538,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             try {
               dom.setPointerCapture(e.pointerId);
             } catch {}
+            beginModelDrag(e.pointerId);
             drag3DRef.current = {
               kind: 'resize-box',
               wallId: wall.id,
@@ -1539,6 +1569,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             try {
               dom.setPointerCapture(e.pointerId);
             } catch {}
+            beginModelDrag(e.pointerId);
             drag3DRef.current = {
               kind: 'move-opening',
               wallId: wall.id,
@@ -1594,6 +1625,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             try {
               dom.setPointerCapture(e.pointerId);
             } catch {}
+            beginModelDrag(e.pointerId);
             drag3DRef.current = {
               kind: 'move-box',
               wallId: wall.id,
@@ -1611,6 +1643,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       if(e.pointerType === 'touch' && surfaceCursorRef.current.dragging) {
         if(surfaceCursorRef.current.moving(e.pointerId,e.clientX,e.clientY))pinSurfaceCursor(e.clientX,e.clientY);
         return;
@@ -1790,6 +1823,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
 
     const onPointerUp = (e: PointerEvent) => {
+      if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
       let actionX=e.clientX, actionY=e.clientY;
       if(e.pointerType==='touch' && (propsRef.current.tool!=='select' || surfaceCursorRef.current.dragging)) {
         const commit=surfaceCursorRef.current.end(e.pointerId);
@@ -1802,6 +1836,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
       const dr = drag3DRef.current;
       drag3DRef.current = null;
+      dragPointerId = null;
       controls.enabled = propsRef.current.tool !== 'wall' && propsRef.current.tool !== 'cab-draw';
       try {
         if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
@@ -1809,8 +1844,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
       const cur = propsRef.current;
       if (dr) {
+        downClientRef.current = null;
         if (dr.kind === 'move-column') {
           if (dr.moved) cur.onUpdateRoomColumn?.(dr.columnId, {}, true);
+          cur.onFinishDrag();
           return;
         }
         if (dr.kind === 'move-box' && !dr.moved && cur.tool === 'select') onDoorSingleClick(e);
@@ -1833,6 +1870,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             cur.onMutateWallById(dr.wallId, () => {}, true);
           }
         }
+        cur.onFinishDrag();
         return;
       }
 
@@ -1887,25 +1925,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           );
           const validSegments = sweepRes.segments.filter((seg) => seg.widthCm >= 30);
           if (validSegments.length > 0) {
-            pendingCabDraw3DRef.current = null;
-            clearGhost();
-            if (cur.onCreateBoxesFromSweep) {
-              cur.onCreateBoxesFromSweep(validSegments, pending.boxKind, sweepRes.suggestedOwners, {});
+            if (cur.onCreateBoxesFromSweep(validSegments, pending.boxKind, sweepRes.suggestedOwners)) {
+              pendingCabDraw3DRef.current = null;
+              clearGhost();
             } else {
-              const firstSeg = validSegments[0];
-              const box = createEmptyBox(pending.boxKind, firstSeg.startCm, firstSeg.widthCm, {
-                settings: cur.project.settings,
-              });
-              cur.onMutateWallById(
-                firstSeg.wallId,
-                (w) => {
-                  w.boxes.push(box);
-                  if (box.type === 'tall') carveBoxesForPlacedBox(w, box);
-                },
-                true,
-                `باکس ${box.name} (${firstSeg.widthCm}cm) اضافه شد`
-              );
-              cur.onSelectWallAndBox(firstSeg.wallId, box.id, null);
+              updateGhostAndHover(actionX, actionY);
             }
             return;
           }
@@ -1973,10 +1997,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const hitYCm = Math.max(0, Math.min(wall.height, topPoint.y / CM));
 
       if (cur.tool === 'cab-draw' && cur.drawBoxKind === 'base') {
-        const widthCm = Math.min(60, Math.max(30, wall.length));
-        const startCm = Math.max(0, Math.min(wall.length - widthCm, Math.round((hitXCm - widthCm / 2) / 5) * 5));
-        cur.onCreateBoxesFromSweep?.([{ wallId: wall.id, startCm, widthCm }], cur.drawBoxKind, {}, {});
-        cur.onToast('کابینت مطابق پیش‌نمایش ثبت شد');
+        if (cur.onCreateBoxesFromSweep([cabinetStarterSegment(wall, hitXCm)], 'base')) clearGhost();
         return;
       }
       if (cur.tool === 'cab-draw') {
@@ -2754,7 +2775,20 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     dom.addEventListener('touchend', onTouchEnd);
     dom.addEventListener('pointerleave', onPointerLeave);
     window.addEventListener('pointermove', onPointerMove);
+    const onPointerCancel = (e: PointerEvent) => {
+      if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
+      if (dragPointerId === null && !dom.hasPointerCapture(e.pointerId) && e.target !== dom && !downClientRef.current) return;
+      cancelModelDrag();
+      surfaceCursorRef.current.cancelGesture();
+      downClientRef.current = null;
+      rightDownClientRef.current = null;
+      if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
+      const currentTool = propsRef.current.tool;
+      controls.enabled = currentTool !== 'wall' && currentTool !== 'cab-draw';
+      requestRender();
+    };
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
     window.addEventListener('resize', onPointerLeave);
     window.addEventListener('blur', onPointerLeave);
 
@@ -2776,6 +2810,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       dom.removeEventListener('pointerleave', onPointerLeave);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+      cancelModelDrag();
       window.removeEventListener('resize', onPointerLeave);
       window.removeEventListener('blur', onPointerLeave);
       controls.removeEventListener('start', cancelFocusAnim);
@@ -2820,7 +2856,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       surfaceCursorRef.current.clear();
       setHasPlacementCursor(false);
     }
-    if (tool !== 'cab-draw') {
+    if (tool !== 'cab-draw' || pendingCabDraw3DRef.current?.boxKind !== props.drawBoxKind) {
       pendingCabDraw3DRef.current = null;
     }
     if (tool === 'wall') {
@@ -2874,6 +2910,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       applyCameraPreset('iso', built.bounds);
     } else {
       requestRenderRef.current();
+    }
+    if (!props.scanMode && tool === 'cab-draw') {
+      const bounds = rendererRef.current?.domElement.getBoundingClientRect();
+      const hover = lastHoverCheckRef.current;
+      if (bounds && hover.x >= bounds.left && hover.x <= bounds.right && hover.y >= bounds.top && hover.y <= bounds.bottom) {
+        updateGhostAndHoverRef.current(hover.x, hover.y);
+      }
     }
   }, [project, props.scanMode, tool]);
 

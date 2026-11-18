@@ -1,3 +1,4 @@
+import { cabinetStarterSegment, resolveCabinetPlacement } from '../cad/cabinetPlacement';
 import { snapWallEndpoint } from '../cad/wallSnap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -32,6 +33,7 @@ import {
   DoorSwing,
   FridgeModel,
   OpeningKind,
+  ProjectSettings,
   RoomColumn,
   SinkModel,
   ToolId,
@@ -43,11 +45,18 @@ import { PacedGestureStepper } from '../utils/gesturePacing';
 
 const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
+const emptyWallDraw = { startPt: null, currPt: null, lengthCm: 0, snappedCorner: false };
+const emptyCabSweep = {
+  active: false, startWallId: null, startOffsetCm: 0, startHitOffsetCm: 0,
+  hasDragged: false, flipOverrides: {}, segments: [], suggestedOwners: {},
+};
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
 
 interface PlanCanvasProps {
   onBeginDrag: () => void;
   onCancelDrag: () => void;
+  onFinishDrag: () => void;
+  settings?: ProjectSettings;
   walls: Wall[];
   columns?: RoomColumn[];
   cornerOwners: Record<string, string>;
@@ -119,7 +128,7 @@ interface PlanCanvasProps {
     kind: BoxKind,
     suggestedOwners?: Record<string, string>,
     flipOverrides?: Record<string, 1 | -1>
-  ) => void;
+  ) => boolean;
   onPlaceApplianceFromPlan: (
     wallId: string,
     boxId: string,
@@ -134,6 +143,8 @@ interface PlanCanvasProps {
 export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   onBeginDrag,
   onCancelDrag,
+  onFinishDrag,
+  settings,
   walls,
   columns = [],
   cornerOwners,
@@ -193,30 +204,30 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     currPt: { x: number; y: number } | null;
     lengthCm: number;
     snappedCorner: boolean;
-  }>({ startPt: null, currPt: null, lengthCm: 0, snappedCorner: false });
+   }>(emptyWallDraw);
 
   const [cabSweep, setCabSweep] = useState<{
     active: boolean;
     startWallId: string | null;
     startOffsetCm: number;
+    startHitOffsetCm: number;
     hasDragged: boolean;
     flipOverrides: Record<string, 1 | -1>;
     segments: SweepSegment[];
     suggestedOwners: Record<string, string>;
-  }>({
-    active: false,
-    startWallId: null,
-    startOffsetCm: 0,
-    hasDragged: false,
-    flipOverrides: {},
-    segments: [],
-    suggestedOwners: {},
-  });
+  }>(emptyCabSweep);
+  useEffect(() => {
+    if (tool !== 'wall') setWallDraw(emptyWallDraw);
+  }, [tool]);
+  useEffect(() => {
+    setCabSweep(emptyCabSweep);
+  }, [tool, drawBoxKind]);
 
   const [planHoverWall, setPlanHoverWall] = useState<{
     wallId: string;
     offsetCm: number;
     boxId: string | null;
+    signedPerp: number;
   } | null>(null);
   const [planHoverClientPt, setPlanHoverClientPt] = useState<{ x: number; y: number } | null>(null);
   const [planHoverFloorCm, setPlanHoverFloorCm] = useState<{ x: number; y: number } | null>(null);
@@ -244,6 +255,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     | {
         mode: 'move-node';
         refs: WallNodeRef[];
+        startWalls: Wall[];
         lastX: number;
         lastY: number;
       }
@@ -415,13 +427,31 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   const cancelCurrentDrag = () => {
     const op = dragOp.current;
     dragOp.current = null;
-    if (op?.mode === 'pan') setPan({ x: op.origX, y: op.origY });
-    else if (op) onCancelDrag();
+    if (op?.mode === 'pan') {
+      setPan({ x: op.origX, y: op.origY });
+      onFinishDrag();
+    } else if (op) onCancelDrag();
     lastPlaceTapRef.current = null;
     touchPinch.current = null;
     gestureStepperRef.current.resetTouch();
-    setCabSweep({ active: false, startWallId: null, startOffsetCm: 0,
-      hasDragged: false, flipOverrides: {}, segments: [], suggestedOwners: {} });
+    setCabSweep(emptyCabSweep);
+  };
+
+  const getCabinetFlips = (wall: Wall, signedPerp: number) => {
+    const flipOverrides: Record<string, 1 | -1> = {};
+    if (wall.boxes.length === 0 && Math.abs(signedPerp) >= 3) {
+      const desiredFlip: 1 | -1 = signedPerp >= 0 ? 1 : -1;
+      if (desiredFlip !== wall.flipSide) {
+        const cloned: Wall[] = walls.map((w) => ({ ...w }));
+        orientEmptyConnectedWallsFromSeed(cloned, wall.id, desiredFlip);
+        cloned.forEach((cw, idx) => {
+          if (cw.flipSide !== walls[idx].flipSide) {
+            flipOverrides[cw.id] = cw.flipSide;
+          }
+        });
+      }
+    }
+    return flipOverrides;
   };
 
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -437,15 +467,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       lastPlaceTapRef.current = null;
       cancelCurrentDrag();
       if (cabSweep.active) {
-        setCabSweep({
-          active: false,
-          startWallId: null,
-          startOffsetCm: 0,
-          hasDragged: false,
-          flipOverrides: {},
-          segments: [],
-          suggestedOwners: {},
-        });
+        setCabSweep(emptyCabSweep);
       }
       return;
     }
@@ -484,6 +506,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         dragOp.current = {
           mode: 'move-node',
           refs: node.refs,
+          startWalls: walls,
           lastX: node.xCm,
           lastY: node.yCm,
         };
@@ -663,38 +686,19 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       if (hit) {
         e.currentTarget.setPointerCapture(e.pointerId);
 
-        const flipOverrides: Record<string, 1 | -1> = {};
-        let workingWalls = walls;
-        if (hit.wall.boxes.length === 0 && Math.abs(hit.signedPerp) >= 3) {
-          const desiredFlip: 1 | -1 = hit.signedPerp >= 0 ? 1 : -1;
-          if (desiredFlip !== hit.wall.flipSide) {
-            const cloned: Wall[] = walls.map((w) => ({ ...w }));
-            orientEmptyConnectedWallsFromSeed(cloned, hit.wall.id, desiredFlip);
-            cloned.forEach((cw, idx) => {
-              if (cw.flipSide !== walls[idx].flipSide) {
-                flipOverrides[cw.id] = cw.flipSide;
-              }
-            });
-            workingWalls = cloned;
-          }
-        }
-
-        const initialWidth = Math.min(60, hit.wall.length);
-        const previewStart = Math.max(0, Math.min(hit.wall.length - initialWidth, Math.round((hit.offsetCm - initialWidth / 2) / 5) * 5));
-        const initial = computeMultiWallSweep(
-          workingWalls, hit.wall.id, drawBoxKind === 'base' ? previewStart : hit.offsetCm,
-          hit.wall.id, drawBoxKind === 'base' ? previewStart + initialWidth : hit.offsetCm,
-          drawBoxKind, cornerOwners, false
-        );
-
+        const flipOverrides = getCabinetFlips(hit.wall, hit.signedPerp);
+        const starter = cabinetStarterSegment(hit.wall, hit.offsetCm);
+        const segments = drawBoxKind === 'base' ? [starter] : [];
+        const placement = resolveCabinetPlacement({ walls, cornerOwners, settings }, segments, drawBoxKind, {}, flipOverrides);
         setCabSweep({
           active: true,
           startWallId: hit.wall.id,
-          startOffsetCm: drawBoxKind === 'base' ? previewStart : hit.offsetCm,
+          startOffsetCm: drawBoxKind === 'base' ? placement.segments[0]?.startCm ?? starter.startCm : hit.offsetCm,
+          startHitOffsetCm: hit.offsetCm,
           hasDragged: false,
           flipOverrides,
-          segments: initial.segments,
-          suggestedOwners: initial.suggestedOwners,
+          segments,
+          suggestedOwners: {},
         });
         return;
       }
@@ -834,7 +838,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         const moved =
           cabSweep.hasDragged ||
           hit.wall.id !== cabSweep.startWallId ||
-          Math.abs(hit.offsetCm - cabSweep.startOffsetCm) >= 8;
+          Math.abs(hit.offsetCm - cabSweep.startHitOffsetCm) >= 8;
+        if (!moved) return;
 
         const computed = computeMultiWallSweep(
           displayWalls,
@@ -852,6 +857,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           segments: computed.segments,
           suggestedOwners: computed.suggestedOwners,
         }));
+      } else {
+        setCabSweep(prev => ({ ...prev, hasDragged: true, segments: [], suggestedOwners: {} }));
       }
       return;
     }
@@ -886,7 +893,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           );
         }
       } else if (op.mode === 'move-node') {
-        const snapped = snapWallNodePosition(walls, op.refs, ptCm.x, ptCm.y);
+        const snapped = snapWallNodePosition(op.startWalls, op.refs, ptCm.x, ptCm.y);
         op.lastX = snapped.x;
         op.lastY = snapped.y;
         onMoveWallNode(op.refs, snapped.x, snapped.y, false);
@@ -941,9 +948,14 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           wallId: hit.wall.id,
           offsetCm: hit.offsetCm,
           boxId: box?.id ?? null,
+          signedPerp: hit.signedPerp,
         });
         if (tool === 'sink' || tool === 'gas' || tool === 'appliance') {
           setPlanHoverStatus(box ? 'valid' : 'invalid');
+        } else if (tool === 'cab-draw' && drawBoxKind === 'base') {
+          const flips = getCabinetFlips(hit.wall, hit.signedPerp);
+          const placement = resolveCabinetPlacement({ walls, cornerOwners, settings }, [cabinetStarterSegment(hit.wall, hit.offsetCm)], drawBoxKind, {}, flips);
+          setPlanHoverStatus(placement.segments.length ? 'valid' : 'invalid');
         } else {
           setPlanHoverStatus('valid');
         }
@@ -976,15 +988,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       const valid = (cabSweep.hasDragged || drawBoxKind === 'base') ? cabSweep.segments.filter((seg) => seg.widthCm >= 30) : [];
       const owners = cabSweep.suggestedOwners;
       const flips = cabSweep.flipOverrides;
-      setCabSweep({
-        active: false,
-        startWallId: null,
-        startOffsetCm: 0,
-        hasDragged: false,
-        flipOverrides: {},
-        segments: [],
-        suggestedOwners: {},
-      });
+      setCabSweep(emptyCabSweep);
       if (valid.length) {
         onCreateBoxesFromSweep(valid, drawBoxKind, owners, flips);
       }
@@ -1006,9 +1010,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       } else if (op.mode === 'move-node') {
         onMoveWallNode(op.refs, op.lastX, op.lastY, true);
       } else if (op.mode === 'move-wall') {
-        if (op.lastDx !== 0 || op.lastDy !== 0) {
-          onMoveWall(op.wallId, op.lastDx, op.lastDy, op.moveEntireComponent, true, op.sessionId);
-        }
+        onMoveWall(op.wallId, op.lastDx, op.lastDy, op.moveEntireComponent, true, op.sessionId);
       } else if (op.mode === 'move-plan-box') {
         if (op.lastOffsetX !== op.origOffsetX) {
           onMoveBoxFromPlan(op.wallId, op.boxId, op.lastOffsetX, true, op.sessionId);
@@ -1018,6 +1020,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           onMoveApplianceFromPlan(op.wallId, op.appId, op.lastOffsetX, true, op.sessionId);
         }
       }
+      onFinishDrag();
     }
   };
 
@@ -1026,15 +1029,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       lastMultiTouchMsRef.current = performance.now();
       cancelCurrentDrag();
       if (cabSweep.active) {
-        setCabSweep({
-          active: false,
-          startWallId: null,
-          startOffsetCm: 0,
-          hasDragged: false,
-          flipOverrides: {},
-          segments: [],
-          suggestedOwners: {},
-        });
+        setCabSweep(emptyCabSweep);
       }
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1182,13 +1177,25 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   const s = planScale;
 
   const sweepPreviewData = useMemo(() => {
-    if (!cabSweep.active || !cabSweep.segments.length) return null;
+    const hoverWall = !cabSweep.active && tool === 'cab-draw' && drawBoxKind === 'base'
+      ? walls.find(wall => wall.id === planHoverWall?.wallId)
+      : undefined;
+    const requested = hoverWall && planHoverWall
+      ? [cabinetStarterSegment(hoverWall, planHoverWall.offsetCm)]
+      : cabSweep.active ? cabSweep.segments : [];
+    if (!requested.length) return null;
+    const flips = hoverWall && planHoverWall
+      ? getCabinetFlips(hoverWall, planHoverWall.signedPerp)
+      : cabSweep.flipOverrides;
+    const placement = resolveCabinetPlacement({ walls, cornerOwners, settings }, requested, drawBoxKind, cabSweep.suggestedOwners, flips);
+    if (!placement.segments.length) return null;
     const dummyMap = new Map<string, CabinetBox>();
-    const tempWalls: Wall[] = displayWalls.map((w) => {
-      const segs = cabSweep.segments.filter((seg) => seg.wallId === w.id);
+    const tempWalls: Wall[] = walls.map((wall) => {
+      const w = flips[wall.id] ? { ...wall, flipSide: flips[wall.id] } : wall;
+      const segs = placement.segments.filter((seg) => seg.wallId === w.id);
       if (!segs.length) return w;
       const added = segs.map((seg, i) => {
-        const d = createEmptyBox(drawBoxKind, seg.startCm, seg.widthCm);
+        const d = createEmptyBox(drawBoxKind, seg.startCm, seg.widthCm, { settings });
         d.id = `preview_${w.id}_${i}`;
         dummyMap.set(d.id, d);
         return d;
@@ -1196,7 +1203,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       return { ...w, boxes: [...w.boxes, ...added] };
     });
 
-    const mergedOwners = { ...cornerOwners, ...cabSweep.suggestedOwners };
+    const mergedOwners = placement.owners;
     const polys: Array<{ key: string; points: Array<{ x: number; y: number }> }> = [];
     for (const tw of tempWalls) {
       for (const b of tw.boxes) {
@@ -1208,7 +1215,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
 
     const previewBridges = getOutsideCornerBridges(tempWalls, mergedOwners);
     return { polys, previewBridges };
-  }, [cabSweep.active, cabSweep.segments, cabSweep.suggestedOwners, displayWalls, drawBoxKind, cornerOwners]);
+  }, [cabSweep.active, cabSweep.segments, cabSweep.suggestedOwners, cabSweep.flipOverrides, drawBoxKind, cornerOwners, walls, settings, tool, planHoverWall]);
 
   return (
     <section
@@ -1290,15 +1297,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             setWallDraw({ startPt: null, currPt: null, lengthCm: 0, snappedCorner: false });
           }
           if (cabSweep.active) {
-            setCabSweep({
-              active: false,
-              startWallId: null,
-              startOffsetCm: 0,
-              hasDragged: false,
-              flipOverrides: {},
-              segments: [],
-              suggestedOwners: {},
-            });
+            setCabSweep(emptyCabSweep);
           }
           if (tool !== 'select') {
             onExitToSelect();
@@ -1862,12 +1861,6 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
               {planHoverWall &&
                 planHoverWall.wallId === w.id &&
                 (() => {
-                  if (tool === 'cab-draw' && drawBoxKind === 'base' && !cabSweep.active) {
-                    const width = Math.min(60, w.length);
-                    const start = Math.max(0, Math.min(w.length - width, Math.round((planHoverWall.offsetCm - width / 2) / 5) * 5));
-                    const depth = BOX_PRESETS.base.depth * s;
-                    return <rect x={start * s} y={flip === 1 ? 0 : -depth} width={width * s} height={depth} fill="rgba(79,70,229,.25)" stroke="#4f46e5" strokeDasharray="4,3" pointerEvents="none" />;
-                  }
                   if (tool === 'fridge') {
                     const cfg = FRIDGE_MODELS[fridgeModel];
                     const totalW = cfg.width + FRIDGE_FRAME_CM * 2;

@@ -980,7 +980,8 @@ export function moveSmartWallNode(
   walls: Wall[],
   movingRefs: WallNodeRef[],
   targetX: number,
-  targetY: number
+  targetY: number,
+  preserveContents = false
 ): boolean {
   // Verify no connected wall drops below 40cm
   for (const r of movingRefs) {
@@ -988,8 +989,15 @@ export function moveSmartWallNode(
     if (!w) continue;
     const ax = r.end === 'start' ? w.x2Cm : w.x1Cm;
     const ay = r.end === 'start' ? w.y2Cm : w.y1Cm;
-    if (Math.hypot(targetX - ax, targetY - ay) < 40) {
-      return false;
+    const length = Math.hypot(Math.round(targetX) - ax, Math.round(targetY) - ay);
+    if (length < 40) return false;
+    if (preserveContents && Math.round(length) < w.length) {
+      const nextLength = Math.round(length);
+      const shift = r.end === 'start' ? nextLength - w.length : 0;
+      const contents = [...w.boxes, ...w.appliances, ...(w.openings || [])];
+      if (contents.some(item =>
+        item.offsetX + shift < 0 || item.offsetX + shift + item.width > nextLength
+      )) return false;
     }
   }
 
@@ -1028,6 +1036,8 @@ export function moveSmartWallNode(
         }
       }
     }
+
+    if (preserveContents) continue;
 
     // Clamp internals hierarchically so nothing protrudes past the resized wall
     const survivingBoxIds = new Set<string>();
@@ -1099,7 +1109,8 @@ export function moveConnectedWall(
   wallId: string,
   deltaX: number,
   deltaY: number,
-  moveEntireComponent = false
+  moveEntireComponent = false,
+  preserveContents = false
 ): boolean {
   const target = walls.find((w) => w.id === wallId);
   if (!target) return false;
@@ -1182,12 +1193,8 @@ export function moveConnectedWall(
   const otherStartRefs = startRefs.filter((r) => r.wallId !== wallId);
   const otherEndRefs = endRefs.filter((r) => r.wallId !== wallId);
 
-  if (otherStartRefs.length) {
-    moveSmartWallNode(walls, otherStartRefs, newX1, newY1);
-  }
-  if (otherEndRefs.length) {
-    moveSmartWallNode(walls, otherEndRefs, newX2, newY2);
-  }
+  if (otherStartRefs.length && !moveSmartWallNode(walls, otherStartRefs, newX1, newY1, preserveContents)) return false;
+  if (otherEndRefs.length && !moveSmartWallNode(walls, otherEndRefs, newX2, newY2, preserveContents)) return false;
 
   return true;
 }

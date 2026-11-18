@@ -96,6 +96,9 @@ const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'cl
 const HANDLE_STYLE_ORDER: HandleStyle[] = ['simple', 'knob', 'hidden'];
 
 interface FrontCanvasProps {
+  onBeginDrag: () => void;
+  onCancelDrag: () => void;
+  onFinishDrag: () => void;
   wall: Wall | null;
   allWalls: Wall[];
   columns?: RoomColumn[];
@@ -323,6 +326,9 @@ type DragOp =
     };
 
 export const FrontCanvas: React.FC<FrontCanvasProps> = ({
+  onBeginDrag,
+  onCancelDrag,
+  onFinishDrag,
   wall,
   allWalls,
   columns = [],
@@ -495,6 +501,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   } | null>(null);
 
   const dragOp = useRef<DragOp | null>(null);
+  const dragPointerId = useRef<number | null>(null);
   const activePointersRef = useRef<Set<number>>(new Set());
   const lastMultiTouchMsRef = useRef(0);
   const lastPlaceTapRef = useRef<{ ts: number; x: number; y: number; tool: ToolId } | null>(null);
@@ -984,11 +991,29 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     onZoomAndPanChange(nextS, nextPan);
   };
 
+  const beginDrag = (pointerId: number) => {
+    dragPointerId.current = pointerId;
+    onBeginDrag();
+  };
+
+  const cancelCurrentDrag = () => {
+    const op = dragOp.current;
+    const pointerId = dragPointerId.current;
+    dragOp.current = null;
+    dragPointerId.current = null;
+    if (op && op.mode !== 'pan' && op.mode !== 'marquee') onCancelDrag();
+    else if (op) onFinishDrag();
+    setMarquee(null);
+    setDragGuides(null);
+    const svg = svgRef.current;
+    if (pointerId !== null && svg?.hasPointerCapture(pointerId)) svg.releasePointerCapture(pointerId);
+  };
+
   const handleTouchStart = (e: React.TouchEvent<SVGSVGElement>) => {
     if (e.touches.length >= 2) {
       lastMultiTouchMsRef.current = performance.now();
       lastPlaceTapRef.current = null;
-      dragOp.current = null;
+      cancelCurrentDrag();
       gestureStepperRef.current.resetTouch();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1268,14 +1293,17 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         lastMultiTouchMsRef.current = performance.now();
       }
       lastPlaceTapRef.current = null;
-      dragOp.current = null;
+      cancelCurrentDrag();
       return;
     }
+
+    if (dragPointerId.current !== null) return;
 
     // Middle-click or Space + Left-click always pans cleanly in ANY tool!
     if (e.button === 1 || spaceDown) {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
+      beginDrag(e.pointerId);
       dragOp.current = {
         mode: 'pan',
         startX: e.clientX,
@@ -1399,6 +1427,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       const op = wall.openings?.find((o) => o.id === oId);
       if (op) {
         e.currentTarget.setPointerCapture(e.pointerId);
+        beginDrag(e.pointerId);
         dragOp.current = {
           mode: 'resize-opening',
           openingId: op.id,
@@ -1421,6 +1450,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       const box = wall.boxes.find((b) => b.id === bId);
       if (box) {
         e.currentTarget.setPointerCapture(e.pointerId);
+        beginDrag(e.pointerId);
         dragOp.current = {
           mode: 'resize-box',
           side,
@@ -1451,6 +1481,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         );
         onSelectUnitDivider?.({ boxId: boxObj.id, seamCm: seamVal });
         e.currentTarget.setPointerCapture(e.pointerId);
+        beginDrag(e.pointerId);
         dragOp.current = {
           mode: 'resize-unit-div',
           boxId: boxObj.id,
@@ -1472,6 +1503,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       const bId = doorSeamEl.getAttribute('data-box-id');
       if (dId && bId) {
         e.currentTarget.setPointerCapture(e.pointerId);
+        beginDrag(e.pointerId);
         dragOp.current = {
           mode: 'resize-door-seam',
           boxId: bId,
@@ -1495,6 +1527,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       const door = box?.doors.find((d) => d.id === dId);
       if (box && door) {
         e.currentTarget.setPointerCapture(e.pointerId);
+        beginDrag(e.pointerId);
         dragOp.current = {
           mode: 'resize-door',
           boxId: box.id,
@@ -1522,6 +1555,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onSetMultiSelection(undefined);
         onSelectAppliance?.(app.id);
         e.currentTarget.setPointerCapture(e.pointerId);
+        beginDrag(e.pointerId);
         dragOp.current = {
           mode: 'move-app',
           appId: app.id,
@@ -1542,6 +1576,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       if (op) {
         onSelectOpening(op.id);
         e.currentTarget.setPointerCapture(e.pointerId);
+        beginDrag(e.pointerId);
         dragOp.current = {
           mode: 'move-opening',
           openingId: op.id,
@@ -1568,6 +1603,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         const hObj = hit.box.handles.find((h) => h.id === hId);
         if (hObj) {
           e.currentTarget.setPointerCapture(e.pointerId);
+          beginDrag(e.pointerId);
           dragOp.current = {
             mode: 'stretch-handle',
             boxId: hit.box.id,
@@ -1771,6 +1807,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       if (resMsg) onToast(resMsg);
       if (createdId) onSelectFrame?.(fTarget.box.id, createdId);
       e.currentTarget.setPointerCapture(e.pointerId);
+      beginDrag(e.pointerId);
       dragOp.current = {
         mode: 'frame-draw',
         boxId: fTarget.box.id,
@@ -1832,6 +1869,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
           const innerLeftPx = bxBox + (insets.left + shelfObj.startCm * scaleX) * s;
           const innerWidthPx = Math.max(8, (shelfObj.endCm - shelfObj.startCm) * scaleX * s);
           e.currentTarget.setPointerCapture(e.pointerId);
+          beginDrag(e.pointerId);
           dragOp.current = {
             mode: 'move-shelf',
             boxId: bId,
@@ -1859,6 +1897,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
             (boxObj.width - insets.left - insets.right) / Math.max(1, boxObj.width)
           );
           e.currentTarget.setPointerCapture(e.pointerId);
+          beginDrag(e.pointerId);
           dragOp.current = {
             mode: 'resize-unit-div',
             boxId: bId,
@@ -1893,6 +1932,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               onSetMultiSelection(undefined);
               onSelectUnit?.({ boxId: hit.box.id, startCm: uStart, endCm: uEnd });
               e.currentTarget.setPointerCapture(e.pointerId);
+              beginDrag(e.pointerId);
               dragOp.current = {
                 mode: 'move-box',
                 boxId: hit.box.id,
@@ -1920,6 +1960,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onSetMultiSelection(undefined);
         onSelectBoxAndDoor(hit.box.id, doorId);
         e.currentTarget.setPointerCapture(e.pointerId);
+        beginDrag(e.pointerId);
         dragOp.current = {
           mode: 'move-box',
           boxId: hit.box.id,
@@ -1936,6 +1977,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       onSetMultiSelection(undefined);
       e.currentTarget.setPointerCapture(e.pointerId);
       setMarquee({ startX: pt.x, startY: pt.y, currX: pt.x, currY: pt.y });
+      beginDrag(e.pointerId);
       dragOp.current = {
         mode: 'marquee',
         startPt: pt,
@@ -2183,6 +2225,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
     // Fallback pan
     e.currentTarget.setPointerCapture(e.pointerId);
+    beginDrag(e.pointerId);
     dragOp.current = {
       mode: 'pan',
       startX: e.clientX,
@@ -2193,6 +2236,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (dragPointerId.current !== null && e.pointerId !== dragPointerId.current) return;
     setHoverClientPt({ x: e.clientX, y: e.clientY });
     if (!wall) return;
     const pt = clientToSvg(e.clientX, e.clientY);
@@ -2650,13 +2694,21 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
   const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
     activePointersRef.current.delete(e.pointerId);
-    if (!dragOp.current) return;
+    if (!dragOp.current || dragPointerId.current !== e.pointerId) return;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
     const op = dragOp.current;
     dragOp.current = null;
+    dragPointerId.current = null;
+    try {
+      finishDrag(op);
+    } finally {
+      onFinishDrag();
+    }
+  };
 
+  const finishDrag = (op: DragOp) => {
     if (op.mode === 'marquee') {
       setMarquee(null);
       if (!wall) return;
@@ -3398,9 +3450,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         style={{ transform: wall?.flipSide === -1 ? 'scaleX(-1)' : undefined, cursor: spaceDown ? 'grab' : tool === 'eraser' ? 'not-allowed' : undefined }}
         onContextMenu={(e) => {
           e.preventDefault();
-          dragOp.current = null;
-          setMarquee(null);
-          setDragGuides(null);
+          cancelCurrentDrag();
           if (tool !== 'select') {
             onExitToSelect();
           }
@@ -3425,7 +3475,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={(e) => {
           activePointersRef.current.delete(e.pointerId);
-          dragOp.current = null;
+          if (dragPointerId.current === e.pointerId) cancelCurrentDrag();
         }}
       >
         <defs>

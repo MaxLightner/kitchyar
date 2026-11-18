@@ -1,0 +1,151 @@
+import { BOX_PRESETS, DEFAULT_PROJECT_SETTINGS } from './constants';
+import { analyzeCornerJunction, detectCornerJunctions, getBoxTier, type SweepSegment } from './cornerLogic';
+import type { BoxKind, ProjectState, Wall } from './types';
+
+function subtractBlockedIntervals(
+  startCm: number,
+  endCm: number,
+  blocked: Array<{ start: number; end: number }>
+): Array<{ start: number; end: number }> {
+  let spans = [{ start: startCm, end: endCm }];
+  for (const b of blocked) {
+    const next: Array<{ start: number; end: number }> = [];
+    for (const sp of spans) {
+      if (b.end <= sp.start + 1 || b.start >= sp.end - 1) {
+        next.push(sp);
+      } else {
+        if (b.start - sp.start >= 30) next.push({ start: sp.start, end: b.start });
+        if (sp.end - b.end >= 30) next.push({ start: b.end, end: sp.end });
+      }
+    }
+    spans = next;
+  }
+  return spans;
+}
+
+export function cabinetStarterSegment(wall: Wall, targetCm: number): SweepSegment {
+  const widthCm = Math.min(60, wall.length);
+  const centeredStart = Math.round((targetCm - widthCm / 2) / 5) * 5;
+  const startCm = Math.max(0, Math.min(wall.length - widthCm, centeredStart));
+  return { wallId: wall.id, startCm, widthCm };
+}
+
+export function resolveCabinetPlacement(
+  project: Pick<ProjectState, 'walls' | 'cornerOwners' | 'settings'>,
+  requested: SweepSegment[],
+  kind: BoxKind,
+  suggestedOwners?: Record<string, string>,
+  flipOverrides?: Record<string, 1 | -1>
+) {
+  const walls = flipOverrides
+    ? project.walls.map(w => flipOverrides[w.id] ? { ...w, flipSide: flipOverrides[w.id] } : w)
+    : project.walls;
+  const owners = { ...project.cornerOwners };
+  const settings = project.settings || DEFAULT_PROJECT_SETTINGS;
+  const segments = requested.map(segment => ({ ...segment }));
+  if (suggestedOwners) {
+    for (const [key, ownerId] of Object.entries(suggestedOwners)) {
+      if (!owners[key]) {
+        owners[key] = ownerId;
+      }
+    }
+  }
+
+  if (segments.length === 1) {
+    const seg = segments[0];
+    const w = walls.find((x) => x.id === seg.wallId);
+    if (w) {
+      const tier = kind === 'wall' ? 'wall-lower' : kind === 'wall-deep' ? 'wall-upper' : 'lower';
+      const depthSetback = kind === 'wall' ? 32 : kind === 'wall-deep' ? 58 : kind === 'fridge' ? 70 : 60;
+      const junctions = detectCornerJunctions(walls, owners);
+      for (const j of junctions) {
+        const isA = j.wallAId === w.id;
+        const isB = j.wallBId === w.id;
+        if (!isA && !isB) continue;
+        const myEnd = isA ? j.wallAEnd : j.wallBEnd;
+        const otherId = isA ? j.wallBId : j.wallAId;
+        const otherEnd = isA ? j.wallBEnd : j.wallAEnd;
+        const otherWall = walls.find((x) => x.id === otherId);
+        if (!otherWall) continue;
+        const geom = analyzeCornerJunction(w, myEnd, otherWall, otherEnd);
+        if (geom.kind !== 'inside-90') continue;
+
+        const touchesCorner =
+          (myEnd === 'start' && seg.startCm <= 5) ||
+          (myEnd === 'end' && seg.startCm + seg.widthCm >= w.length - 5);
+        if (!touchesCorner) continue;
+
+        const otherHasCornerBox = otherWall.boxes.some((ob) => {
+          if (getBoxTier(ob) !== tier) return false;
+          return otherEnd === 'start' ? ob.offsetX <= 5 : ob.offsetX + ob.width >= otherWall.length - 5;
+        });
+
+        if (otherHasCornerBox) {
+          owners[j.key] = otherWall.id;
+          if (myEnd === 'start' && seg.startCm < depthSetback) {
+            const delta = depthSetback - seg.startCm;
+            seg.startCm = depthSetback;
+            seg.widthCm = Math.max(0, seg.widthCm - delta);
+          } else if (myEnd === 'end' && seg.startCm + seg.widthCm > w.length - depthSetback) {
+            seg.widthCm = Math.max(0, w.length - depthSetback - seg.startCm);
+          }
+        } else if (!owners[j.key]) {
+          owners[j.key] = w.id;
+        }
+      }
+    }
+  }
+
+  const placements: SweepSegment[] = [];
+  let blockedByOpening = false;
+
+  const boxPreset = BOX_PRESETS[kind] || BOX_PRESETS.base;
+  const candElevY = kind === 'wall' ? settings.wallCabElevCm : boxPreset.elevY;
+  const candH =
+    kind === 'base'
+      ? settings.baseHeightCm
+      : kind === 'wall'
+      ? settings.wallCabHeightCm
+      : boxPreset.height;
+
+  segments.forEach((seg) => {
+    if (seg.widthCm < 30) return;
+    const w = walls.find((x) => x.id === seg.wallId);
+    if (!w) return;
+
+    const newTier = kind === 'wall' ? 'wall-lower' : kind === 'wall-deep' ? 'wall-upper' : 'lower';
+    const blockedSpans: Array<{ start: number; end: number }> = [];
+
+    for (const existing of w.boxes) {
+      if (kind === 'tall') {
+        if (existing.type === 'tall' || existing.type === 'fridge' || existing.type === 'closet') {
+          blockedSpans.push({ start: existing.offsetX, end: existing.offsetX + existing.width });
+        }
+        continue;
+      }
+      if (getBoxTier(existing) !== newTier) continue;
+      blockedSpans.push({ start: existing.offsetX, end: existing.offsetX + existing.width });
+    }
+    for (const op of w.openings || []) {
+      const opTop = op.elevY + op.height;
+      const boxTop = candElevY + candH;
+      if (candElevY < opTop - 1 && boxTop > op.elevY + 1) {
+        blockedSpans.push({ start: op.offsetX, end: op.offsetX + op.width });
+        blockedByOpening = true;
+      }
+    }
+
+    for (const placement of placements) {
+      if (placement.wallId === w.id) blockedSpans.push({ start: placement.startCm, end: placement.startCm + placement.widthCm });
+    }
+    const start = Math.max(0, seg.startCm);
+    const end = Math.min(w.length, seg.startCm + seg.widthCm);
+    const validSpans = subtractBlockedIntervals(start, end, blockedSpans);
+    validSpans.forEach((sp) => {
+      const finalW = Math.round(sp.end - sp.start);
+      if (finalW < 30) return;
+      placements.push({ wallId: w.id, startCm: sp.start, widthCm: finalW });
+    });
+  });
+  return { segments: placements, owners, blockedByOpening };
+}

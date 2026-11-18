@@ -54,6 +54,7 @@ interface TopBarProps {
   onRedo: () => void;
   onSelectViewMode: (mode: ViewMode) => void;
   floorScanActive?: boolean;
+  arViewActive?: boolean;
   onToggleFloorScan?: () => void;
   onOpenSettings: () => void;
   onExportProject?: () => void;
@@ -101,6 +102,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onRedo,
   onSelectViewMode,
   floorScanActive = false,
+  arViewActive = false,
   onToggleFloorScan,
   onOpenSettings,
   onExportProject,
@@ -331,11 +333,11 @@ export const TopBar: React.FC<TopBarProps> = ({
             <button
               type="button"
               onClick={() => onSelectViewMode('3d')}
-              aria-pressed={viewMode === '3d'}
+              aria-pressed={viewMode === '3d' && !arViewActive}
               aria-label="نمای سه‌بعدی"
               title="نمایش و ویرایش سه‌بعدی (3D)"
               className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${
-                viewMode === '3d'
+                viewMode === '3d' && !arViewActive
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-slate-700 hover:bg-white'
               }`}
@@ -349,10 +351,10 @@ export const TopBar: React.FC<TopBarProps> = ({
                 data-testid="toggle-floor-scan-3d"
                 onClick={onToggleFloorScan}
                 disabled={!arAvailable}
-                aria-pressed={floorScanActive}
+                aria-pressed={arViewActive}
                 aria-label={floorScanActive ? 'نمای AR با ردیابی زنده' : 'اسکن کف با دوربین واقعی'}
                 title={!arAvailable ? 'AR روی این دستگاه در دسترس نیست' : floorScanActive ? 'بازگشت به تصویر واقعی با حفظ ردیابی' : 'اسکن کف در همین محیط سه‌بعدی'}
-                className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${floorScanActive
+                className={`h-7 px-2 rounded-md text-[13px] font-black inline-flex items-center gap-1 transition ${arViewActive
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'text-emerald-700 hover:bg-white'}`}
               >

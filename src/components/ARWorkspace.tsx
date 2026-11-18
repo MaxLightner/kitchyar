@@ -1,3 +1,4 @@
+import { cabinetStarterSegment, resolveCabinetPlacement } from '../cad/cabinetPlacement';
 import { AimTap, aimCenter, calibrationPinsAtView } from '../ar/centerAim';
 import { snapArWallEndpointsCm } from '../ar/arCalibration';
 import { logDiagnostic } from '../utils/diagnostics';
@@ -91,9 +92,7 @@ import {
   applyDoorBrushPreview,
   applyHandlesToBoxDoors,
   autoUnitizeBoxForHandles,
-  carveBoxesForPlacedBox,
   computeDoorBrushPreview,
-  createEmptyBox,
   deleteApplianceHierarchically,
   deleteBoxHierarchically,
   eraseDoorWithRule,
@@ -240,15 +239,16 @@ interface ARWorkspaceProps {
   onMoveAppliance?: (wallId: string, appId: string, desiredOffsetX: number, commit: boolean, sessionId?: string) => void;
   onMoveOpening?: (wallId: string, openingId: string, offsetX: number, commit: boolean) => void;
   onDeleteOpening?: (wallId: string, openingId: string) => void;
-  onCreateBoxesFromSweep?: (
+  onCreateBoxesFromSweep: (
     segments: SweepSegment[],
     kind: BoxKind,
     suggestedOwners?: Record<string, string>,
     flipOverrides?: Record<string, 1 | -1>
-  ) => void;
+  ) => boolean;
   onConfirmHiddenHandle?: (onConfirm: () => void) => void;
   onBeginDrag: () => void;
   onCancelDrag: () => void;
+  onFinishDrag: () => void;
   onUpdateProject: (updater: (prev: ProjectState) => ProjectState, toastMsg?: string) => void;
   onSwitchViewMode: (mode: '2d' | '3d' | 'ar') => void;
   onToast: (msg: string) => void;
@@ -578,6 +578,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   onUpdateProject,
   onBeginDrag,
   onCancelDrag,
+  onFinishDrag,
   onSwitchViewMode,
   onToast,
   sessionKillSignal = 0,
@@ -636,6 +637,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onUpdateProject,
     onBeginDrag,
     onCancelDrag,
+    onFinishDrag,
     selectionMode,
     fridgeModel,
     sinkModel,
@@ -693,6 +695,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     onUpdateProject,
     onBeginDrag,
     onCancelDrag,
+    onFinishDrag,
     selectionMode,
     fridgeModel,
     sinkModel,
@@ -794,7 +797,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   useEffect(() => {
     if (!embeddedIn3D || !sharedTool) return;
     if (sharedTool !== 'wall') setPendingWallStart(null);
-    if (sharedTool !== 'cab-draw') setPendingCabSweep(null);
+    setPendingCabSweep(pending => pending && sharedTool === 'cab-draw' && pending.kind === drawBoxKind ? pending : null);
     if (sharedTool === 'select') {
       surfaceCursorRef.current.clear();
       setSurfaceCursorActive(false);
@@ -803,7 +806,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       sharedTool === 'cab-draw'
         ? drawBoxKind === 'wall' || drawBoxKind === 'wall-deep'
           ? 'cab-wall'
-          : drawBoxKind === 'tall'
+          : drawBoxKind === 'tall' || drawBoxKind === 'closet'
           ? 'cab-tall'
           : 'cab-base'
         : sharedTool;
@@ -1477,7 +1480,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       let startX = result.offsetCm;
 
       if (tool === 'cab-base' || tool === 'cab-wall' || tool === 'cab-tall') {
-        const kind = tool === 'cab-base' ? 'base' : tool === 'cab-wall' ? choices.drawBoxKind === 'wall-deep' ? 'wall-deep' : 'wall' : 'tall';
+        const toolKind = tool === 'cab-base' ? 'base'
+          : tool === 'cab-wall' ? (choices.drawBoxKind === 'wall-deep' ? 'wall-deep' : 'wall')
+          : (choices.drawBoxKind === 'closet' ? 'closet' : 'tall');
+        const kind = pendingSweep?.kind ?? toolKind;
         const cfg = BOX_PRESETS[kind] || BOX_PRESETS.base;
         const boxH =
           kind === 'base'
@@ -1488,56 +1494,45 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         const boxElev =
           kind === 'wall' ? projectRef.current.settings?.wallCabElevCm ?? cfg.elevY : cfg.elevY;
 
-        if (pendingSweep) {
-          const sweepRes = computeMultiWallSweep(
-            projectRef.current.walls,
-            pendingSweep.wallId,
-            pendingSweep.startCm,
-            w.id,
-            result.offsetCm,
-            pendingSweep.kind,
-            projectRef.current.cornerOwners,
-            true
-          );
-          const totalW = Math.round(sweepRes.segments.reduce((s, seg) => s + seg.widthCm, 0));
-          const swGrp = sweepGhostGroupRef.current;
-          if (swGrp) {
-            const ghostMat = new THREE.MeshBasicMaterial({
-              color: totalW >= 30 ? 0x4f46e5 : 0xdc2626,
-              transparent: true,
-              opacity: 0.34,
-              depthWrite: false,
-            });
-            for (const seg of sweepRes.segments) {
-              if (seg.widthCm < 5) continue;
-              const sw = projectRef.current.walls.find((x) => x.id === seg.wallId);
-              if (!sw) continue;
-              const sv = getWallVectors(sw);
-              const segM = new THREE.Mesh(
-                new THREE.BoxGeometry(seg.widthCm * CM, boxH * CM, cfg.depth * CM),
-                ghostMat
-              );
-              const cx = seg.startCm + seg.widthCm / 2;
-              const px = (sw.x1Cm + cx * sv.tx + (cfg.depth / 2) * sv.nx) / 100;
-              const pz = (sw.y1Cm + cx * sv.ty + (cfg.depth / 2) * sv.ny) / 100;
-              segM.position.set(
-                al.x + al.scale * (px * c + pz * sn),
-                (boxElev + boxH / 2) * CM * al.scale,
-                al.z + al.scale * (-px * sn + pz * c)
-              );
-              segM.rotation.y = -Math.atan2(sv.ty, sv.tx) + al.yaw;
-              segM.scale.setScalar(al.scale);
-              swGrp.add(segM);
-            }
+        if (!pendingSweep && kind !== 'base') return { status: 'valid' };
+        const { segments, suggestedOwners } = pendingSweep
+          ? computeMultiWallSweep(
+              projectRef.current.walls, pendingSweep.wallId, pendingSweep.startCm, w.id, result.offsetCm,
+              kind, projectRef.current.cornerOwners, true
+            )
+          : { segments: [cabinetStarterSegment(w, result.offsetCm)], suggestedOwners: {} };
+        const resolved = resolveCabinetPlacement(projectRef.current, segments.filter(seg => seg.widthCm >= 30), kind, suggestedOwners);
+        const totalW = resolved.segments.reduce((sum, seg) => sum + seg.widthCm, 0);
+        const swGrp = sweepGhostGroupRef.current;
+        if (swGrp && resolved.segments.length) {
+          const ghostMat = new THREE.MeshBasicMaterial({
+            color: 0x4f46e5,
+            transparent: true,
+            opacity: 0.34,
+            depthWrite: false,
+          });
+          for (const seg of resolved.segments) {
+            const sw = projectRef.current.walls.find((x) => x.id === seg.wallId);
+            if (!sw) continue;
+            const sv = getWallVectors(sw);
+            const segM = new THREE.Mesh(
+              new THREE.BoxGeometry(seg.widthCm * CM, boxH * CM, cfg.depth * CM),
+              ghostMat
+            );
+            const cx = seg.startCm + seg.widthCm / 2;
+            const px = (sw.x1Cm + cx * sv.tx + (cfg.depth / 2) * sv.nx) / 100;
+            const pz = (sw.y1Cm + cx * sv.ty + (cfg.depth / 2) * sv.ny) / 100;
+            segM.position.set(
+              al.x + al.scale * (px * c + pz * sn),
+              (boxElev + boxH / 2) * CM * al.scale,
+              al.z + al.scale * (-px * sn + pz * c)
+            );
+            segM.rotation.y = -Math.atan2(sv.ty, sv.tx) + al.yaw;
+            segM.scale.setScalar(al.scale);
+            swGrp.add(segM);
           }
-          return { status: totalW >= 30 ? 'valid' : 'invalid', sweepWidthCm: totalW };
         }
-        width = Math.min(60, Math.max(30, w.length - startX));
-        startX = Math.max(0, Math.min(w.length - width, startX));
-        height = boxH;
-        depth = cfg.depth;
-        elev = boxElev;
-        forwardOffsetCm = depth / 2;
+        return { status: totalW >= 30 ? 'valid' : 'invalid', sweepWidthCm: totalW };
       } else if (tool === 'fridge') {
         const cfg = FRIDGE_MODELS[choices.fridgeModel];
         width = cfg.width + FRIDGE_FRAME_CM * 2;
@@ -2001,6 +1996,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           arCalibration: { a, b, realDistanceCm: distCm },
         }));
       }
+      if (dr) propsRef.current.onFinishDrag();
     };
 
     // Two-finger vertical drag anywhere in AR cycles models cleanly
@@ -2484,11 +2480,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           : choices.drawBoxKind === 'closet'
           ? 'closet'
           : 'tall';
-      if (!pendingSweep && kind === 'base' && choices.onCreateBoxesFromSweep) {
-        const widthCm = Math.min(60, Math.max(30, hitWall.wall.length - hitWall.offsetCm));
-        const startCm = Math.max(0, Math.min(hitWall.wall.length - widthCm, hitWall.offsetCm));
-        choices.onCreateBoxesFromSweep([{ wallId: hitWall.wall.id, startCm, widthCm }], kind, {}, {});
-        onToast('کابینت مطابق پیش‌نمایش ثبت شد');
+      if (!pendingSweep && kind === 'base') {
+        choices.onCreateBoxesFromSweep([cabinetStarterSegment(hitWall.wall, hitWall.offsetCm)], kind);
         return;
       }
       if (!pendingSweep) {
@@ -2511,35 +2504,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         onToast('برای رسم باکس، حداقل ۳۰ سانتی‌متر روی دیوار پیش بروید');
         return;
       }
-      setPendingCabSweep(null);
-      if (choices.onCreateBoxesFromSweep) {
-        choices.onCreateBoxesFromSweep(validSegments, pendingSweep.kind, sweepRes.suggestedOwners, {});
-        return;
+      if (choices.onCreateBoxesFromSweep(validSegments, pendingSweep.kind, sweepRes.suggestedOwners)) {
+        setPendingCabSweep(null);
       }
-      propsRef.current.onUpdateProject((prev) => {
-        const next: ProjectState = JSON.parse(JSON.stringify(prev));
-        for (const [k, v] of Object.entries(sweepRes.suggestedOwners || {})) {
-          if (!next.cornerOwners[k]) next.cornerOwners[k] = v;
-        }
-        let firstBoxId: string | null = null;
-        let firstWallId: string | null = null;
-        for (const seg of validSegments) {
-          const w = next.walls.find((x) => x.id === seg.wallId);
-          if (!w) continue;
-          const box = createEmptyBox(pendingSweep.kind, seg.startCm, seg.widthCm, {
-            settings: next.settings,
-          });
-          w.boxes.push(box);
-          if (pendingSweep.kind === 'tall') carveBoxesForPlacedBox(w, box);
-          if (!firstBoxId) {
-            firstBoxId = box.id;
-            firstWallId = w.id;
-          }
-        }
-        if (firstWallId) next.activeWallId = firstWallId;
-        if (firstBoxId) next.activeBoxId = firstBoxId;
-        return next;
-      }, validSegments.length > 1 ? 'کابینت پیوسته در کنج رسم شد' : `باکس ${Math.round(validSegments[0].widthCm)} سانتی‌متری رسم شد`);
       return;
     }
 
