@@ -241,6 +241,7 @@ export const DOOR_STYLE_ORDER: DoorStyle[] = [
   'flat',
   'cnc',
   'glass',
+  'glass-frosted',
   'glass-grid',
 ];
 
@@ -250,8 +251,9 @@ export const DOOR_STYLE_META: Record<
 > = {
   flat: { label: 'ساده (مدرن فلت)', shortLabel: 'ساده', desc: 'درب صاف مدرن' },
   cnc: { label: 'سی‌ان‌سی / قاب‌دار', shortLabel: 'سی‌ان‌سی', desc: 'طرح نئوکلاسیک و کلاسیک' },
-  glass: { label: 'شیشه‌ای (ویترین)', shortLabel: 'شیشه‌ای', desc: 'قاب با شیشه سرتاسری' },
-  'glass-grid': { label: 'شیشه‌ای مشبک', shortLabel: 'مشبک شیشه', desc: 'شیشه با تقسیم‌بندی گرید' },
+  glass: { label: 'شیشه یکپارچه شفاف', shortLabel: 'شفاف', desc: 'تمام در از شیشه شفاف، بدون قاب' },
+  'glass-frosted': { label: 'شیشه یکپارچه مات', shortLabel: 'شیشه مات', desc: 'شیشه مات بدون قاب' },
+  'glass-grid': { label: 'شیشه با فریم مشبک چوبی', shortLabel: 'مشبک چوبی', desc: 'قاب و شبکه چوبی کلاسیک/نئوکلاسیک با شیشه شفاف' },
 };
 
 export const HARDWARE_KIND_ORDER: HardwareKind[] = [

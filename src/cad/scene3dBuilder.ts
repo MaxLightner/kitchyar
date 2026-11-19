@@ -711,13 +711,17 @@ export function buildKitchen3DScene(
   const matDoorRevealDark = matPack.matDoorRevealDark;
   const defaultCabFinish: CabinetFinishId = project.cabinetFinish || 'warm-white';
   const matDoorModern = matPack.getDoorMaterial(defaultCabFinish, 'flat', doorOpenProgress < 0.08, false);
+  // Both clear and frosted glazing allow the cabinet interior to remain
+  // visible as appropriate, without a separate transmission render pass.
   const matGlass = new THREE.MeshPhysicalMaterial({
-    color: 0xcbd5e1,
-    transparent: true,
-    opacity: 0.38,
-    roughness: 0.1,
-    metalness: 0.08,
-    transmission: 0.45,
+    color: 0xeaf6ff, transparent: true, opacity: 0.16,
+    depthWrite: false, side: THREE.DoubleSide, roughness: 0.07,
+    metalness: 0.08, clearcoat: 0.7,
+  });
+  const matFrostedGlass = new THREE.MeshPhysicalMaterial({
+    color: 0xd7e1e8, transparent: true, opacity: 0.75,
+    depthWrite: false, side: THREE.DoubleSide,
+    roughness: 0.78, metalness: 0.01, clearcoat: 0.05,
   });
   const matWindowGlass = new THREE.MeshPhysicalMaterial({
     color: 0xbae6fd,
@@ -1095,6 +1099,7 @@ export function buildKitchen3DScene(
           matDoorRevealDark,
           matDoorModern,
           matGlass,
+          matFrostedGlass,
           matFrame,
           matDivider,
           matShelf,
@@ -1538,6 +1543,7 @@ function buildBox3D(ctx: {
     matDoorRevealDark: THREE.Material;
     matDoorModern: THREE.Material;
     matGlass: THREE.Material;
+    matFrostedGlass: THREE.Material;
     matFrame: THREE.Material;
     matDivider: THREE.Material;
     matShelf: THREE.Material;
@@ -2338,6 +2344,7 @@ function buildDoor3D(ctx: {
     matDoorRevealDark: THREE.Material;
     matCarcass: THREE.Material;
     matGlass: THREE.Material;
+    matFrostedGlass: THREE.Material;
     matFrame: THREE.Material;
     matSteel: THREE.Material;
     matDarkChrome: THREE.Material;
@@ -2456,32 +2463,37 @@ function buildDoor3D(ctx: {
         ph -= inset; cy += (profile.yRatio <= 0.5 ? -1 : 1) * inset / 2;
       }
     }
-    if (dStyle === 'glass' || dStyle === 'glass-grid') {
+    if (dStyle === 'glass' || dStyle === 'glass-frosted' || dStyle === 'glass-grid') {
+      const woodGrid = dStyle === 'glass-grid';
       const st = Math.min(0.045, pw / 4, ph / 4);
-      const topR = new THREE.Mesh(new THREE.BoxGeometry(pw, st, doorThick), doorBoxMats);
-      topR.position.set(cx, cy + ph / 2 - st / 2, 0);
-      const botR = new THREE.Mesh(new THREE.BoxGeometry(pw, st, doorThick), doorBoxMats);
-      botR.position.set(cx, cy - ph / 2 + st / 2, 0);
-      const lR = new THREE.Mesh(new THREE.BoxGeometry(st, ph - st * 2, doorThick), doorBoxMats);
-      lR.position.set(cx - pw / 2 + st / 2, cy, 0);
-      const rR = new THREE.Mesh(new THREE.BoxGeometry(st, ph - st * 2, doorThick), doorBoxMats);
-      rR.position.set(cx + pw / 2 - st / 2, cy, 0);
       const glass = new THREE.Mesh(
-        new THREE.BoxGeometry(Math.max(0.04, pw - st * 2), Math.max(0.04, ph - st * 2), 0.008),
-        mats.matGlass
+        new THREE.BoxGeometry(Math.max(0.04, pw - (woodGrid ? st * 2 : 0)),
+          Math.max(0.04, ph - (woodGrid ? st * 2 : 0)), 0.008),
+        dStyle === 'glass-frosted' ? mats.matFrostedGlass : mats.matGlass
       );
       glass.position.set(cx, cy, 0);
-      targetParent.add(topR, botR, lR, rR, glass);
-      if (dStyle === 'glass-grid') {
-        const m1 = new THREE.Mesh(new THREE.BoxGeometry(0.012, ph - st * 2, 0.012), doorMat);
-        m1.position.set(cx, cy, 0);
-        const m2 = new THREE.Mesh(new THREE.BoxGeometry(pw - st * 2, 0.012, 0.012), doorMat);
-        m2.position.set(cx, cy, 0);
-        targetParent.add(m1, m2);
-      }
-      for (const m of [topR, botR, lR, rR, glass]) {
-        m.userData = doorHit;
-        interactables.push(m);
+      glass.userData = doorHit;
+      targetParent.add(glass);
+      interactables.push(glass);
+      if (woodGrid) {
+        // Physical glazing bars in the selected cabinet's wood/paint finish.
+        const addBar = (w: number, h: number, x: number, y: number) => {
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(w, h, doorThick), doorMat);
+          bar.position.set(cx + x, cy + y, 0);
+          bar.castShadow = true;
+          bar.userData = doorHit;
+          targetParent.add(bar);
+          interactables.push(bar);
+        };
+        addBar(pw, st, 0, ph / 2 - st / 2);
+        addBar(pw, st, 0, -ph / 2 + st / 2);
+        addBar(st, ph - 2 * st, -pw / 2 + st / 2, 0);
+        addBar(st, ph - 2 * st, pw / 2 - st / 2, 0);
+        const innerW = pw - 2 * st, innerH = ph - 2 * st;
+        for (const side of [-1, 1]) {
+          addBar(0.014, innerH, side * innerW / 6, 0);
+          addBar(innerW, 0.014, 0, side * innerH / 6);
+        }
       }
     } else if (dStyle === 'cnc') {
       const st = Math.min(0.055, pw * 0.16, ph / 4);

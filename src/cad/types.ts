@@ -10,7 +10,7 @@ export type DoorKind =
   | 'rail'
   | 'fridge';
 
-export type DoorStyle = 'flat' | 'cnc' | 'glass' | 'glass-grid';
+export type DoorStyle = 'flat' | 'cnc' | 'glass' | 'glass-frosted' | 'glass-grid';
 export type HardwareKind =
   | 'hinged'
   | 'pantry-pullout'
