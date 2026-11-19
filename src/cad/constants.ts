@@ -288,7 +288,7 @@ export const CARCASS_STILE_CM = 5;
 export const MIN_SHELF_GAP_CM = 25;
 export const DEFAULT_DOOR_CM = 60;
 export const DEFAULT_COLUMN_DEPTH_CM = 35;
-export const COUNTERTOP_CM = 4;
+export const COUNTERTOP_CM = 3;
 export const PLINTH_CM = 10;
 export const FRIDGE_FRAME_CM = 5; // 5cm architectural surround box frame
 export const FRAME_WIDTH_OPTIONS = [3, 5, 7, 9, 11] as const;
@@ -300,13 +300,13 @@ export const WALL_LOWER_HEIGHT_CM = 75; // Top = 220cm (matches tall & over-frid
 export const WALL_DOUBLE_LOWER_H_CM = 30;
 export const WALL_DOUBLE_UPPER_ELEV_CM = WALL_LOWER_ELEV_CM + WALL_DOUBLE_LOWER_H_CM;
 
-export const COUNTERTOP_THICKNESS_OPTIONS = [2, 3, 4, 5, 6] as const;
+export const COUNTERTOP_THICKNESS_OPTIONS = [3, 5, 7] as const;
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   wallHeightCm: 265,
   baseHeightCm: 86,
   plinthCm: 10,
-  countertopCm: 4,
+  countertopCm: 3,
   countertopTopEdge: 'square',
   countertopBottomEdge: 'square',
   wallCabElevCm: 145,

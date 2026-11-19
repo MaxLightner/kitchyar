@@ -319,14 +319,42 @@ export class UnifiedARSession {
     if(p)this.movePin(this.state.selectedPin,p);
     this.publish({selectedPin:null});
   }
+  /** Old AR used a generous 75-pixel touch radius around A/B. Restore that
+   * behavior rather than requiring a precise hit on a 4.5 cm 3D cylinder. */
+  private pickPinAtScreen(clientX:number, clientY:number): 'a' | 'b' | null {
+    const rect=this.renderer.domElement.getBoundingClientRect();
+    if(!rect.width||!rect.height)return null;
+    this.camera.updateMatrixWorld(true);
+    this.pins.updateWorldMatrix(true,true);
+    const measure=(pin:THREE.Group) => {
+      let min=Infinity;
+      for(const height of [0.02,0.17,0.40]){
+        const projected=pin.localToWorld(new THREE.Vector3(0,height,0)).project(this.camera);
+        if(projected.z<-1||projected.z>1)continue;
+        const px=rect.left+(projected.x+1)*rect.width/2;
+        const py=rect.top+(1-projected.y)*rect.height/2;
+        min=Math.min(min,Math.hypot(clientX-px,clientY-py));
+      }
+      return min;
+    };
+    const distanceA=measure(this.pinA),distanceB=measure(this.pinB);
+    return Math.min(distanceA,distanceB)<=75 ? distanceA<=distanceB?'a':'b' : null;
+  }
   pointerDown(event:PointerEvent) {
     if(!this.state.calibrating)return this.editingBlocked;
-    const rect=this.renderer.domElement.getBoundingClientRect();
-    const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1),this.camera);
-    const hit=ray.intersectObjects([this.pinA,this.pinB],true)[0];
-    if(hit){let obj:THREE.Object3D|null=hit.object;while(obj&&obj!==this.pinA&&obj!==this.pinB)obj=obj.parent;
-      this.drag={id:event.pointerId,pin:obj===this.pinA?'a':'b',anchorA:this.a.clone().applyMatrix4(this.alignment.matrix)};
-      this.renderer.domElement.setPointerCapture(event.pointerId);
+    if(event.button!==0)return true;
+    const hitPin=this.pickPinAtScreen(event.clientX,event.clientY);
+    const pin=hitPin??this.state.selectedPin;
+    if(pin){
+      this.alignment.updateMatrix();
+      this.drag={id:event.pointerId,pin,anchorA:this.a.clone().applyMatrix4(this.alignment.matrix)};
+      // After selecting A or B in the controls, tapping any point on the floor
+      // places it immediately, while the same gesture may continue as a drag.
+      if(!hitPin && this.state.selectedPin===pin){
+        const floor=this.floorPoint(event.clientX,event.clientY);
+        if(floor)this.movePin(pin,floor,pin==='b'?this.drag.anchorA:undefined);
+      }
+      try { this.renderer.domElement.setPointerCapture(event.pointerId); } catch {}
     }
     return true;
   }

@@ -17,6 +17,7 @@ import {
   BOX_PRESETS,
   CABINET_FINISHES,
   COUNTERTOP_FINISHES,
+  COUNTERTOP_THICKNESS_OPTIONS,
   DEFAULT_PROJECT_SETTINGS,
   DOOR_STYLE_META,
   FRIDGE_FRAME_CM,
@@ -1274,7 +1275,9 @@ export default function App() {
     const curSettings = next.settings ?? { ...DEFAULT_PROJECT_SETTINGS };
     next.settings = { ...curSettings, ...patch };
     if (typeof patch.countertopCm === 'number') {
-      const clampedCm = Math.max(2, Math.min(8, Number(patch.countertopCm.toFixed(1))));
+      const clampedCm = COUNTERTOP_THICKNESS_OPTIONS.reduce<number>((closest, option) =>
+        Math.abs(option - patch.countertopCm!) < Math.abs(closest - patch.countertopCm!) ? option : closest,
+        COUNTERTOP_THICKNESS_OPTIONS[0]);
       next.settings.countertopCm = clampedCm;
       next.walls.forEach((w) => {
         w.boxes.forEach((b) => {
@@ -3087,7 +3090,7 @@ export default function App() {
       />
       </div>
 
-      <div hidden={dialogOpen || (tool === 'select' && !toast)} className="shrink-0 border-b border-slate-200 bg-slate-50">
+      <div hidden={dialogOpen || ((tool === 'select' || tool === 'move') && !toast)} className="shrink-0 border-b border-slate-200 bg-slate-50">
         <div className="flex h-10 items-center justify-center gap-2 overflow-hidden px-2">
           <div ref={setToolGuideHost} className="kitchyar-tool-guides flex min-w-0 items-center" />
           {toast && <div role="status" title={toast} className="min-w-0 truncate rounded-lg bg-slate-900 px-3 py-1 text-[13px] font-bold text-white">{toast}</div>}
@@ -3229,7 +3232,7 @@ export default function App() {
               equipmentFinish={project.settings?.equipmentFinish ?? 'silver'}
               onSetEquipmentFinish={handleEquipmentFinish}
               onToggleSelectedFridgeFrame={handleToggleSelectedFridgeFrame}
-              countertopCm={project.settings?.countertopCm ?? 4}
+              countertopCm={project.settings?.countertopCm ?? 3}
               countertopTopEdge={project.settings?.countertopTopEdge ?? 'square'}
               countertopBottomEdge={project.settings?.countertopBottomEdge ?? 'square'}
               onUpdateCountertopSettings={handleUpdateCountertopSettings}

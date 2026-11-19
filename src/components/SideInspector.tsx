@@ -2123,7 +2123,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
               <div className="flex items-center justify-between">
                 <span className="text-[13px] font-extrabold text-slate-800">صفحه روی کابینت</span>
                 <span className="text-[12px] font-extrabold text-indigo-700 tabular-nums">
-                  {props.countertopCm ?? 4} cm
+                  {props.countertopCm ?? 3} cm
                 </span>
               </div>
 
@@ -2135,60 +2135,20 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                {props.onUpdateCountertopSettings && (
                 <>
                   <div className="space-y-1.5">
-                    <span className="text-[12px] font-bold text-slate-500 block">ضخامت صفحه (۲ تا ۸ cm)</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        data-testid="countertop-thickness-dec"
-                        onClick={() =>
-                          props.onUpdateCountertopSettings!({
-                            countertopCm: Math.max(2, +(((props.countertopCm ?? 4) - 0.5).toFixed(1))),
-                          })
-                        }
-                        aria-label="کاهش ضخامت صفحه"
-                        className="h-7 w-7 rounded border border-slate-300 bg-white font-bold"
-                      >
-                        -
-                      </button>
-                      <input
-                        type="range"
-                        min={2}
-                        max={8}
-                        step={0.5}
-                        aria-label="ضخامت صفحه"
-                        value={props.countertopCm ?? 4}
-                        onChange={(e) =>
-                          props.onUpdateCountertopSettings!({ countertopCm: Number(e.target.value) })
-                        }
-                        className="flex-1 accent-indigo-600"
-                      />
-                      <button
-                        type="button"
-                        data-testid="countertop-thickness-inc"
-                        onClick={() =>
-                          props.onUpdateCountertopSettings!({
-                            countertopCm: Math.min(8, +(((props.countertopCm ?? 4) + 0.5).toFixed(1))),
-                          })
-                        }
-                        aria-label="افزایش ضخامت صفحه"
-                        className="h-7 w-7 rounded border border-slate-300 bg-white font-bold"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-5 gap-1">
+                    <span className="text-[12px] font-bold text-slate-500 block">ضخامت صفحه (سانتی‌متر)</span>
+                    <div className="grid grid-cols-3 gap-1">
                       {COUNTERTOP_THICKNESS_OPTIONS.map((cm) => (
-                        <button
-                          key={cm}
-                          type="button"
-                          onClick={() => props.onUpdateCountertopSettings!({ countertopCm: cm })}
-                          className={`h-7 rounded border text-[12px] font-bold tabular-nums ${
-                            (props.countertopCm ?? 4) === cm
+                        <button key={cm} type="button"
+                          data-testid={`countertop-thickness-${cm}`}
+                          aria-label={`ضخامت صفحه ${cm} سانتی‌متر`}
+                          aria-pressed={props.countertopCm === cm}
+                          onClick={() => props.onUpdateCountertopSettings?.({ countertopCm: cm })}
+                          className={`h-9 rounded border text-[13px] font-bold tabular-nums ${
+                            props.countertopCm === cm
                               ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
                               : 'bg-white border-slate-200 text-slate-600'
-                          }`}
-                        >
-                          {cm}
+                          }`}>
+                          {cm} cm
                         </button>
                       ))}
                     </div>
