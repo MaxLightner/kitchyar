@@ -1,3 +1,4 @@
+import type { OfferSelection, PickCandidate } from './SelectionPicker';
 import { findFrontCut } from '../cad/frontCut';
 import type { FloorFurnitureKind } from '../cad/types';
 import { buildDiningFootprint3D } from '../cad/dining3d';
@@ -112,6 +113,7 @@ const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'cl
 const HANDLE_STYLE_ORDER = HANDLE_STYLES.map(style => style.id);
 
 interface Scene3DCanvasProps {
+  offerSelection: OfferSelection;
   onResizeCabinet: (wallId: string, boxId: string, side: 'left'|'right'|'top'|'bottom', dx: number, dy: number, commit: boolean) => void;
   onMoveShelf: (wallId: string, boxId: string, shelfId: string, dx: number, dy: number, commit: boolean) => void;
   onBeginDrag: () => void;
@@ -1494,7 +1496,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (e.button !== 0 || !builtRef.current) return;
       downClientRef.current = { x: e.clientX, y: e.clientY };
       if (propsRef.current.tool === 'finish') { e.stopImmediatePropagation(); return; }
-      if (propsRef.current.tool === 'wall' || propsRef.current.tool === 'dining') return;
+      if (propsRef.current.tool === 'wall' || propsRef.current.tool === 'dining' ||
+        (propsRef.current.tool === 'select' && propsRef.current.selectionMode === 'single')) return;
 
       const cur = propsRef.current;
 
@@ -1936,6 +1939,81 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       states.set(partId, { cur: state.cur, target });
       setDoorsOpen([...states.values()].some(part => part.target > 0.5));
       requestRender();
+      return true;
+    };
+
+    const select3DAt = (e: PointerEvent) => {
+      const cur = propsRef.current;
+      const built = builtRef.current!;
+      raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
+      const hits = raycaster.intersectObjects(built.interactables, false);
+      const choices: PickCandidate[] = [];
+      let wallFallback: PickCandidate | undefined;
+      for (const hit of hits) {
+        const d = resolveHitData(hit.object);
+        if (!d) continue;
+        const wall = cur.project.walls.find(w => w.id === d.wallId);
+        const box = wall?.boxes.find(b => b.id === d.boxId);
+        const app = wall?.appliances.find(a => a.id === d.appId);
+        if (d.kind === 'dining' && d.diningId) {
+          const item = cur.project.diningSets?.find(i => i.id === d.diningId);
+          if (item) choices.push({ id: 'dining:' + item.id, label: item.kind === 'tv' ? 'ست تلویزیون' : 'میز ناهارخوری',
+            icon: 'dining', select: () => cur.onSelectDining(item.id) });
+        } else if (d.kind === 'column' && d.columnId && cur.onSelectColumn) {
+          choices.push({ id: 'column:' + d.columnId, label: 'ستون', icon: 'box', select: () => cur.onSelectColumn!(d.columnId!) });
+        } else if (!wall) continue;
+        else if (d.kind === 'appliance' && app) {
+          choices.push({ id: 'app:' + app.id + ':' + (d.subPart ?? ''), icon: d.subPart === 'hood' ? 'hood' : app.kind,
+            label: d.subPart === 'hood' ? 'هود' : APPLIANCE_CONFIGS[app.kind].shortLabel,
+            select: () => cur.onSelectAppliance(wall.id, app.id, d.subPart) });
+        } else if (d.kind === 'opening' && d.openingId) {
+          const opening = wall.openings?.find(o => o.id === d.openingId);
+          choices.push({ id: 'opening:' + d.openingId, icon: 'opening', label: opening?.kind === 'window' ? 'پنجره' : 'بازشو',
+            select: () => cur.onSelectOpening(wall.id, d.openingId!) });
+        } else if ((d.kind === 'countertop' || d.kind === 'backsplash') && cur.onSelectSurface) {
+          const surface = d.kind;
+          choices.push({ id: 'surface:' + surface, icon: 'surface', label: surface === 'countertop' ? 'صفحهٔ کابینت' : 'بین کابینتی',
+            select: () => cur.onSelectSurface!(surface) });
+        } else if (d.kind === 'wall') {
+          wallFallback ??= { id: 'wall:' + wall.id, icon: 'box', label: 'دیوار',
+            select: () => cur.onSelectWallAndBox(wall.id, null, null) };
+        } else if (box) {
+          if (d.kind === 'box') choices.push({ id: 'box:' + box.id, icon: box.type === 'fridge' ? 'fridge' : 'box',
+            label: box.name, select: () => cur.onSelectWallAndBox(wall.id, box.id, null) });
+          else if (d.kind === 'door' && d.doorId && box.type !== 'fridge') {
+            const door = box.doors.find(item => item.id === d.doorId);
+            choices.push({ id: 'door:' + d.doorId, icon: 'door', label: door?.kind === 'drawer' ? 'کشو' : 'در کابینت',
+              select: () => cur.onSelectWallAndBox(wall.id, box.id, d.doorId) });
+          } else if (d.kind === 'handle' && d.handleId) {
+            choices.push({ id: 'handle:' + d.handleId, icon: 'handle', label: 'دستگیره',
+              select: () => cur.onSelectHandle(wall.id, box.id, d.handleId!) });
+          } else if (d.kind === 'frame' && d.frameId) {
+            choices.push({ id: 'frame:' + d.frameId, icon: 'detail', label: 'فریم',
+              select: () => cur.onSelectFrame(wall.id, box.id, d.frameId!) });
+          } else if (d.kind === 'shelf' && d.shelfId) {
+            choices.push({ id: 'shelf:' + d.shelfId, icon: 'detail', label: 'طبقه',
+              select: () => cur.onSelectShelf(wall.id, box.id, d.shelfId!) });
+          } else if (d.kind === 'unit' && d.unitStart !== undefined && d.unitEnd !== undefined) {
+            const unit = { boxId: box.id, startCm: d.unitStart, endCm: d.unitEnd };
+            choices.push({ id: 'unit:' + box.id + ':' + unit.startCm, icon: 'detail', label: 'یونیت',
+              select: () => cur.onSelectUnit(wall.id, unit) });
+          } else if (d.kind === 'unit-div' && d.seamCm !== undefined) {
+            const divider = { boxId: box.id, seamCm: d.seamCm };
+            choices.push({ id: 'divider:' + box.id + ':' + divider.seamCm, icon: 'detail', label: 'جداکنندهٔ یونیت',
+              select: () => cur.onSelectUnitDivider(wall.id, divider) });
+          }
+        }
+      }
+      const top = hits[0] && resolveHitData(hits[0].object);
+      if (top?.kind === 'under-cabinet-light' && top.lightBoxIds) {
+        cur.onToggleLightBoxes(top.lightBoxIds);
+        return;
+      }
+      if (!choices.length && wallFallback) choices.push(wallFallback);
+      if (!cur.offerSelection(e.clientX, e.clientY, choices)) {
+        cur.onSelectDining(null);
+        cur.onSelectWallAndBox(cur.project.activeWallId || '', null, null);
+      }
     };
 
     const onPointerUp = (e: PointerEvent) => {
@@ -2011,8 +2089,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const dc = downClientRef.current;
       downClientRef.current = null;
       if (!dc || !isTap || !builtRef.current) { doorTap.reset(); return; }
-      if (cur.tool === 'select') onDoorTap(e);
-      else doorTap.reset();
+      if (cur.tool === 'select' && cur.selectionMode === 'single') {
+        if (!onDoorTap(e)) select3DAt(e);
+        return;
+      }
+      doorTap.reset();
 
       if (cur.tool === 'dining') {
         const point = raycastFloorPointCm(actionX, actionY, false);

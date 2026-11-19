@@ -27,10 +27,10 @@ export function NumberPadDialog({ label, initial, min, max, allowRow = false, ot
     return () => window.removeEventListener('keydown', esc, true);
   }, [onClose]);
   return (
-    <div className="absolute inset-0 z-[95] flex items-center justify-center overflow-auto bg-slate-950/35 p-2 pointer-events-auto"
+    <div className="absolute inset-0 z-[95] flex items-end justify-start overflow-auto bg-slate-950/15 p-2 [direction:ltr] pointer-events-auto"
       onPointerDown={e => e.stopPropagation()}>
       <form role="dialog" aria-modal="true" aria-labelledby={id} dir="rtl"
-        className="my-auto w-full max-w-[19rem] space-y-2 rounded-xl bg-white p-3 shadow-xl"
+        className="max-h-[calc(100dvh-1rem)] w-full max-w-[19rem] overflow-y-auto space-y-2 rounded-xl bg-white p-3 shadow-xl"
         onSubmit={e => { e.preventDefault(); e.stopPropagation(); if (valid) onApply(Number(firstValue), row, other ? Number(secondValue) : undefined); }}
         onKeyDown={e => e.stopPropagation()}>
         <label htmlFor={id+'-value'} id={id} className="block text-sm font-bold">{second && other ? other.label : label} (سانتی‌متر)</label>

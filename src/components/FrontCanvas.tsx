@@ -1,3 +1,4 @@
+import { svgPickTargets, type OfferSelection, type PickCandidate } from './SelectionPicker';
 import { findFrontCut } from '../cad/frontCut';
 import { HANDLE_STYLES, fitHandleLengthCm } from '../cad/handleGeometry';
 import { isFrontPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
@@ -107,6 +108,7 @@ const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'cl
 const HANDLE_STYLE_ORDER = HANDLE_STYLES.map(style => style.id);
 
 interface FrontCanvasProps {
+  offerSelection: OfferSelection;
   onBeginDrag: () => void;
   onCancelDrag: () => void;
   onFinishDrag: () => void;
@@ -355,6 +357,7 @@ type DragOp =
     };
 
 export const FrontCanvas: React.FC<FrontCanvasProps> = ({
+  offerSelection,
   onBeginDrag,
   onCancelDrag,
   onFinishDrag,
@@ -1370,6 +1373,64 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     const target = e.target as Element;
     const pt = clientToSvg(e.clientX, e.clientY);
     const hit = hitTestBox(pt);
+
+    if (tool === 'select' && e.button === 0 && selectionMode === 'single' && !confirmed) {
+      const choices: PickCandidate[] = [];
+      const targets = svgPickTargets(e.currentTarget, e.clientX, e.clientY,
+        '[data-app-id], [data-opening-id], [data-door-id], [data-frame-id], [data-shelf-id], [data-handle-id], [data-unit-div], [data-unit-bay], [data-box-id]');
+      for (const el of targets) {
+        const subPart = el.getAttribute('data-app-subpart') as 'gas' | 'hood' | null;
+        const app = wall.appliances.find(a => a.id === el.getAttribute('data-app-id'));
+        const opening = wall.openings?.find(o => o.id === el.getAttribute('data-opening-id'));
+        const box = wall.boxes.find(b => b.id === el.getAttribute('data-box-id'));
+        if (app && onSelectAppliance) {
+          choices.push({ id: 'app:' + app.id + ':' + (subPart ?? ''), icon: subPart === 'hood' ? 'hood' : app.kind,
+            label: subPart === 'hood' ? 'هود' : APPLIANCE_CONFIGS[app.kind].shortLabel,
+            select: () => onSelectAppliance(app.id, subPart) });
+        } else if (opening) {
+          choices.push({ id: 'opening:' + opening.id, icon: 'opening', label: opening.kind === 'window' ? 'پنجره' : 'بازشو',
+            select: () => onSelectOpening(opening.id) });
+        } else if (box) {
+          const doorId = box.type === 'fridge' ? null : el.getAttribute('data-door-id');
+          const frameId = el.getAttribute('data-frame-id');
+          const shelfId = el.getAttribute('data-shelf-id');
+          const handleId = el.getAttribute('data-handle-id');
+          const seam = el.getAttribute('data-unit-div');
+          if (frameId && onSelectFrame) choices.push({ id: 'frame:' + frameId, icon: 'detail', label: 'فریم', select: () => onSelectFrame(box.id, frameId) });
+          else if (shelfId && onSelectShelf) choices.push({ id: 'shelf:' + shelfId, icon: 'detail', label: 'طبقه', select: () => onSelectShelf(box.id, shelfId) });
+          else if (handleId && onSelectHandle) choices.push({ id: 'handle:' + handleId, icon: 'handle', label: 'دستگیره', select: () => onSelectHandle(box.id, handleId) });
+          else if (seam !== null && onSelectUnitDivider) {
+            choices.push({ id: 'divider:' + box.id + ':' + seam, icon: 'detail', label: 'جداکنندهٔ یونیت',
+              select: () => onSelectUnitDivider({ boxId: box.id, seamCm: Number(seam) }) });
+          } else if (doorsHidden && el.hasAttribute('data-unit-bay') && onSelectUnit) {
+            const startCm = Number(el.getAttribute('data-unit-start'));
+            const endCm = Number(el.getAttribute('data-unit-end'));
+            choices.push({ id: 'unit:' + box.id + ':' + startCm, icon: 'detail', label: 'یونیت',
+              select: () => onSelectUnit({ boxId: box.id, startCm, endCm }) });
+          } else if (doorId) {
+            const door = box.doors.find(d => d.id === doorId);
+            choices.push({ id: 'door:' + doorId, icon: 'door', label: door?.kind === 'drawer' ? 'کشو' : 'در کابینت',
+              select: () => onSelectBoxAndDoor(box.id, doorId) });
+          }
+          choices.push({ id: 'box:' + box.id, icon: box.type === 'fridge' ? 'fridge' : 'box', label: box.name,
+            select: () => onSelectBoxAndDoor(box.id, null) });
+        }
+      }
+      if (hit && !choices.some(choice => choice.id === 'box:' + hit.box.id)) {
+        const box = hit.box;
+        choices.push({ id: 'box:' + box.id, icon: box.type === 'fridge' ? 'fridge' : 'box', label: box.name,
+          select: () => onSelectBoxAndDoor(box.id, null) });
+      }
+      if (onSelectSurface) {
+        if (target.closest('[data-countertop-zone]') || isPointOverCountertop(pt)) {
+          choices.push({ id: 'countertop', icon: 'surface', label: 'صفحهٔ کابینت', select: () => onSelectSurface('countertop') });
+        }
+        if (target.closest('[data-backsplash-zone]') || isPointOverBacksplash(pt)) {
+          choices.push({ id: 'backsplash', icon: 'surface', label: 'بین کابینتی', select: () => onSelectSurface('backsplash') });
+        }
+      }
+      if (offerSelection(e.clientX, e.clientY, choices)) return;
+    }
 
     if (tool === 'front-cut') {
       if (!hit) onFrontCutOrient(frontCutOrient === 'vertical' ? 'horizontal' : 'vertical');

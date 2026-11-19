@@ -1,3 +1,4 @@
+import { SelectionPicker, type OfferSelection, type PickCandidate, type SurfaceSelection } from './components/SelectionPicker';
 import { applyFrontCut, findFrontCut } from './cad/frontCut';
 import { hasWallSegment } from './cad/wallSnap';
 import { NumberPadDialog } from './components/NumberPadDialog';
@@ -339,6 +340,34 @@ export default function App() {
 
   const [tool, setTool] = useState<ToolId>('select');
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
+  const [overlap, setOverlap] = useState<{ x: number; y: number; candidates: PickCandidate[] } | null>(null);
+  const [selectedSurface, setSelectedSurface] = useState<SurfaceSelection | null>(null);
+  const [selectedAppliancePart, setSelectedAppliancePart] = useState<'gas' | 'hood' | null>(null);
+  const closeOverlap = useCallback(() => setOverlap(null), []);
+  const chooseOverlap = useCallback((candidate: PickCandidate) => {
+    closeOverlap();
+    setSelectedSurface(null);
+    setSelectedAppliancePart(null);
+    setProject(p => (p.selectedDiningId || p.multiSelection)
+      ? { ...p, selectedDiningId: null, multiSelection: undefined } : p);
+    candidate.select();
+  }, [closeOverlap, setProject]);
+  const offerSelection: OfferSelection = useCallback((x, y, hits) => {
+    const candidates = [...new Map(hits.map(hit => [hit.id, hit])).values()];
+    if (candidates.length > 1) setOverlap({ x, y, candidates });
+    else if (candidates.length === 1) chooseOverlap(candidates[0]);
+    else {
+      closeOverlap();
+      setSelectedSurface(null);
+      setSelectedAppliancePart(null);
+    }
+    return candidates.length > 0;
+  }, [chooseOverlap, closeOverlap]);
+  useEffect(() => {
+    closeOverlap();
+    setSelectedSurface(null);
+  }, [activeProjectId, screen, tool, viewMode, closeOverlap]);
+
   const [floorScanActive, setFloorScanActive] = useState(false);
   const [trackedFloorConfirmed, setTrackedFloorConfirmed] = useState(false);
   // Eligibility controls the entry button; only requestSession in the tap can
@@ -1004,6 +1033,17 @@ export default function App() {
     }, true);
   };
 
+  const selectSurface = (surface: SurfaceSelection | null) => {
+    setSelectedSurface(surface);
+    if (!surface) return;
+    setProject(p => ({
+      ...p, activeBoxId: null, selectedDiningId: null, selectedDoorId: null,
+      selectedOpeningId: null, selectedColumnId: null, selectedApplianceId: null,
+      selectedShelfId: null, selectedHandleId: null, selectedFrameId: null,
+      selectedUnit: null, selectedUnitDivider: null, multiSelection: undefined,
+    }));
+  };
+
   const selectDining = useCallback((id: string | null) => {
     setProject(prev => {
       if (id === prev.selectedDiningId || (!id && !prev.selectedDiningId)) return prev;
@@ -1029,21 +1069,12 @@ export default function App() {
     const { xCm, yCm } = snapDiningPosition(x, y);
     const rotation = angle === undefined ? item.rotation : (Math.round(angle) % 360 + 360) % 360;
     if (!commit && xCm === item.xCm && yCm === item.yCm && rotation === item.rotation) return;
-    const replaceAt = (px: number, py: number) => ({
-      ...current, diningSets: current.diningSets?.map(d => d.id === id ? { ...d, xCm: px, yCm: py, rotation } : d),
-    });
-    const base = dragCheckpointRef.current;
-    const before = base?.diningSets?.find(d => d.id === id);
-    if (commit && base && before && angle === undefined) {
-      if (xCm === before.xCm && yCm === before.yCm) return;
-      setMeasurement({
-        label: 'مختصات X میز', initial: xCm, min: -10000, max: 10000,
-        other: { label: 'مختصات Y میز', initial: yCm, min: -10000, max: 10000 },
-        base, resolve: (px, _row, py) => replaceAt(px, py ?? yCm),
-      });
-      return;
-    }
-    commitState(replaceAt(xCm, yCm), commit);
+    const before = dragCheckpointRef.current?.diningSets?.find(d => d.id === id);
+    if (commit && before && xCm === before.xCm && yCm === before.yCm && rotation === before.rotation) return;
+    commitState({
+      ...current,
+      diningSets: current.diningSets?.map(d => d.id === id ? { ...d, xCm, yCm, rotation } : d),
+    }, commit);
   }, [commitState, getProject]);
 
   const deleteDining = useCallback((id: string) => {
@@ -3044,9 +3075,6 @@ export default function App() {
               activeTool={tool}
               diningSelected={Boolean(project.selectedDiningId)}
               onRotateDining={rotateDining}
-              canToggleUnderLight={selectedLightBoxes.length > 0}
-              underLightOn={lightsOn}
-              onToggleUnderLight={toggleUnderCabinetLight}
               onSelectTool={handleSelectTool}
               activeWall={activeWall}
               activeBox={activeBox}
@@ -3054,6 +3082,8 @@ export default function App() {
               selectedOpening={selectedOpening}
               selectedColumn={selectedColumn}
               selectedAppliance={selectedAppliance}
+              selectedAppliancePart={selectedAppliancePart}
+              selectedSurface={selectedSurface}
               selectedShelfId={project.selectedShelfId}
               selectedHandleId={project.selectedHandleId}
               selectedFrame={selectedFrame}
@@ -3186,6 +3216,8 @@ export default function App() {
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
+              offerSelection={offerSelection}
+              onSelectSurface={selectSurface}
                 onToggleLightBoxes={toggleLightBoxes}
                 frontCutOrient={frontCutOrient}
                 onFrontCutOrient={setFrontCutOrient}
@@ -3293,7 +3325,8 @@ export default function App() {
                   selectedUnitDivider: null,
                 }))
               }
-              onSelectAppliance={(wallId, appId) => {
+              onSelectAppliance={(wallId, appId, subPart) => {
+                setSelectedAppliancePart(subPart ?? null);
                 const w = project.walls.find((x) => x.id === wallId);
                 const app = w?.appliances.find((a) => a.id === appId);
                 const parent = w && app ? findParentBoxForAppliance(w, app) : null;
@@ -3524,6 +3557,7 @@ export default function App() {
             <>
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
+                  offerSelection={offerSelection}
                   diningSets={project.diningSets ?? []} selectedDiningId={project.selectedDiningId}
                   diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}
                   onPlaceDining={placeDining} onMoveDining={moveDining}
@@ -3610,7 +3644,8 @@ export default function App() {
                       multiSelection: undefined,
                     }))
                   }
-                  onSelectAppliance={(wallId, appId) => {
+                  onSelectAppliance={(wallId, appId, subPart) => {
+                    setSelectedAppliancePart(subPart ?? null);
                     const w = project.walls.find((x) => x.id === wallId) || null;
                     const app = w?.appliances.find((a) => a.id === appId);
                     const parent = w && app ? findParentBoxForAppliance(w, app) : null;
@@ -3722,6 +3757,8 @@ export default function App() {
               </div>
 
               <FrontCanvas
+                offerSelection={offerSelection}
+                onSelectSurface={selectSurface}
                 frontCutOrient={frontCutOrient}
                 onFrontCutOrient={setFrontCutOrient}
                 onFrontCut={cutFront}
@@ -3839,7 +3876,8 @@ export default function App() {
                     selectedUnit: null,
                   }))
                 }
-                onSelectAppliance={(appId) => {
+                onSelectAppliance={(appId, subPart) => {
+                  setSelectedAppliancePart(subPart ?? null);
                   const app = activeWall?.appliances.find((a) => a.id === appId);
                   const parent = activeWall && app ? findParentBoxForAppliance(activeWall, app) : null;
                   setProject((p) => ({
@@ -3984,6 +4022,9 @@ export default function App() {
         />
       )}
 
+      {overlap && tool === 'select' && !dialogOpen && (
+        <SelectionPicker {...overlap} onChoose={chooseOverlap} onClose={closeOverlap} />
+      )}
       {measurement && (
         <NumberPadDialog label={measurement.label} initial={measurement.initial} min={measurement.min}
           max={measurement.max} allowRow={measurement.allowRow} other={measurement.other}

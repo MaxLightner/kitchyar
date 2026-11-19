@@ -152,7 +152,8 @@ export function applyAnimatedDoorProgress(
   } else if (handle.kind === 'lift' || handle.kind === 'bifold') {
     const angle = -handle.normalSign * e * (handle.maxAngle ?? 1.25);
     handle.group.rotation.x = handle.baseRotX + angle;
-    if (handle.lowerLeaf) handle.lowerLeaf.rotation.x = -angle * 1.64;
+    // Counter-rotate the lower leaf so it hangs vertically from the moving hinge.
+    if (handle.lowerLeaf) handle.lowerLeaf.rotation.x = -angle;
     for (const arm of handle.liftArms ?? []) {
       const to = arm.moving.clone().applyAxisAngle(LIFT_X_AXIS, angle).add(handle.group.position);
       const axis = to.clone().sub(arm.fixed);

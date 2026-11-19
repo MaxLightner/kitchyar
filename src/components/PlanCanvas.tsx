@@ -1,3 +1,4 @@
+import { svgPickTargets, type OfferSelection, type PickCandidate } from './SelectionPicker';
 import { diningLayout, snapDiningPosition } from '../cad/diningLayout';
 import type { DiningSeats, FloorFurniture, FloorFurnitureKind } from '../cad/types';
 import { TV_SET_DEPTH_CM, TV_SET_WIDTH_CM } from '../cad/dining3d';
@@ -88,6 +89,7 @@ function DiningPlanSymbol({ item, scale, selected, ghost }: { item: FloorFurnitu
 }
 
 interface PlanCanvasProps {
+  offerSelection: OfferSelection;
   diningSets: FloorFurniture[];
   selectedDiningId?: string | null;
   diningSeats: DiningSeats;
@@ -186,6 +188,7 @@ interface PlanCanvasProps {
 }
 
 export const PlanCanvas: React.FC<PlanCanvasProps> = ({
+  offerSelection,
   onBeginDrag,
   onResizeCabinet,
   onCancelDrag,
@@ -524,6 +527,40 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     }
 
     const targetEl = e.target as Element;
+    if (tool === 'select' && e.button === 0 && !targetEl.closest('[data-corner-key]')) {
+      const targets = svgPickTargets(e.currentTarget, e.clientX, e.clientY,
+        '[data-dining-id], [data-plan-room-col-id], [data-plan-app-id], [data-plan-opening-id], [data-plan-box-id]');
+      const choices: PickCandidate[] = [];
+      for (const el of targets) {
+        const item = diningSets.find(d => d.id === el.getAttribute('data-dining-id'));
+        if (item) {
+          choices.push({ id: 'dining:' + item.id, icon: 'dining', label: item.kind === 'tv' ? 'ست تلویزیون' : 'میز ناهارخوری',
+            select: () => onSelectDining(item.id) });
+          continue;
+        }
+        const col = columns.find(c => c.id === el.getAttribute('data-plan-room-col-id'));
+        if (col && onSelectColumn) {
+          choices.push({ id: 'column:' + col.id, icon: 'box', label: 'ستون', select: () => onSelectColumn(col.id) });
+          continue;
+        }
+        const wall = walls.find(w => w.id === el.getAttribute('data-plan-wall-id'));
+        if (!wall) continue;
+        const app = wall.appliances.find(a => a.id === el.getAttribute('data-plan-app-id'));
+        const opening = wall.openings?.find(o => o.id === el.getAttribute('data-plan-opening-id'));
+        const box = wall.boxes.find(b => b.id === el.getAttribute('data-plan-box-id'));
+        if (app && onSelectAppliance) {
+          choices.push({ id: 'app:' + app.id, icon: app.kind, label: APPLIANCE_CONFIGS[app.kind].shortLabel,
+            select: () => onSelectAppliance(wall.id, app.id) });
+        } else if (opening) {
+          choices.push({ id: 'opening:' + opening.id, icon: 'opening', label: opening.kind === 'window' ? 'پنجره' : 'بازشو',
+            select: () => onSelectOpening(wall.id, opening.id) });
+        } else if (box) {
+          choices.push({ id: 'box:' + box.id, icon: box.type === 'fridge' ? 'fridge' : 'box', label: box.name,
+            select: () => onSelectWall(wall.id, box.id) });
+        }
+      }
+      if (offerSelection(e.clientX, e.clientY, choices)) return;
+    }
     if (tool === 'dining') {
       const pt = clientToCm(e.clientX, e.clientY);
       onPlaceDining(pt.x, pt.y);

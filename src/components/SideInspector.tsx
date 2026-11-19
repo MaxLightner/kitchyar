@@ -1,6 +1,7 @@
 import type { CabinetTextureId } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
+import type { SurfaceSelection } from './SelectionPicker';
 import {
   AppWindow,
   ArrowLeft,
@@ -12,7 +13,6 @@ import {
   Flame,
   Frame,
   GripVertical,
-  Lightbulb,
   Utensils,
   LayoutGrid,
   MousePointer2,
@@ -94,9 +94,8 @@ import {
 interface SideInspectorProps {
   diningSelected?: boolean;
   onRotateDining?: () => void;
-  canToggleUnderLight?: boolean;
-  underLightOn?: boolean;
-  onToggleUnderLight?: () => void;
+  selectedSurface?: SurfaceSelection | null;
+  selectedAppliancePart?: 'gas' | 'hood' | null;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   activeTool: ToolId;
@@ -132,7 +131,8 @@ interface SideInspectorProps {
     target: 'box' | 'all-cabinets' | 'backsplash' | 'countertop',
     wallId?: string,
     boxId?: string,
-    overrideId?: string
+    overrideId?: string,
+    doorId?: string
   ) => void;
   // Tool states
   drawBoxKind: BoxKind;
@@ -272,19 +272,6 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
   } = props;
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const railRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (railRef.current && !railRef.current.contains(e.target as Node)) {
-        setSettingsOpen(false);
-      }
-    };
-    window.addEventListener('pointerdown', onPointerDown);
-    return () => window.removeEventListener('pointerdown', onPointerDown);
-  }, [settingsOpen]);
-
   const toggleSettings = () => {
     setSettingsOpen((cur) => !cur);
   };
@@ -328,6 +315,12 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
       props.selectedHandleId ||
       props.selectedUnitDivider
   );
+
+  const toolSettings = activeTool !== 'select' && activeTool !== 'move';
+  const objectSettings = !toolSettings && !props.selectedSurface && !props.diningSelected;
+  const showFridge = objectSettings && !hasSubItem && activeBox?.type === 'fridge';
+  const sharedEquipmentColor = showFridge || (objectSettings &&
+    (props.selectedAppliance?.kind === 'washing' || props.selectedAppliance?.kind === 'dishwasher'));
 
   const renderToolIcon = () => {
     switch (activeTool) {
@@ -385,7 +378,6 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
   return (
     <aside
-      ref={railRef}
       aria-label="نوار ابزار فتوشاپی و تنظیمات"
       className="relative flex min-h-0 shrink-0 z-30 select-none"
     >
@@ -439,12 +431,6 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
         <Copy className="w-4 h-4" />
       </button>
 
-      <button type="button" data-testid="rail-under-cabinet-light" onClick={props.onToggleUnderLight}
-        disabled={!props.canToggleUnderLight} aria-pressed={Boolean(props.underLightOn)}
-        aria-label="نور زیر کابینت" title="نور زیر کابینت هوایی انتخاب‌شده"
-        className={railBtnCls(Boolean(props.underLightOn)) + ' disabled:opacity-35 disabled:cursor-not-allowed'}>
-        <Lightbulb className="w-4 h-4" />
-      </button>
       {props.diningSelected && (
         <button type="button" data-testid="rail-rotate-dining" onClick={props.onRotateDining}
           title="چرخاندن میز" aria-label="چرخاندن میز انتخاب‌شده" className={railBtnCls(false)}>
@@ -553,7 +539,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
           </div>
 
           <div className="p-3 overflow-y-auto no-scrollbar space-y-3 text-[13px]">
-            {activeTool !== 'select' && (
+            {toolSettings && (
               <div className="space-y-3 pb-2 border-b border-slate-200">
                 {activeTool === 'cab-draw' && (
                   <section className="space-y-1.5">
@@ -1333,7 +1319,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
             )}
 
             {/* بخش باکس، یونیت و درب انتخاب‌شده */}
-            {(activeBox || selectedUnit) && (
+            {objectSettings && !hasSubItem && !showFridge && (activeBox || selectedUnit) && (
               <div className="space-y-3 pb-2 border-b border-slate-200">
                 {selectedUnit && (
                   <section className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 space-y-2">
@@ -1399,7 +1385,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   </section>
                 )}
 
-                {activeBox && (
+                {activeBox && !selectedUnit && (
                   <>
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-slate-800">باکس: {activeBox.name}</span>
@@ -1577,7 +1563,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       </div>
                     )}
 
-                    {activeBox.type === 'base' &&
+                    {!selectedDoor && activeBox.type === 'base' &&
                       activeWall?.appliances.some(
                         (a) =>
                           (a.kind === 'dishwasher' || a.kind === 'washing') &&
@@ -1594,11 +1580,11 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       )}
 
                     <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      <span className="text-[13px] font-bold text-slate-500 block">رنگ این باکس</span>
+                      <span className="text-[13px] font-bold text-slate-500 block">{selectedDoor ? 'رنگ این در' : 'رنگ این باکس'}</span>
                       <div className="grid grid-cols-4 gap-1">
                         {CABINET_FINISH_ORDER.map((fid) => {
                           const cfg = CABINET_FINISHES[fid];
-                          const eff = activeBox.finish || props.projectCabinetFinish;
+                          const eff = selectedDoor?.finish || activeBox.finish || props.projectCabinetFinish;
                           const isAct = eff === fid;
                           return (
                             <button
@@ -1607,7 +1593,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               title={cfg.label}
                               aria-label={`رنگ باکس ${cfg.label}`}
                               onClick={() =>
-                                props.onApplyFinish('box', activeWall?.id, activeBox.id, fid)
+                                props.onApplyFinish('box', activeWall?.id, activeBox.id, fid, selectedDoor?.id)
                               }
                               className={`h-6 rounded border transition ${
                                 isAct ? 'border-indigo-600 ring-1 ring-indigo-400' : 'border-slate-300'
@@ -1616,38 +1602,6 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                                 background: `linear-gradient(180deg, ${cfg.hex} 0%, ${cfg.hexDark} 100%)`,
                               }}
                             />
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      <span className="text-[13px] font-bold text-teal-700 block">متریال بین کابینتی</span>
-                      <div className="grid grid-cols-3 gap-1">
-                        {BACKSPLASH_FINISH_ORDER.map((bid) => {
-                          const cfg = BACKSPLASH_FINISHES[bid];
-                          const isAct = props.projectBacksplashFinish === bid;
-                          return (
-                            <button
-                              key={bid}
-                              type="button"
-                              aria-label={`بین‌کابینتی ${cfg.label}`}
-                              onClick={() => {
-                                props.onSetBacksplashBrush(bid);
-                                props.onApplyFinish('backsplash', undefined, undefined, bid);
-                              }}
-                              className={`h-7 px-1.5 rounded border text-[13px] font-bold flex items-center gap-1 ${
-                                isAct
-                                  ? 'border-teal-600 bg-teal-50 text-teal-900'
-                                  : 'border-slate-200 bg-white text-slate-700'
-                              }`}
-                            >
-                              <span
-                                className="w-3 h-3 rounded border border-slate-400 shrink-0"
-                                style={{ backgroundColor: cfg.baseHex }}
-                              />
-                              <span className="truncate">{cfg.shortLabel}</span>
-                            </button>
                           );
                         })}
                       </div>
@@ -1672,7 +1626,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               افزودن طبقه وسط
                             </button>
                           )}
-                          {props.onClearBoxShelves && activeBox.shelves.length > 0 && (
+                          {!selectedDoor && props.onClearBoxShelves && activeBox.shelves.length > 0 && (
                             <button
                               type="button"
                               data-testid="box-clear-shelves-btn"
@@ -1690,7 +1644,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       </div>
                     )}
 
-                    {activeBox.type !== 'fridge' && props.onSetBoxAppearance && (
+                    {!selectedDoor && props.onSetBoxAppearance && (
                       <div className="grid grid-cols-2 items-center gap-1.5 pt-2 border-t border-slate-100">
                         <label className="text-xs font-bold">رنگ دستی باکس
                           <input aria-label="رنگ دستی کابینت" type="color" className="block h-8 w-full mt-1 rounded"
@@ -1715,27 +1669,27 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       </div>
                     )}
 
-                    <button
+                    {!selectedDoor && <button
                       type="button"
                       onClick={props.onDeleteSelectedBox}
                       className="w-full h-8 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[13px] font-bold inline-flex items-center justify-center gap-1"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>حذف باکس</span>
-                    </button>
+                    </button>}
                   </>
                 )}
               </div>
             )}
 
             {/* بخش تنظیمات تجهیزات و بازشوهای انتخاب‌شده */}
-            {(hasSubItem || activeBox?.type === 'fridge') && (
+            {objectSettings && (hasSubItem || showFridge) && (
               <div className="space-y-3 pt-1">
                 {props.selectedAppliance && (
                   <section className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-teal-700">
-                        {APPLIANCE_CONFIGS[props.selectedAppliance.kind].shortLabel} ({props.selectedAppliance.width}cm)
+                        {props.selectedAppliancePart === 'hood' ? 'هود' : APPLIANCE_CONFIGS[props.selectedAppliance.kind].shortLabel} ({props.selectedAppliance.width}cm)
                       </span>
                       <span className="text-slate-400 tabular-nums">
                         {Math.round(props.selectedAppliance.offsetX)}cm
@@ -1760,7 +1714,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           ))}
                         </div>
                       )}
-                    {props.selectedAppliance.kind === 'gas' &&
+                    {props.selectedAppliance.kind === 'gas' && props.selectedAppliancePart !== 'gas' &&
                       props.onChangeSelectedApplianceHood && (
                         <div className="space-y-1">
                           <span className="text-[12px] font-bold text-slate-500 block">نوع هود بالای گاز</span>
@@ -1791,7 +1745,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           </div>
                         </div>
                       )}
-                    {props.onDeleteSelectedAppliance && (
+                    {props.onDeleteSelectedAppliance && props.selectedAppliancePart !== 'hood' && (
                       <button
                         type="button"
                         onClick={props.onDeleteSelectedAppliance}
@@ -1804,7 +1758,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   </section>
                 )}
 
-                {activeBox?.type === 'fridge' && (
+                {showFridge && activeBox && (
                   <section className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-indigo-700">تنظیمات یخچال انتخاب‌شده</span>
@@ -2039,7 +1993,42 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
               </div>
             )}
 
-            {/* بخش تنظیمات صفحه روی کابینت و رنگ تجهیزات (همیشه در دسترس از همین دکمه تنظیمات) */}
+            {!toolSettings && props.selectedSurface === 'backsplash' && (
+              <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                <span className="text-[13px] font-bold text-teal-700 block">متریال بین کابینتی</span>
+                <div className="grid grid-cols-3 gap-1">
+                  {BACKSPLASH_FINISH_ORDER.map((bid) => {
+                    const cfg = BACKSPLASH_FINISHES[bid];
+                    const isAct = props.projectBacksplashFinish === bid;
+                    return (
+                      <button
+                        key={bid}
+                        type="button"
+                        aria-label={`بین‌کابینتی ${cfg.label}`}
+                        onClick={() => {
+                          props.onSetBacksplashBrush(bid);
+                          props.onApplyFinish('backsplash', undefined, undefined, bid);
+                        }}
+                        className={`h-7 px-1.5 rounded border text-[13px] font-bold flex items-center gap-1 ${
+                          isAct
+                            ? 'border-teal-600 bg-teal-50 text-teal-900'
+                            : 'border-slate-200 bg-white text-slate-700'
+                        }`}
+                      >
+                        <span
+                          className="w-3 h-3 rounded border border-slate-400 shrink-0"
+                          style={{ backgroundColor: cfg.baseHex }}
+                        />
+                        <span className="truncate">{cfg.shortLabel}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+            )}
+
+            {!toolSettings && props.selectedSurface === 'countertop' && (
             <section data-testid="countertop-settings-section" className="space-y-2.5 pt-2 border-t border-slate-200">
               <div className="flex items-center justify-between">
                 <span className="text-[13px] font-extrabold text-slate-800">صفحه روی کابینت</span>
@@ -2188,9 +2177,30 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                 </>
               )}
 
-              {props.onSetEquipmentFinish && (
+              <div className="space-y-1">
+                <span className="block text-xs font-bold text-slate-500">متریال صفحه</span>
+                <div className="grid grid-cols-2 gap-1">
+                  {COUNTERTOP_FINISH_ORDER.map(id => (
+                    <button key={id} type="button" aria-pressed={id === props.projectCountertopFinish}
+                      onClick={() => props.onApplyFinish('countertop', undefined, undefined, id)}
+                      className="rounded border p-1 text-xs aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50">
+                      {COUNTERTOP_FINISHES[id].shortLabel}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+            )}
+
+            {props.diningSelected && !toolSettings && props.onRotateDining && (
+              <button type="button" onClick={props.onRotateDining} className="w-full rounded border px-2 py-1.5 font-bold">
+                چرخش مبلمان انتخاب‌شده
+              </button>
+            )}
+
+              {sharedEquipmentColor && props.onSetEquipmentFinish && (
                 <div className="space-y-1 pt-1">
-                  <span className="text-[12px] font-bold text-slate-500 block">رنگ تجهیزات (یخچال/ظرفشویی/لباسشویی)</span>
+                  <span className="text-[12px] font-bold text-slate-500 block">رنگ بدنهٔ تجهیزات</span>
                   <div className="grid grid-cols-3 gap-1">
                     {([['silver', 'نقره‌ای'], ['white', 'سفید'], ['black', 'مشکی']] as const).map(([finish, label]) => (
                       <button
@@ -2211,10 +2221,13 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   </div>
                 </div>
               )}
-            </section>
+            {objectSettings && !activeBox && !hasSubItem && multiCount === 0 && selectionMode === 'single' && (
+              <p className="text-slate-500">برای دیدن تنظیمات، یک آبجکت را انتخاب کنید.</p>
+            )}
 
             {/* بخش عملیات چندتایی و گروهی */}
-            {(multiCount > 0 || selectionMode !== 'single' || (activeBox && activeBox.doors.length > 0)) && (
+            {objectSettings && !hasSubItem && !showFridge && !selectedUnit &&
+              (multiCount > 0 || selectionMode !== 'single' || (!selectedDoor && activeBox && activeBox.doors.length > 0)) && (
               <div className="space-y-2.5 pt-2 border-t border-slate-200">
                 <span className="text-[13px] font-extrabold text-slate-700 block">انتخاب چندتایی</span>
 
