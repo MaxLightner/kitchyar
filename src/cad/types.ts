@@ -172,6 +172,10 @@ export interface CabinetBox {
   texture?: CabinetTextureId;
   underCabinetLight?: boolean;
   lighting?: CabinetLighting;
+  /** Per upper box: fake beam on front doors (off by default). */
+  facadeLightEnabled?: boolean;
+  /** Depth of regular fridge surround: 60 or 80cm. Concealed fridge is flush. */
+  fridgeFrameDepthCm?: 60 | 80;
   reflection?: number;
   roughness?: number;
   /** Links e.g. over-fridge upper cabinet to its parent fridge box */

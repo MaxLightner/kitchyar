@@ -23,12 +23,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     Object.fromEntries(ovens.map(app => [app.id, Boolean(app.ovenLightOn)])));
   const [lights, setLights] = useState<Record<string, CabinetLighting>>(() =>
     Object.fromEntries(cabinetLights.map(box => [box.id, getCabinetLighting(box)])));
-  const intensityControls: Array<{ key: 'hdrIntensity' | 'cameraLightIntensity' | 'linearLightIntensity' | 'halogenLightIntensity' | 'facadeLightIntensity' | 'ambientLightIntensity'; label: string; fallback: number }> = [
+  const intensityControls: Array<{ key: 'hdrIntensity' | 'cameraLightIntensity' | 'linearLightIntensity' | 'halogenLightIntensity' | 'ambientLightIntensity'; label: string; fallback: number }> = [
     { key: 'hdrIntensity', label: 'HDRI', fallback: 2 },
     { key: 'cameraLightIntensity', label: 'نور دوربین', fallback: 1 },
     { key: 'linearLightIntensity', label: 'نور خطی زیر کابینت', fallback: 5 },
     { key: 'halogenLightIntensity', label: 'هالوژن بین‌کابینتی', fallback: 1 },
-    { key: 'facadeLightIntensity', label: 'هالوژن روی درهای هوایی', fallback: 1 },
     { key: 'ambientLightIntensity', label: 'نور آمبیانس', fallback: 0.06 },
   ];
   const [applyToExisting, setApplyToExisting] = useState(true);
@@ -120,13 +119,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="mt-1 h-8 w-full rounded border border-slate-300 px-2" />
               </label>
             </div>
-            <label className="flex items-center gap-2 font-bold text-slate-700">
-              <input type="checkbox" className="size-4 accent-indigo-600"
-                aria-label="روشن بودن هالوژن روی درهای هوایی"
-                checked={form.facadeLightEnabled !== false}
-                onChange={event => setForm(prev => ({ ...prev, facadeLightEnabled: event.target.checked }))} />
-              هالوژن روی درهای هوایی (مستقل از نور زیر کابینت)
-            </label>
           </fieldset>
           {ovens.length > 0 && (
             <fieldset className="space-y-2 rounded border border-slate-200 p-2">
@@ -140,31 +132,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               ))}
             </fieldset>
           )}
-          {cabinetLights.length > 0 && (
-            <fieldset className="space-y-2 rounded border border-slate-200 p-2">
-              <legend className="px-1 font-bold">نور تمام کابینت‌های هوایی</legend>
-              <label className="flex items-center justify-between gap-2">
-                نوع نور بین‌کابینتی
-                <select aria-label="نوع نور تمام هوایی‌ها" value={form.underCabinetLightMode}
-                  onChange={event => setForm(prev => ({ ...prev, underCabinetLightMode: event.target.value as CabinetLightMode }))}
-                  className="h-8 rounded border border-slate-300 px-2">
-                  <option value="off">خاموش</option><option value="linear">خطی</option><option value="halogen">هالوژن</option>
-                </select>
-              </label>
-              {cabinetLights.map((box, index) => (
-                <div key={box.id} className="grid grid-cols-[1fr_1fr_4rem] items-center gap-1">
-                  <label htmlFor={'light-level-' + box.id}>{box.name} ({index + 1})</label>
-                  <span className="text-slate-500">شدت نسبی</span>
-                  <input id={'light-level-' + box.id} aria-label={'شدت نور ' + box.name + ' ' + (index + 1)} type="number" dir="ltr" min={0.1} max={1} step={0.1}
-                    value={lights[box.id].intensity}
-                    onChange={e => setLights(prev => ({ ...prev, [box.id]: { ...prev[box.id],
-                      intensity: Math.max(0.1, Math.min(1, Number(e.target.value))) } }))}
-                    className="h-8 w-full rounded border border-slate-300 px-1" />
-                </div>
-              ))}
-            </fieldset>
-          )}
-
           <SurfaceFinishControls index={3} reflection={form.floorReflection} roughness={form.floorRoughness}
             onChange={patch => setForm(prev => ({ ...prev,
               floorReflection: patch.reflection ?? prev.floorReflection,

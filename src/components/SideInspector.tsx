@@ -128,6 +128,7 @@ interface SideInspectorProps {
   onSetSelectedSurfaceFinish?: (surface: 'countertop' | 'backsplash', patch: SurfaceFinishPatch) => void;
   onSetFrameColor?: (color?: string) => void;
   onSetCabinetLighting?: (patch: Partial<CabinetLighting>) => void;
+  onSetBoxFacadeLight?: (enabled: boolean) => void;
   selectedUnitDivider?: { boxId: string; seamCm: number } | null;
   selectedUnit?: { boxId: string; startCm: number; endCm: number } | null;
   multiSelection?: MultiSelection;
@@ -343,7 +344,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
   );
 
   const cabinetLighting = activeBox && (activeBox.type === 'wall' || activeBox.type === 'wall-deep')
-    ? { ...getCabinetLighting(activeBox), mode: props.kitchenLightMode ?? getCabinetLighting(activeBox).mode } : null;
+    ? getCabinetLighting(activeBox) : null;
   const toolSettings = activeTool !== 'select' && activeTool !== 'move';
   const objectSettings = !toolSettings && !props.selectedSurface && !props.diningSelected;
   const showFridge = objectSettings && !hasSubItem && activeBox?.type === 'fridge';
@@ -1426,7 +1427,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                     {!selectedDoor && cabinetLighting && props.onSetCabinetLighting && (
                       <fieldset className="space-y-2 border-t border-slate-100 pt-2">
-                        <legend className="text-xs font-bold">نوع نور تمام کابینت‌های هوایی</legend>
+                        <legend className="text-xs font-bold">نور این باکس هوایی (فیک و بدون چراغ واقعی)</legend>
                         <div className="grid grid-cols-3 gap-1">
                           {([['off', 'خاموش'], ['linear', 'خطی زیر کابینت'], ['halogen', 'هالوژن بین‌کابینتی']] as const)
                             .map(([mode, label]) => (
@@ -1447,6 +1448,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               {Array.from({ length: 10 }, (_, index) => (index + 1) * 10)
                                 .map(percent => <option key={percent} value={percent}>{percent.toLocaleString('fa-IR')}٪</option>)}
                             </select>
+                          </label>
+                        )}
+                        {props.onSetBoxFacadeLight && (
+                          <label className="flex items-center gap-2 text-xs font-bold border-t border-slate-100 pt-2">
+                            <input type="checkbox" data-testid="box-facade-fake-light"
+                              checked={Boolean(activeBox.facadeLightEnabled)}
+                              onChange={e => props.onSetBoxFacadeLight?.(e.target.checked)} />
+                            هالوژن فیک روی درهای همین باکس
                           </label>
                         )}
                       </fieldset>

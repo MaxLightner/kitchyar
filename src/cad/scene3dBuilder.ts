@@ -663,7 +663,7 @@ export function buildKitchen3DScene(
   const linearControls: Array<{ boxId: string; group: THREE.Group; strip: THREE.Mesh; area: THREE.RectAreaLight }> = [];
   const cooktopControls: Array<{ id: string; setLit: (lit: boolean) => void }> = [];
   const halogenControls: Array<{ boxId: string; group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
-  const facadeControls: Array<{ group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
+  const facadeControls: Array<{ boxId: string; group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
   const wallTransforms = new Map<
     string,
     {
@@ -996,7 +996,7 @@ export function buildKitchen3DScene(
     }> = [];
     for (const box of uppers) {
       const { intensity } = getCabinetLighting(box);
-      const mode = kitchenLightMode;
+      const mode = getCabinetLighting(box).mode;
       runs.push({
         start: box.offsetX, end: box.offsetX + box.width, elevation: box.elevY, height: box.height,
         depth: box.depth, mode, intensity, boxIds: [box.id],
@@ -1038,42 +1038,30 @@ export function buildKitchen3DScene(
       halogenControls.push({ boxId: run.boxIds[0], group: halogenGroup, decals });
     }
 
-    // Independent facade/crown projections are emissive decals, not SpotLights.
-    const facadeGroup = new THREE.Group();
-    const facadeDecals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
-    const rows: Array<{ start: number; end: number; depth: number; elevation: number; height: number }> = [];
+    // Each upper box owns its facade fake spotlight(s), controlled in its own inspector.
     for (const box of uppers) {
       const hasTierAbove = uppers.some(upper => upper.id !== box.id &&
         upper.elevY >= box.elevY + box.height - 1 &&
         upper.offsetX < box.offsetX + box.width - 1 &&
         upper.offsetX + upper.width > box.offsetX + 1);
       if (hasTierAbove) continue;
-      const row = rows.find(row => Math.abs(row.elevation - box.elevY) < 1 &&
-        Math.abs(row.height - box.height) < 1 && Math.abs(row.depth - box.depth) < 1 &&
-        box.offsetX <= row.end + 1 && box.offsetX + box.width >= row.start - 1);
-      if (row) {
-        row.start = Math.min(row.start, box.offsetX);
-        row.end = Math.max(row.end, box.offsetX + box.width);
-      } else rows.push({ start: box.offsetX, end: box.offsetX + box.width,
-        elevation: box.elevY, height: box.height, depth: box.depth });
-    }
-    for (const row of rows) {
-      const width = (row.end - row.start) * CM;
+      const group = new THREE.Group();
+      const decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
+      const width = box.width * CM;
       const count = Math.min(8, Math.max(1, Math.ceil(width)));
-      const spacing = width / count;
-      const targetY = (row.elevation + row.height * 0.6) * CM;
-      const depth = row.depth * CM;
-      for (let i = 0; i < count; i++) {
-        const x = row.start * CM + (i + 0.5) * spacing;
-        facadeDecals.push(addKitchenLightDecal(facadeGroup,
-          x, targetY, normalSign * (depth + 0.055),
-          Math.min(0.88, spacing + 0.24), Math.min(1.0, row.height * CM + 0.15), 0xffe0b8));
+      for (let index = 0; index < count; index++) {
+        const x = (box.offsetX + box.width * (index + 0.5) / count) * CM;
+        // Physical beam top begins at the box crown, not the center of the door.
+        const height = Math.min(1.1, box.height * CM * 0.9);
+        const top = (box.elevY + box.height) * CM + 0.045;
+        decals.push(addKitchenLightDecal(group, x, top - height / 2,
+          normalSign * (box.depth * CM + 0.035), Math.min(0.80, width / count + 0.18), height));
       }
+      wallGrp.add(group);
+      facadeControls.push({ boxId: box.id, group, decals });
     }
-    wallGrp.add(facadeGroup);
-    facadeControls.push({ group: facadeGroup, decals: facadeDecals });
 
-    // Render all Cabinet Boxes on this wall
+    // Render all Cabinet Boxes on this wall    // Render all Cabinet Boxes on this wall
     for (const box of wall.boxes) {
       const isBoxSel =
         box.id === project.activeBoxId ||
@@ -1228,21 +1216,21 @@ export function buildKitchen3DScene(
   });
   const updateLighting = (next: ProjectState, stage = 3) => {
     const settings = next.settings;
-    const mode = getKitchenCabinetLightMode(next);
-    const boxLevels = new Map(next.walls.flatMap(wall => wall.boxes.map(box => [box.id, getCabinetLighting(box).intensity] as const)));
+    const boxLights = new Map(next.walls.flatMap(wall => wall.boxes.map(box => [box.id, getCabinetLighting(box)] as const)));
+    const facadeEnabled = new Map(next.walls.flatMap(wall => wall.boxes.map(box => [box.id, Boolean(box.facadeLightEnabled)] as const)));
     for (const item of linearControls) {
-      const visible = stage >= 1 && mode === 'linear';
+      const visible = stage >= 4 && boxLights.get(item.boxId)?.mode === 'linear';
       item.group.visible = visible;
       item.strip.visible = visible;
-      item.area.intensity = (boxLevels.get(item.boxId) ?? 1) * (settings?.linearLightIntensity ?? 5);
+      item.area.intensity = (boxLights.get(item.boxId)?.intensity ?? 1) * (settings?.linearLightIntensity ?? 5);
     }
     for (const item of halogenControls) {
-      item.group.visible = stage >= 1 && mode === 'halogen';
-      const intensity = (boxLevels.get(item.boxId) ?? 1) * (settings?.halogenLightIntensity ?? 1);
+      item.group.visible = stage >= 4 && boxLights.get(item.boxId)?.mode === 'halogen';
+      const intensity = (boxLights.get(item.boxId)?.intensity ?? 1) * (settings?.halogenLightIntensity ?? 1);
       item.decals.forEach(decal => { decal.material.opacity = Math.min(0.78, Math.max(0, 0.35 * intensity)); });
     }
     for (const item of facadeControls) {
-      item.group.visible = stage >= 2 && settings?.facadeLightEnabled !== false && (settings?.facadeLightIntensity ?? 1) > 0;
+      item.group.visible = stage >= 4 && facadeEnabled.get(item.boxId) === true;
       item.decals.forEach(decal => { decal.material.opacity = Math.min(0.8, Math.max(0, 0.35 * (settings?.facadeLightIntensity ?? 1))); });
     }
     ceilingControls.forEach(light => { light.intensity = settings?.ceilingAreaIntensity ?? settings?.ceilingLightIntensities?.[0] ?? 12; });

@@ -2721,7 +2721,7 @@ export default function App() {
     }));
     next.walls.forEach(wall => wall.boxes.forEach(box => {
       if (lights[box.id]) {
-        box.lighting = { ...lights[box.id], mode: nextSettings.underCabinetLightMode ?? lights[box.id].mode };
+        box.lighting = { ...lights[box.id] };
         box.underCabinetLight = box.lighting.mode === 'linear';
       }
     }));
@@ -3122,17 +3122,20 @@ export default function App() {
   };
   const setCabinetLighting = (patch: Partial<CabinetLighting>) => {
     if (!activeBox || (activeBox.type !== 'wall' && activeBox.type !== 'wall-deep')) return;
-    commitState(prev => {
-      const mode = patch.mode ?? getKitchenCabinetLightMode(prev);
-      return {
-        ...prev, settings: { ...(prev.settings ?? DEFAULT_PROJECT_SETTINGS), underCabinetLightMode: mode },
-        walls: prev.walls.map(wall => ({ ...wall, boxes: wall.boxes.map(box =>
-          (box.type === 'wall' || box.type === 'wall-deep') ? {
-            ...box, lighting: { ...getCabinetLighting(box), mode,
-              intensity: box.id === activeBox.id ? patch.intensity ?? getCabinetLighting(box).intensity : getCabinetLighting(box).intensity },
-            underCabinetLight: mode === 'linear',
-          } : box) })),
-      };
+    commitState(prev => ({
+      ...prev,
+      walls: prev.walls.map(wall => ({ ...wall, boxes: wall.boxes.map(box => {
+        if (box.id !== activeBox.id) return box;
+        const lighting = { ...getCabinetLighting(box), ...patch };
+        return { ...box, lighting, underCabinetLight: lighting.mode === 'linear' };
+      }) })),
+    }), true);
+  };
+  const setBoxFacadeLight = (enabled: boolean) => {
+    if (!activeBox || (activeBox.type !== 'wall' && activeBox.type !== 'wall-deep')) return;
+    mutateActiveWall(w => {
+      const box = w.boxes.find(box => box.id === activeBox.id);
+      if (box) box.facadeLightEnabled = enabled;
     }, true);
   };
   const setFrameColor = (color?: string) => {
@@ -3252,6 +3255,7 @@ export default function App() {
               selectedFrame={selectedFrame}
               onSetBoxAppearance={setBoxAppearance}
               onSetCabinetLighting={setCabinetLighting}
+              onSetBoxFacadeLight={setBoxFacadeLight}
               kitchenLightMode={getKitchenCabinetLightMode(project)}
               onSetOvenLight={enabled => {
                 if (!activeWall || !selectedAppliance) return;

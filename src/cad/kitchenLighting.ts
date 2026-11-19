@@ -72,21 +72,33 @@ export function addKitchenLighting(
   };
 }
 
-// Cache the 128px falloff alpha across scene rebuilds. The light is purely
-// emissive/additive and adds no dynamic lighting or shadow-map calculations.
+// Reusable physically inspired conical alpha beam: narrow intense hot-spot at
+// the lamp, soft widening footprint below, plus a faint wall bounce.
+// Entirely emissive/additive; no SpotLight, geometry change or shadow calculation.
 let kitchenLightAlphaTexture: THREE.CanvasTexture | null = null;
 function getKitchenLightAlphaTexture(): THREE.CanvasTexture {
   if (kitchenLightAlphaTexture) return kitchenLightAlphaTexture;
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 128;
+  canvas.width = 256;
+  canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
-  const gradient = ctx.createRadialGradient(64, 64, 5, 64, 64, 64);
-  gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
-  gradient.addColorStop(0.2, 'rgba(255,255,255,0.77)');
-  gradient.addColorStop(0.55, 'rgba(255,255,255,0.29)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 128, 128);
+  const pixels = ctx.createImageData(canvas.width, canvas.height);
+  for (let py = 0; py < canvas.height; py++) {
+    const y = py / (canvas.height - 1); // 0 is the lamp, 1 is the floor
+    const widen = 0.045 + 0.42 * Math.pow(y, 0.87);
+    const envelope = Math.pow(1 - y, 0.6);
+    for (let px = 0; px < canvas.width; px++) {
+      const x = Math.abs((px + 0.5 - canvas.width / 2) / (canvas.width / 2));
+      const cone = Math.exp(-Math.pow(x / widen, 2) * 1.6);
+      const hotspot = Math.exp(-(x * x / 0.005 + y * y / 0.004));
+      const bounce = Math.exp(-Math.pow(x / (widen * 1.35), 2) * 1.4) * 0.12;
+      const alpha = Math.min(1, (0.82 * cone + bounce) * envelope + 0.65 * hotspot);
+      const offset = (py * canvas.width + px) * 4;
+      pixels.data[offset] = pixels.data[offset + 1] = pixels.data[offset + 2] = 255;
+      pixels.data[offset + 3] = Math.round(alpha * 255);
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
   kitchenLightAlphaTexture = new THREE.CanvasTexture(canvas);
   kitchenLightAlphaTexture.userData.sharedKitchenTexture = true;
   return kitchenLightAlphaTexture;

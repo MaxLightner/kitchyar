@@ -31,6 +31,28 @@ export function SurfaceFinishControls({ index, reflection, roughness, onChange }
   onChange: (patch: SurfaceFinishPatch) => void;
 }) {
   const surface = SURFACES[index];
+  if (index === 0 || index === 1) {
+    const glossy = (roughness ?? surface.spread) <= 0.10;
+    return (
+      <fieldset className="rounded border border-slate-200 px-2 py-1.5">
+        <legend className="px-1 text-xs font-bold">پرداخت {surface.label}</legend>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { label: 'مات', roughness: 0.20, reflection: 0.15, active: !glossy },
+            { label: 'براق', roughness: 0.05, reflection: 2.00, active: glossy },
+          ] as const).map(option => (
+            <button key={option.label} type="button"
+              data-testid={`surface-finish-${index}-${option.label}`}
+              aria-pressed={option.active}
+              onClick={() => onChange({ roughness: option.roughness, reflection: option.reflection })}
+              className="h-9 rounded border text-xs font-bold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50">
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+    );
+  }
   return (
     <fieldset className="rounded border border-slate-200 px-2 py-1.5">
       <legend className="px-1 text-xs font-bold">بازتاب و ماتی {surface.label}</legend>
