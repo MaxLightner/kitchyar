@@ -1,6 +1,8 @@
+import type { CooktopModelId, FridgeModelId, HoodModelId } from '../hoods/catalog';
+
 export type BoxKind = 'base' | 'wall' | 'wall-deep' | 'tall' | 'fridge' | 'closet';
 
-export type FridgeModel = 'single-door' | 'single' | 'side-by-side' | 'twin';
+export type FridgeModel = FridgeModelId | 'single-door' | 'single' | 'side-by-side' | 'twin'; // legacy saved projects remain readable
 
 export type DoorKind =
   | 'door'
@@ -51,7 +53,8 @@ export type HandleStyle = 'simple' | 'long-bar' | 'knob' | 'hidden' | 'f-profile
 export type Orientation = 'vertical' | 'horizontal';
 
 export type ApplianceKind = 'sink' | 'gas' | 'dishwasher' | 'washing' | 'builtin-oven' | 'microwave';
-export type HoodModel = 'chimney' | 'angled' | 'box' | 'cylinder';
+export type HoodModel = HoodModelId | 'chimney' | 'angled' | 'box' | 'cylinder';
+export type CooktopModel = CooktopModelId;
 export type WashingCapacityKg = 6 | 8 | 9;
 export type SinkModel =
   | 'steel-1'
@@ -192,6 +195,9 @@ export interface ApplianceItem {
   cornerSide?: 'left' | 'right';
   hoodKind?: 'hidden' | 'chimney';
   hoodModel?: HoodModel;
+  cooktopModel?: CooktopModel;
+  /** Persisted flame/zone illumination; double tap toggles this on the 3D hob. */
+  flameOn?: boolean;
   hoodFinish?: EquipmentFinish;
   washingCapacityKg?: WashingCapacityKg;
   ovenLightOn?: boolean;

@@ -122,7 +122,7 @@ export function createEmptyBox(
     else if (st) height = st.wallCabHeightCm;
     if (st) elevY = st.wallCabElevCm;
   } else if (kind === 'fridge') {
-    const fm = FRIDGE_MODELS[opts?.fridgeModel || 'side-by-side'];
+    const fm = FRIDGE_MODELS[opts?.fridgeModel || 'fridge-sbs-homebar'];
     height = fm.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
     depth = fm.depth;
   }
@@ -144,7 +144,7 @@ export function createEmptyBox(
 
   return {
     id: uid('box'),
-    name: kind === 'fridge' ? `یخچال ${FRIDGE_MODELS[opts?.fridgeModel || 'side-by-side'].shortLabel}` : p.name,
+    name: kind === 'fridge' ? `یخچال ${FRIDGE_MODELS[opts?.fridgeModel || 'fridge-sbs-homebar'].shortLabel}` : p.name,
     type: kind,
     offsetX: Math.round(offsetX),
     elevY,
@@ -154,7 +154,7 @@ export function createEmptyBox(
     plinth,
     countertopCm,
     hasFridgeFrame: hasFrame,
-    fridgeModel: kind === 'fridge' ? (opts?.fridgeModel || 'side-by-side') : undefined,
+    fridgeModel: kind === 'fridge' ? (opts?.fridgeModel || 'fridge-sbs-homebar') : undefined,
     doors,
     unitDividers: [],
     shelves: [],
@@ -2827,7 +2827,7 @@ export function placeApplianceWithCabinetRules(
     sinkModel,
     cornerSide,
     hoodKind: kind === 'gas' ? hoodKind : undefined,
-    hoodModel: kind === 'gas' && hoodKind !== 'hidden' ? opts?.hoodModel ?? 'chimney' : undefined,
+    hoodModel: kind === 'gas' && hoodKind !== 'hidden' ? opts?.hoodModel ?? 'curved-black' : undefined,
     washingCapacityKg: washingKg,
     elevY,
   };
