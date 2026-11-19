@@ -23,13 +23,14 @@ export interface ARSessionState {
   calibrating: boolean;
   selectedPin: 'a' | 'b' | null;
   distanceCm: number;
+  detectedFloorDistanceM: number | null;
   kitchenHidden: boolean;
   occlusionEnabled: boolean;
 }
 
 export const initialARState = (): ARSessionState => ({ starting: false, active: false,
   floorLocked: false, ready: false, tracking: false, rawHits: 0, validHits: 0,
-  error: null, calibrating: false, selectedPin: null, distanceCm: 60, kitchenHidden:false,occlusionEnabled:true });
+  error: null, calibrating: false, selectedPin: null, distanceCm: 60, detectedFloorDistanceM:null, kitchenHidden:false,occlusionEnabled:true });
 
 /** AR owns tracking only. The editor keeps its scene, renderer, picking and history.
  * Transforming the camera rig, rather than CAD objects, preserves every existing
@@ -202,7 +203,14 @@ export class UnifiedARSession {
       this.floorNet.mesh.visible=t<1;if(t>=1)this.revealStart=null;}
     if(time-this.lastReport>250){
       this.lastReport=time;
+      // Straight-line distance from tracked camera to detected floor hit in metres.
+      const floorHit=this.locked?null:this.scanner.point;
+      const distanceM=floorHit?Math.hypot(
+        pose.transform.position.x-floorHit.x,
+        pose.transform.position.y-floorHit.y,
+        pose.transform.position.z-floorHit.z):null;
       this.publish({tracking:true,error:null,ready:!this.locked&&Boolean(this.confirmation.current(performance.now())),
+        detectedFloorDistanceM:distanceM===null?null:Math.round(distanceM*100)/100,
         rawHits:this.scanner.rawHits,validHits:this.scanner.validHits});
     }
     this.updateRig();
@@ -275,6 +283,10 @@ export class UnifiedARSession {
     this.pinA.position.copy(this.a);this.pinB.position.copy(this.b);
     this.line.geometry.dispose();this.line.geometry=new THREE.BufferGeometry().setFromPoints([
       this.a.clone().setY(.025),this.b.clone().setY(.025)]);
+    // Compensate for AR alignment scaling so A/B markers keep constant physical size.
+    const inverseScale=1/Math.max(0.01,this.alignment.scale.x);
+    this.pinA.scale.setScalar(inverseScale);
+    this.pinB.scale.setScalar(inverseScale);
     this.pins.visible=this.locked&&this.state.calibrating;
     this.publish({distanceCm:Math.round(this.a.distanceTo(this.b)*100)});
     this.events.render();
@@ -415,6 +427,7 @@ export class UnifiedARSession {
     this.floorNet.mesh.visible=false;this.crosses.forEach(c=>c.visible=false);this.currentFrame=null;this.occlusion.hide('idle');
     this.baseOrigin=null;this.origin.position.set(0,0,0);this.origin.rotation.set(0,0,0);
     this.alignment.position.set(0,0,0);this.alignment.rotation.set(0,0,0);this.alignment.scale.setScalar(1);
+    this.pinA.scale.setScalar(1);this.pinB.scale.setScalar(1);
     this.events.render();
   }
   private onEnd(session:XRSession) {

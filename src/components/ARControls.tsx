@@ -57,8 +57,18 @@ export function ARControls({state,session,onRetry,dialogOpen=false}: {
       {state.error&&<p role="alert" className="mt-2 text-sm text-red-800">{state.error}</p>}
     </section>}
     {state.active&&(!state.floorLocked||state.selectedPin)&&<div className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
-      <div className="w-9 h-9 rounded-full border-2 border-emerald-400 flex items-center justify-center shadow-md"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400"/></div>
-    </div>}
+      {!state.floorLocked ? <div className="flex flex-col items-center gap-1">
+        <div className="w-[108px] h-[108px] rounded-full border-2 border-emerald-400 bg-slate-950/30 text-white flex flex-col items-center justify-center shadow-lg">
+          <strong className="text-2xl tabular-nums" dir="ltr">{state.detectedFloorDistanceM===null?'—':state.detectedFloorDistanceM.toFixed(2)}</strong>
+          <span className="text-[12px] font-bold">متر</span>
+        </div>
+        <span className="bg-slate-950/65 text-white rounded-full px-3 py-1 text-[12px] font-bold">
+          فاصله کف تشخیص‌داده‌شده تا دوربین
+        </span>
+      </div>:<div className="w-9 h-9 rounded-full border-2 border-emerald-400 flex items-center justify-center shadow-md">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"/>
+      </div>}
+    </div>
     {state.floorLocked&&state.calibrating&&state.selectedPin&&!dialogOpen&&<button type="button"
       data-testid="ar-confirm-pin" onClick={()=>session?.confirmPinAtAim()}
       className="pointer-events-auto absolute bottom-12 left-1/2 -translate-x-1/2 h-11 px-5 rounded-xl bg-emerald-700 text-white font-bold">

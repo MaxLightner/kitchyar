@@ -690,7 +690,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             states.set(h.doorId, st);
           }
           if (Math.abs(st.target - st.cur) > 0.001) {
-            const step = dt / DOOR_ANIM_DURATION_S;
+            const step = dt / (h.kind === 'lift' || h.kind === 'bifold' ? 1.25 : DOOR_ANIM_DURATION_S);
             if (st.target > st.cur) st.cur = Math.min(st.target, st.cur + step);
             else st.cur = Math.max(st.target, st.cur - step);
             applyAnimatedDoorProgress(h, st.cur);

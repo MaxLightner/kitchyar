@@ -28,7 +28,8 @@ export function addKitchenLighting(
   const ambient = new THREE.AmbientLight(0xffffff, 0.06);
   scene.add(ambient);
   const light = new THREE.DirectionalLight(0xffffff, 0.35);
-  light.castShadow = true;
+  // Camera-follow light is pure fill: never allocate or cast a shadow map.
+  light.castShadow = false;
   light.shadow.mapSize.set(1024, 1024);
   light.shadow.bias = -0.00035;
   light.shadow.normalBias = 0.015;

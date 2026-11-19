@@ -337,9 +337,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
     ? activeBox?.id
     : objectSettings && props.selectedAppliance?.kind === 'gas' && props.selectedAppliancePart !== 'gas'
     ? props.selectedAppliance.id : undefined;
-  useEffect(() => {
-    if (contextId) setSettingsOpen(true);
-  }, [contextId]);
+  // Selection updates the context badge; only the user can open the inspector.
 
   const sharedEquipmentColor = showFridge || (objectSettings &&
     (props.selectedAppliance?.kind === 'washing' || props.selectedAppliance?.kind === 'dishwasher'));

@@ -3332,6 +3332,18 @@ function buildAppliance3D(
     chassis.receiveShadow = true;
     grp.add(chassis);
 
+    // Carcass-coloured narrow horizontal frames above and below fitted ovens.
+    const applianceFrameRailH = 0.018;
+    for (const railY of [baseElevM - applianceFrameRailH / 2, baseElevM + machH + applianceFrameRailH / 2]) {
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(Math.max(0.08, machW + 0.015), applianceFrameRailH, 0.022),
+        underBox ? mats.matCarcass : mats.matDoorModern
+      );
+      rail.position.set(ax, railY, frontZ + normalSign * 0.012);
+      rail.castShadow = true;
+      grp.add(rail);
+    }
+
     // Top control bezel strip with rotary dials / digital LED display
     const ctrlH = isMicro ? 0.065 : 0.085;
     const ctrl = new THREE.Mesh(
@@ -3358,7 +3370,8 @@ function buildAppliance3D(
       emissive: 0xffa340, emissiveIntensity: app.ovenLightOn ? 0.12 : 0,
       roughness: 0.35,
     });
-    const ovenLight = new THREE.PointLight(0xffc477, 0.12, 0.4, 2);
+    const ovenLight = new THREE.PointLight(0xffc477, 0.5, 0.4, 2);
+    ovenLight.castShadow = false;
     ovenLight.position.set(ax + winW * 0.32, winY + winH * 0.28, frontZ - normalSign * 0.04);
     ovenLight.userData.ovenControlId = app.id;
     ovenLight.userData.ovenControlPart = 'light';
