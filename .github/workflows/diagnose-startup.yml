@@ -16,6 +16,8 @@ jobs:
       - run: bun run build
       - run: npm install --prefix /tmp/kitchyar-browser playwright@1.56.1
       - name: Check editor in Chromium
+        env:
+          TEST_ORIGIN: https://maxlightner.github.io/kitchyar/
         run: |
           bun run preview --host 127.0.0.1 > /tmp/vite.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:4173/kitchyar/ >/dev/null && break; sleep 1; done
@@ -33,7 +35,25 @@ jobs:
           await page.goto(origin+'?autostart=1',{waitUntil:'networkidle'});
           await page.getByRole('button',{name:'تنظیمات استاندارد پروژه',exact:true}).click();
           await page.getByLabel('نور دوربین',{exact:true}).fill('0.4');
+          const selects=page.locator('select[id^="light-"]');
+          const count=await selects.count();
+          let ids=[];
+          if(count>=2){
+           ids=[(await selects.nth(0).getAttribute('id')).slice(6),(await selects.nth(1).getAttribute('id')).slice(6)];
+           await selects.nth(0).selectOption('linear');
+           await selects.nth(1).selectOption('off');
+          }
           await page.getByRole('button',{name:'ذخیره و اعمال',exact:true}).click();
+          if(ids.length){
+           const modes=await page.evaluate(ids=>{
+           const records=JSON.parse(localStorage.getItem('kichiyar_projects_v2'));
+           const active=localStorage.getItem('kichiyar_active_project_id_v2');
+           const boxes=records.find(p=>p.id===active).state.walls.flatMap(w=>w.boxes);
+           return ids.map(id=>boxes.find(b=>b.id===id).lighting.mode);
+           },ids);
+           if(modes[0]!=='linear'||modes[1]!=='off')throw Error('Independent lighting failed');
+           console.log('INDEPENDENT_LIGHTS_OK',modes.join(','));
+          }
           console.log('LIGHT_SETTINGS_OK');
           await page.getByLabel('نمای سه‌بعدی',{exact:true}).click();
           await page.getByTestId('scene-3d-canvas').waitFor();
