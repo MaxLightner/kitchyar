@@ -1163,7 +1163,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       builtSceneRef.current?.syncOcclusion?.();
       lighting.setIntensities(projectRef.current.settings);
       lighting.followCamera(camera);
-      reflections.render();
+      if (projectRef.current.settings?.enableReflections === false) renderer.render(scene, camera);
+      else reflections.render();
       if (rafId === null && (doorsMoving || ctrlChanged)) {
         rafId = requestAnimationFrame(renderPreview);
       }

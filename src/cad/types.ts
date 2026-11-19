@@ -301,6 +301,8 @@ export interface ProjectSettings {
   hdrIntensity?: number;
   cameraLightIntensity?: number;
   ambientLightIntensity?: number;
+  enableAmbientLight?: boolean;
+  enableReflections?: boolean;
   ceilingLightIntensities?: number[];
   ceilingAreaIntensity?: number;
   facadeLightIntensity?: number;

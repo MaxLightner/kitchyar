@@ -417,7 +417,7 @@ const backsplashTextures = new Map<BacksplashFinishId, ReturnType<typeof createB
 const countertopTextures = new Map<CountertopFinishId, THREE.CanvasTexture>();
 let doorBevelTexture: THREE.CanvasTexture | undefined;
 let cabinetOcclusionTexture: THREE.CanvasTexture | undefined;
-let equipmentBrushedNormalTexture: THREE.CanvasTexture | undefined;
+let equipmentEdgeNormalTexture: THREE.CanvasTexture | undefined;
 
 export function isSharedKitchenTexture(texture: THREE.Texture) {
   return texture.userData.sharedKitchenTexture === true;
@@ -428,29 +428,12 @@ function shareKitchenTexture<T extends THREE.Texture>(texture: T): T {
   return texture;
 }
 
-/** Shared brushed-steel micro normal for refrigerator, washer and dishwasher panels. */
-export function getEquipmentBrushedNormalMap(): THREE.CanvasTexture {
-  if (equipmentBrushedNormalTexture) return equipmentBrushedNormalTexture;
-  const size = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const image = ctx.createImageData(size, size);
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const i = (y * size + x) * 4;
-    const grain = Math.sin(y * 0.93) * 12 + Math.sin(y * 2.41 + x * 0.015) * 7 +
-      Math.sin(y * 0.27 + x * 0.13) * 4;
-    image.data[i] = 128;
-    image.data[i + 1] = Math.max(0, Math.min(255, Math.round(128 + grain)));
-    image.data[i + 2] = 253;
-    image.data[i + 3] = 255;
+/** Clean edge bevel normal, like cabinet doors but stronger; no noisy or pixelated grain. */
+export function getEquipmentEdgeNormalMap(): THREE.CanvasTexture {
+  if (!equipmentEdgeNormalTexture) {
+    equipmentEdgeNormalTexture = shareKitchenTexture(createDoorBevelNormalMap(12));
   }
-  ctx.putImageData(image, 0, 0);
-  const normal = shareKitchenTexture(new THREE.CanvasTexture(canvas));
-  normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
-  normal.repeat.set(3, 5);
-  equipmentBrushedNormalTexture = normal;
-  return normal;
+  return equipmentEdgeNormalTexture;
 }
 
 function getCabinetOcclusionTexture() {

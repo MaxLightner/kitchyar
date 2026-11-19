@@ -84,6 +84,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             سایهٔ تماس کل صحنه (AO)
           </label>
 
+          <fieldset className="space-y-1 rounded border border-slate-200 p-2">
+            <legend className="px-1 font-bold">گزینه‌های عملکرد روی گوشی‌های ضعیف</legend>
+            <label className="flex items-center gap-2 font-bold text-slate-700">
+              <input type="checkbox" aria-label="فعال بودن بازتاب SSR" data-testid="settings-reflections"
+                checked={form.enableReflections !== false}
+                onChange={e => setForm(prev => ({ ...prev, enableReflections: e.target.checked }))} />
+              بازتاب‌های صفحه (SSR)
+            </label>
+            <label className="flex items-center gap-2 font-bold text-slate-700">
+              <input type="checkbox" aria-label="فعال بودن نور آمبیانس" data-testid="settings-ambient-light"
+                checked={form.enableAmbientLight !== false}
+                onChange={e => setForm(prev => ({ ...prev, enableAmbientLight: e.target.checked }))} />
+              نور آمبیانس
+            </label>
+          </fieldset>
           <fieldset className="space-y-2 rounded border border-slate-200 p-2">
             <legend className="px-1 font-bold">شدت نورهای صحنه</legend>
             <div className="grid grid-cols-2 gap-2">
@@ -161,7 +176,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button type="button" onClick={() => {
             setForm(prev => ({ ...prev, wallHeightCm: DEFAULT_PROJECT_SETTINGS.wallHeightCm,
               hdrRotationDegrees: 0, floorReflection: undefined, floorRoughness: undefined,
-              ambientOcclusion: DEFAULT_PROJECT_SETTINGS.ambientOcclusion }));
+              ambientOcclusion: DEFAULT_PROJECT_SETTINGS.ambientOcclusion,
+              enableAmbientLight: true, enableReflections: true }));
             onPreviewHdrRotation(0);
           }} className="h-8 rounded border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700">
             پیش‌فرض

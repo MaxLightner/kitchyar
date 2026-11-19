@@ -52,7 +52,7 @@ export function addKitchenLighting(
     setIntensities(settings?: ProjectSettings) {
       scene.environmentIntensity = settings?.hdrIntensity ?? 2;
       light.intensity = settings?.cameraLightIntensity ?? 1;
-      ambient.intensity = Math.max(0, settings?.ambientLightIntensity ?? 0.06);
+      ambient.intensity = settings?.enableAmbientLight === false ? 0 : Math.max(0, settings?.ambientLightIntensity ?? 0.06);
     },
     followCamera(camera: THREE.Camera) {
       followPose(camera.getWorldPosition(cameraPosition), camera.getWorldQuaternion(cameraOrientation));
@@ -75,30 +75,22 @@ export function addKitchenSpot(
   parent: THREE.Group,
   origin: THREE.Vector3,
   target: THREE.Vector3,
-  { color, intensity, range, angle, ceilingFixture = false }: {
+  { color, intensity, range, angle }: {
     color: number; intensity: number; range: number; angle: number; ceilingFixture?: boolean;
   },
-) {
-  const spot = new THREE.SpotLight(color, intensity, range, angle, 0.88, 2);
+): THREE.SpotLight {
+  // No emissive bulb, fixture geometry, shadow map, or per-light soft-shadow samples.
+  // Regular Three.js SpotLights have no separate sample-count setting.
+  const spot = new THREE.SpotLight(color, intensity, range, angle, 0.9, 2);
+  spot.castShadow = false;
   spot.position.copy(origin);
   spot.target.position.copy(target);
   parent.add(spot, spot.target);
-
-  if (ceilingFixture) {
-    const fixture = new THREE.Group();
-    fixture.position.copy(origin);
-    fixture.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), target.clone().sub(origin).normalize());
-    const trim = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.058, 0.04, 16),
-      new THREE.MeshStandardMaterial({ color: 0x333436, roughness: 0.48, metalness: 0.25 }));
-    const diffuser = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.003, 16),
-      new THREE.MeshBasicMaterial({ color }));
-    diffuser.position.y = -0.022;
-    fixture.add(trim, diffuser);
-    parent.add(fixture);
-  }
+  return spot;
 }
 
-export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number, intensity = 10) {
+export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number, intensity = 12): THREE.RectAreaLight[] {
+  const lights: THREE.RectAreaLight[] = [];
   RectAreaLightUniformsLib.init();
   const floor = outline.length >= 3 ? outline : [
     { x: -200, y: -200 }, { x: 200, y: -200 }, { x: 200, y: 200 }, { x: -200, y: 200 },
@@ -141,5 +133,7 @@ export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[],
     diffuser.position.copy(light.position);
     diffuser.quaternion.copy(light.quaternion);
     parent.add(light, diffuser);
+    lights.push(light);
   }
+  return lights;
 }

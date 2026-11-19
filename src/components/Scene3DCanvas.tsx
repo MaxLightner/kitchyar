@@ -75,6 +75,7 @@ import {
   attachSelectedHandlePreviews,
   buildHandleMesh,
   buildKitchen3DScene,
+  kitchenGeometryKey,
   BuiltKitchenScene,
   CM,
   computeSelectionFocusTarget3D,
@@ -395,6 +396,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const builtRef = useRef<BuiltKitchenScene | null>(null);
+  const geometryKeyRef = useRef<string | null>(null);
+  const lightingStageRef = useRef(0);
+  const progressiveTimersRef = useRef<number[]>([]);
+  const initReflectionsRef = useRef<() => void>(() => {});
   const handleSpotsRef = useRef<HandleSpotOverlaySet | null>(null);
   const ghostGroupRef = useRef<THREE.Group | null>(null);
   const requestRenderRef = useRef<() => void>(() => {});
@@ -605,7 +610,12 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const camera = new THREE.PerspectiveCamera(wideViewVerticalFov(wideViewModeRef.current, w / h), w / h, 0.12, 48);
     camera.position.set(3.2, 2.5, 3.8);
     cameraRef.current = camera;
-    const reflections = createKitchenReflections(renderer, scene, camera);
+    let reflections: ReturnType<typeof createKitchenReflections> | null = null;
+    initReflectionsRef.current = () => {
+      if (!reflections && propsRef.current.project.settings?.enableReflections !== false) {
+        reflections = createKitchenReflections(renderer, scene, camera);
+      }
+    };
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = !isSoftwareGl;
@@ -689,7 +699,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         built?.syncOcclusion?.();
         lighting.setIntensities(propsRef.current.project.settings);
         lighting.followCamera(camera);
-        reflections.render();
+        if (reflections && propsRef.current.project.settings?.enableReflections !== false) reflections.render();
+        else renderer.render(scene, camera);
       }
       if (rafId === null && (anyDoorMoving || anyFocusMoving)) {
         rafId = requestAnimationFrame(renderLoop);
@@ -2999,7 +3010,12 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         disposeObject3D(builtRef.current.root);
         builtRef.current = null;
       }
-      reflections.dispose();
+      for (const timer of progressiveTimersRef.current) window.clearTimeout(timer);
+      progressiveTimersRef.current = [];
+      initReflectionsRef.current = () => {};
+      geometryKeyRef.current = null;
+      lightingStageRef.current = 0;
+      reflections?.dispose();
       lighting.dispose();
       renderer.dispose();
       if (dom.parentNode === container) container.removeChild(dom);
@@ -3058,17 +3074,39 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene) return;
-
-    let built: BuiltKitchenScene;
-    try { built = buildKitchen3DScene(project, { doorOpenProgress: 0, tool, onTextureReady: () => requestRenderRef.current() }); }
-    catch (error) { logDiagnostic('scene-build-failed', error); props.onToast('خطای نمایش ثبت شد؛ صحنه قبلی حفظ شد'); return; }
-    if (builtRef.current) {
-      scene.remove(builtRef.current.root);
-      disposeObject3D(builtRef.current.root);
+    if (!scene || props.scanMode) return;
+    const geometryKey = kitchenGeometryKey(project) + '|' + tool;
+    const previous = builtRef.current;
+    if (previous && geometryKeyRef.current === geometryKey) {
+      // Light and oven toggles, SSR and ambient settings update in place without rebuilding geometry.
+      previous.updateLighting(project, lightingStageRef.current);
+      requestRenderRef.current();
+      if (lightingStageRef.current >= 4 && project.settings?.enableReflections !== false) initReflectionsRef.current();
+      return;
     }
-    builtRef.current = built;
-    scene.add(built.root);
+
+    for (const timer of progressiveTimersRef.current) window.clearTimeout(timer);
+    progressiveTimersRef.current = [];
+    let cancelled = false;
+    const buildTimer = window.setTimeout(() => {
+      if (cancelled || sceneRef.current !== scene) return;
+      let built: BuiltKitchenScene;
+      try {
+        built = buildKitchen3DScene(project, { doorOpenProgress: 0, tool,
+          deferOcclusion: true, onTextureReady: () => requestRenderRef.current() });
+      } catch (error) {
+        logDiagnostic('scene-build-failed', error);
+        props.onToast('خطای نمایش ثبت شد؛ صحن قبلی حفظ شد');
+        return;
+      }
+      if (cancelled) { disposeObject3D(built.root); return; }
+      // Keep the old render visible until the replacement has finished constructing.
+      scene.add(built.root);
+      const prior = builtRef.current;
+      builtRef.current = built;
+      geometryKeyRef.current = geometryKey;
+      lightingStageRef.current = 0;
+      if (prior) { scene.remove(prior.root); disposeObject3D(prior.root); }
 
     // Reapply current door open/close states smoothly without snapping
     const states = doorStatesRef.current;
@@ -3099,6 +3137,31 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         updateGhostAndHoverRef.current(hover.x, hover.y);
       }
     }
+
+      // One effect per painted frame: cabinet lights, facades, AO, then SSR.
+      const stageNext = (stage: number) => {
+        const timer = window.setTimeout(() => {
+          if (builtRef.current !== built || sceneRef.current !== scene) return;
+          requestAnimationFrame(() => {
+            const delay = window.setTimeout(() => {
+              if (builtRef.current !== built || sceneRef.current !== scene) return;
+              lightingStageRef.current = stage;
+              built.updateLighting(propsRef.current.project, stage);
+              if (stage === 3 && propsRef.current.project.settings?.ambientOcclusion !== false) built.activateOcclusion?.();
+              if (stage === 4 && propsRef.current.project.settings?.enableReflections !== false) initReflectionsRef.current();
+              requestRenderRef.current();
+              if (stage < 4) stageNext(stage + 1);
+            }, 32);
+            progressiveTimersRef.current.push(delay);
+          });
+        }, 0);
+        progressiveTimersRef.current.push(timer);
+      };
+      stageNext(1);
+    }, 0);
+    progressiveTimersRef.current.push(buildTimer);
+    // Previous scene is retained through React updates and only replaced after a successful build.
+    return () => { cancelled = true; };
   }, [project, props.scanMode, tool]);
 
   // Choosing a handle now previews it on EVERY selected door AND shows interactive

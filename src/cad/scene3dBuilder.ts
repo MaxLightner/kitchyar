@@ -33,7 +33,7 @@ import { addCeilingFillLights, addKitchenSpot } from './kitchenLighting';
 import { getCabinetLighting, getKitchenCabinetLightMode } from './cabinetLighting';
 import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
-import { createKitchenMaterialPack, getEquipmentBrushedNormalMap, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
+import { createKitchenMaterialPack, getEquipmentEdgeNormalMap, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
 import {
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
@@ -188,7 +188,21 @@ export interface BuiltKitchenScene {
   >;
   bounds: THREE.Box3;
   syncOcclusion?: () => void;
+  activateOcclusion?: () => void;
+  updateLighting: (project: ProjectState, stage?: number) => void;
 }
+
+/** Ignore only lighting state to avoid rebuilding all kitchen meshes when toggling a lamp. */
+const LIGHTING_ONLY_KEYS = new Set([
+  'lighting', 'underCabinetLight', 'ovenLightOn', 'underCabinetLightMode',
+  'linearLightIntensity', 'halogenLightIntensity', 'facadeLightIntensity', 'facadeLightEnabled',
+  'ceilingAreaIntensity', 'ceilingLightIntensities', 'hdrIntensity', 'cameraLightIntensity',
+  'ambientLightIntensity', 'enableAmbientLight', 'enableReflections',
+]);
+export function kitchenGeometryKey(project: ProjectState): string {
+  return JSON.stringify(project, (key, value) => LIGHTING_ONLY_KEYS.has(key) ? undefined : value);
+}
+
 
 export function detectSoftwareWebGL(gl: WebGLRenderingContext | WebGL2RenderingContext | null): boolean {
   if (!gl) return true;
@@ -640,11 +654,14 @@ export function attachHandleCandidateSpots(
 
 export function buildKitchen3DScene(
   project: ProjectState,
-  opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number; tool?: ToolId; onTextureReady?: () => void } = {}
+  opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number; tool?: ToolId; onTextureReady?: () => void; deferOcclusion?: boolean } = {}
 ): BuiltKitchenScene {
   const root = new THREE.Group();
   const interactables: THREE.Object3D[] = [];
   const animatedDoors: AnimatedDoorHandle[] = [];
+  const linearControls: Array<{ boxId: string; group: THREE.Group; strip: THREE.Mesh; area: THREE.RectAreaLight }> = [];
+  const halogenControls: Array<{ boxId: string; group: THREE.Group; spots: THREE.SpotLight[] }> = [];
+  const facadeControls: Array<{ group: THREE.Group; spots: THREE.SpotLight[] }> = [];
   const wallTransforms = new Map<
     string,
     {
@@ -730,10 +747,10 @@ export function buildKitchen3DScene(
   const equipmentColor = equipmentFinish === 'white' ? 0xf4f5f6 : equipmentFinish === 'black' ? 0x262a31 : 0xc7d0db;
   const matEquipment = new THREE.MeshPhysicalMaterial({
     color: equipmentColor,
-    roughness: equipmentFinish === 'silver' ? 0.29 : 0.36,
-    metalness: equipmentFinish === 'silver' ? 0.94 : 0.12,
-    normalMap: getEquipmentBrushedNormalMap(),
-    normalScale: new THREE.Vector2(equipmentFinish === 'silver' ? 1.45 : 0.8, equipmentFinish === 'silver' ? 1.45 : 0.8),
+    roughness: equipmentFinish === 'silver' ? 0.32 : 0.36,
+    metalness: equipmentFinish === 'silver' ? 0.92 : 0.12,
+    normalMap: getEquipmentEdgeNormalMap(),
+    normalScale: new THREE.Vector2(equipmentFinish === 'silver' ? 1.9 : 1.35, equipmentFinish === 'silver' ? 1.9 : 1.35),
     clearcoat: equipmentFinish === 'silver' ? 0.24 : 0.38,
     clearcoatRoughness: 0.24,
     envMapIntensity: equipmentFinish === 'silver' ? 2.25 : 1.55,
@@ -830,7 +847,7 @@ export function buildKitchen3DScene(
   const ceilingHeightM = (project.settings?.wallHeightCm ?? project.walls[0]?.height ?? 265) * CM;
   const ceilingIntensity = project.settings?.ceilingAreaIntensity ??
     (project.settings?.ceilingLightIntensities?.[0] ?? 12);
-  addCeilingFillLights(root, vertices, ceilingHeightM, ceilingIntensity);
+  const ceilingControls = addCeilingFillLights(root, vertices, ceilingHeightM, ceilingIntensity);
   const kitchenLightMode = getKitchenCabinetLightMode(project);
 
   const stripMaterial = new THREE.MeshBasicMaterial({ color: 0xffdfb6 });
@@ -984,61 +1001,71 @@ export function buildKitchen3DScene(
       const y = run.elevation * CM - 0.009;
       const x = (run.start + run.end) * CM / 2;
       const z = normalSign * Math.min(0.055, run.depth * CM / 2);
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(length, 0.015, 0.028), run.mode === 'linear' ? stripMaterial : matHiddenTrim);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(length, 0.015, 0.028), stripMaterial);
       strip.position.set(x, y, z);
       strip.userData = { kind: 'under-cabinet-light', wallId: wall.id, lightBoxIds: run.boxIds } satisfies Scene3DHitData;
       wallGrp.add(strip);
       interactables.push(strip);
-      if (run.mode === 'linear') {
-        const area = new THREE.RectAreaLight(0xffdfb6,
-          run.intensity * (project.settings?.linearLightIntensity ?? 5), length, 0.045);
-        area.position.set(x, y - 0.022, normalSign * 0.09);
-        area.lookAt(x, y - 0.32, normalSign * 0.008);
-        wallGrp.add(area);
-      } else if (run.mode === 'halogen') {
-        const count = Math.max(1, Math.ceil(length / 0.8));
-        for (let i = 0; i < count; i++) {
-          const spotX = run.start * CM + length * (i + 0.5) / count;
-          addKitchenSpot(wallGrp,
-            new THREE.Vector3(spotX, y - 0.024, normalSign * Math.min(0.22, run.depth * CM - 0.05)),
-            new THREE.Vector3(spotX, y - 0.48, normalSign * 0.012),
-            { color: 0xffdfb6, intensity: run.intensity * (project.settings?.halogenLightIntensity ?? 1),
-              range: 1.6, angle: 0.72, ceilingFixture: true });
-        }
+
+      // Both lamp types are created once; later switches only set group visibility.
+      const linearGroup = new THREE.Group();
+      const area = new THREE.RectAreaLight(0xffdfb6, 0, length, 0.045);
+      area.position.set(x, y - 0.022, normalSign * 0.09);
+      area.lookAt(x, y - 0.32, normalSign * 0.008);
+      linearGroup.add(area);
+      wallGrp.add(linearGroup);
+      linearControls.push({ boxId: run.boxIds[0], group: linearGroup, strip, area });
+
+      const halogenGroup = new THREE.Group();
+      const spots: THREE.SpotLight[] = [];
+      // Limit the number of actual light calculations; the fixtures are invisible.
+      const count = Math.min(6, Math.max(1, Math.ceil(length / 1)));
+      for (let i = 0; i < count; i++) {
+        const spotX = run.start * CM + length * (i + 0.5) / count;
+        spots.push(addKitchenSpot(halogenGroup,
+          new THREE.Vector3(spotX, y - 0.024, normalSign * Math.max(0.02, Math.min(0.22, run.depth * CM - 0.05))),
+          new THREE.Vector3(spotX, y - 0.48, normalSign * 0.012),
+          { color: 0xffdfb6, intensity: 0, range: 1.6, angle: 0.72 }));
       }
+      wallGrp.add(halogenGroup);
+      halogenControls.push({ boxId: run.boxIds[0], group: halogenGroup, spots });
     }
 
-    // Facade lighting is independent of the under-cabinet lighting mode.
-    if (project.settings?.facadeLightEnabled !== false && (project.settings?.facadeLightIntensity ?? 1) > 0) {
-      const rows: Array<{ start: number; end: number; depth: number; elevation: number; height: number }> = [];
-      for (const box of uppers) {
-        const row = rows.find(row => Math.abs(row.elevation - box.elevY) < 1 &&
-          Math.abs(row.height - box.height) < 1 && Math.abs(row.depth - box.depth) < 1 &&
-          box.offsetX <= row.end + 1 && box.offsetX + box.width >= row.start - 1);
-        if (row) {
-          row.start = Math.min(row.start, box.offsetX);
-          row.end = Math.max(row.end, box.offsetX + box.width);
-        } else rows.push({ start: box.offsetX, end: box.offsetX + box.width,
-          elevation: box.elevY, height: box.height, depth: box.depth });
-      }
-      for (const row of rows) {
-        const width = (row.end - row.start) * CM;
-        const count = Math.max(1, Math.ceil(width));
-        const firstX = row.start * CM + (width - (count - 1)) / 2;
-        const targetY = (row.elevation + row.height * 0.6) * CM;
-        const depth = row.depth * CM;
-        for (let i = 0; i < count; i++) {
-          const x = firstX + i;
-          // Eight centimeters above the cabinet's notional crown, facing its door.
-          const origin = new THREE.Vector3(x, (row.elevation + row.height) * CM + 0.08, normalSign * (depth + 0.25));
-          const aim = new THREE.Vector3(x, targetY, normalSign * (depth + 0.015));
-          addKitchenSpot(wallGrp, origin, aim, {
-            color: 0xffe0b8, intensity: project.settings?.facadeLightIntensity ?? 1,
-            range: origin.distanceTo(aim) + 0.8, angle: 0.68, ceilingFixture: true,
-          });
-        }
+    // Independent crown lighting. Only the upper tier receives facade spotlights.
+    const facadeGroup = new THREE.Group();
+    const facadeSpots: THREE.SpotLight[] = [];
+    const rows: Array<{ start: number; end: number; depth: number; elevation: number; height: number }> = [];
+    for (const box of uppers) {
+      const hasTierAbove = uppers.some(upper => upper.id !== box.id &&
+        upper.elevY >= box.elevY + box.height - 1 &&
+        upper.offsetX < box.offsetX + box.width - 1 &&
+        upper.offsetX + upper.width > box.offsetX + 1);
+      if (hasTierAbove) continue;
+      const row = rows.find(row => Math.abs(row.elevation - box.elevY) < 1 &&
+        Math.abs(row.height - box.height) < 1 && Math.abs(row.depth - box.depth) < 1 &&
+        box.offsetX <= row.end + 1 && box.offsetX + box.width >= row.start - 1);
+      if (row) {
+        row.start = Math.min(row.start, box.offsetX);
+        row.end = Math.max(row.end, box.offsetX + box.width);
+      } else rows.push({ start: box.offsetX, end: box.offsetX + box.width,
+        elevation: box.elevY, height: box.height, depth: box.depth });
+    }
+    for (const row of rows) {
+      const width = (row.end - row.start) * CM;
+      const count = Math.min(8, Math.max(1, Math.ceil(width)));
+      const spacing = width / count;
+      const targetY = (row.elevation + row.height * 0.6) * CM;
+      const depth = row.depth * CM;
+      for (let i = 0; i < count; i++) {
+        const x = row.start * CM + (i + 0.5) * spacing;
+        const origin = new THREE.Vector3(x, (row.elevation + row.height) * CM + 0.08, normalSign * (depth + 0.25));
+        const aim = new THREE.Vector3(x, targetY, normalSign * (depth + 0.015));
+        facadeSpots.push(addKitchenSpot(facadeGroup, origin, aim,
+          { color: 0xffe0b8, intensity: 0, range: origin.distanceTo(aim) + 0.8, angle: 0.68 }));
       }
     }
+    wallGrp.add(facadeGroup);
+    facadeControls.push({ group: facadeGroup, spots: facadeSpots });
 
     // Render all Cabinet Boxes on this wall
     for (const box of wall.boxes) {
@@ -1180,10 +1207,69 @@ export function buildKitchen3DScene(
   });
   sceneMaterials.forEach(limitKitchenHdrIrradiance);
 
-  const syncOcclusion = project.settings?.ambientOcclusion !== false
-    ? bakeKitchenOcclusion(root, bounds, new Set(animatedDoors.map(part => part.group)))
-    : undefined;
-  return { root, interactables, animatedDoors, wallTransforms, bounds, syncOcclusion };
+  // Cache direct references so changing a light never reconstructs cabinets or geometry.
+  const ovenParts = new Map<string, { light?: THREE.PointLight; cavity?: THREE.MeshStandardMaterial; glass?: THREE.MeshPhysicalMaterial }>();
+  root.traverse(node => {
+    const id = node.userData.ovenControlId as string | undefined;
+    if (!id) return;
+    const part = ovenParts.get(id) ?? {};
+    if (node.userData.ovenControlPart === 'light' && node instanceof THREE.PointLight) part.light = node;
+    if (node.userData.ovenControlPart === 'cavity' && node instanceof THREE.Mesh) part.cavity = node.material as THREE.MeshStandardMaterial;
+    if (node.userData.ovenControlPart === 'glass' && node instanceof THREE.Mesh) part.glass = node.material as THREE.MeshPhysicalMaterial;
+    ovenParts.set(id, part);
+  });
+  const updateLighting = (next: ProjectState, stage = 3) => {
+    const settings = next.settings;
+    const mode = getKitchenCabinetLightMode(next);
+    const boxLevels = new Map(next.walls.flatMap(wall => wall.boxes.map(box => [box.id, getCabinetLighting(box).intensity] as const)));
+    for (const item of linearControls) {
+      const visible = stage >= 1 && mode === 'linear';
+      item.group.visible = visible;
+      item.strip.visible = visible;
+      item.area.intensity = (boxLevels.get(item.boxId) ?? 1) * (settings?.linearLightIntensity ?? 5);
+    }
+    for (const item of halogenControls) {
+      item.group.visible = stage >= 1 && mode === 'halogen';
+      const intensity = (boxLevels.get(item.boxId) ?? 1) * (settings?.halogenLightIntensity ?? 1);
+      item.spots.forEach(spot => { spot.intensity = intensity; });
+    }
+    for (const item of facadeControls) {
+      item.group.visible = stage >= 2 && settings?.facadeLightEnabled !== false && (settings?.facadeLightIntensity ?? 1) > 0;
+      item.spots.forEach(spot => { spot.intensity = settings?.facadeLightIntensity ?? 1; });
+    }
+    ceilingControls.forEach(light => { light.intensity = settings?.ceilingAreaIntensity ?? settings?.ceilingLightIntensities?.[0] ?? 12; });
+    for (const wall of next.walls) for (const appliance of wall.appliances) {
+      const parts = ovenParts.get(appliance.id);
+      if (!parts) continue;
+      const on = Boolean(appliance.ovenLightOn);
+      if (parts.light) parts.light.visible = stage >= 1 && on;
+      if (parts.cavity) {
+        parts.cavity.color.setHex(on ? 0xffd28a : 0x161920);
+        parts.cavity.emissiveIntensity = on ? 0.12 : 0;
+      }
+      if (parts.glass) {
+        parts.glass.color.setHex(on ? 0xfde68a : 0x090d16);
+        parts.glass.emissiveIntensity = on ? 0.045 : 0;
+        parts.glass.opacity = on ? 0.34 : 0.84;
+        parts.glass.metalness = on ? 0.1 : 0.25;
+      }
+    }
+  };
+  let syncAo: (() => void) | undefined;
+  const activateOcclusion = () => {
+    if (syncAo || project.settings?.ambientOcclusion === false) return;
+    syncAo = bakeKitchenOcclusion(root, bounds, new Set(animatedDoors.map(part => part.group)));
+    if (syncAo) root.traverse(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      for (const mat of Array.isArray(node.material) ? node.material : [node.material]) {
+        if (mat instanceof THREE.MeshStandardMaterial) mat.needsUpdate = true;
+      }
+    });
+  };
+  updateLighting(project, opts.deferOcclusion ? 0 : 3);
+  if (!opts.deferOcclusion) activateOcclusion();
+  return { root, interactables, animatedDoors, wallTransforms, bounds,
+    syncOcclusion: () => syncAo?.(), activateOcclusion, updateLighting };
 }
 
 function buildUpperCornerInfills3D(
@@ -3267,20 +3353,20 @@ function buildAppliance3D(
     const winW = machW - 0.09;
     const winH = machH - ctrlH - 0.075;
     const winY = baseElevM + 0.036 + winH / 2;
-    const cavityMat = app.ovenLightOn
-      ? new THREE.MeshStandardMaterial({
-          color: 0xffd28a,
-          emissive: 0xffa340,
-          emissiveIntensity: 0.12,
-          roughness: 0.35,
-        })
-      : new THREE.MeshStandardMaterial({ color: 0x161920, roughness: 0.65 });
-    if (app.ovenLightOn) {
-      const ovenLight = new THREE.PointLight(0xffc477, 0.12, 0.4, 2);
-      ovenLight.position.set(ax + winW * 0.32, winY + winH * 0.28, frontZ - normalSign * 0.04);
-      grp.add(ovenLight);
-    }
+    const cavityMat = new THREE.MeshStandardMaterial({
+      color: app.ovenLightOn ? 0xffd28a : 0x161920,
+      emissive: 0xffa340, emissiveIntensity: app.ovenLightOn ? 0.12 : 0,
+      roughness: 0.35,
+    });
+    const ovenLight = new THREE.PointLight(0xffc477, 0.12, 0.4, 2);
+    ovenLight.position.set(ax + winW * 0.32, winY + winH * 0.28, frontZ - normalSign * 0.04);
+    ovenLight.userData.ovenControlId = app.id;
+    ovenLight.userData.ovenControlPart = 'light';
+    ovenLight.visible = Boolean(app.ovenLightOn);
+    grp.add(ovenLight);
     const cavity = new THREE.Mesh(new THREE.BoxGeometry(winW - 0.02, winH - 0.02, 0.018), cavityMat);
+    cavity.userData.ovenControlId = app.id;
+    cavity.userData.ovenControlPart = 'cavity';
     cavity.position.set(ax, winY, frontZ - normalSign * 0.004);
     grp.add(cavity);
 
@@ -3290,25 +3376,19 @@ function buildAppliance3D(
       grp.add(rack);
     }
 
-    const glassMat = app.ovenLightOn
-      ? new THREE.MeshPhysicalMaterial({
-          color: 0xfde68a,
-          emissive: 0xd97706,
-          emissiveIntensity: 0.045,
-          transparent: true,
-          opacity: 0.34,
-          roughness: 0.08,
-          metalness: 0.1,
-        })
-      : new THREE.MeshPhysicalMaterial({
-          color: 0x090d16,
-          transparent: true,
-          opacity: 0.84,
-          roughness: 0.08,
-          metalness: 0.25,
-          envMapIntensity: 1.7,
-        });
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: app.ovenLightOn ? 0xfde68a : 0x090d16,
+      emissive: 0xd97706,
+      emissiveIntensity: app.ovenLightOn ? 0.045 : 0,
+      transparent: true,
+      opacity: app.ovenLightOn ? 0.34 : 0.84,
+      roughness: 0.08,
+      metalness: app.ovenLightOn ? 0.1 : 0.25,
+      envMapIntensity: 1.7,
+    });
     const doorGlass = new THREE.Mesh(new THREE.BoxGeometry(winW, winH, 0.01), glassMat);
+    doorGlass.userData.ovenControlId = app.id;
+    doorGlass.userData.ovenControlPart = 'glass';
     doorGlass.position.set(ax, winY, frontZ + normalSign * 0.011);
     grp.add(doorGlass);
 

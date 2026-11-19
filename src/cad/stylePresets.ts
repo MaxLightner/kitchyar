@@ -243,6 +243,7 @@ export function applyKitchenStylePreset(
   }
 
   for (const wall of next.walls) {
+    // Two-tier reshaping remains explicit; simple visual presets keep countertops and cabinet geometry.
     if (applyCabinetModel && preset.twoTierWallCabinets) applyTwoTierWallCabinets(wall);
     for (const box of wall.boxes) {
       if (box.type === 'fridge') continue;

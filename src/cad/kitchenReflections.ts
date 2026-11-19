@@ -30,7 +30,7 @@ export function createKitchenReflections(renderer: THREE.WebGLRenderer, scene: T
         width = size.x; height = size.y; pixelRatio = ratio;
         composer.setPixelRatio(ratio);
         composer.setSize(width, height);
-        ssr.ssrMaterial.defines.MAX_STEP = 128;
+        ssr.ssrMaterial.defines.MAX_STEP = 48;
         ssr.ssrMaterial.needsUpdate = true;
       }
       receivers.length = 0;
