@@ -103,6 +103,7 @@ interface PlanCanvasProps {
   onDeleteDining: (id: string) => void;
   onBeginDrag: () => void;
   onResizeCabinet: (wallId: string, boxId: string, side: 'left' | 'right', dxCm: number, dyCm: number, commit: boolean) => void;
+  onResizeUpperDepth?: (wallId: string, boxId: string, depthCm: number, commit: boolean) => void;
   onCancelDrag: () => void;
   onFinishDrag: () => void;
   settings?: ProjectSettings;
@@ -193,6 +194,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   offerSelection,
   onBeginDrag,
   onResizeCabinet,
+  onResizeUpperDepth,
   onCancelDrag,
   onFinishDrag,
   settings,
@@ -306,6 +308,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   const gestureStepperRef = useRef(new PacedGestureStepper());
 
   const dragOp = useRef<
+    | { mode: 'resize-upper-depth'; wallId: string; boxId: string; angle: number; flip: number;
+        startPtCm: { x: number; y: number }; initialDepth: number; lastDepth: number; moved: boolean }
     | { mode: 'resize-box'; wallId: string; boxId: string; side: 'left' | 'right'; angle: number;
         start: { x: number; y: number }; dx: number; moved: boolean }
     | { mode: 'pan'; startX: number; startY: number; origX: number; origY: number }
@@ -612,6 +616,20 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
     }
 
     const ptCm = clientToCm(e.clientX, e.clientY);
+
+    const depthHandle = !confirmed && tool === 'move' ? targetEl.closest('[data-plan-upper-depth]') : null;
+    if (depthHandle && onResizeUpperDepth) {
+      const wall = walls.find(w => w.id === depthHandle.getAttribute('data-wall-id'));
+      const box = wall?.boxes.find(b => b.id === depthHandle.getAttribute('data-box-id'));
+      if (wall && box && (box.type === 'wall' || box.type === 'wall-deep')) {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        onBeginDrag();
+        dragOp.current = { mode: 'resize-upper-depth', wallId: wall.id, boxId: box.id,
+          angle: wall.angle, flip: wall.flipSide || 1, startPtCm: ptCm,
+          initialDepth: box.depth, lastDepth: box.depth, moved: false };
+      }
+      return;
+    }
 
     const resizeTarget = !confirmed && tool === 'move' ? targetEl.closest('[data-plan-resize]') : null;
     if (resizeTarget) {
@@ -1012,6 +1030,16 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           if (op.mode === 'move-dining') onMoveDining(op.columnId, nx, ny, false);
           else onUpdateRoomColumn?.(op.columnId, { xCm: nx, yCm: ny }, false);
         }
+      } else if (op.mode === 'resize-upper-depth') {
+        const rad = op.angle * Math.PI / 180;
+        const dx = ptCm.x - op.startPtCm.x;
+        const dy = ptCm.y - op.startPtCm.y;
+        const projected = (-dx * Math.sin(rad) + dy * Math.cos(rad)) * op.flip;
+        const depth = Math.max(25, Math.min(90, Math.round((op.initialDepth + projected) / 5) * 5));
+        if (depth !== op.lastDepth) {
+          op.lastDepth = depth; op.moved = true;
+          onResizeUpperDepth?.(op.wallId, op.boxId, depth, false);
+        }
       } else if (op.mode === 'resize-box') {
         const radians = op.angle * Math.PI / 180;
         const dx = Math.round((ptCm.x - op.start.x) * Math.cos(radians) + (ptCm.y - op.start.y) * Math.sin(radians));
@@ -1165,6 +1193,8 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         }
       } else if (op.mode === 'resize-box') {
         if (op.moved) onResizeCabinet(op.wallId, op.boxId, op.side, op.dx, 0, true);
+      } else if (op.mode === 'resize-upper-depth') {
+        if (op.moved) onResizeUpperDepth?.(op.wallId, op.boxId, op.lastDepth, true);
       } else if (op.mode === 'move-opening') {
         onMoveOpening(op.wallId, op.openingId, -1, true);
       } else if (op.mode === 'move-node') {
@@ -2049,6 +2079,18 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                 );
               })}
 
+              {tool === 'move' && w.boxes.filter(box => box.id === activeBoxId && (box.type === 'wall' || box.type === 'wall-deep')).map(box => (
+                <g key={`depth:${box.id}`} data-plan-upper-depth="true"
+                  data-wall-id={w.id} data-box-id={box.id} style={{cursor:'ns-resize'}}>
+                  <rect x={(box.offsetX+box.width/2)*s-18} y={flip*box.depth*s-20}
+                    width={36} height={40} fill="transparent" />
+                  <circle cx={(box.offsetX+box.width/2)*s} cy={flip*box.depth*s}
+                    r={7} fill="#10b981" stroke="white" strokeWidth={2}/>
+                  <text x={(box.offsetX+box.width/2)*s} y={flip*box.depth*s-13}
+                    textAnchor="middle" fontSize={11} fontWeight={800} fill="#047857"
+                    pointerEvents="none">{box.depth} cm</text>
+                </g>
+              ))}
               {tool === 'move' && w.boxes.filter(box => box.id === activeBoxId && box.type !== 'fridge').map(box => (
                 <g key={box.id}>
                   {(['left', 'right'] as const).map(side => {

@@ -1345,6 +1345,23 @@ export default function App() {
     );
   };
 
+  const handleResizeUpperDepth = (wallId: string, boxId: string, depthCm: number, commit: boolean) => {
+    if (!Number.isFinite(depthCm)) return;
+    const rounded = Math.max(25, Math.min(90, Math.round(depthCm / 5) * 5));
+    commitState(prev => {
+      const next = cloneProject(prev);
+      const wall = next.walls.find(w => w.id === wallId);
+      const box = wall?.boxes.find(b => b.id === boxId);
+      if (!box || (box.type !== 'wall' && box.type !== 'wall-deep')) return prev;
+      box.depth = rounded;
+      if (box.linkedToBoxId) {
+        const fridge = wall?.boxes.find(b => b.id === box.linkedToBoxId);
+        if (fridge) fridge.overFridgeDepthMode = rounded === fridge.depth ? 'flush' : '60';
+      }
+      return next;
+    }, commit);
+  };
+
   const handleSetFridgeConcealed = (enabled: boolean) => {
     if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
     mutateActiveWall(w => {
@@ -3608,6 +3625,7 @@ export default function App() {
                   onPlaceDining={placeDining} onMoveDining={moveDining}
                   onSelectDining={selectDining} onDeleteDining={deleteDining}
                   onResizeCabinet={resizeCabinetFromHandle}
+                  onResizeUpperDepth={handleResizeUpperDepth}
                   settings={project.settings}
                   onFinishDrag={handleFinishDrag}
                   onBeginDrag={handleBeginDrag}
