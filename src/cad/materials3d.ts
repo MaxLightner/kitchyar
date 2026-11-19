@@ -327,6 +327,16 @@ function createBacksplashTextures(finishId: BacksplashFinishId): {
     }
   }
 
+  // Fine relief on each tile face, preserving existing grout normals.
+  const relief = nCtx.getImageData(0, 0, size, size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const i = (y * size + x) * 4;
+    const nx = Math.sin(x * 1.19 + y * 0.31) * 9 + Math.sin(y * 2.13) * 6;
+    const ny = Math.cos(y * 1.41 - x * 0.27) * 9 + Math.sin(x * 1.83) * 6;
+    relief.data[i] = Math.max(0, Math.min(255, relief.data[i] + nx));
+    relief.data[i + 1] = Math.max(0, Math.min(255, relief.data[i + 1] + ny));
+  }
+  nCtx.putImageData(relief, 0, 0);
   const map = new THREE.CanvasTexture(colCanvas);
   map.wrapS = THREE.RepeatWrapping;
   map.wrapT = THREE.RepeatWrapping;
@@ -407,6 +417,7 @@ const backsplashTextures = new Map<BacksplashFinishId, ReturnType<typeof createB
 const countertopTextures = new Map<CountertopFinishId, THREE.CanvasTexture>();
 let doorBevelTexture: THREE.CanvasTexture | undefined;
 let cabinetOcclusionTexture: THREE.CanvasTexture | undefined;
+let equipmentBrushedNormalTexture: THREE.CanvasTexture | undefined;
 
 export function isSharedKitchenTexture(texture: THREE.Texture) {
   return texture.userData.sharedKitchenTexture === true;
@@ -415,6 +426,31 @@ export function isSharedKitchenTexture(texture: THREE.Texture) {
 function shareKitchenTexture<T extends THREE.Texture>(texture: T): T {
   texture.userData.sharedKitchenTexture = true;
   return texture;
+}
+
+/** Shared brushed-steel micro normal for refrigerator, washer and dishwasher panels. */
+export function getEquipmentBrushedNormalMap(): THREE.CanvasTexture {
+  if (equipmentBrushedNormalTexture) return equipmentBrushedNormalTexture;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const i = (y * size + x) * 4;
+    const grain = Math.sin(y * 0.93) * 12 + Math.sin(y * 2.41 + x * 0.015) * 7 +
+      Math.sin(y * 0.27 + x * 0.13) * 4;
+    image.data[i] = 128;
+    image.data[i + 1] = Math.max(0, Math.min(255, Math.round(128 + grain)));
+    image.data[i + 2] = 253;
+    image.data[i + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  const normal = shareKitchenTexture(new THREE.CanvasTexture(canvas));
+  normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
+  normal.repeat.set(3, 5);
+  equipmentBrushedNormalTexture = normal;
+  return normal;
 }
 
 function getCabinetOcclusionTexture() {
@@ -548,7 +584,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
   const matBacksplashBase = new THREE.MeshPhysicalMaterial({
     map: bsTex.map,
     normalMap: bsTex.normalMap,
-    normalScale: new THREE.Vector2(0.45, 0.45),
+    normalScale: new THREE.Vector2(0.82, 0.82),
     ...readSurfaceFinish(settings, 2, bsFinish === 'subway-white' || bsFinish === 'calacatta-marble' ? 0.22 : 0.32),
   });
   matBacksplashBase.userData.sceneReflection = true;
@@ -632,7 +668,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     const tile = new THREE.MeshPhysicalMaterial({
       map: mapClone,
       normalMap: nrmClone,
-      normalScale: new THREE.Vector2(0.48, 0.48),
+      normalScale: new THREE.Vector2(0.84, 0.84),
       ...readSurfaceFinish(settings, 2, bsFinish === 'subway-white' || bsFinish === 'calacatta-marble' ? 0.22 : 0.32),
     });
     tile.userData.sceneReflection = true;

@@ -15,7 +15,7 @@ export const StyleGalleryModal: React.FC<StyleGalleryModalProps> = ({
 }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
-  const [applyCabinetModel, setApplyCabinetModel] = useState(false);
+  const [applyCabinetModel, setApplyCabinetModel] = useState(true);
 
   const selectedPreset =
     KITCHEN_STYLE_PRESETS.find((p) => p.id === selectedId) || null;

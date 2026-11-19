@@ -300,9 +300,11 @@ export interface ProjectSettings {
   hdrRotationDegrees?: number;
   hdrIntensity?: number;
   cameraLightIntensity?: number;
+  ambientLightIntensity?: number;
   ceilingLightIntensities?: number[];
   ceilingAreaIntensity?: number;
   facadeLightIntensity?: number;
+  facadeLightEnabled?: boolean;
   underCabinetLightMode?: CabinetLightMode;
   linearLightIntensity?: number;
   halogenLightIntensity?: number;

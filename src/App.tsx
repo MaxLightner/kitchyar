@@ -2391,6 +2391,8 @@ export default function App() {
     ));
   }, [project.multiSelection, project.walls]);
 
+  const selectedDiningItem = project.diningSets?.find(item => item.id === project.selectedDiningId);
+  const selectedDiningSeats = selectedDiningItem && selectedDiningItem.kind !== 'tv' ? selectedDiningItem.seats : undefined;
   const upperLightBoxes = project.walls.flatMap(w => w.boxes).filter(b => b.type === 'wall' || b.type === 'wall-deep');
   const selectedUppers = upperLightBoxes.filter(b => b.id === project.activeBoxId || project.multiSelection?.boxIds.includes(b.id));
   const selectedLightBoxes = selectedUppers;
@@ -3099,6 +3101,11 @@ export default function App() {
             <SideInspector
               activeTool={tool}
               diningSelected={Boolean(project.selectedDiningId)}
+              selectedDiningSeats={selectedDiningSeats}
+              onSetDiningSeats={seats => commitState(prev => ({
+                ...prev, diningSets: prev.diningSets?.map(item =>
+                  item.id === prev.selectedDiningId && item.kind !== 'tv' ? { ...item, seats } : item),
+              }), true)}
               onRotateDining={rotateDining}
               onSelectTool={handleSelectTool}
               activeWall={activeWall}

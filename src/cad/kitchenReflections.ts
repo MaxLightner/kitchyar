@@ -38,7 +38,7 @@ export function createKitchenReflections(renderer: THREE.WebGLRenderer, scene: T
         if (!(object instanceof THREE.Mesh)) return;
         const materials = Array.isArray(object.material) ? object.material : [object.material];
         if (materials.some(material => material instanceof THREE.MeshStandardMaterial &&
-            !material.transparent && material.userData.sceneReflection && material.roughness < 0.65)) {
+            !material.transparent && material.userData.sceneReflection && material.roughness <= 0.95)) {
           receivers.push(object);
         }
       });

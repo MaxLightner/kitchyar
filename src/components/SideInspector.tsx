@@ -80,6 +80,7 @@ import {
   DoorSwing,
   DoorUnit,
   EquipmentFinish,
+  DiningSeats,
   FridgeModel,
   HandleStyle,
   HardwareKind,
@@ -96,6 +97,8 @@ import {
 
 interface SideInspectorProps {
   diningSelected?: boolean;
+  selectedDiningSeats?: DiningSeats;
+  onSetDiningSeats?: (seats: DiningSeats) => void;
   kitchenLightMode?: CabinetLightMode;
   onSetOvenLight?: (enabled: boolean) => void;
   onRotateDining?: () => void;
@@ -2284,11 +2287,27 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
             </section>
             )}
 
-            {props.diningSelected && !toolSettings && props.onRotateDining && (
-              <button type="button" onClick={props.onRotateDining} className="w-full rounded border px-2 py-1.5 font-bold">
-                چرخش مبلمان انتخاب‌شده
-              </button>
-            )}
+            {props.diningSelected && !toolSettings && (
+              <div className="space-y-2 rounded-lg border border-slate-200 p-2">
+                {props.selectedDiningSeats && props.onSetDiningSeats && (
+                  <label className="block text-xs font-bold text-slate-700">
+                    تعداد صندلی میز ناهارخوری
+                    <select aria-label="تعداد صندلی میز ناهارخوری" dir="rtl"
+                      className="mt-1 h-9 w-full rounded border border-slate-300 bg-white px-2"
+                      value={props.selectedDiningSeats}
+                      onChange={event => props.onSetDiningSeats?.(Number(event.target.value) as DiningSeats)}>
+                      {([2, 4, 6, 8] as const).map(count =>
+                        <option key={count} value={count}>{count.toLocaleString('fa-IR')} نفره</option>)}
+                    </select>
+                  </label>
+                )}
+                {props.onRotateDining && (
+                  <button type="button" onClick={props.onRotateDining} className="w-full rounded border px-2 py-1.5 font-bold">
+                    چرخش مبلمان انتخاب‌شده
+                  </button>
+                )}
+              </div>
+            )
 
               {sharedEquipmentColor && props.onSetEquipmentFinish && (
                 <div className="space-y-1 pt-1">

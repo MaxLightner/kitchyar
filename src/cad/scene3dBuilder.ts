@@ -33,7 +33,7 @@ import { addCeilingFillLights, addKitchenSpot } from './kitchenLighting';
 import { getCabinetLighting, getKitchenCabinetLightMode } from './cabinetLighting';
 import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
-import { createKitchenMaterialPack, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
+import { createKitchenMaterialPack, getEquipmentBrushedNormalMap, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
 import {
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
@@ -727,14 +727,16 @@ export function buildKitchen3DScene(
     envMapIntensity: 1.85,
   });
   const equipmentFinish = project.settings?.equipmentFinish ?? 'silver';
-  const equipmentColor = equipmentFinish === 'white' ? 0xf4f5f6 : equipmentFinish === 'black' ? 0x262a31 : 0xd8dee6;
+  const equipmentColor = equipmentFinish === 'white' ? 0xf4f5f6 : equipmentFinish === 'black' ? 0x262a31 : 0xc7d0db;
   const matEquipment = new THREE.MeshPhysicalMaterial({
     color: equipmentColor,
-    roughness: 0.22,
-    metalness: equipmentFinish === 'silver' ? 0.82 : 0.14,
-    clearcoat: 0.42,
-    clearcoatRoughness: 0.18,
-    envMapIntensity: 1.65,
+    roughness: equipmentFinish === 'silver' ? 0.29 : 0.36,
+    metalness: equipmentFinish === 'silver' ? 0.94 : 0.12,
+    normalMap: getEquipmentBrushedNormalMap(),
+    normalScale: new THREE.Vector2(equipmentFinish === 'silver' ? 1.45 : 0.8, equipmentFinish === 'silver' ? 1.45 : 0.8),
+    clearcoat: equipmentFinish === 'silver' ? 0.24 : 0.38,
+    clearcoatRoughness: 0.24,
+    envMapIntensity: equipmentFinish === 'silver' ? 2.25 : 1.55,
   });
   const matPorcelain = new THREE.MeshPhysicalMaterial({
     color: 0xf5f2ec,
@@ -827,7 +829,7 @@ export function buildKitchen3DScene(
 
   const ceilingHeightM = (project.settings?.wallHeightCm ?? project.walls[0]?.height ?? 265) * CM;
   const ceilingIntensity = project.settings?.ceilingAreaIntensity ??
-    (project.settings?.ceilingLightIntensities?.[0] ?? 10);
+    (project.settings?.ceilingLightIntensities?.[0] ?? 12);
   addCeilingFillLights(root, vertices, ceilingHeightM, ceilingIntensity);
   const kitchenLightMode = getKitchenCabinetLightMode(project);
 
@@ -1006,7 +1008,8 @@ export function buildKitchen3DScene(
       }
     }
 
-    if (kitchenLightMode === 'halogen') {
+    // Facade lighting is independent of the under-cabinet lighting mode.
+    if (project.settings?.facadeLightEnabled !== false && (project.settings?.facadeLightIntensity ?? 1) > 0) {
       const rows: Array<{ start: number; end: number; depth: number; elevation: number; height: number }> = [];
       for (const box of uppers) {
         const row = rows.find(row => Math.abs(row.elevation - box.elevY) < 1 &&
@@ -1026,11 +1029,12 @@ export function buildKitchen3DScene(
         const depth = row.depth * CM;
         for (let i = 0; i < count; i++) {
           const x = firstX + i;
-          const origin = new THREE.Vector3(x, Math.max(wallHM - 0.06, targetY + 0.15), normalSign * (depth + 0.68));
+          // Eight centimeters above the cabinet's notional crown, facing its door.
+          const origin = new THREE.Vector3(x, (row.elevation + row.height) * CM + 0.08, normalSign * (depth + 0.25));
           const aim = new THREE.Vector3(x, targetY, normalSign * (depth + 0.015));
           addKitchenSpot(wallGrp, origin, aim, {
             color: 0xffe0b8, intensity: project.settings?.facadeLightIntensity ?? 1,
-            range: origin.distanceTo(aim) + 0.65, angle: 0.55, ceilingFixture: true,
+            range: origin.distanceTo(aim) + 0.8, angle: 0.68, ceilingFixture: true,
           });
         }
       }
@@ -3267,12 +3271,12 @@ function buildAppliance3D(
       ? new THREE.MeshStandardMaterial({
           color: 0xffd28a,
           emissive: 0xffa340,
-          emissiveIntensity: 0.7,
+          emissiveIntensity: 0.12,
           roughness: 0.35,
         })
       : new THREE.MeshStandardMaterial({ color: 0x161920, roughness: 0.65 });
     if (app.ovenLightOn) {
-      const ovenLight = new THREE.PointLight(0xffc477, 0.6, 0.65, 2);
+      const ovenLight = new THREE.PointLight(0xffc477, 0.12, 0.4, 2);
       ovenLight.position.set(ax + winW * 0.32, winY + winH * 0.28, frontZ - normalSign * 0.04);
       grp.add(ovenLight);
     }
@@ -3290,7 +3294,7 @@ function buildAppliance3D(
       ? new THREE.MeshPhysicalMaterial({
           color: 0xfde68a,
           emissive: 0xd97706,
-          emissiveIntensity: 0.22,
+          emissiveIntensity: 0.045,
           transparent: true,
           opacity: 0.34,
           roughness: 0.08,

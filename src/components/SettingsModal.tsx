@@ -23,12 +23,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     Object.fromEntries(ovens.map(app => [app.id, Boolean(app.ovenLightOn)])));
   const [lights, setLights] = useState<Record<string, CabinetLighting>>(() =>
     Object.fromEntries(cabinetLights.map(box => [box.id, getCabinetLighting(box)])));
-  const intensityControls: Array<{ key: 'hdrIntensity' | 'cameraLightIntensity' | 'linearLightIntensity' | 'halogenLightIntensity' | 'facadeLightIntensity'; label: string; fallback: number }> = [
-    { key: 'hdrIntensity', label: 'HDRI', fallback: 1 },
-    { key: 'cameraLightIntensity', label: 'نور دوربین', fallback: 0.35 },
+  const intensityControls: Array<{ key: 'hdrIntensity' | 'cameraLightIntensity' | 'linearLightIntensity' | 'halogenLightIntensity' | 'facadeLightIntensity' | 'ambientLightIntensity'; label: string; fallback: number }> = [
+    { key: 'hdrIntensity', label: 'HDRI', fallback: 2 },
+    { key: 'cameraLightIntensity', label: 'نور دوربین', fallback: 1 },
     { key: 'linearLightIntensity', label: 'نور خطی زیر کابینت', fallback: 5 },
     { key: 'halogenLightIntensity', label: 'هالوژن بین‌کابینتی', fallback: 1 },
     { key: 'facadeLightIntensity', label: 'هالوژن روی درهای هوایی', fallback: 1 },
+    { key: 'ambientLightIntensity', label: 'نور آمبیانس', fallback: 0.06 },
   ];
   const [applyToExisting, setApplyToExisting] = useState(true);
   const degrees = Number.isFinite(form.hdrRotationDegrees) ? form.hdrRotationDegrees! : 0;
@@ -98,12 +99,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <label className="block">
                 شدت مشترک سه نور مستطیلی سقف
                 <input aria-label="نور مستطیلی سقف" type="number" dir="ltr" min={0} max={100} step={0.05}
-                  value={form.ceilingAreaIntensity ?? form.ceilingLightIntensities?.[0] ?? 10}
+                  value={form.ceilingAreaIntensity ?? form.ceilingLightIntensities?.[0] ?? 12}
                   onChange={event => setForm(prev => ({ ...prev,
                     ceilingAreaIntensity: Math.max(0, Math.min(100, Number(event.target.value))) }))}
                   className="mt-1 h-8 w-full rounded border border-slate-300 px-2" />
               </label>
             </div>
+            <label className="flex items-center gap-2 font-bold text-slate-700">
+              <input type="checkbox" className="size-4 accent-indigo-600"
+                aria-label="روشن بودن هالوژن روی درهای هوایی"
+                checked={form.facadeLightEnabled !== false}
+                onChange={event => setForm(prev => ({ ...prev, facadeLightEnabled: event.target.checked }))} />
+              هالوژن روی درهای هوایی (مستقل از نور زیر کابینت)
+            </label>
           </fieldset>
           {ovens.length > 0 && (
             <fieldset className="space-y-2 rounded border border-slate-200 p-2">

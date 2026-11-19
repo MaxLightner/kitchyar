@@ -50,8 +50,9 @@ export function addKitchenLighting(
 
   return {
     setIntensities(settings?: ProjectSettings) {
-      scene.environmentIntensity = settings?.hdrIntensity ?? 1;
-      light.intensity = settings?.cameraLightIntensity ?? 0.35;
+      scene.environmentIntensity = settings?.hdrIntensity ?? 2;
+      light.intensity = settings?.cameraLightIntensity ?? 1;
+      ambient.intensity = Math.max(0, settings?.ambientLightIntensity ?? 0.06);
     },
     followCamera(camera: THREE.Camera) {
       followPose(camera.getWorldPosition(cameraPosition), camera.getWorldQuaternion(cameraOrientation));

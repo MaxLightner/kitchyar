@@ -26,6 +26,7 @@ export interface KitchenStylePreset {
   handleStyle: HandleStyle;
   defaultHoodKind: 'chimney' | 'hidden';
   roughness?: { cabinet: number; countertop: number; backsplash: number };
+  reflection?: { cabinet: number; countertop: number; backsplash: number };
   twoTierWallCabinets?: boolean;
 }
 
@@ -224,7 +225,7 @@ export function applyKitchenStylePreset(
   const next: ProjectState = JSON.parse(JSON.stringify(project));
   if (applyCabinetModel) next.designStyle = preset.designStyle;
   next.cabinetFinish = preset.cabinetFinish;
-  next.cabinetTexture = preset.cabinetFinish === 'natural-oak' ? 'oak' : preset.cabinetFinish === 'walnut' ? 'walnut' : 'satin';
+  next.cabinetTexture = preset.cabinetFinish === 'natural-oak' ? 'oak' : preset.cabinetFinish === 'walnut' ? 'walnut' : 'smooth';
   next.backsplashFinish = preset.backsplashFinish;
   next.countertopFinish = preset.countertopFinish;
   next.skipStylePrompt = true;
@@ -233,6 +234,9 @@ export function applyKitchenStylePreset(
     next.settings.cabinetRoughness = preset.roughness.cabinet;
     next.settings.countertopRoughness = preset.roughness.countertop;
     next.settings.backsplashRoughness = preset.roughness.backsplash;
+    next.settings.cabinetReflection = preset.reflection?.cabinet ?? 1.55 - preset.roughness.cabinet * 1.2;
+    next.settings.countertopReflection = preset.reflection?.countertop ?? 1.55 - preset.roughness.countertop * 1.2;
+    next.settings.backsplashReflection = preset.reflection?.backsplash ?? 1.55 - preset.roughness.backsplash * 1.2;
   }
   if (applyCabinetModel) {
     next.settings.defaultHoodKind = preset.defaultHoodKind;
@@ -258,6 +262,8 @@ export function applyKitchenStylePreset(
 
       delete box.color;
       delete box.texture;
+      delete box.reflection;
+      delete box.roughness;
       for (const door of box.doors) {
         delete door.finish;
         if (!applyCabinetModel) continue;

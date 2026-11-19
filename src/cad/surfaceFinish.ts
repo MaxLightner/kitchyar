@@ -19,9 +19,9 @@ export function readSurfaceFinish(
   return {
     roughness: spread,
     ior: 1.65,
-    specularIntensity: Math.min(1, strength * 0.95),
-    clearcoat: Math.min(1, strength * 0.78),
-    clearcoatRoughness: spread,
-    envMapIntensity: 1.45 + strength * 0.95,
+    specularIntensity: Math.min(1, 0.15 + strength * 0.42),
+    clearcoat: Math.min(0.8, 0.08 + strength * 0.34),
+    clearcoatRoughness: Math.max(0.12, spread * 0.95),
+    envMapIntensity: 0.8 + strength * 0.85,
   };
 }
