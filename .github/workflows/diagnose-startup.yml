@@ -1,0 +1,52 @@
+name: Diagnose application startup
+on:
+  push:
+    branches: [verify/startup-20261119]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run build
+      - run: npm install --prefix /tmp/kitchyar-browser playwright@1.56.1
+      - name: Check SSR and global lights
+        run: |
+          bun run preview --host 127.0.0.1 > /tmp/vite.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/kitchyar/ >/dev/null && break; sleep 1; done
+          cat > /tmp/startup.cjs <<'JS'
+          const { chromium }=require('/tmp/kitchyar-browser/node_modules/playwright');
+          (async()=>{
+          const browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--enable-unsafe-swiftshader']});
+          const page=await browser.newPage();
+          const errors=[];
+          page.on('pageerror',e=>{console.log('PAGEERROR',e.stack);errors.push(e.message)});
+          page.on('console',m=>{if(m.type()==='error'){console.log('CONSOLE',m.text().slice(0,2500));if(/THREE|shader|ReferenceError/.test(m.text()))errors.push(m.text())}});
+          await page.goto('http://127.0.0.1:4173/kitchyar/?autostart=1',{waitUntil:'networkidle'});
+          await page.getByRole('button',{name:'تنظیمات استاندارد پروژه',exact:true}).click();
+          await page.getByLabel('نوع نور تمام هوایی‌ها',{exact:true}).selectOption('halogen');
+          await page.getByLabel('HDRI',{exact:true}).fill('1.2');
+          await page.getByLabel('نور مستطیلی سقف',{exact:true}).fill('0.8');
+          await page.getByRole('button',{name:'ذخیره و اعمال',exact:true}).click();
+          const modes=await page.evaluate(()=>{const ps=JSON.parse(localStorage.getItem('kichiyar_projects_v2'));const active=localStorage.getItem('kichiyar_active_project_id_v2');const p=ps.find(p=>p.id===active).state;return p.walls.flatMap(w=>w.boxes).filter(b=>['wall','wall-deep'].includes(b.type)).map(b=>b.lighting?.mode)});
+          if(!modes.length||!modes.every(m=>m==='halogen'))throw Error('Kitchen lighting not synchronized '+JSON.stringify(modes));
+          console.log('ALL_UPPERS_HALOGEN_OK',modes.length);
+          await page.getByLabel('نمای سه‌بعدی',{exact:true}).click();
+          await page.getByTestId('scene-3d-canvas').waitFor();
+          await page.waitForTimeout(5000);
+          console.log('SSR_RENDER_OK', (await page.getByTestId('scene-3d-canvas').screenshot()).length);
+          await page.getByRole('button',{name:'تنظیمات استاندارد پروژه',exact:true}).click();
+          await page.getByLabel('نوع نور تمام هوایی‌ها',{exact:true}).selectOption('linear');
+          await page.getByRole('button',{name:'ذخیره و اعمال',exact:true}).click();
+          await page.waitForTimeout(4000);
+          console.log('LINEAR_RENDER_OK', (await page.getByTestId('scene-3d-canvas').screenshot()).length);
+          if(errors.length)throw Error(errors.join('\n'));
+          await browser.close();
+          })().catch(e=>{console.error(e);process.exitCode=1});
+          JS
+          node /tmp/startup.cjs
