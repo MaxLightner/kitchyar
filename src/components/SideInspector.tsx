@@ -2307,7 +2307,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   </button>
                 )}
               </div>
-            )
+            )}
 
               {sharedEquipmentColor && props.onSetEquipmentFinish && (
                 <div className="space-y-1 pt-1">
