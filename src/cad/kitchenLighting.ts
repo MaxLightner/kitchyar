@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { FloorPoint } from './floorPolygon';
 import type { ProjectSettings } from './types';
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { loadKitchenEnvironment } from './kitchenEnvironment';
 
 export const KITCHEN_EXPOSURE = 0.96;
@@ -93,7 +94,8 @@ export function addKitchenSpot(
   }
 }
 
-export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number, intensities: number[] = [0.7, 0.7, 0.7]) {
+export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number, intensity = 0.7) {
+  RectAreaLightUniformsLib.init();
   const floor = outline.length >= 3 ? outline : [
     { x: -200, y: -200 }, { x: 200, y: -200 }, { x: 200, y: 200 }, { x: -200, y: 200 },
   ];
@@ -104,7 +106,7 @@ export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[],
   const other = alongX ? zs : xs;
   const min = Math.min(...axis);
   const max = Math.max(...axis);
-  for (const [index, fraction] of [0.2, 0.5, 0.8].entries()) {
+  for (const fraction of [0.2, 0.5, 0.8]) {
     const across = min + (max - min) * fraction;
     const crossings: number[] = [];
     for (let i = 0; i < axis.length; i++) {
@@ -123,7 +125,16 @@ export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[],
     }
     const x = (alongX ? across : middle) * 0.01;
     const z = (alongX ? middle : across) * 0.01;
-    addKitchenSpot(parent, new THREE.Vector3(x, heightM - 0.05, z), new THREE.Vector3(x, 0, z),
-      { color: 0xfff4e4, intensity: intensities[index] ?? 0.7, range: 5, angle: 0.9, ceilingFixture: true });
+    const longSide = Math.max(0.30, Math.min(1.4, (max - min) * 0.01 * 0.19));
+    const shortSide = Math.max(0.20, Math.min(0.8, widest * 0.01 * 0.26));
+    const light = new THREE.RectAreaLight(0xfff4e4, intensity,
+      alongX ? longSide : shortSide, alongX ? shortSide : longSide);
+    light.position.set(x, heightM - 0.05, z);
+    light.lookAt(x, 0, z);
+    const diffuser = new THREE.Mesh(new THREE.PlaneGeometry(light.width, light.height),
+      new THREE.MeshBasicMaterial({ color: 0xfff4e4, side: THREE.DoubleSide }));
+    diffuser.position.copy(light.position);
+    diffuser.quaternion.copy(light.quaternion);
+    parent.add(light, diffuser);
   }
 }
