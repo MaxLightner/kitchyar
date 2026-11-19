@@ -205,7 +205,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <input type="checkbox" className="size-4 accent-indigo-600" data-testid="settings-ambient-occlusion"
               checked={form.ambientOcclusion !== false}
               onChange={e => setForm(prev => ({ ...prev, ambientOcclusion: e.target.checked }))} />
-            سایهٔ تماس داخل کابینت (AO)
+            سایهٔ تماس کل صحنه (AO)
           </label>
 
           <fieldset className="space-y-2">

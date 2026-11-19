@@ -5409,15 +5409,12 @@ export function applyDoorStyleToDoors(
   return count;
 }
 
+export const BIFOLD_SPLIT = 0.5;
+
 /**
  * Applies a dedicated HardwareKind ('hinged', 'pantry-pullout', 'lift-bifold', 'push-to-open', 'corner')
  * cleanly decoupled from visual panel style.
  */
-export function getBifoldSplit(boxHeightCm: number): number {
-  const lowerCm = Math.min(40, boxHeightCm / 3);
-  return 1 - lowerCm / boxHeightCm;
-}
-
 export function applyHardwareKindToDoors(
   box: CabinetBox,
   targetDoorIds: string[] | null,
@@ -5432,7 +5429,7 @@ export function applyHardwareKindToDoors(
 
     if (hardwareKind === 'lift-bifold' && (!isWall || door.kind === 'drawer')) continue;
     const previousHardware = door.hardwareKind;
-    const split = getBifoldSplit(box.height);
+    const split = BIFOLD_SPLIT;
     door.hardwareKind = hardwareKind;
     if (previousHardware === 'lift-bifold' && hardwareKind === 'hinged') {
       door.kind = 'door';

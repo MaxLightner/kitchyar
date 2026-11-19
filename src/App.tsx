@@ -66,7 +66,7 @@ import {
   syncHoodUnitAboveGas,
   requiresIntegratedHood,
   effectiveHoodKind,
-  getBifoldSplit,
+  BIFOLD_SPLIT,
   uid,
 } from './cad/doorRules';
 import {
@@ -177,7 +177,7 @@ function normalizeProject(raw: ProjectState): ProjectState {
           kind: ((d.kind as string) === 'oven' ? 'door' : d.kind) as DoorKind,
           doorStyle: migratedStyle,
           hardwareKind: migratedHardware,
-          drawerRatios: migratedHardware === 'lift-bifold' ? [getBifoldSplit(b.height)] : d.drawerRatios ?? [],
+          drawerRatios: migratedHardware === 'lift-bifold' ? [BIFOLD_SPLIT] : d.drawerRatios ?? [],
         };
       }),
       unitDividers: b.unitDividers || [],

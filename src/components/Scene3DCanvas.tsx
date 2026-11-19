@@ -4,7 +4,6 @@ import type { FloorFurnitureKind } from '../cad/types';
 import { buildDiningFootprint3D } from '../cad/dining3d';
 import { snapDiningPosition } from '../cad/diningLayout';
 import type { DiningSeats } from '../cad/types';
-import { createCabinetReflectionProbe, kitchenReflectionKey } from '../cad/cabinetReflection';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import { DoorTapSequence } from '../utils/doorTapSequence';
 import { previewCabinetRow, continueCabinetRow, startCabinetRow, type CabinetRowDraft } from '../cad/cabinetPlacement';
@@ -14,7 +13,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { loadKitchenEnvironment } from '../cad/kitchenEnvironment';
+import { addKitchenLighting, configureKitchenRenderer } from '../cad/kitchenLighting';
 import { DoorClosed, DoorOpen, ZoomIn } from 'lucide-react';
 import {
   APPLIANCE_CONFIGS,
@@ -369,7 +368,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const { project, tool } = props;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const surfaceCursorRef = useRef(new SurfaceCursor());
-  const reflectionProbeRef = useRef<ReturnType<typeof createCabinetReflectionProbe> | null>(null);
   const commitPlacementRef = useRef<() => void>(()=>{});
   const cancelPlacementRef = useRef<() => void>(() => {});
   const [hasPlacementCursor, setHasPlacementCursor] = useState(false);
@@ -514,14 +512,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const maxPixelRatio = touchScreen ? 1.25 : 1.5;
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, maxPixelRatio));
     renderer.setSize(w, h);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.96;
-    if (!isSoftwareGl) {
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.autoUpdate = false;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    }
+    configureKitchenRenderer(renderer, isSoftwareGl);
     renderer.domElement.setAttribute('data-testid', 'scene-3d-canvas');
     renderer.domElement.style.display = 'block';
     renderer.domElement.style.width = '100%';
@@ -532,40 +523,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#eaeef3');
-    scene.fog = new THREE.Fog('#eaeef3', 14, 34);
     sceneRef.current = scene;
-
-    const reflectionProbe = isSoftwareGl ? null : createCabinetReflectionProbe(renderer, scene, () => requestRenderRef.current());
-    reflectionProbeRef.current = reflectionProbe;
-    const disposeEnvironment = loadKitchenEnvironment(renderer, (target, source) => {
-      scene.environment = target.texture;
-      if (source) reflectionProbe?.setSky(source);
-      requestRenderRef.current();
-    });
-    scene.environmentIntensity = 1.75;
-
-    const hemi = new THREE.HemisphereLight(0xf8fafc, 0x334155, 0.16);
-    scene.add(hemi);
-
-    const dirKey = new THREE.DirectionalLight(0xfff5e4, 1.50);
-    dirKey.position.set(4.5, 6.8, 5.2);
-    if (!isSoftwareGl) {
-      dirKey.castShadow = true;
-      dirKey.shadow.mapSize.set(2048, 2048);
-      dirKey.shadow.bias = -0.00035;
-      dirKey.shadow.normalBias = 0.015;
-      dirKey.shadow.camera.near = 0.5;
-      dirKey.shadow.camera.far = 22;
-      dirKey.shadow.camera.left = -6;
-      dirKey.shadow.camera.right = 6;
-      dirKey.shadow.camera.top = 6;
-      dirKey.shadow.camera.bottom = -6;
-    }
-    scene.add(dirKey);
-
-    const dirFill = new THREE.DirectionalLight(0xdbeafe, 0.12);
-    dirFill.position.set(-4, 3.5, -4);
-    scene.add(dirFill);
+    const lighting = addKitchenLighting(scene);
 
     // Reusable 3D ghost preview group + materials
     const ghostGroup = new THREE.Group();
@@ -676,7 +635,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       lastAnimTs = now;
 
       let anyDoorMoving = false;
-      let doorSettled = false;
       const built = builtRef.current;
       if (built && built.animatedDoors.length > 0) {
         const states = doorStatesRef.current;
@@ -693,7 +651,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             applyAnimatedDoorProgress(h, st.cur);
             needsRender = true;
             if (Math.abs(st.target - st.cur) > 0.001) anyDoorMoving = true;
-            else doorSettled = true;
           }
         }
       }
@@ -722,10 +679,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (controls.enableDamping && !fa) {
         if (controls.update()) needsRender = true;
       }
-      if (doorSettled) renderer.shadowMap.needsUpdate = true;
       if (needsRender) {
         needsRender = false;
         updateSurfaceCursorMarker(surfaceMarker, surfaceCursorRef.current);
+        built?.syncOcclusion?.();
+        lighting.followCamera(camera);
         renderer.render(scene, camera);
       }
       if (rafId === null && (anyDoorMoving || anyFocusMoving)) {
@@ -3025,8 +2983,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       controls.removeEventListener('start', cancelFocusAnim);
       controls.removeEventListener('change', requestRender);
       controls.dispose();
-      reflectionProbe?.dispose();
-      if (reflectionProbeRef.current === reflectionProbe) reflectionProbeRef.current = null;
       clearGhost();
       clearWallFloorPreview();
       disposeObject3D(floorWallGroup);
@@ -3038,7 +2994,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         disposeObject3D(builtRef.current.root);
         builtRef.current = null;
       }
-      disposeEnvironment();
+      lighting.dispose();
       renderer.dispose();
       if (dom.parentNode === container) container.removeChild(dom);
       if (rendererRef.current === renderer) rendererRef.current = null;
@@ -3100,7 +3056,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     }
     builtRef.current = built;
     scene.add(built.root);
-    if (rendererRef.current) rendererRef.current.shadowMap.needsUpdate = true;
 
     // Reapply current door open/close states smoothly without snapping
     const states = doorStatesRef.current;
@@ -3123,17 +3078,6 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       applyCameraPreset('iso', built.bounds);
     } else {
       requestRenderRef.current();
-    }
-    if (!built.bounds.isEmpty() && project.walls.some(wall => wall.boxes.length > 0) && reflectionProbeRef.current) {
-      const position = built.bounds.getCenter(new THREE.Vector3());
-      const firstWall = project.walls.find(wall => wall.boxes.length > 0);
-      const transform = firstWall && built.wallTransforms.get(firstWall.id);
-      if (firstWall && transform && Math.min(built.bounds.max.x - built.bounds.min.x, built.bounds.max.z - built.bounds.min.z) < 1.5) {
-        position.copy(transform.origin).addScaledVector(transform.tangent, firstWall.length * CM / 2);
-        position.addScaledVector(transform.normal, 1.25);
-      }
-      position.y = 1.32;
-      reflectionProbeRef.current.schedule(built.root, position, kitchenReflectionKey(project));
     }
     if (!props.scanMode && tool === 'cab-draw') {
       const bounds = rendererRef.current?.domElement.getBoundingClientRect();

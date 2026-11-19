@@ -428,7 +428,7 @@ function getCabinetOcclusionTexture() {
     for (let x = 0; x < size; x++) {
       const edge = Math.min(x, y, size - 1 - x, size - 1 - y);
       const shadow = Math.max(0, 1 - edge / 10);
-      const value = Math.round(255 * (1 - 0.44 * shadow * shadow));
+      const value = Math.round(255 * (1 - 0.22 * shadow * shadow));
       image.data.set([value, value, value, 255], (y * size + x) * 4);
     }
   }
@@ -507,9 +507,10 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
 
   const bevelNormal = doorBevelTexture ??= shareKitchenTexture(createDoorBevelNormalMap());
 
+  // The cavity texture darkens the base color even with direct lighting only.
   const insideAoMap = project.settings?.ambientOcclusion !== false ? getCabinetOcclusionTexture() : null;
-  const matCarcass = new THREE.MeshStandardMaterial({ color: 0xd6dbe0, roughness: 0.68, aoMap: insideAoMap });
-  const matCabinetBack = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, aoMap: insideAoMap });
+  const matCarcass = new THREE.MeshStandardMaterial({ color: 0xd6dbe0, roughness: 0.68, map: insideAoMap });
+  const matCabinetBack = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, map: insideAoMap });
 
   const matPlinth = new THREE.MeshStandardMaterial({
     color: defaultCabCfg.id === 'charcoal' || defaultCabCfg.id === 'navy-matte' ? 0x1e293b : 0x334155,

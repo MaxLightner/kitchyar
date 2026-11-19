@@ -28,10 +28,10 @@ import {
 } from './doorRules';
 import { buildDining3D, buildTelevisionSet3D, createDiningMaterials } from './dining3d';
 import { readSurfaceFinish } from './surfaceFinish';
+import { bakeKitchenOcclusion } from './kitchenOcclusion';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
 import {
-  computeUnderCabinetLightConfig,
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
   normalizeCountertopExtrudeUVs,
@@ -184,6 +184,7 @@ export interface BuiltKitchenScene {
     }
   >;
   bounds: THREE.Box3;
+  syncOcclusion?: () => void;
 }
 
 export function detectSoftwareWebGL(gl: WebGLRenderingContext | WebGL2RenderingContext | null): boolean {
@@ -209,6 +210,9 @@ export function disposeObject3D(root: THREE.Object3D): void {
 
   root.traverse((obj) => {
     if (obj instanceof THREE.InstancedMesh) obj.dispose();
+    if (obj.userData.kitchenOcclusionTexture instanceof THREE.Data3DTexture) {
+      textures.add(obj.userData.kitchenOcclusionTexture);
+    }
     const mesh = obj as THREE.Mesh;
     if (mesh.geometry) geometries.add(mesh.geometry);
     if (mesh.material) {
@@ -818,11 +822,7 @@ export function buildKitchen3DScene(
     }
   }
 
-  const baseLightCfg = computeUnderCabinetLightConfig(1, 1);
-  const stripMaterial = new THREE.MeshBasicMaterial({
-    color: new THREE.Color().setRGB(...baseLightCfg.stripRgb),
-    toneMapped: false,
-  });
+  const stripMaterial = new THREE.MeshBasicMaterial({ color: 0xffdfb6 });
   for (const wall of project.walls) {
     const v = getWallVectors(wall);
     const tangent = new THREE.Vector3(v.tx, 0, v.ty).normalize();
@@ -976,22 +976,6 @@ export function buildKitchen3DScene(
       strip.userData = { kind: 'under-cabinet-light', wallId: wall.id, lightBoxIds: run.boxIds } satisfies Scene3DHitData;
       wallGrp.add(strip);
       interactables.push(strip);
-      if (!run.lit) continue;
-      const count = Math.min(3, Math.ceil(length / 1.25));
-      const lightCfg = computeUnderCabinetLightConfig(length, count);
-      for (let i = 0; i < count; i++) {
-        const light = new THREE.SpotLight(
-          0xffdfb6,
-          lightCfg.spotIntensity,
-          lightCfg.spotDistance,
-          lightCfg.spotAngle,
-          lightCfg.spotPenumbra,
-          lightCfg.spotDecay
-        );
-        light.position.set(x + length * ((i + 0.5) / count - 0.5), y - 0.025, z);
-        light.target.position.set(light.position.x, y - 0.57, normalSign * 0.10);
-        wallGrp.add(light, light.target);
-      }
     }
 
     // Render all Cabinet Boxes on this wall
@@ -1125,7 +1109,10 @@ export function buildKitchen3DScene(
     bounds.expandByObject(cornerInfills);
   }
 
-  return { root, interactables, animatedDoors, wallTransforms, bounds };
+  const syncOcclusion = project.settings?.ambientOcclusion !== false
+    ? bakeKitchenOcclusion(root, bounds, new Set(animatedDoors.map(part => part.group)))
+    : undefined;
+  return { root, interactables, animatedDoors, wallTransforms, bounds, syncOcclusion };
 }
 
 function buildUpperCornerInfills3D(
@@ -2408,7 +2395,7 @@ function buildDoor3D(ctx: {
       });
       const anim: AnimatedDoorHandle = {
         doorId: door.id, group: upper, lowerLeaf: lower, liftArms, kind: 'bifold',
-        normalSign, baseX, baseY, baseZ: frontFaceZ, baseRotX: 0, baseRotY: 0, maxAngle: 1.85,
+        normalSign, baseX, baseY, baseZ: frontFaceZ, baseRotX: 0, baseRotY: 0, maxAngle: Math.PI / 3,
       };
       applyAnimatedDoorProgress(anim, doorOpenProgress);
       animatedDoors.push(anim);
@@ -3211,8 +3198,6 @@ function buildAppliance3D(
     const cavityMat = app.ovenLightOn
       ? new THREE.MeshStandardMaterial({
           color: 0xffd28a,
-          emissive: 0xff9800,
-          emissiveIntensity: 1.85,
           roughness: 0.35,
         })
       : new THREE.MeshStandardMaterial({ color: 0x161920, roughness: 0.65 });
@@ -3252,12 +3237,6 @@ function buildAppliance3D(
       const handle = new THREE.Mesh(new THREE.BoxGeometry(winW - 0.03, 0.014, 0.024), mats.matSteel);
       handle.position.set(ax, winY + winH / 2 - 0.018, frontZ + normalSign * 0.028);
       grp.add(handle);
-    }
-
-    if (app.ovenLightOn) {
-      const warmGlow = new THREE.PointLight(0xffb347, 1.35, 1.25, 2);
-      warmGlow.position.set(ax, winY, frontZ + normalSign * 0.12);
-      grp.add(warmGlow);
     }
 
     if (isSelected) {

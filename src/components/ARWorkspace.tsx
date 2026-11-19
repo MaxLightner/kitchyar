@@ -14,7 +14,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildDiningFootprint3D } from '../cad/dining3d';
 import { snapDiningPosition } from '../cad/diningLayout';
 import type { DiningSeats } from '../cad/types';
-import { loadKitchenEnvironment } from '../cad/kitchenEnvironment';
+import { addKitchenLighting, configureKitchenRenderer } from '../cad/kitchenLighting';
 import {
   AppWindow,
   BrickWall,
@@ -899,10 +899,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   // Chido Wide View: virtual scene uses XR tracking, but a separate perspective
   // from the physical camera; no OrbitControls are enabled during a live scan.
   const trackedWideRendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const trackedWideEnvRef = useRef<THREE.WebGLRenderTarget | null>(null);
   const diningGhostRef = useRef<THREE.Group | null>(null);
   const trackedWideCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const lightingRef = useRef<ReturnType<typeof addKitchenLighting> | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const floorGroupRef = useRef<THREE.Group | null>(null);
@@ -961,9 +961,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const isSoftware = detectSoftwareWebGL(renderer.getContext());
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isSoftware ? 1 : 1.25));
     renderer.setSize(width, height);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.06;
+    configureKitchenRenderer(renderer, isSoftware);
     renderer.xr.enabled = true;
     renderer.setClearColor(0x000000, 0);
     renderer.domElement.style.width = '100%';
@@ -975,12 +973,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-
-    const disposeEnvironment = loadKitchenEnvironment(renderer, target => {
-      scene.environment = target.texture;
-      renderOnceRef.current();
-    });
-    scene.environmentIntensity = 0.9;
+    const lighting = addKitchenLighting(scene);
+    lightingRef.current = lighting;
 
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.04, 50);
     camera.position.set(2.4, 2.2, 3.6);
@@ -994,11 +988,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     controls.minDistance = 0.9;
     controls.maxDistance = 14;
     controlsRef.current = controls;
-
-    const hemi = new THREE.HemisphereLight(0xf8fafc, 0x94a3b8, 0.9);
-    const keyLight = new THREE.DirectionalLight(0xfffbeb, 1.05);
-    keyLight.position.set(3, 5, 4);
-    scene.add(hemi, keyLight);
 
     const floorGroup = new THREE.Group();
     scene.add(floorGroup);
@@ -1164,6 +1153,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const doorsMoving = stepDoorAnimations(dt);
       const ctrlChanged = controls.update();
       updateSurfaceCursorMarker(surfaceMarker,surfaceCursorRef.current);
+      builtSceneRef.current?.syncOcclusion?.();
+      lighting.followCamera(camera);
       renderer.render(scene, camera);
       if (rafId === null && (doorsMoving || ctrlChanged)) {
         rafId = requestAnimationFrame(renderPreview);
@@ -2344,7 +2335,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       builtSceneRef.current = null;
       disposeObject3D(diningGhost);
       if (diningGhostRef.current === diningGhost) diningGhostRef.current = null;
-      disposeEnvironment();
+      lighting.dispose();
+      if (lightingRef.current === lighting) lightingRef.current = null;
       renderer.dispose();
     };
   }, []);
@@ -3217,6 +3209,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       let lastXrFrameTime = 0;
       renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
         if (!frame || rendererRef.current !== renderer || !sceneRef.current || !cameraRef.current) return;
+        builtSceneRef.current?.syncOcclusion?.();
         xrFrameCountRef.current += 1;
         xrLastFrameTimeRef.current = performance.now();
         // Chido's runtime calls getViewerPose every XRFrame using its local
@@ -3246,6 +3239,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           renderer.render(sceneRef.current, renderer.xr.getCamera());
           return;
         }
+        lightingRef.current?.followXrPose(pose.transform);
         xrLastPoseTimeRef.current = performance.now();
         if (xrTrackingWarningRef.current) {
           xrTrackingWarningRef.current = false;
@@ -3489,11 +3483,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
           wideCamera.updateMatrixWorld(true);
           try {
-            const wideScene = sceneRef.current;
-            const xrEnvironment = wideScene.environment;
-            wideScene.environment = trackedWideEnvRef.current?.texture ?? null;
-            try { wideRenderer.render(wideScene, wideCamera); }
-            finally { wideScene.environment = xrEnvironment; }
+            wideRenderer.render(sceneRef.current, wideCamera);
           } catch {
             // A tablet can lose its secondary WebGL context under memory pressure.
             // Return to the tracked physical camera rather than breaking the XR loop.
@@ -3552,15 +3542,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const wideRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     wideRenderer.setPixelRatio(Math.min(1.25, window.devicePixelRatio || 1));
     wideRenderer.setClearColor(0xf3f4f6, 1);
-    wideRenderer.outputColorSpace = THREE.SRGBColorSpace;
-    const arRenderer = rendererRef.current;
-    wideRenderer.toneMapping = arRenderer?.toneMapping ?? THREE.ACESFilmicToneMapping;
-    wideRenderer.toneMappingExposure = arRenderer?.toneMappingExposure ?? 1.06;
-    wideRenderer.shadowMap.enabled = arRenderer?.shadowMap.enabled ?? false;
-    wideRenderer.shadowMap.type = arRenderer?.shadowMap.type ?? THREE.PCFSoftShadowMap;
-    const disposeEnvironment = loadKitchenEnvironment(wideRenderer, target => {
-      trackedWideEnvRef.current = target;
-    });
+    configureKitchenRenderer(wideRenderer, detectSoftwareWebGL(wideRenderer.getContext()));
     const canvas = wideRenderer.domElement;
     canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
     parent.appendChild(canvas);
@@ -3572,8 +3554,6 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         trackedWideRendererRef.current = null;
         trackedWideCameraRef.current = null;
       }
-      trackedWideEnvRef.current = null;
-      disposeEnvironment();
       wideRenderer.dispose();
       canvas.remove();
     };
