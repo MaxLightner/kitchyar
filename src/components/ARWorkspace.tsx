@@ -1,3 +1,4 @@
+import { createKitchenReflections } from '../cad/kitchenReflections';
 import { findFrontCut } from '../cad/frontCut';
 import type { FloorFurnitureKind } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
@@ -901,6 +902,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   // Chido Wide View: virtual scene uses XR tracking, but a separate perspective
   // from the physical camera; no OrbitControls are enabled during a live scan.
+  const trackedWideReflectionsRef = useRef<ReturnType<typeof createKitchenReflections> | null>(null);
   const trackedWideRendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const trackedWideEnvironmentRef = useRef<THREE.Texture | null>(null);
   const diningGhostRef = useRef<THREE.Group | null>(null);
@@ -983,6 +985,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.04, 50);
     camera.position.set(2.4, 2.2, 3.6);
     cameraRef.current = camera;
+    const reflections = createKitchenReflections(renderer, scene, camera);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -1160,7 +1163,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       builtSceneRef.current?.syncOcclusion?.();
       lighting.setIntensities(projectRef.current.settings);
       lighting.followCamera(camera);
-      renderer.render(scene, camera);
+      reflections.render();
       if (rafId === null && (doorsMoving || ctrlChanged)) {
         rafId = requestAnimationFrame(renderPreview);
       }
@@ -2340,6 +2343,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       builtSceneRef.current = null;
       disposeObject3D(diningGhost);
       if (diningGhostRef.current === diningGhost) diningGhostRef.current = null;
+      reflections.dispose();
       lighting.dispose();
       if (lightingRef.current === lighting) lightingRef.current = null;
       renderer.dispose();
@@ -3499,7 +3503,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             const scene = sceneRef.current;
             const xrEnvironment = scene.environment;
             scene.environment = trackedWideEnvironmentRef.current;
-            try { wideRenderer.render(scene, wideCamera); }
+            try { trackedWideReflectionsRef.current?.render(); }
             finally { scene.environment = xrEnvironment; }
           } catch {
             // A tablet can lose its secondary WebGL context under memory pressure.
@@ -3569,11 +3573,15 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 80);
     trackedWideRendererRef.current = wideRenderer;
     trackedWideCameraRef.current = camera;
+    const wideReflections = createKitchenReflections(wideRenderer, sceneRef.current!, camera);
+    trackedWideReflectionsRef.current = wideReflections;
     return () => {
       if (trackedWideRendererRef.current === wideRenderer) {
         trackedWideRendererRef.current = null;
         trackedWideCameraRef.current = null;
       }
+      trackedWideReflectionsRef.current = null;
+      wideReflections.dispose();
       trackedWideEnvironmentRef.current = null;
       disposeEnvironment();
       wideRenderer.dispose();
