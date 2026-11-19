@@ -159,6 +159,8 @@ export interface CabinetBox {
   countertopCm: number;
   hasFridgeFrame?: boolean;
   fridgeModel?: FridgeModel;
+  fridgeConcealed?: boolean;
+  overFridgeDepthMode?: '60' | 'flush';
   /** Per-box cabinet door/body finish override */
   finish?: CabinetFinishId;
   color?: string;

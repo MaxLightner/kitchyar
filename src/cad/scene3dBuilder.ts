@@ -1604,7 +1604,7 @@ function buildBox3D(ctx: {
   if (box.type === 'fridge') {
     const model = box.fridgeModel || 'side-by-side';
     const cfg = FRIDGE_MODELS[model];
-    const hasFridgeFrame = box.hasFridgeFrame || doesFridgeTouchCabinet(wall, box);
+    const hasFridgeFrame = box.hasFridgeFrame ?? doesFridgeTouchCabinet(wall, box);
     const ff = hasFridgeFrame ? FRIDGE_FRAME_CM * CM : 0;
 
     if (ff > 0) {
@@ -1626,7 +1626,9 @@ function buildBox3D(ctx: {
     const cx = bx + bw / 2;
     const frontDoorZ = normalSign * (fD + doorThick / 2);
 
-    const matBrushedInox = mats.matEquipment;
+    const matBrushedInox = box.fridgeConcealed
+      ? matPack.getDoorMaterial(boxFinish, 'flat', true, false, box)
+      : mats.matEquipment;
     const matShellDark = new THREE.MeshStandardMaterial({
       color: 0x334155,
       roughness: 0.45,
@@ -1652,14 +1654,15 @@ function buildBox3D(ctx: {
     const ventH = 0.075;
     const ventBase = new THREE.Mesh(new THREE.BoxGeometry(fW - 0.02, ventH, doorThick * 0.75), mats.matDarkChrome);
     ventBase.position.set(cx, by + ventH / 2 + 0.008, normalSign * (fD + doorThick * 0.3));
-    grp.add(ventBase);
+    if (!box.fridgeConcealed) grp.add(ventBase);
     for (let sIdx = -2; sIdx <= 2; sIdx++) {
       const slat = new THREE.Mesh(new THREE.BoxGeometry(fW - 0.08, 0.006, 0.008), mats.matSteel);
       slat.position.set(cx, by + ventH * 0.5 + sIdx * 0.011, normalSign * (fD + doorThick * 0.7));
-      grp.add(slat);
+      if (!box.fridgeConcealed) grp.add(slat);
     }
 
     const addFridgeHandle = (hx: number, hy: number, hLen: number) => {
+      if (box.fridgeConcealed) return;
       const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, hLen, 12), mats.matSteel);
       bar.position.set(hx, hy, normalSign * (fD + doorThick + 0.026));
       bar.castShadow = true;
@@ -1671,6 +1674,7 @@ function buildBox3D(ctx: {
     };
 
     const addDispenserAlcove = (dx: number, dy: number, dw: number, dh: number) => {
+      if (box.fridgeConcealed) return;
       const frame = new THREE.Mesh(new THREE.BoxGeometry(dw, dh, 0.014), mats.matDarkChrome);
       frame.position.set(dx, dy, normalSign * (fD + doorThick + 0.002));
       const led = new THREE.Mesh(new THREE.BoxGeometry(dw * 0.58, 0.016, 0.006), matLedBlue);
@@ -1697,7 +1701,7 @@ function buildBox3D(ctx: {
 
       const hingeCap = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.045), mats.matDarkChrome);
       hingeCap.position.set(cx - fW * 0.42, by + fH - 0.002, normalSign * (fD + 0.015));
-      grp.add(hingeCap);
+      if (!box.fridgeConcealed) grp.add(hingeCap);
       addFridgeHandle(cx + fW * 0.37, leavesMidY + leavesH * 0.05, leavesH * 0.62);
     } else if (model === 'single') {
       const freezerH = leavesH * 0.31;
@@ -1717,7 +1721,7 @@ function buildBox3D(ctx: {
       // Top hinge cap + stainless bar handles
       const hingeCap = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.045), mats.matDarkChrome);
       hingeCap.position.set(cx - fW * 0.42, by + fH - 0.002, normalSign * (fD + 0.015));
-      grp.add(hingeCap);
+      if (!box.fridgeConcealed) grp.add(hingeCap);
       addFridgeHandle(cx + fW * 0.38, upperY - upperH * 0.08, upperH * 0.56);
       addFridgeHandle(cx + fW * 0.38, freezerY, freezerH * 0.65);
     } else if (model === 'twin') {
@@ -1739,7 +1743,7 @@ function buildBox3D(ctx: {
       capL.position.set(cx - fW * 0.43, by + fH - 0.002, normalSign * (fD + 0.015));
       const capR = capL.clone();
       capR.position.x = cx + fW * 0.43;
-      grp.add(capL, capR);
+      if (!box.fridgeConcealed) grp.add(capL, capR);
 
       addDispenserAlcove(leftX, leavesBot + leavesH * 0.58, Math.min(0.22, leafW * 0.55), 0.32);
       addFridgeHandle(cx - 0.045, leavesBot + leavesH * 0.52, leavesH * 0.58);
@@ -1766,7 +1770,7 @@ function buildBox3D(ctx: {
       capL.position.set(cx - fW * 0.43, by + fH - 0.002, normalSign * (fD + 0.015));
       const capR = capL.clone();
       capR.position.x = cx + fW * 0.43;
-      grp.add(capL, capR);
+      if (!box.fridgeConcealed) grp.add(capL, capR);
 
       addDispenserAlcove(leftX, leavesBot + leavesH * 0.58, Math.min(0.22, leftW * 0.62), 0.34);
       addFridgeHandle(seamX - 0.042, leavesBot + leavesH * 0.52, leavesH * 0.56);

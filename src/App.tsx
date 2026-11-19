@@ -1298,6 +1298,11 @@ export default function App() {
         if (!b) return;
         const cfg = FRIDGE_MODELS[b.fridgeModel || 'side-by-side'];
         b.hasFridgeFrame = hasFrame;
+        if (!hasFrame) b.frames = (b.frames ?? []).filter(frame => !['left','right','top'].includes(frame.side));
+        else if (!(b.frames ?? []).some(frame => frame.side === 'left'))
+          b.frames = [...(b.frames ?? []), ...(['left','right','top'] as const).map(side => ({
+            id: uid('fr'), side, widthCm: FRIDGE_FRAME_CM,
+          }))];
         b.height = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
 
         const targetW = cfg.width + (hasFrame ? FRIDGE_FRAME_CM * 2 : 0);
@@ -1337,6 +1342,67 @@ export default function App() {
       true,
       hasFrame ? 'فریم ۵cm دور یخچال فعال شد' : 'فریم دور یخچال غیرفعال شد'
     );
+  };
+
+  const handleSetFridgeConcealed = (enabled: boolean) => {
+    if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
+    mutateActiveWall(w => {
+      const fridge = w.boxes.find(box => box.id === activeBox.id && box.type === 'fridge');
+      if (fridge) fridge.fridgeConcealed = enabled;
+    }, true);
+  };
+
+  const handleSetFridgeOverDepth = (mode: '60' | 'flush') => {
+    if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
+    mutateActiveWall(w => {
+      const fridge = w.boxes.find(box => box.id === activeBox.id && box.type === 'fridge');
+      if (!fridge) return;
+      fridge.overFridgeDepthMode = mode;
+      const above = w.boxes.find(box => box.linkedToBoxId === fridge.id);
+      if (above) above.depth = mode === '60' ? 60 : fridge.depth;
+    }, true);
+  };
+
+  const handleSetFridgeOverCabinet = (enabled: boolean) => {
+    if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
+    mutateActiveWall(w => {
+      const fridge = w.boxes.find(box => box.id === activeBox.id && box.type === 'fridge');
+      if (!fridge) return;
+      const existing = w.boxes.find(box => box.linkedToBoxId === fridge.id);
+      if (!enabled) { w.boxes = w.boxes.filter(box => box.linkedToBoxId !== fridge.id); return; }
+      if (existing) return;
+      const top = Math.min(w.height, Math.max(fridge.height + 30,
+        (project.settings?.wallCabElevCm ?? 145) + (project.settings?.wallCabHeightCm ?? 75)));
+      const over = createEmptyBox('wall-deep', fridge.offsetX, fridge.width, { settings: project.settings });
+      over.name = 'بالای یخچال';
+      over.elevY = fridge.height;
+      over.height = Math.max(30, top - fridge.height);
+      over.depth = fridge.overFridgeDepthMode === 'flush' ? fridge.depth : 60;
+      over.linkedToBoxId = fridge.id;
+      over.doors = [{ id: uid('door'), startCm: 0, widthCm: over.width, kind: 'lift', drawerRatios: [] }];
+      w.boxes.push(over);
+    }, true);
+  };
+
+  const handleAddUpperCrownAndUnderboard = () => {
+    const next = cloneProject(project);
+    let added = 0;
+    for (const wall of next.walls) {
+      const uppers = wall.boxes.filter(box => box.type === 'wall' || box.type === 'wall-deep');
+      for (const box of uppers) {
+        const adjacent = (other: typeof box) => other.id !== box.id &&
+          other.offsetX < box.offsetX + box.width - 1 && other.offsetX + other.width > box.offsetX + 1;
+        const above = uppers.some(other => adjacent(other) && Math.abs(other.elevY - box.elevY - box.height) <= 2);
+        const below = uppers.some(other => adjacent(other) && Math.abs(other.elevY + other.height - box.elevY) <= 2);
+        const frames = box.frames ?? (box.frames = []);
+        for (const side of [!above ? 'top' : null, !below ? 'bottom' : null] as const) {
+          if (!side || frames.some(frame => frame.side === side)) continue;
+          frames.push({ id: uid('fr'), side, widthCm: 2 }); added++;
+        }
+      }
+    }
+    if (added) commitState(next, true);
+    showToast(added ? `${added} قطعه تاج و تخته زیر بدون تکرار افزوده شد` : 'تمام تاج‌ها و تخته‌های زیر موجودند');
   };
 
   const handleChangeSelectedApplianceHood = (nextHood: 'hidden' | 'chimney') => {
@@ -3232,6 +3298,11 @@ export default function App() {
               equipmentFinish={project.settings?.equipmentFinish ?? 'silver'}
               onSetEquipmentFinish={handleEquipmentFinish}
               onToggleSelectedFridgeFrame={handleToggleSelectedFridgeFrame}
+              fridgeHasOverCabinet={Boolean(activeBox?.type === 'fridge' && activeWall?.boxes.some(box => box.linkedToBoxId === activeBox.id))}
+              onSetFridgeOverCabinet={handleSetFridgeOverCabinet}
+              onSetFridgeOverDepth={handleSetFridgeOverDepth}
+              onSetFridgeConcealed={handleSetFridgeConcealed}
+              onAddUpperCrownAndUnderboard={handleAddUpperCrownAndUnderboard}
               countertopCm={project.settings?.countertopCm ?? 3}
               countertopTopEdge={project.settings?.countertopTopEdge ?? 'square'}
               countertopBottomEdge={project.settings?.countertopBottomEdge ?? 'square'}

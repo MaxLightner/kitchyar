@@ -244,6 +244,11 @@ interface SideInspectorProps {
   onSetEquipmentFinish?: (f: EquipmentFinish) => void;
   canSelectedGasUseChimney?: boolean;
   onToggleSelectedFridgeFrame?: (hasFrame: boolean) => void;
+  fridgeHasOverCabinet?: boolean;
+  onSetFridgeOverCabinet?: (enabled: boolean) => void;
+  onSetFridgeOverDepth?: (mode: '60' | 'flush') => void;
+  onSetFridgeConcealed?: (enabled: boolean) => void;
+  onAddUpperCrownAndUnderboard?: () => void;
   countertopCm?: number;
   countertopTopEdge?: CountertopEdgeProfile;
   countertopBottomEdge?: CountertopEdgeProfile;
@@ -1442,6 +1447,13 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       </fieldset>
                     )}
 
+                    {!selectedDoor && cabinetLighting && props.onAddUpperCrownAndUnderboard && (
+                      <button type="button" data-testid="upper-add-crown-bottom-board"
+                        onClick={props.onAddUpperCrownAndUnderboard}
+                        className="w-full h-9 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-[12px] font-bold">
+                        افزودن تاج و تخته زیر هوایی‌ها (فقط فریم‌های موجود بررسی می‌شوند)
+                      </button>
+                    )}
                     {!selectedDoor && props.onSetCabinetDimension && (
                       <div className="grid grid-cols-2 gap-2">
                         {([
@@ -1860,6 +1872,33 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         <span className="text-slate-700 font-semibold text-[12px]">
                           باکس فریم ۵cm دور یخچال
                         </span>
+                      </label>
+                    )}
+                    {props.onSetFridgeOverCabinet && (
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" data-testid="fridge-overcabinet-toggle"
+                          checked={props.fridgeHasOverCabinet === true}
+                          onChange={event=>props.onSetFridgeOverCabinet?.(event.target.checked)} />
+                        <span className="text-[12px] font-semibold">کابینت بالای یخچال</span>
+                      </label>
+                    )}
+                    {props.fridgeHasOverCabinet && props.onSetFridgeOverDepth && (
+                      <label className="block text-[12px] font-semibold">
+                        عمق کابینت بالای یخچال
+                        <select data-testid="fridge-over-depth" className="mt-1 w-full rounded border border-slate-300 p-1"
+                          value={activeBox.overFridgeDepthMode ?? '60'}
+                          onChange={event=>props.onSetFridgeOverDepth?.(event.target.value as '60'|'flush')}>
+                          <option value="60">۶۰ سانتی‌متر</option>
+                          <option value="flush">تا جلوی یخچال</option>
+                        </select>
+                      </label>
+                    )}
+                    {props.onSetFridgeConcealed && (
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" data-testid="fridge-concealed"
+                          checked={Boolean(activeBox.fridgeConcealed)}
+                          onChange={event=>props.onSetFridgeConcealed?.(event.target.checked)} />
+                        <span className="text-[12px] font-semibold">یخچال مخفی با درب همرنگ کابینت</span>
                       </label>
                     )}
                   </section>
