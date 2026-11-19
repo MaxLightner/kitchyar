@@ -127,7 +127,6 @@ import {
   ToolId,
   Wall,
 } from './cad/types';
-import { ARWorkspace } from './components/ARWorkspace';
 import { isHandheldARDevice, requestChidoSession } from './ar/chidoSession';
 import { alignSelectedDoorsInBox, equalizeSelectedVerticalWidths, equalizeSelectedDrawerHeights } from './cad/selectionAlign';
 import { copySelection } from './cad/copySelection';
@@ -3260,6 +3259,7 @@ export default function App() {
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
+                    onSetDiningSeats={setDiningSeats}
                  hdrRotationDegrees={hdrRotationDegrees}
               offerSelection={offerSelection}
               onSelectSurface={selectSurface}
@@ -3276,7 +3276,14 @@ export default function App() {
               onBeginDrag={handleBeginDrag}
               onCancelDrag={handleCancelDrag}
               onFinishDrag={handleFinishDrag}
-              scanMode={floorScanActive}
+              arEnabled={floorScanActive}
+              viewportActive={viewMode === '3d'}
+              initialSession={initialXrSession}
+              sessionKillSignal={arSessionKillSignal}
+              dialogOpen={dialogOpen}
+              onSessionEnded={() => {setFloorScanActive(false);setTrackedFloorConfirmed(false);setInitialXrSession(null);setSharedWideMode('normal');}}
+              onFloorConfirmed={() => {setTrackedFloorConfirmed(true);setTool('select');setSharedWideMode('normal');}}
+              onARCalibration={(a,b,realDistanceCm)=>commitState(prev=>({...prev,arCalibration:{a,b,realDistanceCm}}),true)}
               wideViewModeExternal={sharedWideMode}
               onWideViewModeChange={setSharedWideMode}
               zoomSelectedSeq={zoomSelectedSeq}
@@ -3505,104 +3512,14 @@ export default function App() {
               onExitToSelect={handleExitToSelect}
               onToast={showToast}
             />
-                  {floorScanActive && (
-                  <ARWorkspace
-                 hdrRotationDegrees={hdrRotationDegrees}
-                frontCutOrient={frontCutOrient}
-                onFrontCutOrient={setFrontCutOrient}
-                onFrontCut={cutFront}
-            dialogOpen={dialogOpen}
-            onMoveShelf={moveShelfPrecisely}
-            onPlaceFridge={handlePlaceFridge}
-            onPlaceAppliance={handlePlaceAppliance}
-            onResizeCabinet={resizeCabinetFromHandle}
-            onBeginDrag={handleBeginDrag}
-            onCancelDrag={handleCancelDrag}
-            onFinishDrag={handleFinishDrag}
-            active={viewMode === '3d'}
-            embeddedIn3D={true}
-            diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}
-            onPlaceDining={placeDining} onSelectDining={selectDining} onDeleteDining={deleteDining}
-            sharedTool={tool}
-            selectionMode={selectionMode}
-            initialSession={initialXrSession}
-            onSessionEnded={() => { setFloorScanActive(false); setTrackedFloorConfirmed(false); setInitialXrSession(null); setSharedWideMode('normal'); }}
-            onFloorConfirmed={() => {
-              setTrackedFloorConfirmed(true);
-              setTool('select');
-              setSharedWideMode('normal');
-              showToast('کف تثبیت شد؛ فاصلهٔ مرجع A و B را تأیید کنید');
-            }}
-            wideViewModeExternal={sharedWideMode}
-            onWideViewModeChange={setSharedWideMode}
-            overlayRootRef={editorOverlayRef}
-            project={project}
-            fridgeModel={fridgeModel}
-            sinkModel={sinkModel}
-            gasWidth={gasWidth}
-            applianceKind={applianceKind}
-            hoodKind={hoodKind}
-            openingKind={openingKind}
-            doorOrient={doorOrient}
-            doorTargetWidth={doorTargetWidth}
-            doorVertCount={doorVertCount}
-            drawerPatIdx={drawerPatIdx}
-            liftPatIdx={liftPatIdx}
-            doorStyleBrush={doorStyleBrush}
-            hardwareBrush={hardwareBrush}
-            cabinetFinishBrush={cabinetFinishBrush}
-            backsplashBrush={backsplashBrush}
-            countertopBrush={countertopBrush}
-            shelfOrient={shelfOrient}
-            shelfCount={shelfCount}
-            frameWidthCm={frameWidthCm}
-            handleStyle={handleStyle}
-            handleOrient={handleOrient}
-            drawBoxKind={drawBoxKind}
-            onSelectDrawBoxKind={setDrawBoxKind}
-            onSetDoorOrient={handleSetDoorOrientWithClamp}
-            onSetDoorVertCount={setDoorVertCount}
-            onSetDrawerPatIdx={setDrawerPatIdx}
-            onSetLiftPatIdx={setLiftPatIdx}
-            onSetDoorStyleBrush={setDoorStyleBrush}
-            onSetHardwareBrush={setHardwareBrush}
-            onSetCabinetFinishBrush={setCabinetFinishBrush}
-            onSetBacksplashBrush={setBacksplashBrush}
-            onSetCountertopBrush={setCountertopBrush}
-            onSetShelfOrient={setShelfOrient}
-            onSetShelfCount={setShelfCount}
-            onSetFrameWidthCm={setFrameWidthCm}
-            onApplyDoorStyle={handleApplyDoorStyle}
-            onApplyHardwareKind={handleApplyHardwareKind}
-            onApplyFinish={handleApplyFinish}
-            onHandleStyleChange={setHandleStyle}
-            onHandleOrientChange={setHandleOrient}
-            onFridgeModelChange={setFridgeModel}
-            onSinkModelChange={setSinkModel}
-            onGasWidthChange={setGasWidth}
-            onApplianceKindChange={setApplianceKind}
-            onOpeningKindChange={setOpeningKind}
-            onMoveBox={handleMoveBox}
-            onMoveAppliance={handleMoveAppliance}
-            onMoveOpening={handleMoveOpening}
-            onDeleteOpening={handleDeleteOpening}
-            onCreateBoxesFromSweep={handleCreateBoxesFromSweep}
-            onConfirmHiddenHandle={(action) => setHiddenHandleWarnModal({ onConfirm: action })}
-            sessionKillSignal={arSessionKillSignal}
-            onSwitchViewMode={handleSwitchViewMode}
-            onToast={showToast}
-            onUpdateProject={(updater, toastMsg, pushHistory = true) => {
-              commitState(updater, pushHistory);
-              if (toastMsg) showToast(toastMsg);
-            }}
-          />
-                  )}
+
                 </div>
               )}
               {viewMode !== '3d' && (
             <>
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
+                  onDiningSeatsChange={setDiningSeats}
                   offerSelection={offerSelection}
                   diningSets={project.diningSets ?? []} selectedDiningId={project.selectedDiningId}
                   diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}

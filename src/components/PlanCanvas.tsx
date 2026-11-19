@@ -1,5 +1,5 @@
 import { svgPickTargets, type OfferSelection, type PickCandidate } from './SelectionPicker';
-import { diningLayout, snapDiningPosition } from '../cad/diningLayout';
+import { diningLayout, snapDiningPosition, nextDiningSeats } from '../cad/diningLayout';
 import type { DiningSeats, FloorFurniture, FloorFurnitureKind } from '../cad/types';
 import { TV_SET_DEPTH_CM, TV_SET_WIDTH_CM } from '../cad/dining3d';
 import { isPlanPlacement, placementAt, type CanvasAction, type PlacementPoint } from '../utils/touchPlacement';
@@ -93,6 +93,7 @@ interface PlanCanvasProps {
   diningSets: FloorFurniture[];
   selectedDiningId?: string | null;
   diningSeats: DiningSeats;
+  onDiningSeatsChange: (seats:DiningSeats)=>void;
   furnitureKind: FloorFurnitureKind;
   diningRotation: number;
   onPlaceDining: (x: number, y: number) => void;
@@ -196,7 +197,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   settings,
   walls,
   columns = [],
-  diningSets, selectedDiningId, diningSeats, diningRotation, furnitureKind,
+  diningSets, selectedDiningId, diningSeats, diningRotation, furnitureKind, onDiningSeatsChange,
   onPlaceDining, onMoveDining, onSelectDining, onDeleteDining,
   cornerOwners,
   activeWallId,
@@ -1209,6 +1210,9 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   const touchMoveHandlerRef = useRef<(e: TouchEvent) => void>(() => {});
 
   const stepPlanToolOption = (dir: number): boolean => {
+    if(tool==='dining'&&furnitureKind==='dining'){
+      onDiningSeatsChange(nextDiningSeats(diningSeats,dir));return true;
+    }
     if (tool === 'cab-draw' && onDrawBoxKindChange) {
       const idx = Math.max(0, CAB_DRAW_KIND_ORDER.indexOf(drawBoxKind));
       const next =
@@ -1261,7 +1265,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       tool === 'sink' ||
       tool === 'gas' ||
       tool === 'appliance' ||
-      tool === 'opening';
+      tool === 'opening' || (tool === 'dining' && furnitureKind === 'dining');
 
     if (!e.ctrlKey && isPlanCyclableTool) {
       setPlanHoverClientPt({ x: e.clientX, y: e.clientY });
@@ -1292,7 +1296,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         tool === 'sink' ||
         tool === 'gas' ||
         tool === 'appliance' ||
-        tool === 'opening';
+        tool === 'opening' || (tool === 'dining' && furnitureKind === 'dining');
       if (distDelta <= 22 && isPlanCyclableTool) {
         setPlanHoverClientPt({ x: midX, y: midY });
         const stepDelta = midY - touchPinch.current.lastStepY;
@@ -2459,6 +2463,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
           clientX={planHoverClientPt.x}
           clientY={planHoverClientPt.y}
           tool={tool}
+          diningSeats={diningSeats} furnitureKind={furnitureKind}
           targetStatus={planHoverStatus}
           sinkModel={sinkModel}
           gasWidth={gasWidth}

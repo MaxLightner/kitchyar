@@ -88,6 +88,6 @@ test('Mouse and pen placement do not require the browser dblclick event',()=>{
   assert.match(source,/e\.pointerType === 'mouse' \|\| e\.pointerType === 'pen'/);
   const scene=readFileSync(new URL('../components/Scene3DCanvas.tsx',import.meta.url),'utf8');
   assert.doesNotMatch(scene,/addEventListener\('dblclick'/);
-  const scan=readFileSync(new URL('../components/ARWorkspace.tsx',import.meta.url),'utf8');
+  const scan=readFileSync(new URL('../ar/unifiedARSession.ts',import.meta.url),'utf8');
   assert.doesNotMatch(scan,/addEventListener\('dblclick'/);
 });

@@ -1,0 +1,40 @@
+name: Unified 3D AR checks
+on:
+  push:
+    branches: [fix/unified-3d-ar]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - name: Tracking, calibration, selection and gesture regression tests
+        run: bunx tsx --test src/ar/unifiedARSession.test.ts src/cad/selectionAlign.test.ts src/cad/chidoFloorTracking.test.ts src/cad/floorScanner.test.ts src/ar/centerAim.test.ts src/utils/chidoSession.test.ts src/utils/gesturePacing.test.ts
+      - run: bun run build
+      - run: bun add --no-save playwright
+      - run: bunx playwright install --with-deps chromium
+      - name: Shared canvas and simulated XR workflow
+        run: |
+          bun run preview -- --host 127.0.0.1 --port 5189 > preview.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:5189/kitchyar/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node tests/unified-ar.browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unified-ar-check-results
+          path: |
+            xr-browser-result.json
+            xr-*.png
+            preview.log

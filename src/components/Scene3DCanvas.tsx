@@ -1,3 +1,6 @@
+import { UnifiedARSession, initialARState } from '../ar/unifiedARSession';
+import { ARControls } from './ARControls';
+import { nextDiningSeats } from '../cad/diningLayout';
 import { createKitchenReflections } from '../cad/kitchenReflections';
 import type { CabinetBox } from '../cad/types';
 import type { OfferSelection, PickCandidate } from './SelectionPicker';
@@ -124,7 +127,14 @@ interface Scene3DCanvasProps {
   onFinishDrag: () => void;
   /** Keep the entire 3D editor mounted during scanning, without painting its
    * virtual WebGL canvas over the real camera passthrough. */
-  scanMode?: boolean;
+  arEnabled?: boolean;
+  viewportActive?: boolean;
+  initialSession?: Promise<XRSession> | null;
+  sessionKillSignal?: number;
+  onSessionEnded?: () => void;
+  onFloorConfirmed?: () => void;
+  dialogOpen?: boolean;
+  onARCalibration?: (a: {x:number;z:number}, b:{x:number;z:number}, cm:number) => void;
   wideViewModeExternal?: WideViewMode;
   onWideViewModeChange?: (mode: WideViewMode) => void;
   zoomSelectedSeq?: number;
@@ -194,6 +204,7 @@ interface Scene3DCanvasProps {
   onFrontCutOrient: (orientation: Orientation) => void;
   onFrontCut: (wallId: string, boxId: string, x: number, y: number) => void;
   diningSeats: DiningSeats;
+  onSetDiningSeats: (seats: DiningSeats) => void;
   furnitureKind: FloorFurnitureKind;
   diningRotation: number;
   onPlaceDining: (x: number, y: number) => void;
@@ -370,6 +381,10 @@ function applySelectionMode3D(
 
 export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const { project, tool } = props;
+  const arSessionRef = useRef<UnifiedARSession | null>(null);
+  const lastSessionKillSignal = useRef(props.sessionKillSignal);
+  const [arState,setARState] = useState(initialARState);
+  const arEditingBlocked = arState.starting || (arState.active && (!arState.floorLocked || arState.calibrating));
   const hostRef = useRef<HTMLDivElement | null>(null);
   const surfaceCursorRef = useRef(new SurfaceCursor());
   const commitPlacementRef = useRef<() => void>(()=>{});
@@ -502,11 +517,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
   useEffect(() => {
     const container = hostRef.current;
-    // Chido runs ONE WebXR renderer during floor scanning. Keeping a second
-    // hidden 3D WebGL context alive can exhaust GPU limits on Android devices
-    // and prevent the live camera from initializing. The Scene3DCanvas React
-    // component and every button remain mounted; only its renderer is paused.
-    if (!container || props.scanMode) return;
+    if (!container) return;
 
     const w = Math.max(320, container.clientWidth);
     const h = Math.max(240, container.clientHeight);
@@ -514,6 +525,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const touchScreen = window.matchMedia('(pointer: coarse)').matches;
     const renderer = new THREE.WebGLRenderer({
       antialias: !touchScreen,
+      alpha: true,
       powerPreference: 'high-performance',
     });
     const isSoftwareGl = detectSoftwareWebGL(renderer.getContext());
@@ -640,16 +652,35 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     let rafId: number | null = null;
     let needsRender = true;
+    let lastAimTime = 0;
     let lastAnimTs = performance.now();
     const DOOR_ANIM_DURATION_S = 0.58;
 
-    const renderLoop = (now = performance.now()) => {
+    const renderLoop = (now = performance.now(), xrFrame = false) => {
       rafId = null;
       const dt = Math.min(0.05, Math.max(0.001, (now - lastAnimTs) / 1000));
       lastAnimTs = now;
 
       let anyDoorMoving = false;
       const built = builtRef.current;
+      const ar = arSessionRef.current;
+      if (!ar?.active && !renderer.xr.isPresenting) {
+        const width=container.clientWidth,height=container.clientHeight;
+        const size=renderer.getSize(new THREE.Vector2());
+        if(width>0&&height>0&&(size.x!==width||size.y!==height)) {
+          camera.aspect=width/height;camera.fov=wideViewVerticalFov(wideViewModeRef.current,camera.aspect);
+          camera.updateProjectionMatrix();renderer.setSize(width,height);needsRender=true;
+        }
+      }
+      if (built) built.root.visible = !ar?.active || (ar.locked && !ar.state.kitchenHidden);
+      floorGrid.visible = !ar?.active;
+      originAxes.visible = !ar?.active;
+      if (ar?.active) {
+        ar.configureView(wideViewModeRef.current);
+        controls.enabled = false;
+        if (ar.editingBlocked) { ghostGroup.visible = false; floorWallGroup.visible = false; surfaceMarker.visible = false; }
+        else floorWallGroup.visible = true;
+      } else floorWallGroup.visible = true;
       if (built && built.animatedDoors.length > 0) {
         const states = doorStatesRef.current;
         for (const h of built.animatedDoors) {
@@ -671,7 +702,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
       let anyFocusMoving = false;
       const fa = focusAnimRef.current;
-      if (fa) {
+      if (fa && !ar?.active) {
         const alpha = 1 - Math.exp(-8 * dt);
         controls.target.lerp(fa.target, alpha);
         camera.position.lerp(fa.camPos, alpha);
@@ -690,34 +721,55 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         }
       }
 
-      if (controls.enableDamping && !fa) {
+      if (!ar?.active && controls.enableDamping && !fa) {
         if (controls.update()) needsRender = true;
       }
-      if (needsRender) {
+      if (needsRender || xrFrame) {
         needsRender = false;
-        updateSurfaceCursorMarker(surfaceMarker, surfaceCursorRef.current);
+        if (!ar?.editingBlocked) updateSurfaceCursorMarker(surfaceMarker, surfaceCursorRef.current);
+        else surfaceMarker.visible = false;
         built?.syncOcclusion?.();
         lighting.setIntensities(propsRef.current.project.settings);
         lighting.followCamera(camera);
-        if (reflections && propsRef.current.project.settings?.enableReflections !== false) reflections.render();
+        if ((!ar?.active || ar.locked) && reflections && propsRef.current.project.settings?.enableReflections !== false) reflections.render();
         else renderer.render(scene, camera);
       }
-      if (rafId === null && (anyDoorMoving || anyFocusMoving)) {
+      if (!ar?.active && rafId === null && (anyDoorMoving || anyFocusMoving)) {
         rafId = requestAnimationFrame(renderLoop);
       }
     };
     const requestRender = () => {
       needsRender = true;
-      if (rafId === null) {
+      if (!arSessionRef.current?.active && rafId === null) {
         lastAnimTs = performance.now();
         rafId = requestAnimationFrame(renderLoop);
       }
     };
     requestRenderRef.current = requestRender;
+    const arSession = new UnifiedARSession(renderer,scene,camera,controls,{
+      change: state => setARState(state),
+      ended: () => propsRef.current.onSessionEnded?.(),
+      confirmed: () => { cancelPlacementRef.current(); propsRef.current.onFloorConfirmed?.(); },
+      frame: time => {
+        if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+        // Device aiming updates the SAME placement preview and confirmation path.
+        const cur=propsRef.current;
+        if(cur.viewportActive!==false && time-lastAimTime>=33 && arSession.locked && !arSession.editingBlocked && !drag3DRef.current && cur.tool!=='select' && cur.tool!=='move') {
+          const rect=renderer.domElement.getBoundingClientRect();
+          if(rect.width>0&&rect.height>0)pinSurfaceCursor(rect.left+rect.width/2,rect.top+rect.height/2);
+          lastAimTime=time;
+        }
+        renderLoop(time,true);
+      },
+      render: requestRender,
+      toast: text => propsRef.current.onToast(text),
+      calibration: (a,b,cm) => propsRef.current.onARCalibration?.(a,b,cm),
+    });
+    arSessionRef.current=arSession;
 
     triggerFocusZoomRef.current = () => {
       const built = builtRef.current;
-      if (!built) return;
+      if (!built || arSession.active) return;
       const focus = computeSelectionFocusTarget3D(built, propsRef.current.project);
       if (!focus) return;
       const radius = Math.max(0.45, focus.size.length() * 0.5);
@@ -741,6 +793,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const ro = new ResizeObserver((entries) => {
       const cr = entries[0]?.contentRect;
       if (!cr || cr.width < 10 || cr.height < 10) return;
+      if (renderer.xr.isPresenting) return;
       camera.aspect = cr.width / cr.height;
       camera.fov = wideViewVerticalFov(wideViewModeRef.current, camera.aspect);
       camera.updateProjectionMatrix();
@@ -1441,6 +1494,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       Math.atan2(b.y - a.y, b.x - a.x);
 
     const onPointerDown = (e: PointerEvent) => {
+      if(arSession.pointerDown(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (dragPointerId !== null) {
         const drag = drag3DRef.current;
         if (e.pointerType === 'touch' && drag?.kind === 'move-dining' && drag.primaryTouch && !drag.rotationTouch) {
@@ -1736,6 +1790,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if(propsRef.current.viewportActive===false)return;
+      if(arSession.pointerMove(e) || arSession.editingBlocked) return;
       const diningDrag = drag3DRef.current;
       if (diningDrag?.kind === 'move-dining' && diningDrag.primaryTouch) {
         const point = { x: e.clientX, y: e.clientY };
@@ -1991,6 +2047,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      if(propsRef.current.viewportActive===false)return;
+      if(arSession.pointerUp(e) || arSession.editingBlocked) return;
       const diningDrag = drag3DRef.current;
       if (diningDrag?.kind === 'move-dining' && diningDrag.rotationTouch?.id === e.pointerId) {
         diningDrag.rotationTouch = undefined;
@@ -2019,7 +2077,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       const isTap = e.button === 0 && !!press && Math.hypot(actionX - press.x, actionY - press.y) <= 8;
       drag3DRef.current = null;
       dragPointerId = null;
-      controls.enabled = propsRef.current.tool !== 'wall' && propsRef.current.tool !== 'cab-draw';
+      controls.enabled = !arSession.active && propsRef.current.tool !== 'wall' && propsRef.current.tool !== 'cab-draw';
       try {
         if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
       } catch {}
@@ -2693,6 +2751,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       requestRender();
     };
     commitPlacementRef.current = () => {
+      if(arSession.editingBlocked || propsRef.current.dialogOpen)return;
       if(propsRef.current.tool==='select')return;
       const pinned=surfaceCursorRef.current.screen(camera,renderer.domElement);
       if(!pinned)return;
@@ -2705,6 +2764,9 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     const step3DToolOption = (dir: 1 | -1, clientX: number, clientY: number): boolean => {
       const cur = propsRef.current;
+      if(cur.tool==='dining' && cur.furnitureKind==='dining') {
+        cur.onSetDiningSeats(nextDiningSeats(cur.diningSeats,dir)); return true;
+      }
       let contextBox: { type: string; width?: number } | null = null;
       let hitKind: string | undefined;
 
@@ -2876,6 +2938,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
     let lastTwoFingerMidY: number | null = null;
     const onTouchStart = (e: TouchEvent) => {
+      if(arSession.editingBlocked)return;
       if (e.touches.length === 2 && is3DCyclableTool(propsRef.current.tool)) {
         surfaceCursorRef.current.cancelGesture();
         controls.enabled = false;
@@ -2891,6 +2954,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     };
     const onTouchMove = (e: TouchEvent) => {
+      if(arSession.editingBlocked)return;
       if (
         e.touches.length !== 2 ||
         !is3DCyclableTool(propsRef.current.tool) ||
@@ -2916,7 +2980,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (e.touches.length < 2) {
         lastTwoFingerMidY = null;
         gestureStepperRef.current.resetTouch();
-        if (!drag3DRef.current) controls.enabled = true;
+        if (!drag3DRef.current) controls.enabled = !arSession.active;
       }
     };
 
@@ -2966,7 +3030,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       rightDownClientRef.current = null;
       if (dom.hasPointerCapture(e.pointerId)) dom.releasePointerCapture(e.pointerId);
       const currentTool = propsRef.current.tool;
-      controls.enabled = currentTool !== 'wall' && currentTool !== 'cab-draw';
+      controls.enabled = !arSession.active && currentTool !== 'wall' && currentTool !== 'cab-draw';
       requestRender();
     };
     window.addEventListener('pointerup', onPointerUp);
@@ -2975,6 +3039,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     window.addEventListener('blur', onPointerLeave);
 
     return () => {
+      arSession.dispose();
+      if (arSessionRef.current === arSession) arSessionRef.current = null;
       if (rafId !== null) cancelAnimationFrame(rafId);
       ro.disconnect();
       dom.removeEventListener('wheel', onWheelCapture, { capture: true });
@@ -3025,26 +3091,36 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (controlsRef.current === controls) controlsRef.current = null;
       camInitDoneRef.current = false;
     };
-  }, [props.scanMode]);
+  }, []);
+
+  useEffect(() => {
+    const ar=arSessionRef.current;
+    if(props.arEnabled) { if(props.initialSession)void ar?.start(props.initialSession); }
+    else if(ar?.active||ar?.state.starting)ar.stop();
+  },[props.arEnabled,props.initialSession]);
+  useEffect(() => {
+    if(lastSessionKillSignal.current !== props.sessionKillSignal) arSessionRef.current?.stop();
+    lastSessionKillSignal.current=props.sessionKillSignal;
+  },[props.sessionKillSignal]);
 
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
     scene.environmentRotation.y = THREE.MathUtils.degToRad(props.hdrRotationDegrees ?? 0);
     requestRenderRef.current();
-  }, [props.hdrRotationDegrees, props.scanMode]);
+  }, [props.hdrRotationDegrees, arEditingBlocked]);
 
   useEffect(() => {
-    if (!props.zoomSelectedSeq || props.scanMode) return;
+    if (!props.zoomSelectedSeq || arEditingBlocked) return;
     triggerFocusZoomRef.current();
-  }, [props.zoomSelectedSeq, props.scanMode]);
+  }, [props.zoomSelectedSeq, arEditingBlocked]);
 
   useEffect(() => {
     // Mouse-only 3D mode: while a drawing tool is selected, clicking commits
     // segments, not a camera orbit. The pointer preview stays attached to the
     // cursor before the first click and while waiting for the second.
     if (controlsRef.current) {
-      controlsRef.current.enabled = !props.scanMode && tool !== 'wall' && tool !== 'cab-draw';
+      controlsRef.current.enabled = !arSessionRef.current?.active && !arEditingBlocked && tool !== 'wall' && tool !== 'cab-draw';
     }
     if (tool === 'select' || tool === 'move') {
       surfaceCursorRef.current.clear();
@@ -3062,7 +3138,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       clearWallPreviewRef.current();
       requestRenderRef.current();
     }
-    if (!props.scanMode && tool !== 'select') {
+    if (!arEditingBlocked && tool !== 'select') {
       const last = lastHoverCheckRef.current;
       const rect = rendererRef.current?.domElement.getBoundingClientRect();
       if (rect && last.x >= rect.left && last.x <= rect.right &&
@@ -3070,11 +3146,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         updateGhostAndHoverRef.current(last.x, last.y);
       }
     }
-  }, [tool, props.drawBoxKind, props.scanMode, props.diningSeats, props.diningRotation, props.furnitureKind, props.frontCutOrient]);
+  }, [tool, props.drawBoxKind, arEditingBlocked, props.diningSeats, props.diningRotation, props.furnitureKind, props.frontCutOrient]);
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || props.scanMode) return;
+    if (!scene) return;
     const geometryKey = kitchenGeometryKey(project) + '|' + tool;
     const previous = builtRef.current;
     if (previous && geometryKeyRef.current === geometryKey) {
@@ -3124,13 +3200,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
     }
 
-    if (!camInitDoneRef.current) {
+    if (!camInitDoneRef.current && !arSessionRef.current?.active) {
       camInitDoneRef.current = true;
       applyCameraPreset('iso', built.bounds);
     } else {
       requestRenderRef.current();
     }
-    if (!props.scanMode && tool === 'cab-draw') {
+    if (!arEditingBlocked && tool === 'cab-draw') {
       const bounds = rendererRef.current?.domElement.getBoundingClientRect();
       const hover = lastHoverCheckRef.current;
       if (bounds && hover.x >= bounds.left && hover.x <= bounds.right && hover.y >= bounds.top && hover.y <= bounds.bottom) {
@@ -3162,13 +3238,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     progressiveTimersRef.current.push(buildTimer);
     // Previous scene is retained through React updates and only replaced after a successful build.
     return () => { cancelled = true; };
-  }, [project, props.scanMode, tool]);
+  }, [project, tool]);
 
   // Choosing a handle now previews it on EVERY selected door AND shows interactive
   // handle candidate spot markers on 3D doors just like 2D FrontCanvas.
   useEffect(() => {
     const built = builtRef.current;
-    if (!built || props.scanMode || tool !== 'handle') {
+    if (!built || arEditingBlocked || tool !== 'handle') {
       if (handleSpotsRef.current) {
         handleSpotsRef.current.dispose();
         handleSpotsRef.current = null;
@@ -3192,7 +3268,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
       requestRenderRef.current();
     };
-  }, [project, props.scanMode, tool, props.handleStyle, props.handleOrient]);
+  }, [project, arEditingBlocked, tool, props.handleStyle, props.handleOrient]);
 
   const handleToggleAllDoors = () => {
     const nextOpen = !doorsOpen;
@@ -3217,7 +3293,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     wideViewModeRef.current = mode;
     setLocalWideViewMode(mode);
     props.onWideViewModeChange?.(mode);
-    if (cameraRef.current) {
+    if (cameraRef.current && !arSessionRef.current?.active) {
       cameraRef.current.fov = wideViewVerticalFov(mode, cameraRef.current.aspect);
       cameraRef.current.updateProjectionMatrix();
       requestRenderRef.current();
@@ -3226,7 +3302,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
   const handleSetCamPreset = (p: 'iso' | 'front' | 'top') => {
     setCamPreset(p);
-    applyCameraPreset(p);
+    if (!arSessionRef.current?.active) applyCameraPreset(p);
   };
 
   return (
@@ -3237,19 +3313,20 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       data-cursor-y={surfaceCursorRef.current.point?.y}
       data-cursor-z={surfaceCursorRef.current.point?.z}
       data-active-wall-id={project.activeWallId || ''}
-      className={`relative w-full h-full overflow-hidden select-none ${props.scanMode
-        ? 'z-50 pointer-events-none bg-transparent'
-        : 'bg-slate-100'}`}
+      className={`relative w-full h-full overflow-hidden select-none ${props.arEnabled ? 'bg-transparent' : 'bg-slate-100'}`}
+      data-xr-active={arState.active ? '1' : '0'}
+      data-floor-locked={arState.floorLocked ? '1' : '0'}
     >
-      <div ref={hostRef} className={props.scanMode
-        ? 'w-full h-full invisible pointer-events-none'
-        : 'w-full h-full'} />
+      <div ref={hostRef} className="w-full h-full" />
+      {props.arEnabled && <ARControls state={arState} session={arSessionRef.current}
+        dialogOpen={props.dialogOpen} onRetry={()=>{arSessionRef.current?.stop();void arSessionRef.current?.start();}} />}
 
       {/* نوار شناور بالای نمای سه‌بعدی (دوربین، باز شدن درها، انتخاب دیوار) */}
       {props.cameraToolbarHost && createPortal(
         <div data-testid="scene-3d-floating-bar" className="flex items-center gap-1">
           <button
             type="button"
+            disabled={arState.active}
             onClick={() => handleSetCamPreset('iso')}
             className={`h-7 px-2.5 rounded-lg text-[13px] font-bold transition ${
               camPreset === 'iso'
@@ -3262,7 +3339,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           <button
             type="button"
             onClick={() => handleSetCamPreset('front')}
-            disabled={props.scanMode}
+            disabled={arState.active}
             className={`h-7 px-2.5 rounded-lg text-[13px] font-bold transition ${
               camPreset === 'front'
                 ? 'bg-indigo-600 text-white'
@@ -3274,7 +3351,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           <button
             type="button"
             onClick={() => handleSetCamPreset('top')}
-            disabled={props.scanMode}
+            disabled={arState.active}
             className={`h-7 px-2.5 rounded-lg text-[13px] font-bold transition ${
               camPreset === 'top'
                 ? 'bg-indigo-600 text-white'
@@ -3313,7 +3390,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           <button
             type="button"
             data-testid="scene3d-zoom-selected"
-            disabled={props.scanMode || !props.hasAnySelection}
+            disabled={arEditingBlocked || !props.hasAnySelection}
             onClick={() => props.onTriggerZoomSelected?.()}
             title="زوم روی مورد انتخابی (کلید Z)"
             className="h-7 px-2.5 rounded-lg text-[13px] font-bold inline-flex items-center gap-1 transition text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none"
@@ -3336,7 +3413,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           : 'موس روی دیوار = پیش‌نمایش و اسکرول تغییر مدل · راست‌کلیک = بازگشت به انتخاب'}
       </div>
 
-      {!props.scanMode && ((hasPlacementCursor && tool !== 'select' && tool !== 'move' && tool !== 'finish') || tool === 'handle') && (
+      {!arEditingBlocked && ((hasPlacementCursor && tool !== 'select' && tool !== 'move' && tool !== 'finish') || tool === 'handle') && (
         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50 pointer-events-auto flex gap-2">
           {tool === 'handle' && (
             <button type="button" className="h-11 rounded-xl border border-slate-300 bg-white px-3 font-bold"
@@ -3353,12 +3430,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
             onClick={() => cancelPlacementRef.current()}>لغو</button>}
         </div>
       )}
-      {!props.scanMode && (hoverPreview || (tool !== 'select' && tool !== 'move')) && !drag3DRef.current && (
+      {!arEditingBlocked && (hoverPreview || (tool !== 'select' && tool !== 'move')) && !drag3DRef.current && (
         <CursorToolPreview
           visible={true}
           clientX={hoverPreview?.clientX ?? 0}
           clientY={hoverPreview?.clientY ?? 0}
           tool={tool}
+          diningSeats={props.diningSeats} furnitureKind={props.furnitureKind}
           drawBoxKind={props.drawBoxKind}
           activeCabWidthCm={hoverPreview?.sweepWidthCm}
           hoverTarget={hoverPreview?.hoverTarget}

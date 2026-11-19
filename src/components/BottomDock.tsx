@@ -21,7 +21,6 @@ import {
   PencilLine,
   Wrench,
 } from 'lucide-react';
-import { DINING_SEATS } from '../cad/diningLayout';
 import { DiningSeats, FloorFurnitureKind, ToolId } from '../cad/types';
 
 interface BottomDockProps {
@@ -74,19 +73,6 @@ export const BottomDock: React.FC<BottomDockProps> = ({
 
   return (
     <div data-testid="bottom-dock" className="relative shrink-0 z-30 bg-white border-t border-slate-200">
-      {activeTool === 'dining' && (
-        <div role="group" aria-label="ظرفیت میز ناهارخوری"
-          className="absolute bottom-full left-1/2 mb-1 flex max-w-[calc(100vw-16px)] -translate-x-1/2 items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
-          {furnitureKind === 'dining' && DINING_SEATS.map(seats => (
-            <button type="button" key={seats} data-testid={`dining-seats-${seats}`}
-              aria-pressed={diningSeats === seats} onClick={() => onDiningSeats(seats)}
-              className={btnCls(diningSeats === seats)}>{seats.toLocaleString('fa-IR')} نفره</button>
-          ))}
-          <button type="button" className={btnCls(false)} onClick={onRotateDining} title="چرخاندن" aria-label="چرخاندن">
-            ↻ {diningRotation.toLocaleString('fa-IR')}°
-          </button>
-        </div>
-      )}
       <nav
         aria-label="ابزارهای درج و طراحی"
         className="flex flex-col divide-y divide-slate-100"

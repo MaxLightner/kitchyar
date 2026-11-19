@@ -1,3 +1,4 @@
+import type {DiningSeats,FloorFurnitureKind} from '../cad/types';
 import { getFinishSwatch } from '../cad/materials3d';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { createContext, useContext } from 'react';
@@ -41,6 +42,8 @@ export interface CursorToolPreviewProps {
   clientX: number;
   clientY: number;
   tool: ToolId;
+  diningSeats?: DiningSeats;
+  furnitureKind?: FloorFurnitureKind;
   hoverTarget?: 'cabinet' | 'backsplash' | 'countertop' | 'base' | 'wall' | 'door' | null;
   targetStatus?: CursorTargetStatus;
   sinkModel: SinkModel;
@@ -73,6 +76,7 @@ export interface CursorToolPreviewProps {
 
 const PREVIEW_TOOLS = new Set<ToolId>([
   'wall',
+  'dining',
   'cab-draw',
   'sink',
   'gas',
@@ -94,6 +98,7 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
   clientX,
   clientY,
   tool,
+  diningSeats=4, furnitureKind='dining',
   hoverTarget,
   targetStatus = 'neutral',
   sinkModel,
@@ -129,7 +134,10 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
   let graphic: React.ReactNode = null;
   let badgeLabel = '';
 
-  if (tool === 'wall') {
+  if (tool === 'dining') {
+    badgeLabel=furnitureKind==='tv'?'ست تلویزیون':`میز ${diningSeats.toLocaleString('fa-IR')} نفره`;
+    graphic=<span className="text-xl" aria-hidden="true">{furnitureKind==='tv'?'▣':'◉'}</span>;
+  } else if (tool === 'wall') {
     badgeLabel = 'دیوار';
     graphic = (
       <svg width="42" height="32" viewBox="0 0 42 32" className="shrink-0">
