@@ -22,3 +22,24 @@ for (const [name, content] of Object.entries(files)) {
   writeFileSync(target, content);
 }
 console.log(`Restored ${Object.keys(files).length} original appliance source files.`);
+
+// This second, checksum-protected bundle contains the user's latest revised
+// hood, eleven sink designs, washer and dishwasher, and their new materials.
+// It overrides only the files supplied by the user; the original package
+// remains in the repository for previous projects and rollback.
+const deltaB64 = [1,2,3,4,5,6,7].map(i =>
+  readFileSync(resolve(root, 'vendor', `appliance-updates.part${i}.b64`), 'utf8').trim()).join('');
+const deltaCompressed = Buffer.from(deltaB64, 'base64');
+const deltaSha = createHash('sha256').update(deltaCompressed).digest('hex');
+if (deltaSha !== '99ffa709521cb60a903aadc8e5077e8f8469182114cbaa1ec5e0333cde7db4a4')
+  throw new Error('Updated appliance bundle failed integrity check.');
+const deltaFiles = JSON.parse(brotliDecompressSync(deltaCompressed).toString('utf8'));
+for (const [name, content] of Object.entries(deltaFiles)) {
+  if (typeof content !== 'string' || !/^src\/(three|hoods)\/[A-Za-z0-9_./-]+\.ts$/.test(name) ||
+      name.split('/').includes('..')) throw new Error('Unsafe appliance path: ' + name);
+  const target = resolve(root, name);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, content);
+}
+console.log(`Updated ${Object.keys(deltaFiles).length} appliance sources from user ZIP.`);
+

@@ -4,11 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "node tools/unpack-appliances.mjs && vite --port=3000 --host=0.0.0.0",
     "build": "node tools/unpack-appliances.mjs && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "node tools/unpack-appliances.mjs && tsc --noEmit"
+    "lint": "node tools/unpack-appliances.mjs && tsc --noEmit",
+    "test": "node tools/unpack-appliances.mjs && tsx --test src/hoods/catalog.test.ts src/utils/applianceInteractions.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
