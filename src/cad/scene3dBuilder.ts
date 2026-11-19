@@ -34,6 +34,7 @@ import { getCabinetLighting, getKitchenCabinetLightMode } from './cabinetLightin
 import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, getEquipmentEdgeNormalMap, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
+import { fitAppliance, makeFridge, makeHood, makeCooktop } from './applianceModels';
 import {
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
@@ -194,7 +195,7 @@ export interface BuiltKitchenScene {
 
 /** Ignore only lighting state to avoid rebuilding all kitchen meshes when toggling a lamp. */
 const LIGHTING_ONLY_KEYS = new Set([
-  'lighting', 'underCabinetLight', 'ovenLightOn', 'underCabinetLightMode',
+  'lighting', 'underCabinetLight', 'ovenLightOn', 'flameOn', 'underCabinetLightMode',
   'linearLightIntensity', 'halogenLightIntensity', 'facadeLightIntensity', 'facadeLightEnabled',
   'ceilingAreaIntensity', 'ceilingLightIntensities', 'hdrIntensity', 'cameraLightIntensity',
   'ambientLightIntensity', 'enableAmbientLight', 'enableReflections',
@@ -247,7 +248,7 @@ export function disposeObject3D(root: THREE.Object3D): void {
 
   geometries.forEach((g) => g.dispose());
   textures.forEach(t => { if (!isSharedKitchenTexture(t)) t.dispose(); });
-  materials.forEach((m) => m.dispose());
+  materials.forEach((m) => { if (!m.userData.sharedApplianceMaterial) m.dispose(); });
 }
 
 function createFloorTileTexture(): THREE.CanvasTexture {
@@ -660,6 +661,7 @@ export function buildKitchen3DScene(
   const interactables: THREE.Object3D[] = [];
   const animatedDoors: AnimatedDoorHandle[] = [];
   const linearControls: Array<{ boxId: string; group: THREE.Group; strip: THREE.Mesh; area: THREE.RectAreaLight }> = [];
+  const cooktopControls: Array<{ id: string; setLit: (lit: boolean) => void }> = [];
   const halogenControls: Array<{ boxId: string; group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
   const facadeControls: Array<{ group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
   const wallTransforms = new Map<
@@ -1133,7 +1135,8 @@ export function buildKitchen3DScene(
           matDoorModern: matPorcelain,
           matEquipment,
           matGlass,
-        })
+        }),
+        cooktopControls
       );
       const appHitData = { kind: 'appliance', wallId: wall.id, appId: app.id } as Scene3DHitData;
       appGrp.userData = appHitData;
@@ -1243,6 +1246,9 @@ export function buildKitchen3DScene(
       item.decals.forEach(decal => { decal.material.opacity = Math.min(0.8, Math.max(0, 0.35 * (settings?.facadeLightIntensity ?? 1))); });
     }
     ceilingControls.forEach(light => { light.intensity = settings?.ceilingAreaIntensity ?? settings?.ceilingLightIntensities?.[0] ?? 12; });
+    const cooktopStates = new Map(next.walls.flatMap(w => w.appliances
+      .filter(a => a.kind === 'gas').map(a => [a.id, Boolean(a.flameOn)] as const)));
+    for (const control of cooktopControls) control.setLit(cooktopStates.get(control.id) ?? false);
     for (const wall of next.walls) for (const appliance of wall.appliances) {
       const parts = ovenParts.get(appliance.id);
       if (!parts) continue;
@@ -1628,6 +1634,26 @@ function buildBox3D(ctx: {
     const fW = Math.max(0.4, bw - ff * 2 - 0.016);
     const fH = Math.max(1.2, cfg.height * CM);
     const fD = bd - 0.045;
+    if (!box.fridgeConcealed) {
+      // Install the ORIGINAL supplied fridge design. None of the former
+      // primitive refrigerator bodies/doors are rendered for visible fridges.
+      const realFridge = fitAppliance(makeFridge(box.fridgeModel), {
+        w: fW, h: fH, d: Math.max(0.45, fD),
+      }, normalSign);
+      realFridge.position.set(bx + bw / 2, by, normalSign * fD);
+      const hitData = { kind: 'box', wallId: wall.id, boxId: box.id } as Scene3DHitData;
+      realFridge.traverse(child => {
+        if (!(child instanceof THREE.Mesh)) return;
+        child.userData = hitData;
+        interactables.push(child);
+      });
+      grp.add(realFridge);
+      if (isBoxSel) {
+        addOutlineHighlight(grp, bw, bh, bd, bx + bw / 2, by + bh / 2, normalSign * (bd / 2));
+        addBox3DHandles(grp, wall.id, box, bodyBottomY, bh, bd, normalSign, mats.matHandleGizmo, interactables);
+      }
+      return grp;
+    }
     const doorThick = 0.036;
     const cx = bx + bw / 2;
     const frontDoorZ = normalSign * (fD + doorThick / 2);
@@ -3116,7 +3142,8 @@ function buildAppliance3D(
     matDoorModern: THREE.Material;
     matEquipment: THREE.Material;
     matGlass: THREE.Material;
-  }
+  },
+  cooktopControls: Array<{ id: string; setLit: (lit: boolean) => void }>,
 ): THREE.Group {
   const grp = new THREE.Group();
   const resolveMatForFinish = (fin: 'silver' | 'white' | 'black', fallback: THREE.Material): THREE.Material => {
@@ -3200,52 +3227,20 @@ function buildAppliance3D(
   }
 
   if (app.kind === 'gas') {
-    const gasParts: THREE.Object3D[] = [];
     const hoodParts: THREE.Object3D[] = [];
-    const cookW = aw - 0.06;
-    const cookD = Math.min(0.48, boxDepthCm * CM - 0.08);
-    const glassTop = new THREE.Mesh(
-      new THREE.BoxGeometry(cookW, 0.018, cookD),
-      mats.matGlassCooktop
-    );
-    glassTop.position.set(ax, topY + 0.009, cz);
-    gasParts.push(glassTop);
-
-    // Burner zones: 2-burner vertical glass induction for <= 40cm (30/35cm), else raised grates
-    if (app.width <= 40) {
-      const ringGeo = new THREE.RingGeometry(0.054, 0.064, 24);
-      const r1 = new THREE.Mesh(ringGeo, mats.matSteel);
-      r1.rotation.x = -Math.PI / 2;
-      r1.position.set(ax, topY + 0.019, cz - normalSign * 0.105);
-      const r2 = new THREE.Mesh(ringGeo, mats.matSteel);
-      r2.rotation.x = -Math.PI / 2;
-      r2.position.set(ax, topY + 0.019, cz + normalSign * 0.105);
-      gasParts.push(r1, r2);
-    } else {
-      const centers = [-1, 1].flatMap(side => [-1, 1].map(row =>
-        ({ x: ax + side * cookW * 0.25, z: cz + row * cookD * 0.25 })));
-      if (app.width >= 75) centers.push({ x: ax, z: cz });
-      const grateBar = new THREE.BoxGeometry(Math.min(0.056, cookW * 0.11), 0.014, 0.011);
-      centers.forEach(({ x, z }, index) => {
-        const radius = Math.min(0.068, cookW * 0.15) * (index === 4 ? 1 : 0.8);
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 1.06, 0.014, 24), mats.matSteel);
-        base.position.set(x, topY + 0.025, z);
-        const cap = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.76, radius * 0.80, 0.011, 24), mats.matDarkChrome);
-        cap.position.set(x, topY + 0.036, z);
-        gasParts.push(base, cap);
-        for (let arm = 0; arm < 4; arm++) {
-          const angle = Math.PI * (arm / 2 + 0.25);
-          const grate = new THREE.Mesh(grateBar, mats.matDarkChrome);
-          grate.rotation.y = -angle;
-          grate.position.set(x + Math.cos(angle) * radius * 1.35, topY + 0.048, z + Math.sin(angle) * radius * 1.35);
-          gasParts.push(grate);
-        }
-      });
-    }
-    for (const gp of gasParts) {
-      gp.userData = { subPart: 'gas' };
-      grp.add(gp);
-    }
+    const cookW = Math.max(0.26, aw - 0.06);
+    const cookD = Math.min(0.52, boxDepthCm * CM - 0.06);
+    const hob = makeCooktop(app.cooktopModel);
+    const cooktop = fitAppliance(hob.group, {
+      w: cookW, h: 0.085, d: Math.max(0.24, cookD),
+    }, normalSign, 'center');
+    cooktop.position.set(ax, topY + 0.034, cz);
+    hob.setLit(Boolean(app.flameOn));
+    cooktopControls.push({ id: app.id, setLit: hob.setLit });
+    cooktop.traverse(child => {
+      if (child instanceof THREE.Mesh) child.userData.subPart = 'gas';
+    });
+    grp.add(cooktop);
 
     // Connected Hood above gas (chimney, angled glass, exposed box, cylinder, or hidden)
     const hoodD = 0.42;
@@ -3270,53 +3265,18 @@ function buildAppliance3D(
       hoodOutlineCenterY = 1.48;
       hoodOutlineH = 0.08;
       hoodOutlineZ = normalSign * 0.16;
-    } else if (hModel === 'angled') {
-      const panelH = 0.42;
-      const angledBody = new THREE.Mesh(
-        new THREE.BoxGeometry(aw - 0.02, panelH, 0.045),
-        app.hoodFinish === 'white' ? mats.matDoorModern : mats.matGlassCooktop
-      );
-      angledBody.rotation.x = normalSign * -0.58;
-      angledBody.position.set(ax, hoodY + 0.16, normalSign * 0.20);
-      const backChassis = new THREE.Mesh(new THREE.BoxGeometry(aw * 0.72, 0.30, 0.18), hoodMat);
-      backChassis.position.set(ax, hoodY + 0.18, normalSign * 0.09);
-      const chimneyH = Math.min(0.45, Math.max(0.05, hoodTop - (hoodY + 0.32)));
-      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.24, chimneyH, 0.20), hoodMat);
-      chimney.position.set(ax, hoodY + 0.32 + chimneyH / 2, normalSign * 0.10);
-      hoodParts.push(angledBody, backChassis, chimney);
-      hoodOutlineCenterY = hoodY + 0.24;
-      hoodOutlineH = 0.48;
-    } else if (hModel === 'box') {
-      const boxH = 0.26;
-      const boxHood = new THREE.Mesh(new THREE.BoxGeometry(aw, boxH, hoodD), hoodMat);
-      boxHood.position.set(ax, hoodY + boxH / 2, normalSign * (hoodD / 2));
-      const filterStrip = new THREE.Mesh(new THREE.BoxGeometry(aw - 0.08, 0.012, hoodD - 0.08), mats.matDarkChrome);
-      filterStrip.position.set(ax, hoodY + 0.005, normalSign * (hoodD / 2));
-      const chimneyH = Math.min(0.45, Math.max(0.04, hoodTop - (hoodY + boxH)));
-      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.26, chimneyH, 0.22), hoodMat);
-      chimney.position.set(ax, hoodY + boxH + chimneyH / 2, normalSign * 0.11);
-      hoodParts.push(boxHood, filterStrip, chimney);
-      hoodOutlineCenterY = hoodY + 0.22;
-      hoodOutlineH = 0.45;
-    } else if (hModel === 'cylinder') {
-      const cylR = Math.min(0.22, aw * 0.32);
-      const cylH = Math.min(0.75, Math.max(0.48, hoodTop - hoodY));
-      const drum = new THREE.Mesh(new THREE.CylinderGeometry(cylR, cylR, cylH, 28), hoodMat);
-      drum.position.set(ax, hoodY + cylH / 2, normalSign * (cylR + 0.06));
-      const intakeRing = new THREE.Mesh(new THREE.CylinderGeometry(cylR * 0.85, cylR * 0.85, 0.014, 24), mats.matDarkChrome);
-      intakeRing.position.set(ax, hoodY + 0.005, normalSign * (cylR + 0.06));
-      hoodParts.push(drum, intakeRing);
-      hoodOutlineCenterY = hoodY + cylH / 2;
-      hoodOutlineH = cylH;
-      hoodOutlineZ = normalSign * (cylR + 0.06);
     } else {
-      // Classic Chimney T-shape
-      const visor = new THREE.Mesh(new THREE.BoxGeometry(aw, 0.06, hoodD), hoodMat);
-      visor.position.set(ax, hoodY, normalSign * (hoodD / 2));
-      const chimneyHeight = Math.min(0.48, Math.max(0.035, hoodTop - hoodY));
-      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.28, chimneyHeight, 0.26), hoodMat);
-      chimney.position.set(ax, hoodY + chimneyHeight / 2, normalSign * 0.13);
-      hoodParts.push(visor, chimney);
+      const model = fitAppliance(makeHood(app.hoodModel), {
+        w: Math.max(0.55, aw),
+        h: Math.max(0.3, Math.min(0.8, hoodTop - hoodY + 0.06)),
+        d: hoodD,
+      }, normalSign);
+      model.position.set(ax, hoodY, normalSign * (hoodD + 0.015));
+      model.traverse(child => { if (child instanceof THREE.Mesh) child.userData.subPart = 'hood'; });
+      hoodParts.push(model);
+      hoodOutlineCenterY = hoodY + 0.24;
+      hoodOutlineH = 0.65;
+      hoodOutlineZ = normalSign * (hoodD * 0.55);
     }
 
     for (const hp of hoodParts) {
