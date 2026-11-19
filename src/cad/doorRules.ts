@@ -1318,13 +1318,20 @@ export function applyDoorBrushPreview(
     return { ok: false, selectedDoorId: null, message: preview.reason };
   }
 
+  // Empty tall / pantry wardrobes: create two manageable hinged leaves automatically.
+  // A full-height door must never exceed the refrigerator height (185 cm).
+  const autoSplitTall = (box.type === 'tall' || box.type === 'closet')
+    && box.doors.length === 0 && box.height > 185;
+  const tallSplitRatio = Math.min(0.52, Math.max(0.18, (box.height - 185) / box.height, 86 / box.height));
   const mapItemToDoor = (it: DoorPreviewResult['items'][number]): DoorUnit => ({
     id: uid('door'),
     startCm: it.startCm,
     widthCm: it.widthCm,
     kind: it.kind,
     drawerRatios: [...it.drawerRatios],
-    ...(it.drawerBand ? { drawerBand: { ...it.drawerBand } } : {}),
+    ...(it.drawerBand ? { drawerBand: { ...it.drawerBand } } :
+      autoSplitTall && it.kind === 'door'
+        ? { drawerBand: { position: 'bottom', ratio: tallSplitRatio }, tallDoorSplit: true } : {}),
   });
 
   if (preview.replaceSpan) {

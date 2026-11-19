@@ -115,6 +115,8 @@ export interface DoorUnit {
   hingeSide?: 'left' | 'right';
   /** Optional integrated top or bottom drawer band */
   drawerBand?: { position: 'top' | 'bottom'; ratio: number };
+  /** Auto two hinged leaves in tall/closet cabinets, not a drawer band. */
+  tallDoorSplit?: boolean;
 }
 
 export interface ShelfItem {

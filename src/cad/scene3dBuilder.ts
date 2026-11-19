@@ -2845,9 +2845,10 @@ function buildDoor3D(ctx: {
     leafBot = isTop ? dyBot : dyBot + bandH + gapM;
 
     const bandGrp = new THREE.Group();
-    const bandBaseX = dxLeft + dw / 2;
+    const tallHinge = Boolean(door.tallDoorSplit && (box.type === 'tall' || box.type === 'closet'));
+    const bandBaseX = tallHinge ? pivotX : dxLeft + dw / 2;
     bandGrp.position.set(bandBaseX, bandCenterY, frontFaceZ);
-    makePanelMesh(dw, bandH, 0, 0, bandGrp);
+    makePanelMesh(dw, bandH, tallHinge ? panelOffsetX : 0, 0, bandGrp);
     const pullMesh = buildHandleMesh(
       'simple',
       'horizontal',
@@ -2859,7 +2860,7 @@ function buildDoor3D(ctx: {
       mats.matDarkChrome,
       mats.matHiddenTrim
     );
-    pullMesh.position.set(0, 0, 0);
+    pullMesh.position.set(tallHinge ? panelOffsetX : 0, 0, 0);
     pullMesh.traverse((ch) => {
       if ((ch as THREE.Mesh).isMesh) {
         ch.userData = doorHit;
@@ -2875,7 +2876,7 @@ function buildDoor3D(ctx: {
       const bandHandle: AnimatedDoorHandle = {
         doorId: bandPartId,
         group: bandGrp,
-        kind: 'drawer',
+        kind: tallHinge ? (hingeSide === 'left' ? 'hinge-left' : 'hinge-right') : 'drawer',
         normalSign,
         baseX: bandBaseX,
         baseY: bandCenterY,
@@ -2883,6 +2884,7 @@ function buildDoor3D(ctx: {
         baseRotX: 0,
         baseRotY: 0,
         maxSlide: 0.34,
+        maxAngle: tallHinge ? 1.4 : undefined,
       };
       if (doorOpenProgress > 0) applyAnimatedDoorProgress(bandHandle, doorOpenProgress);
       animatedDoors.push(bandHandle);
