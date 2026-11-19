@@ -6,11 +6,14 @@ import {
   CountertopFinishId,
   DoorStyle,
   DrawerPattern,
+  EquipmentFinish,
   FridgeModel,
   HardwareKind,
+  HoodModel,
   OpeningKind,
   ProjectSettings,
   SinkModel,
+  WashingCapacityKg,
 } from './types';
 
 export interface CabinetFinishConfig {
@@ -297,11 +300,15 @@ export const WALL_LOWER_HEIGHT_CM = 75; // Top = 220cm (matches tall & over-frid
 export const WALL_DOUBLE_LOWER_H_CM = 30;
 export const WALL_DOUBLE_UPPER_ELEV_CM = WALL_LOWER_ELEV_CM + WALL_DOUBLE_LOWER_H_CM;
 
+export const COUNTERTOP_THICKNESS_OPTIONS = [2, 3, 4, 5, 6] as const;
+
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   wallHeightCm: 265,
   baseHeightCm: 86,
   plinthCm: 10,
   countertopCm: 4,
+  countertopTopEdge: 'square',
+  countertopBottomEdge: 'square',
   wallCabElevCm: 145,
   wallCabHeightCm: 75,
   defaultHoodKind: 'chimney',
@@ -316,16 +323,27 @@ export interface FridgeModelConfig {
   width: number;
   depth: number;
   height: number;
+  sizeOptions: readonly number[];
 }
 
 export const FRIDGE_MODELS: Record<FridgeModel, FridgeModelConfig> = {
+  'single-door': {
+    id: 'single-door',
+    label: 'تک‌در (۶۵cm)',
+    shortLabel: 'تک‌در',
+    width: 65,
+    depth: 68,
+    height: 185,
+    sizeOptions: [60, 65, 70],
+  },
   single: {
     id: 'single',
-    label: 'معمولی (۷۰cm)',
-    shortLabel: 'معمولی',
+    label: 'یخچال فریزر پایین (۷۰cm)',
+    shortLabel: 'فریزر پایین',
     width: 70,
     depth: 70,
     height: 185,
+    sizeOptions: [70, 75, 80, 85],
   },
   'side-by-side': {
     id: 'side-by-side',
@@ -334,6 +352,7 @@ export const FRIDGE_MODELS: Record<FridgeModel, FridgeModelConfig> = {
     width: 92,
     depth: 75,
     height: 185,
+    sizeOptions: [85, 90, 92, 95],
   },
   twin: {
     id: 'twin',
@@ -342,10 +361,11 @@ export const FRIDGE_MODELS: Record<FridgeModel, FridgeModelConfig> = {
     width: 120,
     depth: 70,
     height: 185,
+    sizeOptions: [115, 120, 125, 130],
   },
 };
 
-export const FRIDGE_MODEL_ORDER: FridgeModel[] = ['single', 'side-by-side', 'twin'];
+export const FRIDGE_MODEL_ORDER: FridgeModel[] = ['single-door', 'single', 'side-by-side', 'twin'];
 
 export interface SinkModelConfig {
   id: SinkModel;
@@ -411,15 +431,47 @@ export const SINK_MODEL_ORDER: SinkModel[] = [
 
 export const GAS_WIDTH_OPTIONS = [30, 35, 60, 75, 80, 90] as const;
 
+export const HOOD_MODELS: Record<HoodModel, { id: HoodModel; label: string; shortLabel: string }> = {
+  chimney: { id: 'chimney', label: 'هود شومینه‌ای (تی‌شکل)', shortLabel: 'شومینه‌ای' },
+  angled: { id: 'angled', label: 'هود مورب شیشه‌ای', shortLabel: 'مورب' },
+  box: { id: 'box', label: 'هود باکس اکسپوز', shortLabel: 'اکسپوز' },
+  cylinder: { id: 'cylinder', label: 'هود استوانه‌ای', shortLabel: 'استوانه‌ای' },
+};
+
+export const HOOD_MODEL_ORDER: HoodModel[] = ['chimney', 'angled', 'box', 'cylinder'];
+
+export const WASHING_CAPACITIES: Record<WashingCapacityKg, { kg: WashingCapacityKg; width: number; label: string; shortLabel: string }> = {
+  6: { kg: 6, width: 55, label: '۶ کیلویی (۵۵cm)', shortLabel: '۶ کیلویی' },
+  8: { kg: 8, width: 60, label: '۸ کیلویی (۶۰cm)', shortLabel: '۸ کیلویی' },
+  9: { kg: 9, width: 62, label: '۹ کیلویی (۶۲cm)', shortLabel: '۹ کیلویی' },
+};
+
+export const WASHING_CAPACITY_ORDER: WashingCapacityKg[] = [6, 8, 9];
+
+export const EQUIPMENT_FINISH_META: Record<EquipmentFinish, { id: EquipmentFinish; label: string; shortLabel: string; hex: string }> = {
+  silver: { id: 'silver', label: 'نقره‌ای (استیل)', shortLabel: 'نقره‌ای', hex: '#94a3b8' },
+  white: { id: 'white', label: 'سفید', shortLabel: 'سفید', hex: '#f8fafc' },
+  black: { id: 'black', label: 'مشکی', shortLabel: 'مشکی', hex: '#1e293b' },
+};
+
 export const APPLIANCE_CONFIGS: Record<
   ApplianceKind,
-  { label: string; shortLabel: string; width: number; depth: number }
+  { label: string; shortLabel: string; width: number; depth: number; heightCm?: number }
 > = {
   sink: { label: 'سینک (۹۰cm)', shortLabel: 'سینک', width: 90, depth: 50 },
   gas: { label: 'گاز صفحه‌ای (۸۰cm)', shortLabel: 'گاز', width: 80, depth: 52 },
   dishwasher: { label: 'ماشین ظرفشویی (۶۰cm)', shortLabel: 'ظرفشویی', width: 60, depth: 58 },
   washing: { label: 'ماشین لباسشویی (۶۰cm)', shortLabel: 'لباسشویی', width: 60, depth: 58 },
+  'builtin-oven': { label: 'فر توکار (۶۰cm)', shortLabel: 'فر توکار', width: 60, depth: 56, heightCm: 60 },
+  microwave: { label: 'ماکروفر توکار (۶۰cm)', shortLabel: 'ماکروفر', width: 60, depth: 42, heightCm: 38 },
 };
+
+export const APPLIANCE_PLACEABLE_ORDER: ApplianceKind[] = [
+  'dishwasher',
+  'washing',
+  'builtin-oven',
+  'microwave',
+];
 
 export const OPENING_DEFAULTS: Record<
   OpeningKind,

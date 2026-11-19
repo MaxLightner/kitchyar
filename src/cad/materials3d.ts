@@ -58,11 +58,11 @@ function createDoorGradientTexture(
   ctx.fillStyle = vGrad;
   ctx.fillRect(0, 0, size, size);
 
-  // Subtle ambient sheen spot
+  // Subtle directional sheen gradient (kept restrained so 3D key/fill & HDRI drive real contrast)
   const hGrad = ctx.createRadialGradient(size * 0.38, size * 0.3, size * 0.06, size * 0.5, size * 0.5, size * 0.82);
-  hGrad.addColorStop(0, 'rgba(255,255,255,0.20)');
+  hGrad.addColorStop(0, 'rgba(255,255,255,0.06)');
   hGrad.addColorStop(0.65, 'rgba(255,255,255,0)');
-  hGrad.addColorStop(1, 'rgba(15,23,42,0.12)');
+  hGrad.addColorStop(1, 'rgba(15,23,42,0.15)');
   ctx.fillStyle = hGrad;
   ctx.fillRect(0, 0, size, size);
 

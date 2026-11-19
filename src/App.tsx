@@ -16,6 +16,8 @@ import {
   COUNTERTOP_FINISHES,
   DEFAULT_PROJECT_SETTINGS,
   DOOR_STYLE_META,
+  FRIDGE_FRAME_CM,
+  FRIDGE_MODELS,
   HARDWARE_KIND_META,
   OPENING_DEFAULTS,
   SINK_MODELS,
@@ -103,6 +105,7 @@ import {
   BacksplashFinishId,
   BoxKind,
   CabinetFinishId,
+  CountertopEdgeProfile,
   CountertopFinishId,
   DoorKind,
   DoorStyle,
@@ -1225,6 +1228,77 @@ export default function App() {
 
   const handleEquipmentFinish = (equipmentFinish: EquipmentFinish) => {
     commitState(prev => ({ ...prev, settings: { ...(prev.settings ?? DEFAULT_PROJECT_SETTINGS), equipmentFinish } }), true);
+  };
+
+  const handleUpdateCountertopSettings = (patch: {
+    countertopCm?: number;
+    countertopTopEdge?: CountertopEdgeProfile;
+    countertopBottomEdge?: CountertopEdgeProfile;
+  }) => {
+    const next = cloneProject(project);
+    const curSettings = next.settings ?? { ...DEFAULT_PROJECT_SETTINGS };
+    next.settings = { ...curSettings, ...patch };
+    if (typeof patch.countertopCm === 'number') {
+      const clampedCm = Math.max(2, Math.min(8, Number(patch.countertopCm.toFixed(1))));
+      next.settings.countertopCm = clampedCm;
+      next.walls.forEach((w) => {
+        w.boxes.forEach((b) => {
+          if (b.type === 'base') {
+            b.countertopCm = clampedCm;
+          }
+        });
+      });
+    }
+    commitState(next, true);
+  };
+
+  const handleToggleSelectedFridgeFrame = (hasFrame: boolean) => {
+    if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
+    mutateActiveWall(
+      (w) => {
+        const b = w.boxes.find((x) => x.id === activeBox.id && x.type === 'fridge');
+        if (!b) return;
+        const cfg = FRIDGE_MODELS[b.fridgeModel || 'side-by-side'];
+        b.hasFridgeFrame = hasFrame;
+        b.height = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
+
+        const targetW = cfg.width + (hasFrame ? FRIDGE_FRAME_CM * 2 : 0);
+        const delta = targetW - b.width;
+        const candidateOffsets = [
+          Math.max(0, Math.min(w.length - targetW, Math.round((b.offsetX - delta / 2) / 5) * 5)),
+          Math.max(0, Math.min(w.length - targetW, b.offsetX)),
+          Math.max(0, Math.min(w.length - targetW, b.offsetX - delta)),
+        ];
+        const collides = (offX: number, width: number) =>
+          w.boxes.some(
+            (other) =>
+              other.id !== b.id &&
+              other.linkedToBoxId !== b.id &&
+              offX < other.offsetX + other.width - 1 &&
+              offX + width > other.offsetX + 1
+          );
+        const validOffX = candidateOffsets.find((ox) => !collides(ox, targetW));
+        if (validOffX !== undefined) {
+          b.offsetX = validOffX;
+          b.width = targetW;
+        }
+
+        const over = w.boxes.find((other) => other.linkedToBoxId === b.id);
+        if (over) {
+          const prevTop = over.elevY + over.height;
+          over.elevY = b.height;
+          over.height = Math.max(30, prevTop - b.height);
+          over.offsetX = b.offsetX;
+          over.width = b.width;
+          if (over.doors.length === 1) {
+            over.doors[0].startCm = 0;
+            over.doors[0].widthCm = over.width;
+          }
+        }
+      },
+      true,
+      hasFrame ? 'فریم ۵cm دور یخچال فعال شد' : 'فریم دور یخچال غیرفعال شد'
+    );
   };
 
   const handleChangeSelectedApplianceHood = (nextHood: 'hidden' | 'chimney') => {
@@ -3075,7 +3149,17 @@ export default function App() {
               }}
               onChangeSelectedApplianceSinkModel={handleChangeSelectedApplianceSinkModel}
               onChangeSelectedApplianceHood={handleChangeSelectedApplianceHood}
+              canSelectedGasUseChimney={
+                !(activeWall && selectedAppliance?.kind === 'gas' && requiresIntegratedHood(activeWall, selectedAppliance))
+              }
               onDeleteSelectedAppliance={handleDeleteSelectedAppliance}
+              equipmentFinish={project.settings?.equipmentFinish ?? 'silver'}
+              onSetEquipmentFinish={handleEquipmentFinish}
+              onToggleSelectedFridgeFrame={handleToggleSelectedFridgeFrame}
+              countertopCm={project.settings?.countertopCm ?? 4}
+              countertopTopEdge={project.settings?.countertopTopEdge ?? 'square'}
+              countertopBottomEdge={project.settings?.countertopBottomEdge ?? 'square'}
+              onUpdateCountertopSettings={handleUpdateCountertopSettings}
               onDeleteSelectedShelf={handleDeleteSelectedShelf}
               onQuickAddMiddleShelfForUnit={handleQuickAddMiddleShelfForUnit}
               onClearUnitShelves={handleClearUnitShelves}
@@ -3099,30 +3183,6 @@ export default function App() {
               ref={workspaceRef}
               className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden relative"
             >
-              {!dialogOpen && tool === 'select' && (selectedAppliance?.kind === 'gas' || selectedAppliance?.kind === 'dishwasher' || selectedAppliance?.kind === 'washing' || activeBox?.type === 'fridge') && (
-                <div role="group" aria-label="تنظیمات تجهیز انتخاب‌شده" data-testid="equipment-actions"
-                  className="absolute bottom-10 left-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1.5 text-xs shadow-md">
-                  {selectedAppliance?.kind === 'gas' ? (
-                    (['hidden', 'chimney'] as const).map(kind => (
-                      <button key={kind} type="button" onClick={() => handleChangeSelectedApplianceHood(kind)}
-                        disabled={kind === 'chimney' && Boolean(activeWall && requiresIntegratedHood(activeWall, selectedAppliance))}
-                        aria-pressed={(activeWall ? effectiveHoodKind(activeWall, selectedAppliance) : selectedAppliance.hoodKind) === kind}
-                        className="min-h-8 rounded-md border border-slate-200 px-2 aria-pressed:bg-indigo-100 aria-pressed:text-indigo-800 disabled:opacity-40">
-                        {kind === 'hidden' ? 'هود مخفی' : 'هود شومینه‌ای'}
-                      </button>
-                    ))
-                  ) : (
-                    <>
-                      <span className="px-1 font-semibold text-slate-700">رنگ تجهیزات</span>
-                      {([['silver', 'نقره‌ای'], ['white', 'سفید'], ['black', 'مشکی']] as const).map(([finish, label]) => (
-                        <button key={finish} type="button" onClick={() => handleEquipmentFinish(finish)}
-                          aria-pressed={(project.settings?.equipmentFinish ?? 'silver') === finish}
-                          className="min-h-8 rounded-md border border-slate-200 px-2 aria-pressed:bg-indigo-100 aria-pressed:text-indigo-800">{label}</button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )}
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
@@ -3716,6 +3776,8 @@ export default function App() {
                 projectCabinetFinish={project.cabinetFinish || 'warm-white'}
                 projectBacksplashFinish={project.backsplashFinish || 'calacatta-marble'}
                 projectCountertopFinish={project.countertopFinish || 'dark-quartz'}
+                countertopTopEdge={project.settings?.countertopTopEdge ?? 'square'}
+                countertopBottomEdge={project.settings?.countertopBottomEdge ?? 'square'}
                 onApplyFinish={handleApplyFinish}
                 hoodKind={hoodKind}
                 onTriggerAutoUnitHighlight={triggerAutoUnitHighlight}

@@ -4,6 +4,7 @@ import { isFrontPlacement, placementAt, type CanvasAction, type PlacementPoint }
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   APPLIANCE_CONFIGS,
+  APPLIANCE_PLACEABLE_ORDER,
   APRON_SINK_DEPTH_CM,
   BACKSPLASH_FINISHES,
   BACKSPLASH_FINISH_ORDER,
@@ -15,6 +16,7 @@ import {
   DOOR_STYLE_META,
   DOOR_STYLE_ORDER,
   DRAWER_PATTERNS,
+  EQUIPMENT_FINISH_META,
   FRAME_WIDTH_OPTIONS,
   FRIDGE_FRAME_CM,
   FRIDGE_MODELS,
@@ -22,11 +24,13 @@ import {
   GAS_WIDTH_OPTIONS,
   HARDWARE_KIND_META,
   HARDWARE_KIND_ORDER,
+  HOOD_MODELS,
   LIFT_PATTERNS,
   OPENING_DEFAULTS,
   SHEET_MM,
   SINK_MODELS,
   SINK_MODEL_ORDER,
+  WASHING_CAPACITIES,
 } from '../cad/constants';
 import {
   analyzeCornerJunction,
@@ -72,15 +76,18 @@ import {
   BoxKind,
   CabinetBox,
   CabinetFinishId,
+  CountertopEdgeProfile,
   CountertopFinishId,
   DesignStyle,
   DoorStyle,
   DoorUnit,
+  EquipmentFinish,
   FrameSide,
   FridgeModel,
   HandleItem,
   HandleStyle,
   HardwareKind,
+  HoodModel,
   MultiSelection,
   OpeningKind,
   Orientation,
@@ -94,7 +101,7 @@ import {
 import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
 import { PacedGestureStepper } from '../utils/gesturePacing';
 
-const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
+const APPLIANCE_ORDER: ApplianceKind[] = [...APPLIANCE_PLACEABLE_ORDER];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
 const HANDLE_STYLE_ORDER = HANDLE_STYLES.map(style => style.id);
@@ -114,6 +121,8 @@ interface FrontCanvasProps {
   selectedDoorId: string | null;
   selectedOpeningId: string | null;
   selectedApplianceId?: string | null;
+  selectedApplianceSubPart?: 'gas' | 'hood' | null;
+  selectedSurface?: 'countertop' | 'backsplash' | null;
   selectedShelfId?: string | null;
   selectedHandleId?: string | null;
   selectedFrameId?: string | null;
@@ -162,6 +171,9 @@ interface FrontCanvasProps {
   projectCabinetFinish: CabinetFinishId;
   projectBacksplashFinish: BacksplashFinishId;
   projectCountertopFinish: CountertopFinishId;
+  equipmentFinish?: EquipmentFinish;
+  countertopTopEdge?: CountertopEdgeProfile;
+  countertopBottomEdge?: CountertopEdgeProfile;
   onApplyFinish: (
     target: 'box' | 'all-cabinets' | 'backsplash' | 'countertop',
     wallId?: string,
@@ -198,7 +210,8 @@ interface FrontCanvasProps {
   onPanChange: (next: { x: number; y: number }) => void;
   onSelectBoxAndDoor: (boxId: string | null, doorId: string | null) => void;
   onSelectOpening: (openingId: string | null) => void;
-  onSelectAppliance?: (appId: string | null) => void;
+  onSelectAppliance?: (appId: string | null, subPart?: 'gas' | 'hood' | null) => void;
+  onSelectSurface?: (surface: 'countertop' | 'backsplash' | null) => void;
   onSelectShelf?: (boxId: string, shelfId: string | null) => void;
   onSelectHandle?: (boxId: string, handleId: string | null) => void;
   onSelectFrame?: (boxId: string, frameId: string | null) => void;
@@ -216,7 +229,7 @@ interface FrontCanvasProps {
   onSetMultiSelection: (m?: MultiSelection) => void;
   onBulkDelete?: () => void;
   onMutateWall: (mutator: (wall: Wall) => void, commitHistory?: boolean, toastMsg?: string) => void;
-  onPlaceAppliance: (boxId: string, desiredOffsetX: number, kindOverride?: ApplianceKind) => void;
+  onPlaceAppliance: (boxId: string, desiredOffsetX: number, kindOverride?: ApplianceKind, desiredElevY?: number) => void;
   onPlaceFridge: (desiredOffsetX: number) => void;
   onPlaceOpening: (desiredOffsetX: number, desiredElevY?: number) => void;
   onToast: (msg: string) => void;
@@ -356,6 +369,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   selectedDoorId,
   selectedOpeningId,
   selectedApplianceId,
+  selectedApplianceSubPart = null,
+  selectedSurface = null,
   selectedShelfId,
   selectedHandleId,
   selectedFrameId,
@@ -394,6 +409,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   projectCabinetFinish,
   projectBacksplashFinish,
   projectCountertopFinish,
+  equipmentFinish = 'silver',
+  countertopTopEdge = 'square',
+  countertopBottomEdge = 'square',
   onApplyFinish,
   hoodKind = 'chimney',
   onTriggerAutoUnitHighlight,
@@ -425,6 +443,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   onSelectBoxAndDoor,
   onSelectOpening,
   onSelectAppliance,
+  onSelectSurface,
   onSelectShelf,
   onSelectHandle,
   onSelectFrame,
@@ -509,6 +528,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     topElevCm: number;
     plinthCm: number;
     countertopCm: number;
+    elevY?: number;
+    heightCm?: number;
+    targetBoxType?: BoxKind;
     valid: boolean;
     reason?: string;
   } | null>(null);
@@ -746,7 +768,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     for (const b of baseBoxes) {
       const topElev = b.elevY + b.height;
       const prev = segs[segs.length - 1];
-      if (prev && Math.abs(prev.endCm - b.offsetX) <= 2 && prev.topElevCm === topElev) {
+      if (
+        prev &&
+        Math.abs(prev.endCm - b.offsetX) <= 2 &&
+        prev.topElevCm === topElev &&
+        prev.thicknessCm === b.countertopCm
+      ) {
         prev.endCm = Math.max(prev.endCm, b.offsetX + b.width);
       } else {
         segs.push({
@@ -890,7 +917,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       onGasWidthChange(widths[(idx + (dir > 0 ? 1 : widths.length - 1)) % widths.length]);
       return true;
     }
-    if (tool === 'appliance' && (anywhere || (contextBox && contextBox.type === 'base'))) {
+    if (tool === 'appliance' && (anywhere || (contextBox && (contextBox.type === 'base' || contextBox.type === 'tall')))) {
       const idx = Math.max(0, APPLIANCE_ORDER.indexOf(applianceKind));
       onApplianceKindChange(
         APPLIANCE_ORDER[(idx + (dir > 0 ? 1 : APPLIANCE_ORDER.length - 1)) % APPLIANCE_ORDER.length]
@@ -1193,11 +1220,17 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
   const resolveApplianceHover = (pt: { x: number; y: number }) => {
     if (!wall || (tool !== 'sink' && tool !== 'gas' && tool !== 'appliance')) return null;
     const clickXCm = (pt.x - originX) / s;
+    const kind: ApplianceKind =
+      tool === 'sink' ? 'sink' : tool === 'gas' ? 'gas' : applianceKind;
+    const supportsTall = kind === 'builtin-oven' || kind === 'microwave';
     const hit = hitTestBox(pt);
-    let targetBase: CabinetBox | undefined = hit && hit.box.type === 'base' ? hit.box : undefined;
+    let targetBase: CabinetBox | undefined =
+      hit && (hit.box.type === 'base' || (supportsTall && hit.box.type === 'tall'))
+        ? hit.box
+        : undefined;
     if (!targetBase) {
       targetBase = wall.boxes.find((b) => {
-        if (b.type !== 'base') return false;
+        if (!(b.type === 'base' || (supportsTall && b.type === 'tall'))) return false;
         const bx = originX + b.offsetX * s;
         const bw = b.width * s;
         const bh = b.height * s;
@@ -1207,8 +1240,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     }
     if (!targetBase) return null;
 
-    const kind: ApplianceKind =
-      tool === 'sink' ? 'sink' : tool === 'gas' ? 'gas' : applianceKind;
     const sMod = kind === 'sink' ? sinkModel : undefined;
     const wCm =
       kind === 'sink' && sMod
@@ -1216,12 +1247,26 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         : kind === 'gas'
         ? gasWidth
         : APPLIANCE_CONFIGS[kind].width;
+    const hCm = APPLIANCE_CONFIGS[kind].heightCm ?? 60;
 
     let minX = targetBase.offsetX;
     let maxX = targetBase.offsetX + targetBase.width - wCm;
     let offsetX = Math.max(minX, Math.min(maxX, Math.round((clickXCm - wCm / 2) / 5) * 5));
     let valid = maxX >= minX;
     let reason: string | undefined = valid ? undefined : 'عرض باکس کافی نیست';
+
+    let hoverElevY: number | undefined;
+    if (supportsTall) {
+      if (targetBase.type === 'tall') {
+        const rawElev = (floorY - pt.y) / s - hCm / 2;
+        hoverElevY = Math.max(
+          targetBase.elevY + targetBase.plinth + 6,
+          Math.min(targetBase.elevY + targetBase.height - hCm - 8, Math.round(rawElev / 5) * 5)
+        );
+      } else {
+        hoverElevY = targetBase.elevY + targetBase.plinth + 4;
+      }
+    }
 
     if (kind === 'sink' && sMod === 'corner-sink') {
       const junctions = detectCornerJunctions(allWalls, cornerOwners);
@@ -1261,7 +1306,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       (other) =>
         other.kind === kind &&
         (!sMod || other.sinkModel === sMod) &&
-        Math.abs(other.offsetX - offsetX) <= 3
+        Math.abs(other.offsetX - offsetX) <= 3 &&
+        (!supportsTall || Math.abs((other.elevY ?? 0) - (hoverElevY ?? 0)) <= 12)
     );
     if (alreadySameHere) return null;
 
@@ -1273,6 +1319,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       topElevCm: targetBase.elevY + targetBase.height,
       plinthCm: targetBase.plinth,
       countertopCm: targetBase.countertopCm,
+      elevY: hoverElevY,
+      heightCm: hCm,
+      targetBoxType: targetBase.type,
       valid,
       reason,
     };
@@ -1554,10 +1603,13 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     const appEl = target.closest('[data-app-id]');
     if (appEl && (tool === 'select' || tool === 'move')) {
       const appId = appEl.getAttribute('data-app-id');
+      const subPartAttr = target.closest('[data-app-subpart]')?.getAttribute('data-app-subpart');
+      const subPart: 'gas' | 'hood' | null =
+        subPartAttr === 'hood' ? 'hood' : subPartAttr === 'gas' ? 'gas' : null;
       const app = wall.appliances.find(a => a.id === appId);
       if (app) {
         onSetMultiSelection(undefined);
-        onSelectAppliance?.(app.id);
+        onSelectAppliance?.(app.id, subPart);
         if (tool !== 'move') return;
         e.currentTarget.setPointerCapture(e.pointerId);
         beginDrag(e.pointerId);
@@ -1927,6 +1979,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         }
       }
 
+      if (tool === 'select' && (target.closest('[data-countertop-zone]') || isPointOverCountertop(pt))) {
+        onSetMultiSelection(undefined);
+        onSelectSurface?.('countertop');
+        return;
+      }
+
       if (hit) {
         if (doorsHidden) {
           const unitBayEl = target.closest('[data-unit-bay]');
@@ -1978,9 +2036,17 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         };
         return;
       }
+
+      if (tool === 'select' && (target.closest('[data-backsplash-zone]') || isPointOverBacksplash(pt))) {
+        onSetMultiSelection(undefined);
+        onSelectSurface?.('backsplash');
+        return;
+      }
+
       onSelectBoxAndDoor(null, null);
       onSelectOpening(null);
       onSelectAppliance?.(null);
+      onSelectSurface?.(null);
       onSetMultiSelection(undefined);
       if (tool === 'move') return;
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -2157,7 +2223,14 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
     // 9. Sink / Gas / Appliance Tool (spaced double-click/tap required)
     if (tool === 'sink' || tool === 'gas' || tool === 'appliance') {
       const clickXCm = (pt.x - originX) / s;
-      let targetBase: CabinetBox | undefined = hit && hit.box.type === 'base' ? hit.box : undefined;
+      const targetKind: ApplianceKind =
+        tool === 'sink' ? 'sink' : tool === 'gas' ? 'gas' : applianceKind;
+      const supportsTall = targetKind === 'builtin-oven' || targetKind === 'microwave';
+
+      let targetBase: CabinetBox | undefined =
+        hit && (hit.box.type === 'base' || (supportsTall && hit.box.type === 'tall'))
+          ? hit.box
+          : undefined;
 
       if (!targetBase) {
         const clickedAppEl = target.closest('[data-app-id]');
@@ -2168,7 +2241,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
         if (clickedApp) {
           targetBase = wall.boxes.find(
             (b) =>
-              b.type === 'base' &&
+              (b.type === 'base' || (supportsTall && b.type === 'tall')) &&
               clickedApp.offsetX >= b.offsetX - 5 &&
               clickedApp.offsetX + clickedApp.width <= b.offsetX + b.width + 5
           );
@@ -2177,7 +2250,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
 
       if (!targetBase) {
         targetBase = wall.boxes.find((b) => {
-          if (b.type !== 'base') return false;
+          if (!(b.type === 'base' || (supportsTall && b.type === 'tall'))) return false;
           const bx = originX + b.offsetX * s;
           const bw = b.width * s;
           const bh = b.height * s;
@@ -2187,8 +2260,6 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       }
 
       if (targetBase) {
-        const targetKind: ApplianceKind =
-          tool === 'sink' ? 'sink' : tool === 'gas' ? 'gas' : applianceKind;
         const targetW =
           targetKind === 'sink'
             ? SINK_MODELS[sinkModel].width
@@ -2196,10 +2267,25 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
             ? gasWidth
             : APPLIANCE_CONFIGS[targetKind].width;
         const desiredOffset = clickXCm - targetW / 2;
-        onPlaceAppliance(targetBase.id, desiredOffset, targetKind);
+        const hCm = APPLIANCE_CONFIGS[targetKind].heightCm ?? 60;
+        const desiredElevY =
+          supportsTall && targetBase.type === 'tall'
+            ? Math.max(
+                targetBase.elevY + targetBase.plinth + 6,
+                Math.min(
+                  targetBase.elevY + targetBase.height - hCm - 8,
+                  Math.round(((floorY - pt.y) / s - hCm / 2) / 5) * 5
+                )
+              )
+            : undefined;
+        onPlaceAppliance(targetBase.id, desiredOffset, targetKind, desiredElevY);
         setAppHover(null);
       } else {
-        onToast('لطفاً روی یک باکس زمینی کلیک کنید');
+        onToast(
+          supportsTall
+            ? 'لطفاً روی یک باکس زمینی یا ایستاده کلیک کنید'
+            : 'لطفاً روی یک باکس زمینی کلیک کنید'
+        );
       }
       return;
     }
@@ -2921,10 +3007,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       <g key={door.id} opacity={opacity} data-door-id={door.id} data-box-id={box.id}>
         {door.kind === 'fridge' ? (
           (() => {
-            const fm = box.fridgeModel || (door.widthCm >= 110 ? 'twin' : door.widthCm <= 78 ? 'single' : 'side-by-side');
+            const fm = box.fridgeModel || (door.widthCm >= 110 ? 'twin' : door.widthCm <= 66 ? 'single-door' : door.widthCm <= 78 ? 'single' : 'side-by-side');
             const selStroke = isDoorSel ? '#4f46e5' : '#334155';
             const grillH = Math.max(5, Math.min(11, dh * 0.055));
             const leafH = dh - grillH - 2;
+            const eqLabelFill = equipmentFinish === 'black' ? '#f8fafc' : '#334155';
+            const eqStroke = equipmentFinish === 'black' ? '#475569' : '#94a3b8';
             const renderVentSlots = (vx: number, vw: number, vy: number, vh: number) => (
               <g pointerEvents="none">
                 <rect x={vx} y={vy} width={vw} height={vh} rx={1} fill="#1e293b" />
@@ -2960,20 +3048,36 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               </g>
             );
 
+            if (fm === 'single-door') {
+              return (
+                <>
+                  <rect x={dx} y={dy} width={dw} height={dh} rx={3} fill="#1e293b" stroke={selStroke} strokeWidth={isDoorSel ? 2 : 1.4} />
+                  <rect x={dx + 1.5} y={dy + 1.5} width={dw - 3} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke={eqStroke} strokeWidth={0.9} />
+                  <rect x={dx + 3} y={dy + 2} width={Math.max(4, dw * 0.14)} height={3} rx={1} fill="#475569" />
+                  <rect x={dx + dw - Math.max(4, dw * 0.14) - 3} y={dy + 2} width={Math.max(4, dw * 0.14)} height={3} rx={1} fill="#475569" />
+                  {renderHandleBar(dx + 9, dy + leafH * 0.18, dy + leafH * 0.72)}
+                  {renderVentSlots(dx + 2, dw - 4, dy + dh - grillH, grillH - 1)}
+                  <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={13} fontWeight={800} fill={eqLabelFill} textAnchor="middle" pointerEvents="none">
+                    تک‌در ({widthText})
+                  </text>
+                </>
+              );
+            }
+
             if (fm === 'single') {
               const splitY = dy + leafH * 0.66;
               return (
                 <>
                   <rect x={dx} y={dy} width={dw} height={dh} rx={3} fill="#1e293b" stroke={selStroke} strokeWidth={isDoorSel ? 2 : 1.4} />
-                  <rect x={dx + 1.5} y={dy + 1.5} width={dw - 3} height={leafH * 0.66 - 2.5} rx={2} fill="url(#fridge-metal-grad)" stroke="#94a3b8" strokeWidth={0.8} />
-                  <rect x={dx + 1.5} y={splitY + 1} width={dw - 3} height={leafH * 0.34 - 1.5} rx={2} fill="url(#fridge-metal-grad)" stroke="#94a3b8" strokeWidth={0.8} />
+                  <rect x={dx + 1.5} y={dy + 1.5} width={dw - 3} height={leafH * 0.66 - 2.5} rx={2} fill="url(#fridge-metal-grad)" stroke={eqStroke} strokeWidth={0.8} />
+                  <rect x={dx + 1.5} y={splitY + 1} width={dw - 3} height={leafH * 0.34 - 1.5} rx={2} fill="url(#fridge-metal-grad)" stroke={eqStroke} strokeWidth={0.8} />
                   <rect x={dx + 3} y={dy + 2} width={Math.max(4, dw * 0.14)} height={3} rx={1} fill="#475569" />
                   <rect x={dx + dw - Math.max(4, dw * 0.14) - 3} y={dy + 2} width={Math.max(4, dw * 0.14)} height={3} rx={1} fill="#475569" />
                   {renderHandleBar(dx + 8, dy + leafH * 0.22, dy + leafH * 0.56)}
                   {renderHandleBar(dx + 8, splitY + 8, dy + leafH - 8)}
                   {renderVentSlots(dx + 2, dw - 4, dy + dh - grillH, grillH - 1)}
-                  <text x={dx + dw / 2} y={dy + leafH * 0.14} fontSize={13} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
-                    یخچال ({widthText})
+                  <text x={dx + dw / 2} y={dy + leafH * 0.14} fontSize={13} fontWeight={800} fill={eqLabelFill} textAnchor="middle" pointerEvents="none">
+                    فریزر پایین ({widthText})
                   </text>
                 </>
               );
@@ -2983,13 +3087,13 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               return (
                 <>
                   <rect x={dx} y={dy} width={dw} height={dh} rx={3} fill="#1e293b" stroke={selStroke} strokeWidth={isDoorSel ? 2 : 1.4} />
-                  <rect x={dx + 1.5} y={dy + 1.5} width={halfW} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke="#94a3b8" strokeWidth={0.8} />
-                  <rect x={dx + 3.5 + halfW} y={dy + 1.5} width={halfW} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke="#94a3b8" strokeWidth={0.8} />
+                  <rect x={dx + 1.5} y={dy + 1.5} width={halfW} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke={eqStroke} strokeWidth={0.8} />
+                  <rect x={dx + 3.5 + halfW} y={dy + 1.5} width={halfW} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke={eqStroke} strokeWidth={0.8} />
                   {renderHandleBar(dx + halfW - 6, dy + leafH * 0.24, dy + leafH * 0.64)}
                   {renderHandleBar(dx + 3.5 + halfW + 7, dy + leafH * 0.24, dy + leafH * 0.64)}
                   {renderDispenser(dx + halfW * 0.28, dy + leafH * 0.34, Math.max(10, halfW * 0.42), Math.max(18, leafH * 0.2))}
                   {renderVentSlots(dx + 2, dw - 4, dy + dh - grillH, grillH - 1)}
-                  <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={13} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
+                  <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={13} fontWeight={800} fill={eqLabelFill} textAnchor="middle" pointerEvents="none">
                     دوقلو ({widthText})
                   </text>
                 </>
@@ -3002,13 +3106,13 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
             return (
               <>
                 <rect x={dx} y={dy} width={dw} height={dh} rx={3} fill="#1e293b" stroke={selStroke} strokeWidth={isDoorSel ? 2 : 1.4} />
-                <rect x={dx + 1.5} y={dy + 1.5} width={leftW} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke="#94a3b8" strokeWidth={0.8} />
-                <rect x={sbsSplit + 1} y={dy + 1.5} width={rightW} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke="#94a3b8" strokeWidth={0.8} />
+                <rect x={dx + 1.5} y={dy + 1.5} width={leftW} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke={eqStroke} strokeWidth={0.8} />
+                <rect x={sbsSplit + 1} y={dy + 1.5} width={rightW} height={leafH - 1} rx={2} fill="url(#fridge-metal-grad)" stroke={eqStroke} strokeWidth={0.8} />
                 {renderDispenser(dx + leftW * 0.22, dy + leafH * 0.3, Math.max(10, leftW * 0.54), Math.max(20, leafH * 0.22))}
                 {renderHandleBar(sbsSplit - 5, dy + leafH * 0.24, dy + leafH * 0.66)}
                 {renderHandleBar(sbsSplit + 6, dy + leafH * 0.24, dy + leafH * 0.66)}
                 {renderVentSlots(dx + 2, dw - 4, dy + dh - grillH, grillH - 1)}
-                <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={13} fontWeight={800} fill="#334155" textAnchor="middle" pointerEvents="none">
+                <text x={dx + dw / 2} y={dy + leafH * 0.13} fontSize={13} fontWeight={800} fill={eqLabelFill} textAnchor="middle" pointerEvents="none">
                   ساید ({widthText})
                 </text>
               </>
@@ -3443,10 +3547,28 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
       >
         <defs>
           <linearGradient id="fridge-metal-grad" x1="0%" y1="0%" x2="100%" y2="15%">
-            <stop offset="0%" stopColor="#e2e8f0" />
-            <stop offset="35%" stopColor="#cbd5e1" />
-            <stop offset="70%" stopColor="#94a3b8" />
-            <stop offset="100%" stopColor="#cbd5e1" />
+            {equipmentFinish === 'white' ? (
+              <>
+                <stop offset="0%" stopColor="#ffffff" />
+                <stop offset="45%" stopColor="#f8fafc" />
+                <stop offset="80%" stopColor="#e2e8f0" />
+                <stop offset="100%" stopColor="#f1f5f9" />
+              </>
+            ) : equipmentFinish === 'black' ? (
+              <>
+                <stop offset="0%" stopColor="#334155" />
+                <stop offset="40%" stopColor="#1e293b" />
+                <stop offset="75%" stopColor="#0f172a" />
+                <stop offset="100%" stopColor="#1e293b" />
+              </>
+            ) : (
+              <>
+                <stop offset="0%" stopColor="#e2e8f0" />
+                <stop offset="35%" stopColor="#cbd5e1" />
+                <stop offset="70%" stopColor="#94a3b8" />
+                <stop offset="100%" stopColor="#cbd5e1" />
+              </>
+            )}
           </linearGradient>
           <linearGradient id="fridge-glass-disp" x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor="#0f172a" />
@@ -3554,6 +3676,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               const bw = Math.max(4, (sp.endCm - sp.startCm) * s);
               const by = floorY - sp.topY * s;
               const bh = Math.max(6, (sp.topY - sp.botY) * s);
+              const isBsSel = selectedSurface === 'backsplash' || (tool === 'finish' && hoverFinishTarget === 'backsplash');
               return (
                 <rect
                   key={`bs_${idx}`}
@@ -3562,10 +3685,12 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   width={bw}
                   height={bh}
                   fill="url(#backsplash-tile-pattern)"
-                  stroke={tool === 'finish' && hoverFinishTarget === 'backsplash' ? '#4f46e5' : BACKSPLASH_FINISHES[projectBacksplashFinish].groutHex}
-                  strokeWidth={tool === 'finish' && hoverFinishTarget === 'backsplash' ? 1.8 : 0.8}
+                  stroke={isBsSel ? '#4f46e5' : BACKSPLASH_FINISHES[projectBacksplashFinish].groutHex}
+                  strokeWidth={isBsSel ? 2.2 : 0.8}
+                  strokeDasharray={selectedSurface === 'backsplash' ? '5,3' : undefined}
                   data-backsplash-zone="true"
-                  style={{ cursor: tool === 'finish' ? 'pointer' : undefined }}
+                  pointerEvents={tool === 'finish' || tool === 'select' ? 'auto' : 'none'}
+                  style={{ cursor: tool === 'finish' || tool === 'select' ? 'pointer' : undefined }}
                 />
               );
             })}
@@ -4537,21 +4662,66 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               const ch = seg.thicknessCm * s;
               const cy = floorY - seg.topElevCm * s;
               const ctCfg = COUNTERTOP_FINISHES[projectCountertopFinish];
+              const topRound = countertopTopEdge === 'round';
+              const botRound = countertopBottomEdge === 'round';
+              const bothRound = topRound && botRound;
+              const rTop = topRound ? Math.min(ch * (bothRound ? 0.45 : 0.65), cw * 0.25, 8) : 0;
+              const rBot = botRound ? Math.min(ch * (bothRound ? 0.45 : 0.65), cw * 0.25, 8) : 0;
+              const x0 = cx;
+              const x1 = cx + cw;
+              const y0 = cy;
+              const y1 = cy + ch;
+              const pathD = [
+                `M ${x0 + rTop} ${y0}`,
+                `L ${x1 - rTop} ${y0}`,
+                rTop > 0 ? `Q ${x1} ${y0} ${x1} ${y0 + rTop}` : `L ${x1} ${y0}`,
+                `L ${x1} ${y1 - rBot}`,
+                rBot > 0 ? `Q ${x1} ${y1} ${x1 - rBot} ${y1}` : `L ${x1} ${y1}`,
+                `L ${x0 + rBot} ${y1}`,
+                rBot > 0 ? `Q ${x0} ${y1} ${x0} ${y1 - rBot}` : `L ${x0} ${y1}`,
+                `L ${x0} ${y0 + rTop}`,
+                rTop > 0 ? `Q ${x0} ${y0} ${x0 + rTop} ${y0}` : `L ${x0} ${y0}`,
+                'Z',
+              ].join(' ');
               return (
-                <rect
-                  key={idx}
-                  x={cx - 1}
-                  y={cy}
-                  width={cw + 2}
-                  height={ch}
-                  rx={1.5}
-                  fill={ctCfg.hex}
-                  stroke={tool === 'finish' && hoverFinishTarget === 'countertop' ? '#4f46e5' : ctCfg.veinHex}
-                  strokeWidth={tool === 'finish' && hoverFinishTarget === 'countertop' ? 1.8 : 1}
-                  data-countertop-zone="true"
-                  pointerEvents={tool === 'finish' ? 'auto' : 'none'}
-                  style={{ cursor: tool === 'finish' ? 'pointer' : undefined }}
-                />
+                <g key={idx}>
+                  <path
+                    d={pathD}
+                    fill={ctCfg.hex}
+                    stroke={selectedSurface === 'countertop' || (tool === 'finish' && hoverFinishTarget === 'countertop') ? '#4f46e5' : ctCfg.veinHex}
+                    strokeWidth={selectedSurface === 'countertop' || (tool === 'finish' && hoverFinishTarget === 'countertop') ? 2.2 : 1}
+                    strokeDasharray={selectedSurface === 'countertop' ? '5,3' : undefined}
+                    data-countertop-zone="true"
+                    data-top-edge={topRound ? 'round' : 'square'}
+                    data-bottom-edge={botRound ? 'round' : 'square'}
+                    pointerEvents={tool === 'finish' || tool === 'select' ? 'auto' : 'none'}
+                    style={{ cursor: tool === 'finish' || tool === 'select' ? 'pointer' : undefined }}
+                  />
+                  {topRound && ch >= 4 && (
+                    <line
+                      x1={x0 + rTop + 1}
+                      x2={x1 - rTop - 1}
+                      y1={y0 + Math.max(1.2, ch * 0.22)}
+                      y2={y0 + Math.max(1.2, ch * 0.22)}
+                      stroke="rgba(255,255,255,0.45)"
+                      strokeWidth={Math.max(1, Math.min(2.5, ch * 0.16))}
+                      strokeLinecap="round"
+                      pointerEvents="none"
+                    />
+                  )}
+                  {botRound && ch >= 4 && (
+                    <line
+                      x1={x0 + rBot + 1}
+                      x2={x1 - rBot - 1}
+                      y1={y1 - Math.max(1.2, ch * 0.2)}
+                      y2={y1 - Math.max(1.2, ch * 0.2)}
+                      stroke="rgba(15,23,42,0.28)"
+                      strokeWidth={Math.max(1, Math.min(2.5, ch * 0.16))}
+                      strokeLinecap="round"
+                      pointerEvents="none"
+                    />
+                  )}
+                </g>
               );
             })}
 
@@ -4617,30 +4787,73 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
               );
             })}
 
-            {/* لوازم آشپزخانه: سینک، گاز، ظرفشویی، لباسشویی و هود */}
+            {/* لوازم آشپزخانه: سینک، گاز، ظرفشویی، لباسشویی، هود و فر/ماکروفر */}
             {wall.appliances.map((app: ApplianceItem) => {
+              const isBuiltInUnit = app.kind === 'builtin-oven' || app.kind === 'microwave';
               const underBox =
                 wall.boxes.find(
                   (b) =>
-                    b.type === 'base' &&
+                    (b.type === 'base' || (isBuiltInUnit && b.type === 'tall')) &&
                     app.offsetX >= b.offsetX - 5 &&
                     app.offsetX + app.width <= b.offsetX + b.width + 5
                 ) || wall.boxes.find((b) => b.type === 'base');
               const topY = underBox
                 ? floorY - (underBox.elevY + underBox.height) * s
                 : floorY - 86 * s;
-              const plinthPx = (underBox?.plinth ?? 10) * s;
               const topPad = (underBox?.countertopCm ?? 4) * s;
-              const bodyBotY = floorY - plinthPx;
               const ax = originX + app.offsetX * s;
               const aw = app.width * s;
 
               const isAppMulti = Boolean(multiSelection?.applianceIds.includes(app.id));
               const isAppSel = app.id === selectedApplianceId || isAppMulti;
+              const isHoodSel =
+                app.kind === 'gas' &&
+                app.id === selectedApplianceId &&
+                selectedApplianceSubPart === 'hood';
+              const isGasProfileSel =
+                isAppSel && !(app.kind === 'gas' && app.id === selectedApplianceId && selectedApplianceSubPart === 'hood');
+
               const sModel: SinkModel = app.sinkModel || 'steel-2';
+              const sFin = app.sinkFinish || 'silver';
+              const sinkMainFill =
+                sFin === 'black' ? '#1e293b' : sFin === 'white' ? '#f8fafc' : '#0f766e';
+              const sinkStroke =
+                sFin === 'black' ? '#020617' : sFin === 'white' ? '#94a3b8' : sModel === 'ceramic-apron' ? '#0284c7' : '#0f766e';
               const rimH = Math.max(1.5, 0.9 * s);
               const faucetH = Math.max(10, 9 * s);
               const apronH = Math.max(topPad + 6 * s, APRON_SINK_DEPTH_CM * s);
+
+              const eqBg =
+                equipmentFinish === 'black'
+                  ? '#1e293b'
+                  : equipmentFinish === 'white'
+                  ? '#f8fafc'
+                  : '#e2e8f0';
+              const eqBorder =
+                equipmentFinish === 'black'
+                  ? '#0f172a'
+                  : equipmentFinish === 'white'
+                  ? '#94a3b8'
+                  : '#475569';
+              const eqText = equipmentFinish === 'black' ? '#f8fafc' : '#1e293b';
+
+              const hKind = effectiveHoodKind(wall, app);
+              const hMod = app.hoodModel || 'chimney';
+              const hFin = app.hoodFinish || 'silver';
+              const hoodFill =
+                hFin === 'black' ? '#1e293b' : hFin === 'white' ? '#f8fafc' : '#cbd5e1';
+              const hoodTextFill = hFin === 'black' ? '#f8fafc' : '#334155';
+
+              const appHCm = APPLIANCE_CONFIGS[app.kind].heightCm ?? 60;
+              const builtInElevCm =
+                app.elevY ??
+                (underBox?.type === 'tall'
+                  ? app.kind === 'microwave'
+                    ? 135
+                    : 85
+                  : (underBox?.elevY ?? 0) + (underBox?.plinth ?? 10) + 4);
+              const builtInTopY = floorY - (builtInElevCm + appHCm) * s;
+              const builtInH = appHCm * s;
 
               return (
                 <g
@@ -4649,7 +4862,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                   data-app-id={app.id}
                   data-app-kind={app.kind}
                 >
-                  {isAppSel && (
+                  {isGasProfileSel && !isBuiltInUnit && (
                     <rect
                       x={ax - 2}
                       y={
@@ -4675,6 +4888,20 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                       pointerEvents="none"
                     />
                   )}
+                  {isAppSel && isBuiltInUnit && (
+                    <rect
+                      x={ax - 2}
+                      y={builtInTopY - 2}
+                      width={aw + 4}
+                      height={builtInH + 4}
+                      rx={4}
+                      fill="rgba(79,70,229,0.10)"
+                      stroke="#4f46e5"
+                      strokeWidth={2}
+                      strokeDasharray="4,2"
+                      pointerEvents="none"
+                    />
+                  )}
                   {app.kind === 'sink' ? (
                     <>
                       {/* سطح کلیک وسیع و نامرئی روی سینک و شیر */}
@@ -4693,8 +4920,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                             y={topY - rimH}
                             width={aw}
                             height={rimH}
-                            fill="#f8fafc"
-                            stroke="#0284c7"
+                            fill={sFin === 'black' ? '#1e293b' : '#f8fafc'}
+                            stroke={sinkStroke}
                             strokeWidth={1}
                           />
                           {/* پیش‌آمدگی سرامیکی ۲۰cm با برش درب زیر آن */}
@@ -4704,8 +4931,8 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                             width={Math.max(8, aw - 3)}
                             height={apronH}
                             rx={2.5}
-                            fill="#ffffff"
-                            stroke="#0284c7"
+                            fill={sFin === 'black' ? '#1e293b' : '#ffffff'}
+                            stroke={sinkStroke}
                             strokeWidth={1.5}
                           />
                           <text
@@ -4713,7 +4940,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                             y={topY + apronH * 0.62}
                             fontSize={13}
                             fontWeight={800}
-                            fill="#0369a1"
+                            fill={sFin === 'black' ? '#f8fafc' : '#0369a1'}
                             textAnchor="middle"
                             pointerEvents="none"
                           >
@@ -4726,7 +4953,9 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           y={topY - rimH}
                           width={aw}
                           height={rimH}
-                          fill="#0f766e"
+                          fill={sinkMainFill}
+                          stroke={sFin === 'white' ? '#64748b' : undefined}
+                          strokeWidth={sFin === 'white' ? 0.6 : undefined}
                           rx={0.8}
                         />
                       )}
@@ -4738,7 +4967,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           topY - rimH - faucetH
                         }, ${ax + aw * 0.56} ${topY - rimH - faucetH * 0.58}`}
                         fill="none"
-                        stroke={sModel === 'ceramic-apron' ? '#0284c7' : '#0f766e'}
+                        stroke={sinkStroke}
                         strokeWidth={Math.max(1.6, 1.1 * s)}
                         strokeLinecap="round"
                       />
@@ -4748,7 +4977,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           y={topY - rimH - faucetH - 3}
                           fontSize={13}
                           fontWeight={800}
-                          fill="#0f766e"
+                          fill={sinkStroke}
                           textAnchor="middle"
                           pointerEvents="none"
                         >
@@ -4758,97 +4987,255 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     </>
                   ) : app.kind === 'gas' ? (
                     <>
-                      {/* سطح کلیک وسیع و نامرئی روی گاز صفحه‌ای و هود متصل */}
-                      <rect
-                        x={ax}
-                        y={topY - 18}
-                        width={aw}
-                        height={28}
-                        fill="transparent"
-                      />
-                      <rect
-                        x={ax + aw * 0.08}
-                        y={effectiveHoodKind(wall, app) === 'chimney' ? floorY - 220 * s : floorY - 156 * s}
-                        width={aw * 0.84}
-                        height={effectiveHoodKind(wall, app) === 'chimney' ? 74 * s : 22}
-                        fill="transparent"
-                      />
-                      {/* پروفیل بسیار ظریف و کم‌ارتفاع گاز صفحه‌ای */}
-                      <rect
-                        x={ax}
-                        y={topY - Math.max(1.6, 1.1 * s)}
-                        width={aw}
-                        height={Math.max(1.6, 1.1 * s)}
-                        fill={app.width <= 40 ? '#020617' : '#0f172a'}
-                        rx={0.8}
-                      />
-                      {app.width <= 40 ? (
-                        <>
-                          <circle cx={ax + aw * 0.34} cy={topY - Math.max(2.6, 1.6 * s)} r={Math.max(2, 1.5 * s)} fill="none" stroke="#38bdf8" strokeWidth={1.2} />
-                          <circle cx={ax + aw * 0.66} cy={topY - Math.max(2.6, 1.6 * s)} r={Math.max(2, 1.5 * s)} fill="none" stroke="#38bdf8" strokeWidth={1.2} />
-                        </>
-                      ) : (
-                        <line
-                          x1={ax + aw * 0.14}
-                          y1={topY - Math.max(2.6, 1.7 * s)}
-                          x2={ax + aw * 0.86}
-                          y2={topY - Math.max(2.6, 1.7 * s)}
-                          stroke="#475569"
-                          strokeWidth={1.4}
-                          strokeDasharray="6,7"
+                      {/* بخش گاز صفحه‌ای */}
+                      <g data-app-id={app.id} data-app-subpart="gas">
+                        <rect
+                          x={ax}
+                          y={topY - 18}
+                          width={aw}
+                          height={28}
+                          fill="transparent"
                         />
-                      )}
-                      {isAppSel && (
-                        <g pointerEvents="none">
-                          <rect
-                            x={ax + aw / 2 - 22}
-                            y={topY - 20}
-                            width={44}
-                            height={13}
-                            rx={3}
-                            fill="#4f46e5"
+                        <rect
+                          x={ax}
+                          y={topY - Math.max(1.6, 1.1 * s)}
+                          width={aw}
+                          height={Math.max(1.6, 1.1 * s)}
+                          fill={app.width <= 40 ? '#020617' : '#0f172a'}
+                          rx={0.8}
+                        />
+                        {app.width <= 40 ? (
+                          <>
+                            <circle cx={ax + aw * 0.34} cy={topY - Math.max(2.6, 1.6 * s)} r={Math.max(2, 1.5 * s)} fill="none" stroke="#38bdf8" strokeWidth={1.2} />
+                            <circle cx={ax + aw * 0.66} cy={topY - Math.max(2.6, 1.6 * s)} r={Math.max(2, 1.5 * s)} fill="none" stroke="#38bdf8" strokeWidth={1.2} />
+                          </>
+                        ) : (
+                          <line
+                            x1={ax + aw * 0.14}
+                            y1={topY - Math.max(2.6, 1.7 * s)}
+                            x2={ax + aw * 0.86}
+                            y2={topY - Math.max(2.6, 1.7 * s)}
+                            stroke="#475569"
+                            strokeWidth={1.4}
+                            strokeDasharray="6,7"
                           />
+                        )}
+                        {isGasProfileSel && (
+                          <g pointerEvents="none">
+                            <rect
+                              x={ax + aw / 2 - 22}
+                              y={topY - 20}
+                              width={44}
+                              height={13}
+                              rx={3}
+                              fill="#4f46e5"
+                            />
+                            <text
+                              x={ax + aw / 2}
+                              y={topY - 11}
+                              fontSize={13}
+                              fontWeight={800}
+                              fill="#ffffff"
+                              textAnchor="middle"
+                            >
+                              {`↔ ${app.width}cm`}
+                            </text>
+                          </g>
+                        )}
+                      </g>
+
+                      {/* بخش هود متصل بالای گاز (قابل کلیک مستقیم) */}
+                      <g
+                        data-app-id={app.id}
+                        data-app-subpart="hood"
+                        style={{ cursor: tool === 'eraser' ? 'not-allowed' : 'pointer' }}
+                      >
+                        <rect
+                          x={ax + aw * 0.05}
+                          y={hKind === 'chimney' ? floorY - 230 * s : floorY - 158 * s}
+                          width={aw * 0.9}
+                          height={hKind === 'chimney' ? 84 * s : 24}
+                          fill="transparent"
+                        />
+                        {isHoodSel && (
+                          <rect
+                            x={ax + aw * 0.05}
+                            y={hKind === 'chimney' ? floorY - 224 * s : floorY - 154 * s}
+                            width={aw * 0.9}
+                            height={hKind === 'chimney' ? 78 * s : 14}
+                            rx={4}
+                            fill="rgba(79,70,229,0.10)"
+                            stroke="#4f46e5"
+                            strokeWidth={2}
+                            strokeDasharray="4,2"
+                            pointerEvents="none"
+                          />
+                        )}
+                        {hKind === 'chimney' ? (
+                          hMod === 'angled' ? (
+                            <g>
+                              <rect
+                                x={ax + aw * 0.36}
+                                y={floorY - 222 * s}
+                                width={aw * 0.28}
+                                height={48 * s}
+                                fill={hoodFill}
+                                stroke={isHoodSel ? '#4f46e5' : '#475569'}
+                                strokeWidth={isHoodSel ? 2 : 1.3}
+                              />
+                              <polygon
+                                points={`${ax + aw * 0.14},${floorY - 152 * s} ${ax + aw * 0.86},${floorY - 152 * s} ${ax + aw * 0.78},${floorY - 186 * s} ${ax + aw * 0.22},${floorY - 186 * s}`}
+                                fill={hFin === 'white' ? '#f8fafc' : '#0f172a'}
+                                stroke={isHoodSel ? '#4f46e5' : '#334155'}
+                                strokeWidth={isHoodSel ? 2 : 1.4}
+                              />
+                            </g>
+                          ) : hMod === 'cylinder' ? (
+                            <g>
+                              <rect
+                                x={ax + aw * 0.3}
+                                y={floorY - 222 * s}
+                                width={aw * 0.4}
+                                height={68 * s}
+                                rx={3}
+                                fill={hoodFill}
+                                stroke={isHoodSel ? '#4f46e5' : '#475569'}
+                                strokeWidth={isHoodSel ? 2 : 1.4}
+                              />
+                              <text
+                                x={ax + aw / 2}
+                                y={floorY - 184 * s}
+                                fontSize={11}
+                                fontWeight={800}
+                                fill={hoodTextFill}
+                                textAnchor="middle"
+                                pointerEvents="none"
+                              >
+                                استوانه‌ای
+                              </text>
+                            </g>
+                          ) : hMod === 'box' ? (
+                            <g>
+                              <rect
+                                x={ax + aw * 0.1}
+                                y={floorY - 196 * s}
+                                width={aw * 0.8}
+                                height={44 * s}
+                                rx={2}
+                                fill={hoodFill}
+                                stroke={isHoodSel ? '#4f46e5' : '#475569'}
+                                strokeWidth={isHoodSel ? 2 : 1.4}
+                              />
+                              <text
+                                x={ax + aw / 2}
+                                y={floorY - 170 * s}
+                                fontSize={11}
+                                fontWeight={800}
+                                fill={hoodTextFill}
+                                textAnchor="middle"
+                                pointerEvents="none"
+                              >
+                                اکسپوز
+                              </text>
+                            </g>
+                          ) : (
+                            <path
+                              d={`M ${ax + aw * 0.1} ${floorY - 150 * s} L ${ax + aw * 0.9} ${
+                                floorY - 150 * s
+                              } L ${ax + aw * 0.65} ${floorY - 180 * s} L ${ax + aw * 0.65} ${
+                                floorY - 220 * s
+                              } L ${ax + aw * 0.35} ${floorY - 220 * s} L ${ax + aw * 0.35} ${
+                                floorY - 180 * s
+                              } Z`}
+                              fill={hoodFill}
+                              stroke={isHoodSel ? '#4f46e5' : '#475569'}
+                              strokeWidth={isHoodSel ? 2 : 1.4}
+                            />
+                          )
+                        ) : (
+                          <rect
+                            x={ax + aw * 0.1}
+                            y={floorY - 148 * s}
+                            width={aw * 0.8}
+                            height={4.5}
+                            fill={isHoodSel ? '#4f46e5' : hFin === 'black' ? '#0f172a' : hFin === 'white' ? '#e2e8f0' : '#475569'}
+                            stroke={isHoodSel ? '#4f46e5' : '#334155'}
+                            strokeWidth={0.8}
+                            rx={1}
+                          />
+                        )}
+                      </g>
+                    </>
+                  ) : isBuiltInUnit ? (
+                    // فر توکار و ماکروفر توکار (زمینی زیر گاز یا قدی)
+                    (() => {
+                      const lit = Boolean(app.ovenLightOn);
+                      const winPadX = Math.max(4, aw * 0.12);
+                      const ctrlH = Math.max(7, builtInH * 0.2);
+                      const winY = builtInTopY + ctrlH + 2;
+                      const winH = Math.max(10, builtInH - ctrlH - 6);
+                      return (
+                        <>
+                          <rect
+                            x={ax + 1.5}
+                            y={builtInTopY + 1}
+                            width={Math.max(8, aw - 3)}
+                            height={Math.max(10, builtInH - 2)}
+                            rx={3}
+                            fill={eqBg}
+                            stroke={isAppSel ? '#4f46e5' : eqBorder}
+                            strokeWidth={isAppSel ? 2 : 1.4}
+                          />
+                          {/* نوار کنترل بالایی */}
+                          <rect
+                            x={ax + 3}
+                            y={builtInTopY + 2.5}
+                            width={Math.max(6, aw - 6)}
+                            height={Math.max(4, ctrlH - 2)}
+                            rx={1.5}
+                            fill="#0f172a"
+                          />
+                          <circle cx={ax + aw * 0.25} cy={builtInTopY + 2.5 + Math.max(4, ctrlH - 2) / 2} r={2} fill="#cbd5e1" />
+                          <circle cx={ax + aw * 0.75} cy={builtInTopY + 2.5 + Math.max(4, ctrlH - 2) / 2} r={2} fill="#cbd5e1" />
+                          {/* پنجره شیشه‌ای داخلی (با نور گرم هنگام روشن بودن چراغ) */}
+                          <rect
+                            x={ax + winPadX}
+                            y={winY}
+                            width={Math.max(6, aw - winPadX * 2)}
+                            height={winH}
+                            rx={2.5}
+                            fill={lit ? '#fbbf24' : '#0f172a'}
+                            fillOpacity={lit ? 0.85 : 0.92}
+                            stroke={lit ? '#f59e0b' : '#475569'}
+                            strokeWidth={lit ? 1.8 : 1.1}
+                          />
+                          {app.kind === 'builtin-oven' && winH > 14 && (
+                            <>
+                              <line x1={ax + winPadX + 3} y1={winY + winH * 0.38} x2={ax + aw - winPadX - 3} y2={winY + winH * 0.38} stroke={lit ? '#fef3c7' : '#475569'} strokeWidth={1.1} />
+                              <line x1={ax + winPadX + 3} y1={winY + winH * 0.68} x2={ax + aw - winPadX - 3} y2={winY + winH * 0.68} stroke={lit ? '#fef3c7' : '#475569'} strokeWidth={1.1} />
+                            </>
+                          )}
                           <text
                             x={ax + aw / 2}
-                            y={topY - 11}
-                            fontSize={13}
+                            y={winY + winH * 0.56}
+                            fontSize={12}
                             fontWeight={800}
-                            fill="#ffffff"
+                            fill={lit ? '#78350f' : '#e2e8f0'}
                             textAnchor="middle"
+                            pointerEvents="none"
                           >
-                            {`↔ ${app.width}cm`}
+                            {app.kind === 'microwave' ? 'ماکروفر' : 'فر توکار'}
                           </text>
-                        </g>
-                      )}
-                      {effectiveHoodKind(wall, app) === 'chimney' ? (
-                        <path
-                          d={`M ${ax + aw * 0.1} ${floorY - 150 * s} L ${ax + aw * 0.9} ${
-                            floorY - 150 * s
-                          } L ${ax + aw * 0.65} ${floorY - 180 * s} L ${ax + aw * 0.65} ${
-                            floorY - 220 * s
-                          } L ${ax + aw * 0.35} ${floorY - 220 * s} L ${ax + aw * 0.35} ${
-                            floorY - 180 * s
-                          } Z`}
-                          fill="#cbd5e1"
-                          stroke={isAppSel ? '#4f46e5' : '#475569'}
-                          strokeWidth={isAppSel ? 1.8 : 1.4}
-                        />
-                      ) : (
-                        <rect
-                          x={ax + aw * 0.1}
-                          y={floorY - 148 * s}
-                          width={aw * 0.8}
-                          height={4}
-                          fill={isAppSel ? '#4f46e5' : '#475569'}
-                          rx={1}
-                        />
-                      )}
-                    </>
+                        </>
+                      );
+                    })()
                   ) : (
                     // Built-in Dishwasher or Washing machine under continuous countertop flush down to floor (cutting plinth)
                     (() => {
                       const my = topY + topPad + 2;
                       const mh = Math.max(18, floorY - 2 - my);
+                      const capKg = app.washingCapacityKg || 8;
+                      const drumScale = capKg === 6 ? 0.24 : capKg === 9 ? 0.31 : 0.28;
                       return (
                         <>
                           <rect
@@ -4857,31 +5244,33 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                             width={aw - 4}
                             height={mh}
                             rx={3}
-                            fill="#eef2ff"
-                            stroke="#4338ca"
-                            strokeWidth={1.4}
+                            fill={eqBg}
+                            stroke={isAppSel ? '#4f46e5' : eqBorder}
+                            strokeWidth={isAppSel ? 2 : 1.4}
                           />
-                          <line x1={ax + 4} y1={my + mh * 0.16} x2={ax + aw - 4} y2={my + mh * 0.16} stroke="#6366f1" strokeWidth={1.2} />
+                          <line x1={ax + 4} y1={my + mh * 0.16} x2={ax + aw - 4} y2={my + mh * 0.16} stroke={eqBorder} strokeWidth={1.2} />
                           {app.kind === 'washing' && (
                             <circle
                               cx={ax + aw / 2}
                               cy={my + mh * 0.58}
-                              r={Math.min(aw, mh) * 0.28}
-                              fill="#ffffff"
-                              stroke="#4338ca"
+                              r={Math.min(aw, mh) * drumScale}
+                              fill={equipmentFinish === 'black' ? '#0f172a' : '#ffffff'}
+                              stroke={eqBorder}
                               strokeWidth={2}
                             />
                           )}
                           <text
                             x={ax + aw / 2}
                             y={my + mh * (app.kind === 'washing' ? 0.12 : 0.55)}
-                            fontSize={13}
+                            fontSize={12}
                             fontWeight={800}
-                            fill="#312e81"
+                            fill={eqText}
                             textAnchor="middle"
                             pointerEvents="none"
                           >
-                            {app.kind === 'dishwasher' ? 'ماشین ظرفشویی' : 'ماشین لباسشویی'}
+                            {app.kind === 'dishwasher'
+                              ? 'ماشین ظرفشویی'
+                              : `لباسشویی ${WASHING_CAPACITIES[capKg]?.shortLabel || '۸ کیلویی'}`}
                           </text>
                         </>
                       );
@@ -5039,6 +5428,38 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                           strokeDasharray="4,2"
                         />
                       </>
+                    ) : appHover.kind === 'builtin-oven' || appHover.kind === 'microwave' ? (
+                      (() => {
+                        const hCm = appHover.heightCm ?? 60;
+                        const eY = appHover.elevY ?? 85;
+                        const gy = floorY - (eY + hCm) * s;
+                        const gh = hCm * s;
+                        return (
+                          <>
+                            <rect
+                              x={gx + 2}
+                              y={gy}
+                              width={gw - 4}
+                              height={gh}
+                              rx={3}
+                              fill={appHover.valid ? 'rgba(217,119,6,0.16)' : validFill}
+                              stroke={appHover.valid ? '#d97706' : '#dc2626'}
+                              strokeWidth={1.8}
+                              strokeDasharray="5,3"
+                            />
+                            <text
+                              x={gx + gw / 2}
+                              y={gy + gh / 2 + 4}
+                              fontSize={13}
+                              fontWeight={800}
+                              fill={appHover.valid ? '#b45309' : '#dc2626'}
+                              textAnchor="middle"
+                            >
+                              {appHover.valid ? APPLIANCE_CONFIGS[appHover.kind].shortLabel : appHover.reason}
+                            </text>
+                          </>
+                        );
+                      })()
                     ) : (
                       <>
                         <rect

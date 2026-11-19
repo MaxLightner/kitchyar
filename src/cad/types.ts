@@ -1,6 +1,6 @@
 export type BoxKind = 'base' | 'wall' | 'wall-deep' | 'tall' | 'fridge' | 'closet';
 
-export type FridgeModel = 'single' | 'side-by-side' | 'twin';
+export type FridgeModel = 'single-door' | 'single' | 'side-by-side' | 'twin';
 
 export type DoorKind =
   | 'door'
@@ -50,7 +50,9 @@ export type SelectionMode = 'single' | 'add' | 'subtract';
 export type HandleStyle = 'simple' | 'long-bar' | 'knob' | 'hidden' | 'f-profile' | 'handleless' | 'arch' | 'tab';
 export type Orientation = 'vertical' | 'horizontal';
 
-export type ApplianceKind = 'sink' | 'gas' | 'dishwasher' | 'washing';
+export type ApplianceKind = 'sink' | 'gas' | 'dishwasher' | 'washing' | 'builtin-oven' | 'microwave';
+export type HoodModel = 'chimney' | 'angled' | 'box' | 'cylinder';
+export type WashingCapacityKg = 6 | 8 | 9;
 export type SinkModel =
   | 'steel-1'
   | 'steel-2'
@@ -168,13 +170,20 @@ export interface CabinetBox {
 export interface ApplianceItem {
   id: string;
   kind: ApplianceKind;
-  /** Hierarchical parent base cabinet box ID */
+  /** Hierarchical parent base or tall cabinet box ID */
   boxId?: string;
   offsetX: number;
   width: number;
   sinkModel?: SinkModel;
+  sinkFinish?: EquipmentFinish;
   cornerSide?: 'left' | 'right';
   hoodKind?: 'hidden' | 'chimney';
+  hoodModel?: HoodModel;
+  hoodFinish?: EquipmentFinish;
+  washingCapacityKg?: WashingCapacityKg;
+  ovenLightOn?: boolean;
+  /** Optional vertical elevation in cm when mounted inside tall cabinets */
+  elevY?: number;
 }
 
 export interface WallOpening {
@@ -268,11 +277,15 @@ export interface DrawerPattern {
 
 export type EquipmentFinish = 'silver' | 'white' | 'black';
 
+export type CountertopEdgeProfile = 'square' | 'round';
+
 export interface ProjectSettings {
   wallHeightCm: number;
   baseHeightCm: number;
   plinthCm: number;
   countertopCm: number;
+  countertopTopEdge?: CountertopEdgeProfile;
+  countertopBottomEdge?: CountertopEdgeProfile;
   wallCabElevCm: number;
   wallCabHeightCm: number;
   cabinetReflection?: number;
@@ -286,6 +299,7 @@ export interface ProjectSettings {
   ambientOcclusion?: boolean;
   equipmentFinish?: EquipmentFinish;
   defaultHoodKind?: 'chimney' | 'hidden';
+  defaultHoodModel?: HoodModel;
 }
 
 export interface MultiSelection {
@@ -313,6 +327,8 @@ export interface ProjectState {
   selectedOpeningId?: string | null;
   selectedColumnId?: string | null;
   selectedApplianceId?: string | null;
+  selectedApplianceSubPart?: 'gas' | 'hood' | null;
+  selectedSurface?: 'countertop' | 'backsplash' | null;
   selectedShelfId?: string | null;
   selectedHandleId?: string | null;
   selectedFrameId?: string | null;

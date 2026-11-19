@@ -18,14 +18,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [form, setForm] = useState<ProjectSettings>({
     ...DEFAULT_PROJECT_SETTINGS,
     ...settings,
+    countertopTopEdge: settings.countertopTopEdge || 'square',
+    countertopBottomEdge: settings.countertopBottomEdge || 'square',
     defaultHoodKind: settings.defaultHoodKind || 'chimney',
   });
   const [applyToExisting, setApplyToExisting] = useState(true);
 
-  const updateNum = (field: keyof ProjectSettings, raw: string) => {
+  const updateNum = (field: keyof ProjectSettings, raw: string, allowHalf = false) => {
     const v = Number(raw);
     if (!Number.isNaN(v)) {
-      setForm((prev) => ({ ...prev, [field]: Math.max(0, Math.round(v)) }));
+      const rounded = allowHalf ? Math.round(v * 2) / 2 : Math.round(v);
+      setForm((prev) => ({ ...prev, [field]: Math.max(0, rounded) }));
     }
   };
 
@@ -93,8 +96,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="number"
                 min={2}
                 max={8}
+                step={0.5}
                 value={form.countertopCm}
-                onChange={(e) => updateNum('countertopCm', e.target.value)}
+                onChange={(e) => updateNum('countertopCm', e.target.value, true)}
                 className="w-full h-9 px-2.5 border border-slate-300 rounded-lg font-bold tabular-nums bg-slate-50"
               />
             </label>
@@ -151,6 +155,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 پوشیده (مخفی داخل کابینت)
               </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <span className="text-slate-600 font-bold block mb-1.5">لبه بالایی صفحه</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(['square', 'round'] as const).map((edge) => (
+                  <button
+                    key={edge}
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, countertopTopEdge: edge }))}
+                    aria-pressed={(form.countertopTopEdge || 'square') === edge}
+                    className={`h-8 rounded-lg border text-[12px] font-bold transition ${
+                      (form.countertopTopEdge || 'square') === edge
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {edge === 'square' ? 'مربعی' : 'گوشه گرد'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="text-slate-600 font-bold block mb-1.5">لبه پایینی صفحه</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(['square', 'round'] as const).map((edge) => (
+                  <button
+                    key={edge}
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, countertopBottomEdge: edge }))}
+                    aria-pressed={(form.countertopBottomEdge || 'square') === edge}
+                    className={`h-8 rounded-lg border text-[12px] font-bold transition ${
+                      (form.countertopBottomEdge || 'square') === edge
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {edge === 'square' ? 'مربعی' : 'گوشه گرد'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

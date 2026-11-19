@@ -8,7 +8,12 @@ export function kitchenReflectionKey(project: ProjectState) {
 
 /** Capture virtual objects at rest. Camera motion and selection do not rebuild the environment. */
 export function createCabinetReflectionProbe(renderer: THREE.WebGLRenderer, scene: THREE.Scene, onReady: () => void) {
-  const target = new THREE.WebGLCubeRenderTarget(64, { type: THREE.HalfFloatType, depthBuffer: true });
+  const target = new THREE.WebGLCubeRenderTarget(128, {
+    type: THREE.HalfFloatType,
+    depthBuffer: true,
+    generateMipmaps: true,
+    minFilter: THREE.LinearMipmapLinearFilter,
+  });
   const camera = new THREE.CubeCamera(0.12, 24, target);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let current: { root: THREE.Object3D; position: THREE.Vector3; key: string } | undefined;

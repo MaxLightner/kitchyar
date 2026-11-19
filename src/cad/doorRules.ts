@@ -23,6 +23,7 @@ import {
   SINK_MODELS,
   WALL_DOUBLE_LOWER_H_CM,
   WALL_LOWER_ELEV_CM,
+  WASHING_CAPACITIES,
 } from './constants';
 import {
   analyzeCornerJunction,
@@ -43,15 +44,18 @@ import {
   DoorKind,
   DoorStyle,
   DoorUnit,
+  EquipmentFinish,
   FrameSide,
   FridgeModel,
   HandleStyle,
   HardwareKind,
+  HoodModel,
   Orientation,
   ProjectSettings,
   RoomColumn,
   SinkModel,
   Wall,
+  WashingCapacityKg,
 } from './types';
 
 export function uid(prefix = 'id'): string {
@@ -2297,15 +2301,51 @@ export function placeApplianceWithCabinetRules(
   desiredOffsetX: number,
   cornerOwners: Record<string, string>,
   hoodKind: 'hidden' | 'chimney' = 'chimney',
-  opts?: { sinkModel?: SinkModel; customWidth?: number }
+  opts?: {
+    sinkModel?: SinkModel;
+    customWidth?: number;
+    hoodModel?: HoodModel;
+    washingCapacityKg?: WashingCapacityKg;
+    desiredElevY?: number;
+  }
 ): { ok: boolean; appliance?: ApplianceItem; replaced?: boolean; message: string } {
   const cfg = APPLIANCE_CONFIGS[kind];
   const sinkModel: SinkModel | undefined =
     kind === 'sink' ? opts?.sinkModel ?? 'steel-2' : undefined;
+  const washingKg: WashingCapacityKg | undefined =
+    kind === 'washing' ? opts?.washingCapacityKg ?? 8 : undefined;
   const width =
     opts?.customWidth ??
-    (kind === 'sink' && sinkModel ? SINK_MODELS[sinkModel].width : cfg.width);
+    (kind === 'sink' && sinkModel
+      ? SINK_MODELS[sinkModel].width
+      : kind === 'washing' && washingKg
+      ? WASHING_CAPACITIES[washingKg].width
+      : cfg.width);
   const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
+
+  const isBuiltIn = kind === 'builtin-oven' || kind === 'microwave';
+  if (isBuiltIn && targetBox.type !== 'base' && targetBox.type !== 'tall') {
+    return {
+      ok: false,
+      message: 'فر توکار و ماکروفر فقط روی کابینت زمینی یا کمد قدی قابل نصب هستند',
+    };
+  }
+  if (!isBuiltIn && targetBox.type !== 'base') {
+    return {
+      ok: false,
+      message: 'این تجهیز فقط روی باکس زمینی قابل نصب است',
+    };
+  }
+
+  let elevY: number | undefined;
+  if (isBuiltIn && targetBox.type === 'tall') {
+    const appH = cfg.heightCm ?? (kind === 'microwave' ? 38 : 60);
+    const minElev = targetBox.plinth + 15;
+    const maxElev = Math.max(minElev, targetBox.height - appH - 12);
+    const defaultElev = kind === 'microwave' ? Math.min(maxElev, 146) : Math.min(maxElev, 82);
+    const requested = opts?.desiredElevY ?? defaultElev;
+    elevY = Math.round(Math.max(minElev, Math.min(maxElev, requested)) / 5) * 5;
+  }
 
   let minX = targetBox.offsetX;
   let maxX = targetBox.offsetX + targetBox.width - width;
@@ -2387,15 +2427,72 @@ export function placeApplianceWithCabinetRules(
   const desiredClamped = Math.max(minX, Math.min(maxX, Math.round(desiredOffsetX / 5) * 5));
   const clickCenter = desiredOffsetX + width / 2;
 
-  // Check if the user clicked directly over an existing appliance -> replace it cleanly!
+  // Check if the user clicked directly over an existing appliance -> replace it cleanly (keeping gas above builtin-oven!).
   const isMachine = kind === 'dishwasher' || kind === 'washing';
-  const directHit = wall.appliances.find(
-    (other) => (!isMachine || other.kind === 'dishwasher' || other.kind === 'washing') &&
-      clickCenter >= other.offsetX && clickCenter <= other.offsetX + other.width
-  );
+  const appHeightCm = (k: ApplianceKind) => APPLIANCE_CONFIGS[k]?.heightCm ?? 60;
+  const verticalOverlap = (aElev: number, aH: number, bElev: number, bH: number) =>
+    aElev < bElev + bH - 2 && aElev + aH > bElev + 2;
+  const conflictsWithOther = (other: ApplianceItem, candElevY: number | undefined): boolean => {
+    const otherIsBuiltIn = other.kind === 'builtin-oven' || other.kind === 'microwave';
+    if (isBuiltIn) {
+      if (targetBox.type === 'tall') {
+        if (other.boxId !== targetBox.id && !otherIsBuiltIn) return false;
+        const oElev = other.elevY ?? (other.kind === 'microwave' ? 146 : 82);
+        return verticalOverlap(candElevY ?? 82, appHeightCm(kind), oElev, appHeightCm(other.kind));
+      }
+      // On base boxes: builtin-oven/microwave can sit inside the base carcass directly under a gas cooktop!
+      return other.kind !== 'gas';
+    }
+    if (kind === 'gas' && otherIsBuiltIn && (other.boxId === targetBox.id || !other.boxId)) {
+      return false;
+    }
+    if (other.boxId && other.boxId !== targetBox.id) {
+      const otherBox = wall.boxes.find((b) => b.id === other.boxId);
+      if (otherBox?.type === 'tall') return false;
+    }
+    return true;
+  };
+
+  // Snap stacked built-in microwave neatly above an existing built-in oven in a tall box if vertically close
+  if (isBuiltIn && targetBox.type === 'tall' && elevY !== undefined) {
+    const myH = appHeightCm(kind);
+    const sameColApps = wall.appliances.filter(
+      (a) =>
+        (a.boxId === targetBox.id || (a.offsetX >= targetBox.offsetX - 2 && a.offsetX + a.width <= targetBox.offsetX + targetBox.width + 2)) &&
+        desiredClamped < a.offsetX + a.width - 5 &&
+        desiredClamped + width > a.offsetX + 5
+    );
+    for (const other of sameColApps) {
+      const oElev = other.elevY ?? 82;
+      const oH = appHeightCm(other.kind);
+      if (verticalOverlap(elevY, myH, oElev, oH) && other.kind !== kind) {
+        const above = oElev + oH + 4;
+        const below = oElev - myH - 4;
+        const maxE = targetBox.height - myH - 8;
+        const minE = targetBox.plinth + 10;
+        if (above <= maxE) elevY = above;
+        else if (below >= minE) elevY = below;
+      }
+    }
+  }
+
+  const directHit = wall.appliances.find((other) => {
+    if (clickCenter < other.offsetX || clickCenter > other.offsetX + other.width) return false;
+    if (isMachine) return other.kind === 'dishwasher' || other.kind === 'washing';
+    if (isBuiltIn) {
+      if (other.kind !== 'builtin-oven' && other.kind !== 'microwave') return false;
+      if (targetBox.type === 'tall') {
+        const oElev = other.elevY ?? (other.kind === 'microwave' ? 146 : 82);
+        return Math.abs((elevY ?? 82) - oElev) < 25;
+      }
+      return true;
+    }
+    // Countertop sink/gas: replace other countertop items, NEVER delete an under-counter builtin-oven unless replacing another gas/sink
+    return other.kind !== 'builtin-oven' && other.kind !== 'microwave';
+  });
   const safeMachineX = isMachine ? nearestClearApplianceOffset(desiredClamped, minX, maxX, width,
     [...protectedSinkSpans(wall, blocked),
-      ...wall.appliances.filter(app => app !== directHit && app.kind !== 'sink')
+      ...wall.appliances.filter(app => app !== directHit && app.kind !== 'sink' && conflictsWithOther(app, elevY))
         .map((app): ApplianceSpan => [app.offsetX, app.offsetX + app.width])]) : undefined;
   if (isMachine && safeMachineX === undefined) {
     return { ok: false, message: 'برای نصب تجهیز با فاصلهٔ ۱ سانتی‌متر از یونیت سینک جا نیست' };
@@ -2412,20 +2509,27 @@ export function placeApplianceWithCabinetRules(
       clearDishRackUnitAboveSink(wall, directHit.offsetX, directHit.offsetX + directHit.width, directHit.id);
     }
     wall.appliances = wall.appliances.filter((a) => a.id !== directHit.id);
-    const removedDoorIds = new Set(
-      targetBox.doors
-        .filter((d) => !(d.startCm + d.widthCm <= oldStart + 1 || d.startCm >= oldEnd - 1))
-        .map((d) => d.id)
-    );
-    targetBox.doors = targetBox.doors.filter((d) => !removedDoorIds.has(d.id));
-    targetBox.handles = targetBox.handles.filter((h) => !removedDoorIds.has(h.doorId));
-    targetBox.unitDividers = targetBox.unitDividers.filter(
-      (u) => Math.abs(u - oldStart) > 1.5 && Math.abs(u - oldEnd) > 1.5
-    );
+    if (targetBox.type !== 'tall') {
+      const removedDoorIds = new Set(
+        targetBox.doors
+          .filter((d) => !(d.startCm + d.widthCm <= oldStart + 1 || d.startCm >= oldEnd - 1))
+          .map((d) => d.id)
+      );
+      targetBox.doors = targetBox.doors.filter((d) => !removedDoorIds.has(d.id));
+      targetBox.handles = targetBox.handles.filter((h) => !removedDoorIds.has(h.doorId));
+      targetBox.unitDividers = targetBox.unitDividers.filter(
+        (u) => Math.abs(u - oldStart) > 1.5 && Math.abs(u - oldEnd) > 1.5
+      );
+    }
   }
 
   const overlapsAny = (x: number) =>
-    wall.appliances.some((other) => x < other.offsetX + other.width - 1 && x + width > other.offsetX + 1);
+    wall.appliances.some(
+      (other) =>
+        conflictsWithOther(other, elevY) &&
+        x < other.offsetX + other.width - 1 &&
+        x + width > other.offsetX + 1
+    );
 
   let offsetX = safeMachineX ?? desiredClamped;
 
@@ -2533,8 +2637,10 @@ export function placeApplianceWithCabinetRules(
   const hadLeftOverlap = overlappedDoors.some((d) => d.startCm < localStart - 0.5);
   const hadRightOverlap = overlappedDoors.some((d) => d.startCm + d.widthCm > localEnd + 0.5);
 
-  targetBox.doors = targetBox.doors.filter((d) => !overlappedDoorIds.has(d.id));
-  targetBox.handles = targetBox.handles.filter((h) => !overlappedDoorIds.has(h.doorId));
+  if (targetBox.type !== 'tall' || targetBox.doors.some((d) => overlappedDoorIds.has(d.id))) {
+    targetBox.doors = targetBox.doors.filter((d) => !overlappedDoorIds.has(d.id));
+    targetBox.handles = targetBox.handles.filter((h) => !overlappedDoorIds.has(h.doorId));
+  }
 
   // Clear ALL stale unit dividers strictly inside the appliance interior `(localStart + 1.5 .. localEnd - 1.5)`
   targetBox.unitDividers = targetBox.unitDividers.filter(
@@ -2686,13 +2792,22 @@ export function placeApplianceWithCabinetRules(
       );
     }
   } else if (kind === 'gas') {
-    targetBox.doors.push({
-      id: uid('door'),
-      startCm: localStart,
-      widthCm: width,
-      kind: 'drawer',
-      drawerRatios: [0.22, 0.54],
-    });
+    const hasUnderBuiltInOven = wall.appliances.some(
+      (a) =>
+        (a.kind === 'builtin-oven' || a.kind === 'microwave') &&
+        a.offsetX < offsetX + width - 2 &&
+        a.offsetX + a.width > offsetX + 2 &&
+        (a.boxId === targetBox.id || !a.boxId)
+    );
+    if (!hasUnderBuiltInOven) {
+      targetBox.doors.push({
+        id: uid('door'),
+        startCm: localStart,
+        widthCm: width,
+        kind: 'drawer',
+        drawerRatios: [0.22, 0.54],
+      });
+    }
   }
   targetBox.doors.sort((a, b) => a.startCm - b.startCm);
 
@@ -2705,6 +2820,9 @@ export function placeApplianceWithCabinetRules(
     sinkModel,
     cornerSide,
     hoodKind: kind === 'gas' ? hoodKind : undefined,
+    hoodModel: kind === 'gas' && hoodKind !== 'hidden' ? opts?.hoodModel ?? 'chimney' : undefined,
+    washingCapacityKg: washingKg,
+    elevY,
   };
   wall.appliances.push(app);
 
@@ -2728,8 +2846,18 @@ export function placeApplianceWithCabinetRules(
       ? 'تجهیز با ماشین ظرفشویی ۶۰cm جایگزین شد'
       : 'فضای ۶۰cm ماشین ظرفشویی زیر صفحه ثبت شد',
     washing: replaced
-      ? 'تجهیز با ماشین لباسشویی ۶۰cm جایگزین شد'
-      : 'فضای ۶۰cm ماشین لباسشویی زیر صفحه ثبت شد',
+      ? `تجهیز با ماشین لباسشویی ${washingKg ?? 8} کیلویی جایگزین شد`
+      : `فضای ${width}cm ماشین لباسشویی زیر صفحه ثبت شد`,
+    'builtin-oven': replaced
+      ? 'تجهیز با فر توکار جایگزین شد'
+      : targetBox.type === 'tall'
+      ? 'فر توکار داخل کمد قدی نصب شد'
+      : 'فر توکار داخل کابینت زمینی نصب شد',
+    microwave: replaced
+      ? 'تجهیز با ماکروفر توکار جایگزین شد'
+      : targetBox.type === 'tall'
+      ? 'ماکروفر توکار داخل کمد قدی نصب شد'
+      : 'ماکروفر توکار داخل کابینت زمینی نصب شد',
   };
 
   return {
@@ -3421,7 +3549,7 @@ export function findParentBoxForAppliance(wall: Wall, app: ApplianceItem): Cabin
   return (
     wall.boxes.find(
       (b) =>
-        b.type === 'base' &&
+        (b.type === 'base' || (b.type === 'tall' && (app.kind === 'builtin-oven' || app.kind === 'microwave'))) &&
         app.offsetX >= b.offsetX - 5 &&
         app.offsetX + app.width <= b.offsetX + b.width + 5
     ) || null
@@ -3736,9 +3864,24 @@ export function getFreeMoveRangeForAppliance(
     minX = Math.max(minX, range.minX);
     maxX = Math.min(maxX, range.maxX);
   }
+  const isBuiltIn = app.kind === 'builtin-oven' || app.kind === 'microwave';
   const appCenter = app.offsetX + app.width / 2;
   for (const other of wall.appliances) {
     if (other.id === app.id) continue;
+    const otherParent = findParentBoxForAppliance(wall, other);
+    if (parentBox && otherParent && otherParent.id !== parentBox.id && parentBox.type !== otherParent.type) {
+      continue;
+    }
+    const otherIsBuiltIn = other.kind === 'builtin-oven' || other.kind === 'microwave';
+    if (isBuiltIn && other.kind === 'gas') continue;
+    if (app.kind === 'gas' && otherIsBuiltIn) continue;
+    if (isBuiltIn && parentBox?.type === 'tall' && otherIsBuiltIn) {
+      const myH = APPLIANCE_CONFIGS[app.kind]?.heightCm ?? 60;
+      const oH = APPLIANCE_CONFIGS[other.kind]?.heightCm ?? 60;
+      const myE = app.elevY ?? 82;
+      const oE = other.elevY ?? (other.kind === 'microwave' ? 146 : 82);
+      if (!(myE < oE + oH - 2 && myE + myH > oE + 2)) continue;
+    }
     const otherCenter = other.offsetX + other.width / 2;
     if (otherCenter <= appCenter) {
       const edge = other.offsetX + other.width;
@@ -4087,17 +4230,18 @@ export function deleteApplianceHierarchically(wall: Wall, appId: string): void {
   const localStart = +(app.offsetX - parentBox.offsetX).toFixed(1);
   const localEnd = +(localStart + app.width).toFixed(1);
 
-  // Remove doors created for / sitting inside this appliance bay
-  const removedDoorIds = new Set(
-    parentBox.doors
-      .filter((d) => {
-        const mid = d.startCm + d.widthCm / 2;
-        return mid >= localStart - 1 && mid <= localEnd + 1;
-      })
-      .map((d) => d.id)
-  );
-  parentBox.doors = parentBox.doors.filter((d) => !removedDoorIds.has(d.id));
-  parentBox.handles = parentBox.handles.filter((h) => !removedDoorIds.has(h.doorId));
+  if (parentBox.type !== 'tall') {
+    const removedDoorIds = new Set(
+      parentBox.doors
+        .filter((d) => {
+          const mid = d.startCm + d.widthCm / 2;
+          return mid >= localStart - 1 && mid <= localEnd + 1;
+        })
+        .map((d) => d.id)
+    );
+    parentBox.doors = parentBox.doors.filter((d) => !removedDoorIds.has(d.id));
+    parentBox.handles = parentBox.handles.filter((h) => !removedDoorIds.has(h.doorId));
+  }
 
   // Preserve dividers still anchored by another remaining appliance on this box
   const siblingEdges: number[] = [];
@@ -4119,6 +4263,354 @@ export function deleteApplianceHierarchically(wall: Wall, appId: string): void {
       (f) => f.side !== 'seam' || (f.seamCm !== undefined && parentBox.unitDividers.some((u) => Math.abs(u - f.seamCm!) < 2))
     );
   }
+
+  if ((app.kind === 'builtin-oven' || app.kind === 'microwave') && parentBox.type === 'base') {
+    const gasAbove = wall.appliances.find(
+      (other) =>
+        other.kind === 'gas' &&
+        other.offsetX < app.offsetX + app.width - 2 &&
+        other.offsetX + other.width > app.offsetX + 2
+    );
+    if (gasAbove) {
+      const gs = +(gasAbove.offsetX - parentBox.offsetX).toFixed(1);
+      const ge = +(gs + gasAbove.width).toFixed(1);
+      const hasDoorInBay = parentBox.doors.some((d) => d.startCm < ge - 2 && d.startCm + d.widthCm > gs + 2);
+      if (!hasDoorInBay) {
+        parentBox.doors.push({
+          id: uid('door'),
+          startCm: gs,
+          widthCm: gasAbove.width,
+          kind: 'drawer',
+          drawerRatios: [0.22, 0.54],
+        });
+        parentBox.doors.sort((a, b) => a.startCm - b.startCm);
+      }
+    }
+  }
+}
+
+/**
+ * Live-updates a placed Fridge box's model (`single-door` | `single` | `side-by-side` | `twin`)
+ * and/or interior body width (in cm), resizing the box, its 5cm frame, and its linked over-fridge wall-deep box safely.
+ */
+export function updateFridgeBoxModelAndSize(
+  wall: Wall,
+  allWalls: Wall[],
+  cornerOwners: Record<string, string>,
+  boxId: string,
+  nextModel: FridgeModel,
+  nextBodyWidthCm?: number,
+  nextHasFrame?: boolean
+): { ok: boolean; width?: number; message: string } {
+  const fridge = wall.boxes.find((b) => b.id === boxId && b.type === 'fridge');
+  if (!fridge) return { ok: false, message: 'باکس یخچال یافت نشد' };
+
+  const cfg = FRIDGE_MODELS[nextModel] ?? FRIDGE_MODELS['side-by-side'];
+  const hasFrame = nextHasFrame ?? (fridge.hasFridgeFrame ?? true);
+  const currentBodyW = Math.max(
+    50,
+    fridge.width - (fridge.hasFridgeFrame ? FRIDGE_FRAME_CM * 2 : 0)
+  );
+  const bodyW =
+    nextBodyWidthCm !== undefined
+      ? Math.max(50, Math.round(nextBodyWidthCm))
+      : fridge.fridgeModel === nextModel
+      ? currentBodyW
+      : cfg.width;
+  const targetW = bodyW + (hasFrame ? FRIDGE_FRAME_CM * 2 : 0);
+  const targetH = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
+
+  // Compute uninterrupted horizontal interval around current fridge
+  const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
+  let boundLeft = 0;
+  let boundRight = wall.length;
+
+  for (const z of blocked) {
+    if (z.tier !== 'lower') continue;
+    if (z.endCm <= fridge.offsetX + 1) boundLeft = Math.max(boundLeft, z.endCm);
+    if (z.startCm >= fridge.offsetX + fridge.width - 1) boundRight = Math.min(boundRight, z.startCm);
+  }
+  const fridgeCenter = fridge.offsetX + fridge.width / 2;
+  for (const other of wall.boxes) {
+    if (other.id === fridge.id || other.linkedToBoxId === fridge.id) continue;
+    const isLinkedOver =
+      other.type === 'wall-deep' &&
+      Math.abs(other.offsetX - fridge.offsetX) <= 2 &&
+      Math.abs(other.width - fridge.width) <= 2;
+    if (isLinkedOver) continue;
+    if (!tiersCollideForBoxMove(fridge, other)) continue;
+    const otherCenter = other.offsetX + other.width / 2;
+    if (otherCenter <= fridgeCenter) {
+      boundLeft = Math.max(boundLeft, other.offsetX + other.width);
+    } else {
+      boundRight = Math.min(boundRight, other.offsetX);
+    }
+  }
+  for (const op of wall.openings || []) {
+    if (!(0 < op.elevY + op.height - 1 && targetH > op.elevY + 1)) continue;
+    const opCenter = op.offsetX + op.width / 2;
+    if (opCenter <= fridgeCenter) boundLeft = Math.max(boundLeft, op.offsetX + op.width);
+    else boundRight = Math.min(boundRight, op.offsetX);
+  }
+
+  const maxAvail = +(boundRight - boundLeft).toFixed(1);
+  if (targetW > maxAvail + 0.5) {
+    return {
+      ok: false,
+      message: `فضای آزاد اطراف یخچال (${Math.floor(maxAvail)}cm) برای عرض ${targetW}cm کافی نیست`,
+    };
+  }
+
+  const nextOffsetX = Math.round(
+    Math.max(boundLeft, Math.min(boundRight - targetW, fridge.offsetX))
+  );
+  const oldStart = fridge.offsetX;
+  const oldW = fridge.width;
+
+  fridge.fridgeModel = nextModel;
+  fridge.name = `یخچال ${cfg.shortLabel}`;
+  fridge.hasFridgeFrame = hasFrame;
+  fridge.offsetX = nextOffsetX;
+  fridge.width = targetW;
+  fridge.depth = cfg.depth;
+  fridge.height = targetH;
+  if (fridge.doors.length > 0) {
+    fridge.doors[0].startCm = 0;
+    fridge.doors[0].widthCm = targetW;
+  } else {
+    fridge.doors = [{ id: uid('door'), startCm: 0, widthCm: targetW, kind: 'fridge', drawerRatios: [] }];
+  }
+  fridge.frames = hasFrame
+    ? [
+        { id: uid('fr'), side: 'left', widthCm: FRIDGE_FRAME_CM },
+        { id: uid('fr'), side: 'right', widthCm: FRIDGE_FRAME_CM },
+        { id: uid('fr'), side: 'top', widthCm: FRIDGE_FRAME_CM },
+      ]
+    : [];
+
+  const linkedOvers = wall.boxes.filter(
+    (other) =>
+      other.linkedToBoxId === fridge.id ||
+      (other.type === 'wall-deep' &&
+        Math.abs(other.offsetX - oldStart) <= 2 &&
+        Math.abs(other.width - oldW) <= 2)
+  );
+  const topAlign = Math.max(fridge.height + 30, getWallTopAlignmentCm(wall));
+  for (const over of linkedOvers) {
+    over.linkedToBoxId = fridge.id;
+    over.offsetX = nextOffsetX;
+    over.width = targetW;
+    over.elevY = fridge.height;
+    over.height = Math.max(30, topAlign - fridge.height);
+    if (over.doors.length > 0) {
+      over.doors[0].startCm = 0;
+      over.doors[0].widthCm = targetW;
+    }
+  }
+
+  return {
+    ok: true,
+    width: targetW,
+    message: `یخچال به ${cfg.shortLabel} (${bodyW}cm) به‌روزرسانی شد`,
+  };
+}
+
+/**
+ * Resizes a gas cooktop (`width`: 30..90cm) cleanly inside its parent base box,
+ * updating under-gas stepped drawer bay, neighboring doors, and the connected hood bay above.
+ */
+export function resizeGasApplianceWidth(
+  wall: Wall,
+  allWalls: Wall[],
+  cornerOwners: Record<string, string>,
+  appId: string,
+  nextWidthCm: number
+): { ok: boolean; width?: number; message: string } {
+  const gas = wall.appliances.find((a) => a.id === appId && a.kind === 'gas');
+  if (!gas) return { ok: false, message: 'گاز انتخاب‌شده یافت نشد' };
+
+  const parentBox = findParentBoxForAppliance(wall, gas);
+  const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
+  let boundLeft = parentBox ? parentBox.offsetX : 0;
+  let boundRight = parentBox ? parentBox.offsetX + parentBox.width : wall.length;
+
+  for (const z of blocked) {
+    if (z.tier !== 'lower') continue;
+    if (z.startCm <= boundLeft + 2 && z.endCm > boundLeft) boundLeft = Math.max(boundLeft, z.endCm);
+    if (z.endCm >= boundRight - 2 && z.startCm < boundRight) boundRight = Math.min(boundRight, z.startCm);
+  }
+  const gasCenter = gas.offsetX + gas.width / 2;
+  for (const other of wall.appliances) {
+    if (other.id === gas.id) continue;
+    if (other.kind === 'builtin-oven' || other.kind === 'microwave') continue;
+    const oc = other.offsetX + other.width / 2;
+    if (oc <= gasCenter) boundLeft = Math.max(boundLeft, other.offsetX + other.width);
+    else boundRight = Math.min(boundRight, other.offsetX);
+  }
+
+  if (nextWidthCm > boundRight - boundLeft + 0.5) {
+    return {
+      ok: false,
+      message: `فضای کافی برای گاز ${nextWidthCm}cm روی این باکس نیست`,
+    };
+  }
+
+  const oldX = gas.offsetX;
+  const oldW = gas.width;
+  clearHoodUnitForGas(wall, oldX, oldX + oldW, gas.id);
+
+  const centeredX = +(gas.offsetX + (oldW - nextWidthCm) / 2).toFixed(1);
+  const newX = +Math.max(boundLeft, Math.min(boundRight - nextWidthCm, centeredX)).toFixed(1);
+
+  if (parentBox) {
+    const oldLocalStart = +(oldX - parentBox.offsetX).toFixed(1);
+    const oldLocalEnd = +(oldLocalStart + oldW).toFixed(1);
+    const newLocalStart = +(newX - parentBox.offsetX).toFixed(1);
+    const newLocalEnd = +(newLocalStart + nextWidthCm).toFixed(1);
+
+    const linkedDoors = parentBox.doors.filter((d) => {
+      const mid = d.startCm + d.widthCm / 2;
+      return mid >= oldLocalStart - 1 && mid <= oldLocalEnd + 1;
+    });
+    const linkedIds = new Set(linkedDoors.map((d) => d.id));
+
+    const siblingRanges = wall.appliances
+      .filter((other) => other.id !== gas.id && other.kind !== 'builtin-oven' && other.kind !== 'microwave')
+      .map((other) => ({
+        start: +(other.offsetX - parentBox.offsetX).toFixed(1),
+        end: +(other.offsetX + other.width - parentBox.offsetX).toFixed(1),
+      }));
+    const ownedBySibling = (d: DoorUnit) => {
+      const mid = d.startCm + d.widthCm / 2;
+      return siblingRanges.some((r) => mid >= r.start - 0.5 && mid <= r.end + 0.5);
+    };
+
+    const sortedNonLinked = parentBox.doors
+      .filter((d) => !linkedIds.has(d.id) && !ownedBySibling(d))
+      .sort((a, b) => a.startCm - b.startCm);
+
+    const leftTouching: DoorUnit[] = [];
+    let leftSpanStart = oldLocalStart;
+    let curL = oldLocalStart;
+    for (let i = sortedNonLinked.length - 1; i >= 0; i--) {
+      const d = sortedNonLinked[i];
+      if (Math.abs(d.startCm + d.widthCm - curL) <= 1.5 && d.kind === 'door') {
+        leftTouching.unshift(d);
+        curL = d.startCm;
+        leftSpanStart = curL;
+      }
+    }
+
+    const rightTouching: DoorUnit[] = [];
+    let rightSpanEnd = oldLocalEnd;
+    let curR = oldLocalEnd;
+    for (let i = 0; i < sortedNonLinked.length; i++) {
+      const d = sortedNonLinked[i];
+      if (Math.abs(d.startCm - curR) <= 1.5 && d.kind === 'door') {
+        rightTouching.push(d);
+        curR = +(d.startCm + d.widthCm).toFixed(1);
+        rightSpanEnd = curR;
+      }
+    }
+
+    const dropIds = new Set([
+      ...leftTouching.map((d) => d.id),
+      ...rightTouching.map((d) => d.id),
+    ]);
+    parentBox.unitDividers = parentBox.unitDividers.filter((u) => {
+      if (Math.abs(u - oldLocalStart) <= 1.8 || Math.abs(u - oldLocalEnd) <= 1.8) return false;
+      if (u > newLocalStart + 1.5 && u < newLocalEnd - 1.5) return false;
+      return true;
+    });
+    parentBox.doors = parentBox.doors.filter((d) => {
+      if (linkedIds.has(d.id)) return true;
+      if (dropIds.has(d.id)) return false;
+      return d.startCm + d.widthCm <= newLocalStart + 1 || d.startCm >= newLocalEnd - 1;
+    });
+
+    for (const d of linkedDoors) {
+      d.startCm = newLocalStart;
+      d.widthCm = nextWidthCm;
+    }
+    if (leftTouching.length > 0 && newLocalStart - leftSpanStart >= MIN_DOOR_CM) {
+      refitDoorSpanAfterEdgeShift(parentBox, leftSpanStart, newLocalStart, leftTouching);
+    }
+    if (rightTouching.length > 0 && rightSpanEnd - newLocalEnd >= MIN_DOOR_CM) {
+      refitDoorSpanAfterEdgeShift(parentBox, newLocalEnd, rightSpanEnd, rightTouching);
+    }
+
+    if (newLocalStart > 2 && !isDividerNearBlockedCorner(parentBox, newLocalStart, blocked) && !parentBox.unitDividers.some((u) => Math.abs(u - newLocalStart) < 1.5)) {
+      parentBox.unitDividers.push(newLocalStart);
+    }
+    if (newLocalEnd < parentBox.width - 2 && !isDividerNearBlockedCorner(parentBox, newLocalEnd, blocked) && !parentBox.unitDividers.some((u) => Math.abs(u - newLocalEnd) < 1.5)) {
+      parentBox.unitDividers.push(newLocalEnd);
+    }
+    parentBox.unitDividers.sort((a, b) => a - b);
+    parentBox.doors.sort((a, b) => a.startCm - b.startCm);
+  }
+
+  gas.offsetX = newX;
+  gas.width = nextWidthCm;
+  syncHoodUnitAboveGas(wall, gas);
+
+  return { ok: true, width: nextWidthCm, message: `اندازه گاز و هود به ${nextWidthCm}cm تغییر کرد` };
+}
+
+/**
+ * Updates a washing machine's load capacity (`6 | 8 | 9` kg) and physical width (`55 | 60 | 62` cm),
+ * checking sink unit clearance and sibling appliances.
+ */
+export function updateWashingMachineCapacity(
+  wall: Wall,
+  allWalls: Wall[],
+  cornerOwners: Record<string, string>,
+  appId: string,
+  kg: WashingCapacityKg
+): { ok: boolean; width?: number; message: string } {
+  const app = wall.appliances.find((a) => a.id === appId && a.kind === 'washing');
+  if (!app) return { ok: false, message: 'ماشین لباسشویی یافت نشد' };
+
+  const cap = WASHING_CAPACITIES[kg];
+  const parentBox = findParentBoxForAppliance(wall, app);
+  const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
+  let minX = parentBox ? parentBox.offsetX : 0;
+  let maxX = parentBox ? parentBox.offsetX + parentBox.width - cap.width : wall.length - cap.width;
+  for (const z of blocked) {
+    if (z.tier !== 'lower') continue;
+    if (z.startCm <= minX + 2 && z.endCm > minX) minX = Math.max(minX, z.endCm);
+    const rb = parentBox ? parentBox.offsetX + parentBox.width : wall.length;
+    if (z.endCm >= rb - 2 && z.startCm < rb) maxX = Math.min(maxX, z.startCm - cap.width);
+  }
+  const blockers: ApplianceSpan[] = [
+    ...protectedSinkSpans(wall, blocked),
+    ...wall.appliances
+      .filter((o) => o.id !== app.id && o.kind !== 'sink' && o.kind !== 'builtin-oven' && o.kind !== 'microwave')
+      .map((o): ApplianceSpan => [o.offsetX, o.offsetX + o.width]),
+  ];
+  const oldStart = app.offsetX;
+  const oldEnd = app.offsetX + app.width;
+  const safeX = nearestClearApplianceOffset(oldStart, minX, maxX, cap.width, blockers);
+  if (safeX === undefined) {
+    return { ok: false, message: `فضای کافی برای ماشین لباسشویی ${cap.label} نیست` };
+  }
+
+  app.washingCapacityKg = kg;
+  app.width = cap.width;
+  app.offsetX = safeX;
+  if (parentBox) {
+    const oldLs = +(oldStart - parentBox.offsetX).toFixed(1);
+    const oldLe = +(oldEnd - parentBox.offsetX).toFixed(1);
+    const newLs = +(safeX - parentBox.offsetX).toFixed(1);
+    const newLe = +(newLs + cap.width).toFixed(1);
+    parentBox.unitDividers = parentBox.unitDividers.filter(
+      (u) => Math.abs(u - oldLs) > 1.5 && Math.abs(u - oldLe) > 1.5
+    );
+    if (newLs > 2 && !isDividerNearBlockedCorner(parentBox, newLs, blocked)) parentBox.unitDividers.push(newLs);
+    if (newLe < parentBox.width - 2 && !isDividerNearBlockedCorner(parentBox, newLe, blocked)) parentBox.unitDividers.push(newLe);
+    parentBox.unitDividers.sort((a, b) => a - b);
+  }
+
+  return { ok: true, width: cap.width, message: `ظرفیت لباسشویی به ${cap.label} تغییر کرد` };
 }
 
 /**

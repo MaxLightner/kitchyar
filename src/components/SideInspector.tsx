@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Box,
-  CheckSquare,
   Copy,
   DoorClosed,
   Droplets,
@@ -15,7 +14,6 @@ import {
   GripVertical,
   Lightbulb,
   Utensils,
-  Layers,
   LayoutGrid,
   MousePointer2,
   Move,
@@ -41,6 +39,7 @@ import {
   CABINET_FINISH_ORDER,
   COUNTERTOP_FINISHES,
   COUNTERTOP_FINISH_ORDER,
+  COUNTERTOP_THICKNESS_OPTIONS,
   DOOR_STYLE_META,
   DOOR_STYLE_ORDER,
   DRAWER_MAX_CM,
@@ -70,12 +69,14 @@ import {
   BoxKind,
   CabinetBox,
   CabinetFinishId,
+  CountertopEdgeProfile,
   CountertopFinishId,
   DesignStyle,
   DoorKind,
   DoorStyle,
   DoorSwing,
   DoorUnit,
+  EquipmentFinish,
   FridgeModel,
   HandleStyle,
   HardwareKind,
@@ -89,8 +90,6 @@ import {
   Wall,
   WallOpening,
 } from '../cad/types';
-
-type RailTab = 'tool' | 'box' | 'item' | 'multi';
 
 interface SideInspectorProps {
   diningSelected?: boolean;
@@ -228,6 +227,19 @@ interface SideInspectorProps {
   onCopySelection?: () => void;
   onZoomToSelected?: () => void;
   hasAnySelection?: boolean;
+  // Unified project-level & equipment settings
+  equipmentFinish?: EquipmentFinish;
+  onSetEquipmentFinish?: (f: EquipmentFinish) => void;
+  canSelectedGasUseChimney?: boolean;
+  onToggleSelectedFridgeFrame?: (hasFrame: boolean) => void;
+  countertopCm?: number;
+  countertopTopEdge?: CountertopEdgeProfile;
+  countertopBottomEdge?: CountertopEdgeProfile;
+  onUpdateCountertopSettings?: (patch: {
+    countertopCm?: number;
+    countertopTopEdge?: CountertopEdgeProfile;
+    countertopBottomEdge?: CountertopEdgeProfile;
+  }) => void;
 }
 
 const BOX_KINDS: Array<{ id: BoxKind; label: string }> = [
@@ -259,22 +271,22 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
     selectionMode,
   } = props;
 
-  const [openTab, setOpenTab] = useState<RailTab | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const railRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (!openTab) return;
+    if (!settingsOpen) return;
     const onPointerDown = (e: PointerEvent) => {
       if (railRef.current && !railRef.current.contains(e.target as Node)) {
-        setOpenTab(null);
+        setSettingsOpen(false);
       }
     };
     window.addEventListener('pointerdown', onPointerDown);
     return () => window.removeEventListener('pointerdown', onPointerDown);
-  }, [openTab]);
+  }, [settingsOpen]);
 
-  const toggleTab = (tab: RailTab) => {
-    setOpenTab((cur) => (cur === tab ? null : tab));
+  const toggleSettings = () => {
+    setSettingsOpen((cur) => !cur);
   };
 
   const isWallBox = activeBox?.type === 'wall' || activeBox?.type === 'wall-deep';
@@ -440,71 +452,27 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
         </button>
       )}
 
-      {/* ۱. آیکون تنظیمات ابزار فعال */}
+      {/* دکمه یکپارچه تنظیمات (زیر لامپ) */}
       <button
         type="button"
-        onClick={() => toggleTab('tool')}
-        aria-pressed={openTab === 'tool'}
-        aria-label="تنظیمات ابزار فعال"
-        title="تنظیمات ابزار فعال"
-        className={railBtnCls(openTab === 'tool')}
-      >
-        {renderToolIcon()}
-        {getToolBadge() && (
-          <span className="absolute -bottom-1 -left-1 px-1 min-w-[16px] h-4 rounded-full bg-slate-900 text-white text-[13px] font-black leading-4 text-center tabular-nums">
-            {getToolBadge()}
-          </span>
-        )}
-      </button>
-
-      {/* ۲. آیکون بازرس باکس، یونیت و درب */}
-      <button
-        type="button"
-        onClick={() => toggleTab('box')}
-        aria-pressed={openTab === 'box'}
-        aria-label="مشخصات باکس و یونیت و درب"
-        title="مشخصات باکس و یونیت و درب"
-        className={railBtnCls(openTab === 'box')}
-      >
-        <Layers className="w-4 h-4" />
-        {(activeBox || selectedUnit) && (
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
-        )}
-      </button>
-
-      {/* ۳. آیکون بازرس بازشو / تجهیز / فریم / طبقه */}
-      <button
-        type="button"
-        onClick={() => toggleTab('item')}
-        aria-pressed={openTab === 'item'}
-        aria-label="جزئیات تجهیز، بازشو یا فریم"
-        title="جزئیات تجهیز، بازشو یا فریم"
-        className={railBtnCls(openTab === 'item')}
+        data-testid="rail-settings"
+        onClick={toggleSettings}
+        aria-pressed={settingsOpen}
+        aria-label="تنظیمات"
+        title="تنظیمات ابزار، صفحه، تجهیزات، باکس و انتخاب"
+        className={railBtnCls(settingsOpen)}
       >
         <SlidersHorizontal className="w-4 h-4" />
-        {hasSubItem && (
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white" />
-        )}
-      </button>
-
-      {/* ۴. آیکون انتخاب چندتایی (تبلت/گروهی) */}
-      <button
-        type="button"
-        onClick={() => toggleTab('multi')}
-        aria-pressed={openTab === 'multi' || selectionMode !== 'single'}
-        aria-label="انتخاب چندتایی و عملیات گروهی"
-        title="انتخاب چندتایی و عملیات گروهی"
-        className={railBtnCls(openTab === 'multi' || selectionMode !== 'single')}
-      >
-        <CheckSquare className="w-4 h-4" />
-        {multiCount > 0 && (
-          <span className="absolute -bottom-1 -left-1 px-1 min-w-[16px] h-4 rounded-full bg-emerald-600 text-white text-[13px] font-black leading-4 text-center tabular-nums">
-            {multiCount}
+        {(getToolBadge() || multiCount > 0) ? (
+          <span className="absolute -bottom-1 -left-1 px-1 min-w-[16px] h-4 rounded-full bg-slate-900 text-white text-[11px] font-black leading-4 text-center tabular-nums">
+            {multiCount > 0 ? multiCount : getToolBadge()}
           </span>
-        )}
+        ) : (hasSubItem || activeBox || selectedUnit) ? (
+          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
+        ) : null}
       </button>
 
-      {/* ۵. سوئیچ سه‌حالته مشکی برقی انتخاب (بالا: افزودن + / وسط: تکی ● / پایین: کم کردن −) */}
+      {/* سوئیچ سه‌حالته مشکی برقی انتخاب (بالا: افزودن + / وسط: تکی ● / پایین: کم کردن −) */}
       <div
         role="group"
         aria-label="سوئیچ حالت انتخاب"
@@ -561,23 +529,22 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
       <div className="flex-1" />
       </div>
 
-      {/* پنجره شناور بازشونده کنار ریل (مشابه پنل‌های فتوشاپ) */}
-      {openTab && (
+      {/* پنل یکپارچه تنظیمات */}
+      {settingsOpen && (
         <div
           role="dialog"
-          aria-label="پنل تنظیمات ابزار"
-          className="flex w-[min(256px,42vw)] min-h-0 shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white"
+          aria-label="پنل تنظیمات"
+          data-testid="unified-settings-panel"
+          className="flex w-[min(284px,46vw)] min-h-0 shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white shadow-lg"
         >
           <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200 shrink-0">
-            <span className="text-[13px] font-extrabold text-slate-800">
-              {openTab === 'tool' && 'تنظیمات ابزار فعال'}
-              {openTab === 'box' && 'باکس، یونیت و درب'}
-              {openTab === 'item' && 'تجهیز، بازشو و جزئیات'}
-              {openTab === 'multi' && 'انتخاب چندتایی'}
+            <span className="inline-flex items-center gap-1.5 text-[13px] font-extrabold text-slate-800">
+              {renderToolIcon()}
+              <span>تنظیمات</span>
             </span>
             <button
               type="button"
-              onClick={() => setOpenTab(null)}
+              onClick={() => setSettingsOpen(false)}
               aria-label="بستن پنل"
               className="w-6 h-6 rounded-md hover:bg-slate-200/70 text-slate-500 inline-flex items-center justify-center"
             >
@@ -586,8 +553,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
           </div>
 
           <div className="p-3 overflow-y-auto no-scrollbar space-y-3 text-[13px]">
-            {openTab === 'tool' && (
-              <>
+            {activeTool !== 'select' && (
+              <div className="space-y-3 pb-2 border-b border-slate-200">
                 {activeTool === 'cab-draw' && (
                   <section className="space-y-1.5">
                     <h3 className="text-[13px] font-extrabold text-slate-500">نوع باکس</h3>
@@ -1354,21 +1321,20 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   </section>
                 )}
 
-                {(activeTool === 'select' || activeTool === 'wall' || activeTool === 'eraser') && (
+                {(activeTool === 'wall' || activeTool === 'eraser') && (
                   <section className="space-y-2 text-slate-600">
                     <p className="leading-relaxed">
-                      {activeTool === 'select' &&
-                        'برای جابجایی و تغییر اندازه روی باکس‌ها، درز یونیت‌ها (با مخفی کردن درب‌ها) یا بازشوها کلیک و درگ کنید.'}
                       {activeTool === 'wall' && 'در نمای پلان خطوط دیوار را بکشید.'}
                       {activeTool === 'eraser' && 'روی هر باکس، درب، دستگیره، فریم یا تجهیز کلیک کنید تا حذف شود.'}
                     </p>
                   </section>
                 )}
-              </>
+              </div>
             )}
 
-            {openTab === 'box' && (
-              <div className="space-y-3">
+            {/* بخش باکس، یونیت و درب انتخاب‌شده */}
+            {(activeBox || selectedUnit) && (
+              <div className="space-y-3 pb-2 border-b border-slate-200">
                 {selectedUnit && (
                   <section className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 space-y-2">
                     <div className="flex items-center justify-between">
@@ -1433,7 +1399,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   </section>
                 )}
 
-                {activeBox ? (
+                {activeBox && (
                   <>
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-slate-800">باکس: {activeBox.name}</span>
@@ -1600,7 +1566,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               type="button"
                               onClick={() => {
                                 props.onSelectTool!('hardware');
-                                setOpenTab('tool');
+                                setSettingsOpen(true);
                               }}
                               className="w-full h-8 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 text-[12px] font-bold"
                             >
@@ -1724,6 +1690,31 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       </div>
                     )}
 
+                    {activeBox.type !== 'fridge' && props.onSetBoxAppearance && (
+                      <div className="grid grid-cols-2 items-center gap-1.5 pt-2 border-t border-slate-100">
+                        <label className="text-xs font-bold">رنگ دستی باکس
+                          <input aria-label="رنگ دستی کابینت" type="color" className="block h-8 w-full mt-1 rounded"
+                            value={activeBox.color ?? (CABINET_FINISHES[activeBox.finish ?? props.projectCabinetFinish]?.hex ?? '#cccccc')}
+                            onChange={e => props.onSetBoxAppearance?.({ color: e.target.value })} />
+                        </label>
+                        <label className="text-xs font-bold">تکسچر باکس
+                          <select className="block h-8 w-full rounded border border-slate-300 mt-1" value={activeBox.texture ?? ''}
+                            onChange={e => props.onSetBoxAppearance?.({ texture: (e.target.value || undefined) as CabinetTextureId | undefined })}>
+                            <option value="">استایل</option>
+                            <option value="smooth">صاف</option>
+                            <option value="satin">ساتن</option>
+                            <option value="oak">بلوط</option>
+                            <option value="walnut">گردو</option>
+                          </select>
+                        </label>
+                        {activeBox.color && (
+                          <button type="button" className="col-span-2 text-xs text-indigo-700 font-bold text-right" onClick={() => props.onSetBoxAppearance?.({ color: undefined })}>
+                            بازگشت به رنگ استایل
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     <button
                       type="button"
                       onClick={props.onDeleteSelectedBox}
@@ -1733,16 +1724,13 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       <span>حذف باکس</span>
                     </button>
                   </>
-                ) : (
-                  !selectedUnit && (
-                    <p className="text-slate-400 text-center py-4">باکسی انتخاب نشده است</p>
-                  )
                 )}
               </div>
             )}
 
-            {openTab === 'item' && (
-              <div className="space-y-3">
+            {/* بخش تنظیمات تجهیزات و بازشوهای انتخاب‌شده */}
+            {(hasSubItem || activeBox?.type === 'fridge') && (
+              <div className="space-y-3 pt-1">
                 {props.selectedAppliance && (
                   <section className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -1774,29 +1762,33 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       )}
                     {props.selectedAppliance.kind === 'gas' &&
                       props.onChangeSelectedApplianceHood && (
-                        <div className="grid grid-cols-2 gap-1">
-                          <button
-                            type="button"
-                            onClick={() => props.onChangeSelectedApplianceHood!('hidden')}
-                            className={`h-7 rounded border text-[13px] font-bold ${
-                              props.selectedAppliance.hoodKind === 'hidden'
-                                ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
-                                : 'bg-white border-slate-200 text-slate-700'
-                            }`}
-                          >
-                            هود مخفی
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => props.onChangeSelectedApplianceHood!('chimney')}
-                            className={`h-7 rounded border text-[13px] font-bold ${
-                              (props.selectedAppliance.hoodKind || 'chimney') === 'chimney'
-                                ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
-                                : 'bg-white border-slate-200 text-slate-700'
-                            }`}
-                          >
-                            شومینه‌ای (اکسپوز)
-                          </button>
+                        <div className="space-y-1">
+                          <span className="text-[12px] font-bold text-slate-500 block">نوع هود بالای گاز</span>
+                          <div className="grid grid-cols-2 gap-1">
+                            <button
+                              type="button"
+                              onClick={() => props.onChangeSelectedApplianceHood!('hidden')}
+                              className={`h-8 rounded border text-[13px] font-bold ${
+                                props.selectedAppliance.hoodKind === 'hidden'
+                                  ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                                  : 'bg-white border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              هود مخفی
+                            </button>
+                            <button
+                              type="button"
+                              disabled={props.canSelectedGasUseChimney === false}
+                              onClick={() => props.onChangeSelectedApplianceHood!('chimney')}
+                              className={`h-8 rounded border text-[13px] font-bold disabled:opacity-40 ${
+                                (props.selectedAppliance.hoodKind || 'chimney') === 'chimney'
+                                  ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                                  : 'bg-white border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              شومینه‌ای (اکسپوز)
+                            </button>
+                          </div>
                         </div>
                       )}
                     {props.onDeleteSelectedAppliance && (
@@ -1808,6 +1800,30 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>حذف تجهیز</span>
                       </button>
+                    )}
+                  </section>
+                )}
+
+                {activeBox?.type === 'fridge' && (
+                  <section className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-indigo-700">تنظیمات یخچال انتخاب‌شده</span>
+                      <span className="text-[12px] font-bold text-slate-500">
+                        {FRIDGE_MODELS[activeBox.fridgeModel || 'side-by-side'].shortLabel}
+                      </span>
+                    </div>
+                    {props.onToggleSelectedFridgeFrame && (
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(activeBox.hasFridgeFrame)}
+                          onChange={(e) => props.onToggleSelectedFridgeFrame!(e.target.checked)}
+                          className="rounded border-slate-300 text-indigo-600"
+                        />
+                        <span className="text-slate-700 font-semibold text-[12px]">
+                          باکس فریم ۵cm دور یخچال
+                        </span>
+                      </label>
                     )}
                   </section>
                 )}
@@ -1971,26 +1987,6 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                   </section>
                 )}
 
-                {activeBox && activeBox.type !== 'fridge' && props.onSetBoxAppearance && (
-                  <section className="grid grid-cols-2 items-center gap-1.5 border-t pt-2">
-                    <label className="text-xs font-bold">رنگ باکس
-                      <input aria-label="رنگ دستی کابینت" type="color" className="block h-8 w-full"
-                        value={activeBox.color ?? (CABINET_FINISHES[activeBox.finish ?? props.projectCabinetFinish]?.hex ?? '#cccccc')}
-                        onChange={e => props.onSetBoxAppearance?.({ color: e.target.value })} />
-                    </label>
-                    <label className="text-xs font-bold">تکسچر باکس
-                      <select className="block h-8 w-full rounded border" value={activeBox.texture ?? ''}
-                        onChange={e => props.onSetBoxAppearance?.({ texture: (e.target.value || undefined) as CabinetTextureId | undefined })}>
-                        <option value="">استایل</option>
-                        <option value="smooth">صاف</option>
-                        <option value="satin">ساتن</option>
-                        <option value="oak">بلوط</option>
-                        <option value="walnut">گردو</option>
-                      </select>
-                    </label>
-                    {activeBox.color && <button type="button" className="text-xs text-indigo-700" onClick={() => props.onSetBoxAppearance?.({ color: undefined })}>بازگشت به رنگ استایل</button>}
-                  </section>
-                )}
                 {selectedFrame && props.onSetFrameColor && (
                   <label className="block border-t pt-2 text-xs font-bold">رنگ همین فریم
                     <input aria-label="رنگ فریم انتخاب‌شده" type="color" className="block h-8 w-full"
@@ -2040,58 +2036,187 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                     <span>حذف دیواره یونیت ({props.selectedUnitDivider.seamCm}cm)</span>
                   </button>
                 )}
-
-                {!hasSubItem && (
-                  <p className="text-slate-400 text-center py-4">تجهیز یا بازشویی انتخاب نشده</p>
-                )}
               </div>
             )}
 
-            {openTab === 'multi' && (
-              <div className="space-y-2.5">
-                <div className="space-y-1">
-                  <span className="text-[13px] font-bold text-slate-600 block">
-                    حالت انتخاب سه‌وضعته (تبلت)
-                  </span>
-                  <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-xl">
-                    <button
-                      type="button"
-                      onClick={() => props.onSetSelectionMode('add')}
-                      aria-pressed={selectionMode === 'add'}
-                      className={`h-8 rounded-lg text-[13px] font-extrabold ${
-                        selectionMode === 'add'
-                          ? 'bg-emerald-500 text-white'
-                          : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      + جمعی
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => props.onSetSelectionMode('single')}
-                      aria-pressed={selectionMode === 'single'}
-                      className={`h-8 rounded-lg text-[13px] font-extrabold ${
-                        selectionMode === 'single'
-                          ? 'bg-white text-slate-900'
-                          : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      ● تکی
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => props.onSetSelectionMode('subtract')}
-                      aria-pressed={selectionMode === 'subtract'}
-                      className={`h-8 rounded-lg text-[13px] font-extrabold ${
-                        selectionMode === 'subtract'
-                          ? 'bg-rose-500 text-white'
-                          : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      − کم‌کردن
-                    </button>
+            {/* بخش تنظیمات صفحه روی کابینت و رنگ تجهیزات (همیشه در دسترس از همین دکمه تنظیمات) */}
+            <section data-testid="countertop-settings-section" className="space-y-2.5 pt-2 border-t border-slate-200">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-extrabold text-slate-800">صفحه روی کابینت</span>
+                <span className="text-[12px] font-extrabold text-indigo-700 tabular-nums">
+                  {props.countertopCm ?? 4} cm
+                </span>
+              </div>
+
+              {props.onUpdateCountertopSettings && (
+                <>
+                  <div className="space-y-1.5">
+                    <span className="text-[12px] font-bold text-slate-500 block">ضخامت صفحه (۲ تا ۸ cm)</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        data-testid="countertop-thickness-dec"
+                        onClick={() =>
+                          props.onUpdateCountertopSettings!({
+                            countertopCm: Math.max(2, +(((props.countertopCm ?? 4) - 0.5).toFixed(1))),
+                          })
+                        }
+                        aria-label="کاهش ضخامت صفحه"
+                        className="h-7 w-7 rounded border border-slate-300 bg-white font-bold"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="range"
+                        min={2}
+                        max={8}
+                        step={0.5}
+                        aria-label="ضخامت صفحه"
+                        value={props.countertopCm ?? 4}
+                        onChange={(e) =>
+                          props.onUpdateCountertopSettings!({ countertopCm: Number(e.target.value) })
+                        }
+                        className="flex-1 accent-indigo-600"
+                      />
+                      <button
+                        type="button"
+                        data-testid="countertop-thickness-inc"
+                        onClick={() =>
+                          props.onUpdateCountertopSettings!({
+                            countertopCm: Math.min(8, +(((props.countertopCm ?? 4) + 0.5).toFixed(1))),
+                          })
+                        }
+                        aria-label="افزایش ضخامت صفحه"
+                        className="h-7 w-7 rounded border border-slate-300 bg-white font-bold"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1">
+                      {COUNTERTOP_THICKNESS_OPTIONS.map((cm) => (
+                        <button
+                          key={cm}
+                          type="button"
+                          onClick={() => props.onUpdateCountertopSettings!({ countertopCm: cm })}
+                          className={`h-7 rounded border text-[12px] font-bold tabular-nums ${
+                            (props.countertopCm ?? 4) === cm
+                              ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                              : 'bg-white border-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {cm}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[12px] font-bold text-slate-500 block">لبه بالایی صفحه</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        data-testid="countertop-top-square"
+                        onClick={() => props.onUpdateCountertopSettings!({ countertopTopEdge: 'square' })}
+                        aria-pressed={(props.countertopTopEdge ?? 'square') === 'square'}
+                        className={`h-8 rounded-lg border text-[12px] font-bold inline-flex items-center justify-center gap-1.5 ${
+                          (props.countertopTopEdge ?? 'square') === 'square'
+                            ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                            : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                          <path d="M2 13V4H13V13" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                        <span>مربعی</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="countertop-top-round"
+                        onClick={() => props.onUpdateCountertopSettings!({ countertopTopEdge: 'round' })}
+                        aria-pressed={props.countertopTopEdge === 'round'}
+                        className={`h-8 rounded-lg border text-[12px] font-bold inline-flex items-center justify-center gap-1.5 ${
+                          props.countertopTopEdge === 'round'
+                            ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                            : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                          <path d="M2 13V4H8C11.3 4 13 5.7 13 9V13" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                        <span>گوشه گرد</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[12px] font-bold text-slate-500 block">لبه پایینی صفحه</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        data-testid="countertop-bottom-square"
+                        onClick={() => props.onUpdateCountertopSettings!({ countertopBottomEdge: 'square' })}
+                        aria-pressed={(props.countertopBottomEdge ?? 'square') === 'square'}
+                        className={`h-8 rounded-lg border text-[12px] font-bold inline-flex items-center justify-center gap-1.5 ${
+                          (props.countertopBottomEdge ?? 'square') === 'square'
+                            ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                            : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                          <path d="M2 3V12H13V3" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                        <span>مربعی</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="countertop-bottom-round"
+                        onClick={() => props.onUpdateCountertopSettings!({ countertopBottomEdge: 'round' })}
+                        aria-pressed={props.countertopBottomEdge === 'round'}
+                        className={`h-8 rounded-lg border text-[12px] font-bold inline-flex items-center justify-center gap-1.5 ${
+                          props.countertopBottomEdge === 'round'
+                            ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                            : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                          <path d="M2 3V12H8C11.3 12 13 10.3 13 7V3" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                        <span>گوشه گرد</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {props.onSetEquipmentFinish && (
+                <div className="space-y-1 pt-1">
+                  <span className="text-[12px] font-bold text-slate-500 block">رنگ تجهیزات (یخچال/ظرفشویی/لباسشویی)</span>
+                  <div className="grid grid-cols-3 gap-1">
+                    {([['silver', 'نقره‌ای'], ['white', 'سفید'], ['black', 'مشکی']] as const).map(([finish, label]) => (
+                      <button
+                        key={finish}
+                        type="button"
+                        data-testid={`equipment-finish-${finish}`}
+                        onClick={() => props.onSetEquipmentFinish!(finish)}
+                        aria-pressed={(props.equipmentFinish ?? 'silver') === finish}
+                        className={`h-8 rounded-lg border text-[12px] font-bold ${
+                          (props.equipmentFinish ?? 'silver') === finish
+                            ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
+                            : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 </div>
+              )}
+            </section>
+
+            {/* بخش عملیات چندتایی و گروهی */}
+            {(multiCount > 0 || selectionMode !== 'single' || (activeBox && activeBox.doors.length > 0)) && (
+              <div className="space-y-2.5 pt-2 border-t border-slate-200">
+                <span className="text-[13px] font-extrabold text-slate-700 block">انتخاب چندتایی</span>
 
                 {activeBox && activeBox.doors.length > 0 && (
                   <button
@@ -2104,7 +2229,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                 )}
 
                 {multiCount > 0 && multiSelection && (
-                  <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-indigo-800">{multiCount} مورد</span>
                       <button

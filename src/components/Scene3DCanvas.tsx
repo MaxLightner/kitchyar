@@ -17,6 +17,7 @@ import { loadKitchenEnvironment } from '../cad/kitchenEnvironment';
 import { DoorClosed, DoorOpen, ZoomIn } from 'lucide-react';
 import {
   APPLIANCE_CONFIGS,
+  APPLIANCE_PLACEABLE_ORDER,
   BACKSPLASH_FINISHES,
   BACKSPLASH_FINISH_ORDER,
   BOX_PRESETS,
@@ -105,7 +106,7 @@ import { PacedGestureStepper } from '../utils/gesturePacing';
 import { SurfaceCursor, createSurfaceCursorMarker, updateSurfaceCursorMarker } from '../utils/surfaceCursor';
 import { wideViewVerticalFov, WideViewMode } from '../ar/wideView';
 
-const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
+const APPLIANCE_ORDER: ApplianceKind[] = APPLIANCE_PLACEABLE_ORDER;
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
 const HANDLE_STYLE_ORDER = HANDLE_STYLES.map(style => style.id);
@@ -179,7 +180,8 @@ interface Scene3DCanvasProps {
   ) => void;
   onSetMultiSelection: (m?: MultiSelection) => void;
   onSelectUnit: (wallId: string, unit: { boxId: string; startCm: number; endCm: number } | null) => void;
-  onSelectAppliance: (wallId: string, appId: string | null) => void;
+  onSelectAppliance: (wallId: string, appId: string | null, subPart?: 'gas' | 'hood' | null) => void;
+  onSelectSurface?: (surface: 'countertop' | 'backsplash' | null) => void;
   onSelectOpening: (wallId: string, openingId: string | null) => void;
   onSelectColumn?: (columnId: string | null) => void;
   frontCutOrient: Orientation;
@@ -228,7 +230,7 @@ interface Scene3DCanvasProps {
     overrideId?: string,
     doorId?: string,
   ) => void;
-  onPlaceAppliance: (wallId: string, boxId: string, desiredOffsetX: number, kindOverride?: ApplianceKind) => void;
+  onPlaceAppliance: (wallId: string, boxId: string, desiredOffsetX: number, kindOverride?: ApplianceKind, desiredElevY?: number) => void;
   onPlaceFridge: (wallId: string, desiredOffsetX: number) => void;
   onPlaceOpening: (wallId: string, desiredOffsetX: number, desiredElevY?: number) => void;
   onMoveOpening?: (wallId: string, openingId: string, offsetX: number, commit: boolean) => void;
@@ -512,7 +514,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     renderer.setSize(w, h);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.92;
+    renderer.toneMappingExposure = 0.96;
     if (!isSoftwareGl) {
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.autoUpdate = false;
@@ -538,16 +540,18 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (source) reflectionProbe?.setSky(source);
       requestRenderRef.current();
     });
-    scene.environmentIntensity = 0.9;
+    scene.environmentIntensity = 1.75;
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0xcbd5e1, 0.56);
+    const hemi = new THREE.HemisphereLight(0xf8fafc, 0x334155, 0.16);
     scene.add(hemi);
 
-    const dirKey = new THREE.DirectionalLight(0xfffbeb, 1.05);
+    const dirKey = new THREE.DirectionalLight(0xfff5e4, 1.50);
     dirKey.position.set(4.5, 6.8, 5.2);
     if (!isSoftwareGl) {
       dirKey.castShadow = true;
-      dirKey.shadow.mapSize.set(1024, 1024);
+      dirKey.shadow.mapSize.set(2048, 2048);
+      dirKey.shadow.bias = -0.00035;
+      dirKey.shadow.normalBias = 0.015;
       dirKey.shadow.camera.near = 0.5;
       dirKey.shadow.camera.far = 22;
       dirKey.shadow.camera.left = -6;
@@ -557,7 +561,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     }
     scene.add(dirKey);
 
-    const dirFill = new THREE.DirectionalLight(0xe0f2fe, 0.36);
+    const dirFill = new THREE.DirectionalLight(0xdbeafe, 0.12);
     dirFill.position.set(-4, 3.5, -4);
     scene.add(dirFill);
 
@@ -1193,11 +1197,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         targetStatus = 'valid';
         if (cur.openingKind === 'window') previewWindowOkbCm = elev;
       } else if (cur.tool === 'sink' || cur.tool === 'gas' || cur.tool === 'appliance') {
-        const baseBox =
-          (data.boxId ? wall.boxes.find((b) => b.id === data.boxId && b.type === 'base') : undefined) ||
-          wall.boxes.find((b) => b.type === 'base' && hitXCm >= b.offsetX - 5 && hitXCm <= b.offsetX + b.width + 5);
-        if (baseBox) {
-          const kind = cur.tool === 'sink' ? 'sink' : cur.tool === 'gas' ? 'gas' : cur.applianceKind;
+        const kind = cur.tool === 'sink' ? 'sink' : cur.tool === 'gas' ? 'gas' : cur.applianceKind;
+        const allowTall = kind === 'builtin-oven' || kind === 'microwave';
+        const matchBoxType = (b: CabinetBox) => b.type === 'base' || (allowTall && b.type === 'tall');
+        const targetBox =
+          (data.boxId ? wall.boxes.find((b) => b.id === data.boxId && matchBoxType(b)) : undefined) ||
+          wall.boxes.find((b) => matchBoxType(b) && hitXCm >= b.offsetX - 5 && hitXCm <= b.offsetX + b.width + 5);
+        if (targetBox) {
           const tw =
             kind === 'sink'
               ? SINK_MODELS[cur.sinkModel].width
@@ -1205,17 +1211,23 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
               ? cur.gasWidth
               : APPLIANCE_CONFIGS[kind].width;
           const startCm = Math.max(
-            baseBox.offsetX,
-            Math.min(baseBox.offsetX + baseBox.width - tw, Math.round((hitXCm - tw / 2) / 5) * 5)
+            targetBox.offsetX,
+            Math.min(targetBox.offsetX + targetBox.width - tw, Math.round((hitXCm - tw / 2) / 5) * 5)
           );
-          const topY = baseBox.elevY + baseBox.height;
+          const topY = targetBox.elevY + targetBox.height;
           if (kind === 'sink' || kind === 'gas') {
             const appDepthCm = kind === 'gas' ? 48 : 50;
-            const appZStart = Math.max(2, (baseBox.depth - appDepthCm) / 2);
+            const appZStart = Math.max(2, (targetBox.depth - appDepthCm) / 2);
             const appH = kind === 'gas' ? 5 : 4;
             addGhostBox(startCm, topY, appZStart, tw, appH, appDepthCm, ghostMatTeal);
+          } else if (allowTall && targetBox.type === 'tall') {
+            const appH = APPLIANCE_CONFIGS[kind].heightCm ?? (kind === 'microwave' ? 38 : 60);
+            const minE = targetBox.plinth + 15;
+            const maxE = Math.max(minE, targetBox.height - appH - 12);
+            const snapE = Math.round(Math.max(minE, Math.min(maxE, hitYCm - appH / 2)) / 5) * 5;
+            addGhostBox(startCm, snapE, 0, tw, appH, targetBox.depth + 2, ghostMatIndigo);
           } else {
-            addGhostBox(startCm, baseBox.plinth, 0, tw, topY - baseBox.countertopCm - baseBox.plinth, baseBox.depth + 2, ghostMatIndigo);
+            addGhostBox(startCm, targetBox.plinth, 0, tw, topY - targetBox.countertopCm - targetBox.plinth, targetBox.depth + 2, ghostMatIndigo);
           }
           hasGhost = true;
           targetStatus = 'valid';
@@ -1549,7 +1561,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (data.kind === 'appliance' && data.appId && (cur.tool === 'select' || moveActive)) {
         const app = wall.appliances.find((a) => a.id === data.appId);
         if (app) {
-          cur.onSelectAppliance(wall.id, app.id);
+          cur.onSelectAppliance(wall.id, app.id, data.subPart ?? null);
           if (!moveActive || !wallProj) return;
           controls.enabled = false;
           e.stopPropagation();
@@ -1673,11 +1685,15 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
           }
           return;
         }
+        if (cur.tool === 'select' && (data.kind === 'countertop' || data.kind === 'backsplash')) {
+          cur.onSelectSurface?.(data.kind);
+          return;
+        }
         if (
           data.boxId &&
           (data.kind === 'box' ||
             data.kind === 'door' ||
-            data.kind === 'countertop' ||
+            (moveActive && data.kind === 'countertop') ||
             data.kind === 'unit' ||
             data.kind === 'frame' ||
             data.kind === 'shelf' ||
@@ -2111,7 +2127,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (!wall || !tr) return;
 
       if (cur.tool === 'select' || cur.tool === 'move') {
-        if (data.kind === 'wall' || data.kind === 'backsplash' || data.kind === 'countertop') {
+        if (data.kind === 'wall') {
           cur.onSelectWallAndBox(wall.id, null, null);
         }
         return;
@@ -2144,21 +2160,25 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       }
 
       if (cur.tool === 'sink' || cur.tool === 'gas' || cur.tool === 'appliance') {
-        let baseBox = data.boxId ? wall.boxes.find((b) => b.id === data.boxId && b.type === 'base') : undefined;
-        if (!baseBox) {
-          baseBox = wall.boxes.find(
-            (b) => b.type === 'base' && hitXCm >= b.offsetX - 5 && hitXCm <= b.offsetX + b.width + 5
-          );
-        }
-        if (!baseBox) {
-          cur.onToast('لطفاً روی یک باکس زمینی کلیک کنید');
-          return;
-        }
         const k: ApplianceKind =
           cur.tool === 'sink' ? 'sink' : cur.tool === 'gas' ? 'gas' : cur.applianceKind;
+        const allowTall = k === 'builtin-oven' || k === 'microwave';
+        const matchBoxType = (b: CabinetBox) => b.type === 'base' || (allowTall && b.type === 'tall');
+        let targetBox = data.boxId ? wall.boxes.find((b) => b.id === data.boxId && matchBoxType(b)) : undefined;
+        if (!targetBox) {
+          targetBox = wall.boxes.find(
+            (b) => matchBoxType(b) && hitXCm >= b.offsetX - 5 && hitXCm <= b.offsetX + b.width + 5
+          );
+        }
+        if (!targetBox) {
+          cur.onToast(allowTall ? 'لطفاً روی یک باکس زمینی یا کمد قدی کلیک کنید' : 'لطفاً روی یک باکس زمینی کلیک کنید');
+          return;
+        }
         const tw =
           k === 'sink' ? SINK_MODELS[cur.sinkModel].width : k === 'gas' ? cur.gasWidth : APPLIANCE_CONFIGS[k].width;
-        cur.onPlaceAppliance(wall.id, baseBox.id, hitXCm - tw / 2, k);
+        const appH = APPLIANCE_CONFIGS[k].heightCm ?? (k === 'microwave' ? 38 : 60);
+        const desiredElevY = allowTall && targetBox.type === 'tall' ? hitYCm - appH / 2 : undefined;
+        cur.onPlaceAppliance(wall.id, targetBox.id, hitXCm - tw / 2, k, desiredElevY);
         return;
       }
 

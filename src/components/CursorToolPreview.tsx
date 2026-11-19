@@ -242,6 +242,8 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
         <rect x="5" y="4.5" width="26" height="5" rx="1" fill="#334155" />
         {applianceKind === 'washing' ? (
           <circle cx="18" cy="20.5" r="7" fill="#bae6fd" stroke="#1e293b" strokeWidth="1.8" />
+        ) : applianceKind === 'builtin-oven' || applianceKind === 'microwave' ? (
+          <rect x="6" y="11" width="24" height="17" rx="2" fill="#0f172a" stroke="#f59e0b" strokeWidth="1.4" />
         ) : (
           <line x1="11" y1="14" x2="25" y2="14" stroke="#64748b" strokeWidth="2.2" strokeLinecap="round" />
         )}
@@ -253,7 +255,9 @@ export const CursorToolPreview: React.FC<CursorToolPreviewProps> = ({
     graphic = (
       <svg width="36" height="32" viewBox="0 0 38 34" className="shrink-0">
         <rect x="5" y="2" width="28" height="30" rx="2.5" fill="#cbd5e1" stroke="#334155" strokeWidth="1.5" />
-        {fridgeModel === 'single' ? (
+        {fridgeModel === 'single-door' ? (
+          <line x1="10" y1="8" x2="10" y2="24" stroke="#475569" strokeWidth="1.8" strokeLinecap="round" />
+        ) : fridgeModel === 'single' ? (
           <line x1="5" y1="22" x2="33" y2="22" stroke="#475569" strokeWidth="1.3" />
         ) : fridgeModel === 'twin' ? (
           <>

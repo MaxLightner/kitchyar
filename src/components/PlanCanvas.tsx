@@ -7,6 +7,7 @@ import { hasWallSegment, snapWallDrawingPoint } from '../cad/wallSnap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   APPLIANCE_CONFIGS,
+  APPLIANCE_PLACEABLE_ORDER,
   BOX_PRESETS,
   FRIDGE_FRAME_CM,
   FRIDGE_MODELS,
@@ -15,6 +16,7 @@ import {
   OPENING_DEFAULTS,
   SINK_MODELS,
   SINK_MODEL_ORDER,
+  WASHING_CAPACITIES,
 } from '../cad/constants';
 import {
   analyzeCornerJunction,
@@ -47,7 +49,7 @@ import { deriveFloorPolygon } from '../cad/floorPolygon';
 import { CursorTargetStatus, CursorToolPreview } from './CursorToolPreview';
 import { PacedGestureStepper } from '../utils/gesturePacing';
 
-const APPLIANCE_ORDER: ApplianceKind[] = ['dishwasher', 'washing'];
+const APPLIANCE_ORDER: ApplianceKind[] = [...APPLIANCE_PLACEABLE_ORDER];
 const OPENING_ORDER: OpeningKind[] = ['window', 'door', 'column'];
 const emptyWallDraw = { startPt: null, currPt: null, lengthCm: 0, snappedCorner: false };
 const emptyCabSweep = {
@@ -126,7 +128,7 @@ interface PlanCanvasProps {
   onSelectWall: (wallId: string, boxId?: string | null) => void;
   onSelectOpening: (wallId: string, openingId: string) => void;
   onSelectColumn?: (columnId: string | null) => void;
-  onSelectAppliance?: (wallId: string, appId: string) => void;
+  onSelectAppliance?: (wallId: string, appId: string, subPart?: 'gas' | 'hood' | null) => void;
   onAddRoomColumn?: (xCm: number, yCm: number, commit?: boolean) => RoomColumn | void;
   onUpdateRoomColumn?: (
     colId: string,
@@ -684,9 +686,11 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             : targetKind === 'gas'
             ? gasWidth
             : APPLIANCE_CONFIGS[targetKind].width;
+        const supportsTall =
+          targetKind === 'builtin-oven' || targetKind === 'microwave';
         const baseBox = hit.wall.boxes.find(
           (b) =>
-            b.type === 'base' &&
+            (b.type === 'base' || (supportsTall && b.type === 'tall')) &&
             hit.offsetCm >= b.offsetX - 5 &&
             hit.offsetCm <= b.offsetX + b.width + 5
         );
@@ -698,7 +702,11 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
             targetKind
           );
         } else {
-          onToast('نشانگر را روی یک باکس زمینی در پلان بگذارید');
+          onToast(
+            supportsTall
+              ? 'نشانگر را روی یک باکس زمینی یا ایستاده در پلان بگذارید'
+              : 'نشانگر را روی یک باکس زمینی در پلان بگذارید'
+          );
         }
         return;
       }
@@ -1041,9 +1049,11 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
       const hit = projectPointToWalls(ptCm, walls);
       if (hit) {
         setPlanHoverFloorCm(null);
+        const supportsTallHover =
+          tool === 'appliance' && (applianceKind === 'builtin-oven' || applianceKind === 'microwave');
         const box = hit.wall.boxes.find(
           (b) =>
-            b.type === 'base' &&
+            (b.type === 'base' || (supportsTallHover && b.type === 'tall')) &&
             hit.offsetCm >= b.offsetX - 5 &&
             hit.offsetCm <= b.offsetX + b.width + 5
         );
@@ -1942,6 +1952,30 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                           </>
                         )}
                       </>
+                    ) : app.kind === 'builtin-oven' || app.kind === 'microwave' ? (
+                      <>
+                        <rect
+                          x={ax}
+                          y={ay}
+                          width={aw}
+                          height={ad}
+                          rx={3}
+                          fill={app.ovenLightOn ? '#fef3c7' : '#e2e8f0'}
+                          stroke={isAppSel ? '#4f46e5' : app.ovenLightOn ? '#d97706' : '#475569'}
+                          strokeWidth={isAppSel ? 2.2 : 1.4}
+                        />
+                        <text
+                          x={ax + aw / 2}
+                          y={ay + ad / 2 + 3}
+                          fontSize={12}
+                          fontWeight={800}
+                          fill={app.ovenLightOn ? '#92400e' : '#1e293b'}
+                          textAnchor="middle"
+                          pointerEvents="none"
+                        >
+                          {app.kind === 'microwave' ? 'ماکروفر' : 'فر توکار'}
+                        </text>
+                      </>
                     ) : (
                       <>
                         <rect
@@ -1957,13 +1991,15 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
                         <text
                           x={ax + aw / 2}
                           y={ay + ad / 2 + 3}
-                          fontSize={13}
+                          fontSize={12}
                           fontWeight={800}
                           fill="#312e81"
                           textAnchor="middle"
                           pointerEvents="none"
                         >
-                          {app.kind === 'dishwasher' ? 'ظرفشویی' : 'لباسشویی'}
+                          {app.kind === 'dishwasher'
+                            ? 'ظرفشویی'
+                            : `لباسشویی ${WASHING_CAPACITIES[app.washingCapacityKg || 8]?.shortLabel || ''}`}
                         </text>
                       </>
                     )}
