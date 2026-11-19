@@ -524,7 +524,8 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
   const bsFinish: BacksplashFinishId = project.backsplashFinish || 'calacatta-marble';
   const ctFinish: CountertopFinishId = project.countertopFinish || 'dark-quartz';
 
-  const bevelNormal = doorBevelTexture ??= shareKitchenTexture(createDoorBevelNormalMap());
+  // The legacy bevel normal map only remains in use for equipment.
+  // Cabinet doors now use dimension-aware fragment normals without a texture.
 
   // The cavity texture darkens the base color even with direct lighting only.
   const insideAoMap = project.settings?.ambientOcclusion !== false ? getCabinetOcclusionTexture() : null;
@@ -616,10 +617,40 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     const mat = new THREE.MeshPhysicalMaterial({
       map: tex,
       color: surface.map ? surface.color : '#ffffff',
-      normalMap: bevelNormal,
-      normalScale: new THREE.Vector2(0.72, 0.72),
+      // No cabinet-door normal texture; the flat 18mm panel geometry is unchanged.
       ...readSurfaceFinish(settings, 0, Math.max(0.20, cfg.roughness * 0.68 + (doorStyle === 'cnc' ? 0.06 : 0)), appearance),
     });
+    mat.onBeforeCompile = shader => {
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>
+        attribute vec2 cabinetDoorSize;
+        varying vec2 vCabinetDoorSize;
+        varying vec2 vCabinetDoorUv;
+        varying float vCabinetDoorFace;
+        varying vec3 vCabinetDoorAxisX;
+        varying vec3 vCabinetDoorAxisY;`);
+      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        vCabinetDoorSize = cabinetDoorSize;
+        vCabinetDoorUv = uv;
+        vCabinetDoorFace = normal.z;
+        vCabinetDoorAxisX = normalize(normalMatrix * vec3(1.0, 0.0, 0.0));
+        vCabinetDoorAxisY = normalize(normalMatrix * vec3(0.0, 1.0, 0.0));`);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>
+        varying vec2 vCabinetDoorSize;
+        varying vec2 vCabinetDoorUv;
+        varying float vCabinetDoorFace;
+        varying vec3 vCabinetDoorAxisX;
+        varying vec3 vCabinetDoorAxisY;`);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        if (vCabinetDoorSize.x > 0.01 && abs(vCabinetDoorFace) > 0.9) {
+          // Only a 5mm edge band, half of the previous edge slope.
+          vec2 borderDistance = min(vCabinetDoorUv, 1.0 - vCabinetDoorUv) * vCabinetDoorSize;
+          vec2 borderSlope = 0.21 * (1.0 - smoothstep(vec2(0.0), vec2(0.005), borderDistance));
+          vec2 broadSlope = 0.15 * (vCabinetDoorUv * 2.0 - vec2(1.0));
+          vec2 slope = broadSlope + sign(vCabinetDoorUv - vec2(0.5)) * borderSlope;
+          normal = normalize(normal + slope.x * vCabinetDoorAxisX + slope.y * vCabinetDoorAxisY);
+        }`);
+    };
+    mat.customProgramCacheKey = () => 'door-fragment-normal-5mm-v1';
     mat.userData.sceneReflection = true;
     doorCache.set(key, mat);
     return mat;

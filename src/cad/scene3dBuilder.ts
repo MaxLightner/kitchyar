@@ -2503,7 +2503,15 @@ function buildDoor3D(ctx: {
         interactables.push(m);
       }
     } else {
-      const panel = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, doorThick), doorBoxMats);
+      const panelGeometry = new THREE.BoxGeometry(pw, ph, doorThick);
+      // Only adds metadata for the shading program; no changed geometry,
+      // positions, bevel or silhouette. Works at any door dimensions.
+      const normalSize = new Float32Array(panelGeometry.getAttribute('position').count * 2);
+      for (let i = 0; i < normalSize.length; i += 2) {
+        normalSize[i] = pw; normalSize[i + 1] = ph;
+      }
+      panelGeometry.setAttribute('cabinetDoorSize', new THREE.BufferAttribute(normalSize, 2));
+      const panel = new THREE.Mesh(panelGeometry, doorBoxMats);
       panel.position.set(cx, cy, 0);
       panel.castShadow = true;
       panel.receiveShadow = true;
