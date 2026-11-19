@@ -524,7 +524,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#eaeef3');
     sceneRef.current = scene;
-    const lighting = addKitchenLighting(scene);
+    const lighting = addKitchenLighting(scene, renderer, () => requestRenderRef.current());
 
     // Reusable 3D ghost preview group + materials
     const ghostGroup = new THREE.Group();

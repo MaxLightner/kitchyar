@@ -15,6 +15,7 @@ import { buildDiningFootprint3D } from '../cad/dining3d';
 import { snapDiningPosition } from '../cad/diningLayout';
 import type { DiningSeats } from '../cad/types';
 import { addKitchenLighting, configureKitchenRenderer } from '../cad/kitchenLighting';
+import { loadKitchenEnvironment } from '../cad/kitchenEnvironment';
 import {
   AppWindow,
   BrickWall,
@@ -899,6 +900,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   // Chido Wide View: virtual scene uses XR tracking, but a separate perspective
   // from the physical camera; no OrbitControls are enabled during a live scan.
   const trackedWideRendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const trackedWideEnvironmentRef = useRef<THREE.Texture | null>(null);
   const diningGhostRef = useRef<THREE.Group | null>(null);
   const trackedWideCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -973,7 +975,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
 
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    const lighting = addKitchenLighting(scene);
+    const lighting = addKitchenLighting(scene, renderer, () => renderOnceRef.current());
     lightingRef.current = lighting;
 
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.04, 50);
@@ -3483,7 +3485,11 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
           }
           wideCamera.updateMatrixWorld(true);
           try {
-            wideRenderer.render(sceneRef.current, wideCamera);
+            const scene = sceneRef.current;
+            const xrEnvironment = scene.environment;
+            scene.environment = trackedWideEnvironmentRef.current;
+            try { wideRenderer.render(scene, wideCamera); }
+            finally { scene.environment = xrEnvironment; }
           } catch {
             // A tablet can lose its secondary WebGL context under memory pressure.
             // Return to the tracked physical camera rather than breaking the XR loop.
@@ -3543,6 +3549,9 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     wideRenderer.setPixelRatio(Math.min(1.25, window.devicePixelRatio || 1));
     wideRenderer.setClearColor(0xf3f4f6, 1);
     configureKitchenRenderer(wideRenderer, detectSoftwareWebGL(wideRenderer.getContext()));
+    const disposeEnvironment = loadKitchenEnvironment(wideRenderer, target => {
+      trackedWideEnvironmentRef.current = target.texture;
+    });
     const canvas = wideRenderer.domElement;
     canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
     parent.appendChild(canvas);
@@ -3554,6 +3563,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
         trackedWideRendererRef.current = null;
         trackedWideCameraRef.current = null;
       }
+      trackedWideEnvironmentRef.current = null;
+      disposeEnvironment();
       wideRenderer.dispose();
       canvas.remove();
     };

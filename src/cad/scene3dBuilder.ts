@@ -29,6 +29,7 @@ import {
 import { buildDining3D, buildTelevisionSet3D, createDiningMaterials } from './dining3d';
 import { readSurfaceFinish } from './surfaceFinish';
 import { bakeKitchenOcclusion } from './kitchenOcclusion';
+import { addCeilingFillLights, addKitchenSpot } from './kitchenLighting';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
 import {
@@ -794,8 +795,8 @@ export function buildKitchen3DScene(
     maxZ = 2;
   }
   const bounds = new THREE.Box3();
+  const vertices = deriveFloorPolygon(project.walls);
   if (!opts.hideFloor) {
-    const vertices = deriveFloorPolygon(project.walls);
     if (vertices.length >= 3) {
       // THREE.Shape is in XY; -Z in shape space becomes +Z after rotating onto the floor.
       const outline = new THREE.Shape();
@@ -821,6 +822,9 @@ export function buildKitchen3DScene(
       bounds.expandByObject(floorMesh);
     }
   }
+
+  const ceilingHeightM = (project.settings?.wallHeightCm ?? project.walls[0]?.height ?? 265) * CM;
+  addCeilingFillLights(root, vertices, ceilingHeightM);
 
   const stripMaterial = new THREE.MeshBasicMaterial({ color: 0xffdfb6 });
   for (const wall of project.walls) {
@@ -956,6 +960,21 @@ export function buildKitchen3DScene(
 
     const uppers = wall.boxes.filter(b => b.type === 'wall' || b.type === 'wall-deep')
       .sort((a, b) => a.elevY - b.elevY || a.depth - b.depth || a.offsetX - b.offsetX);
+    if (uppers.length) {
+      const left = Math.min(...uppers.map(box => box.offsetX)) * CM;
+      const right = Math.max(...uppers.map(box => box.offsetX + box.width)) * CM;
+      const bottom = Math.min(...uppers.map(box => box.elevY)) * CM;
+      const top = Math.max(...uppers.map(box => box.elevY + box.height)) * CM;
+      const depth = Math.max(...uppers.map(box => box.depth)) * CM;
+      const center = (left + right) / 2;
+      const front = Math.min(depth + 0.65, depth + Math.max(0.32, (right - left) * 0.24));
+      const targetY = (top + bottom) / 2;
+      const lightY = Math.max(wallHM - 0.06, targetY + 0.15);
+      addKitchenSpot(wallGrp,
+        new THREE.Vector3(center, lightY, normalSign * front),
+        new THREE.Vector3(center, targetY, normalSign * depth),
+        { color: 0xffe0b8, intensity: 1, range: 3.8, angle: 0.74 });
+    }
     const runs: Array<{ start: number; end: number; elevation: number; depth: number; lit: boolean; boxIds: string[] }> = [];
     for (const box of uppers) {
       const previous = runs.at(-1);
@@ -970,12 +989,21 @@ export function buildKitchen3DScene(
       const length = Math.max(0.08, (run.end - run.start) * CM - 0.025);
       const y = run.elevation * CM - 0.009;
       const x = (run.start + run.end) * CM / 2;
-      const z = normalSign * Math.max(0.05, run.depth * CM - 0.047);
+      const z = normalSign * Math.min(0.055, run.depth * CM / 2);
       const strip = new THREE.Mesh(new THREE.BoxGeometry(length, 0.015, 0.028), run.lit ? stripMaterial : matHiddenTrim);
       strip.position.set(x, y, z);
       strip.userData = { kind: 'under-cabinet-light', wallId: wall.id, lightBoxIds: run.boxIds } satisfies Scene3DHitData;
       wallGrp.add(strip);
       interactables.push(strip);
+      if (!run.lit) continue;
+      const count = Math.min(6, Math.max(1, Math.ceil(length / 0.55)));
+      for (let i = 0; i < count; i++) {
+        const ledX = x + length * ((i + 0.5) / count - 0.5);
+        addKitchenSpot(wallGrp,
+          new THREE.Vector3(ledX, y - 0.018, z),
+          new THREE.Vector3(ledX, y - 0.48, normalSign * 0.025),
+          { color: 0xffdfb6, intensity: 1, range: 1.6, angle: 0.94 });
+      }
     }
 
     // Render all Cabinet Boxes on this wall
