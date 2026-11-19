@@ -1,4 +1,4 @@
-import type { CabinetLighting, ProjectSettings } from '../cad/types';
+import type { CabinetLighting, CabinetLightMode, ProjectSettings } from '../cad/types';
 import { SurfaceFinishControls, type SurfaceFinishPatch } from './SurfaceFinishControls';
 import { getCabinetLighting } from '../cad/cabinetLighting';
 import type { CabinetTextureId } from '../cad/types';
@@ -96,6 +96,8 @@ import {
 
 interface SideInspectorProps {
   diningSelected?: boolean;
+  kitchenLightMode?: CabinetLightMode;
+  onSetOvenLight?: (enabled: boolean) => void;
   onRotateDining?: () => void;
   selectedSurface?: SurfaceSelection | null;
   selectedAppliancePart?: 'gas' | 'hood' | null;
@@ -324,7 +326,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
   );
 
   const cabinetLighting = activeBox && (activeBox.type === 'wall' || activeBox.type === 'wall-deep')
-    ? getCabinetLighting(activeBox) : null;
+    ? { ...getCabinetLighting(activeBox), mode: props.kitchenLightMode ?? getCabinetLighting(activeBox).mode } : null;
   const toolSettings = activeTool !== 'select' && activeTool !== 'move';
   const objectSettings = !toolSettings && !props.selectedSurface && !props.diningSelected;
   const showFridge = objectSettings && !hasSubItem && activeBox?.type === 'fridge';
@@ -1413,9 +1415,9 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                     {!selectedDoor && cabinetLighting && props.onSetCabinetLighting && (
                       <fieldset className="space-y-2 border-t border-slate-100 pt-2">
-                        <legend className="text-xs font-bold">نور کابینت هوایی</legend>
+                        <legend className="text-xs font-bold">نوع نور تمام کابینت‌های هوایی</legend>
                         <div className="grid grid-cols-3 gap-1">
-                          {([['off', 'خاموش'], ['linear', 'خطی زیر کابینت'], ['halogen', 'هالوژن سقفی']] as const)
+                          {([['off', 'خاموش'], ['linear', 'خطی زیر کابینت'], ['halogen', 'هالوژن بین‌کابینتی']] as const)
                             .map(([mode, label]) => (
                               <button key={mode} type="button" aria-pressed={cabinetLighting.mode === mode}
                                 data-testid={`cabinet-light-${mode}`}
@@ -1768,7 +1770,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         {Math.round(props.selectedAppliance.offsetX)}cm
                       </span>
                     </div>
-                    {props.selectedAppliance.kind === 'sink' &&
+                    {(props.selectedAppliance.kind === 'builtin-oven' || props.selectedAppliance.kind === 'microwave') && props.onSetOvenLight && (
+                       <label className="flex items-center gap-2 font-bold">
+                         <input type="checkbox" checked={Boolean(props.selectedAppliance.ovenLightOn)}
+                           onChange={event => props.onSetOvenLight?.(event.target.checked)} />
+                         چراغ داخل فر
+                       </label>
+                     )}
+                     {props.selectedAppliance.kind === 'sink' &&
                       props.onChangeSelectedApplianceSinkModel && (
                         <div className="grid grid-cols-2 gap-1">
                           {SINK_MODEL_ORDER.map((m) => (

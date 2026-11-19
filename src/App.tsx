@@ -1,4 +1,4 @@
-import { getCabinetLighting } from './cad/cabinetLighting';
+import { getCabinetLighting, getKitchenCabinetLightMode } from './cad/cabinetLighting';
 import type { CabinetLighting } from './cad/types';
 import { SelectionPicker, type OfferSelection, type PickCandidate, type SurfaceSelection } from './components/SelectionPicker';
 import { applyFrontCut, findFrontCut } from './cad/frontCut';
@@ -2394,22 +2394,19 @@ export default function App() {
   const upperLightBoxes = project.walls.flatMap(w => w.boxes).filter(b => b.type === 'wall' || b.type === 'wall-deep');
   const selectedUppers = upperLightBoxes.filter(b => b.id === project.activeBoxId || project.multiSelection?.boxIds.includes(b.id));
   const selectedLightBoxes = selectedUppers;
-  const lightsOn = selectedLightBoxes.length > 0 && selectedLightBoxes.every(box => getCabinetLighting(box).mode === 'linear');
+  const lightsOn = getKitchenCabinetLightMode(project) !== 'off';
   const toggleLightBoxes = (boxIds: string[]) => {
     const ids = new Set(boxIds);
     if (!ids.size) return;
-    commitState(prev => {
-      const targets = prev.walls.flatMap(w => w.boxes).filter(box => ids.has(box.id));
-      const mode = targets.every(box => getCabinetLighting(box).mode === 'linear') ? 'off' : 'linear';
-      return {
-        ...prev,
-        walls: prev.walls.map(w => ({ ...w, boxes: w.boxes.map(box =>
-          ids.has(box.id) && (box.type === 'wall' || box.type === 'wall-deep')
-            ? { ...box, lighting: { ...getCabinetLighting(box), mode }, underCabinetLight: mode === 'linear' } : box) })),
-      };
-    }, true);
+    const mode = getKitchenCabinetLightMode(project) === 'off' ? 'linear' : 'off';
+    commitState(prev => ({ ...prev,
+      settings: { ...(prev.settings ?? DEFAULT_PROJECT_SETTINGS), underCabinetLightMode: mode },
+      walls: prev.walls.map(wall => ({ ...wall, boxes: wall.boxes.map(box =>
+        (box.type === 'wall' || box.type === 'wall-deep')
+          ? { ...box, lighting: { ...getCabinetLighting(box), mode }, underCabinetLight: mode === 'linear' } : box) })),
+    }), true);
   };
-  const toggleUnderCabinetLight = () => toggleLightBoxes(selectedLightBoxes.map(box => box.id));
+  const toggleUnderCabinetLight = () => toggleLightBoxes(upperLightBoxes.map(box => box.id));
 
   const hasAnySelection = Boolean(
     project.selectedDiningId ||
@@ -2589,12 +2586,15 @@ export default function App() {
     setSettingsOpen(false);
   };
 
-  const handleSaveSettings = (nextSettings: ProjectSettings, applyToExisting: boolean, lights: Record<string, CabinetLighting>) => {
+  const handleSaveSettings = (nextSettings: ProjectSettings, applyToExisting: boolean, lights: Record<string, CabinetLighting>, ovens: Record<string, boolean>) => {
     const next = cloneProject(project);
     next.settings = nextSettings;
+    next.walls.forEach(wall => wall.appliances.forEach(app => {
+      if (ovens[app.id] !== undefined) app.ovenLightOn = ovens[app.id];
+    }));
     next.walls.forEach(wall => wall.boxes.forEach(box => {
       if (lights[box.id]) {
-        box.lighting = { ...lights[box.id] };
+        box.lighting = { ...lights[box.id], mode: nextSettings.underCabinetLightMode ?? lights[box.id].mode };
         box.underCabinetLight = box.lighting.mode === 'linear';
       }
     }));
@@ -2995,11 +2995,17 @@ export default function App() {
   };
   const setCabinetLighting = (patch: Partial<CabinetLighting>) => {
     if (!activeBox || (activeBox.type !== 'wall' && activeBox.type !== 'wall-deep')) return;
-    mutateActiveWall(wall => {
-      const box = wall.boxes.find(item => item.id === activeBox.id);
-      if (!box) return;
-      box.lighting = { ...getCabinetLighting(box), ...patch };
-      box.underCabinetLight = box.lighting.mode === 'linear';
+    commitState(prev => {
+      const mode = patch.mode ?? getKitchenCabinetLightMode(prev);
+      return {
+        ...prev, settings: { ...(prev.settings ?? DEFAULT_PROJECT_SETTINGS), underCabinetLightMode: mode },
+        walls: prev.walls.map(wall => ({ ...wall, boxes: wall.boxes.map(box =>
+          (box.type === 'wall' || box.type === 'wall-deep') ? {
+            ...box, lighting: { ...getCabinetLighting(box), mode,
+              intensity: box.id === activeBox.id ? patch.intensity ?? getCabinetLighting(box).intensity : getCabinetLighting(box).intensity },
+            underCabinetLight: mode === 'linear',
+          } : box) })),
+      };
     }, true);
   };
   const setFrameColor = (color?: string) => {
@@ -3108,6 +3114,14 @@ export default function App() {
               selectedFrame={selectedFrame}
               onSetBoxAppearance={setBoxAppearance}
               onSetCabinetLighting={setCabinetLighting}
+              kitchenLightMode={getKitchenCabinetLightMode(project)}
+              onSetOvenLight={enabled => {
+                if (!activeWall || !selectedAppliance) return;
+                mutateActiveWall(wall => {
+                  const app = wall.appliances.find(app => app.id === selectedAppliance.id);
+                  if (app) app.ovenLightOn = enabled;
+                }, true);
+              }}
               onSetCabinetDimension={setSelectedCabinetDimension}
               surfaceSettings={project.settings}
               onSetSelectedSurfaceFinish={setSelectedSurfaceFinish}
@@ -4041,7 +4055,7 @@ export default function App() {
           onSelectTool={handleSelectTool}
           onToggleDoorsHidden={handleToggleDoorsHidden}
           onDeleteSelection={handleDeleteCurrentSelection}
-          canToggleUnderLight={selectedLightBoxes.length > 0}
+          canToggleUnderLight={upperLightBoxes.length > 0}
           lightsOn={lightsOn}
           onToggleUnderLight={toggleUnderCabinetLight}
         />
@@ -4073,6 +4087,8 @@ export default function App() {
         <SettingsModal
           settings={project.settings || DEFAULT_PROJECT_SETTINGS}
           cabinetLights={upperLightBoxes}
+          kitchenLightMode={getKitchenCabinetLightMode(project)}
+          ovens={project.walls.flatMap(wall => wall.appliances).filter(app => app.kind === 'builtin-oven' || app.kind === 'microwave')}
           onSave={handleSaveSettings}
           onPreviewHdrRotation={setPreviewHdrRotation}
            onClose={closeSceneSettings}

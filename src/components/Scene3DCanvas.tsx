@@ -1,3 +1,4 @@
+import { createKitchenReflections } from '../cad/kitchenReflections';
 import type { CabinetBox } from '../cad/types';
 import type { OfferSelection, PickCandidate } from './SelectionPicker';
 import { findFrontCut } from '../cad/frontCut';
@@ -604,6 +605,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const camera = new THREE.PerspectiveCamera(wideViewVerticalFov(wideViewModeRef.current, w / h), w / h, 0.12, 48);
     camera.position.set(3.2, 2.5, 3.8);
     cameraRef.current = camera;
+    const reflections = createKitchenReflections(renderer, scene, camera);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = !isSoftwareGl;
@@ -687,7 +689,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         built?.syncOcclusion?.();
         lighting.setIntensities(propsRef.current.project.settings);
         lighting.followCamera(camera);
-        renderer.render(scene, camera);
+        reflections.render();
       }
       if (rafId === null && (anyDoorMoving || anyFocusMoving)) {
         rafId = requestAnimationFrame(renderLoop);
@@ -2997,6 +2999,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         disposeObject3D(builtRef.current.root);
         builtRef.current = null;
       }
+      reflections.dispose();
       lighting.dispose();
       renderer.dispose();
       if (dom.parentNode === container) container.removeChild(dom);

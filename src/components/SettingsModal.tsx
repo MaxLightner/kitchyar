@@ -2,28 +2,33 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { DEFAULT_PROJECT_SETTINGS } from '../cad/constants';
 import { getCabinetLighting } from '../cad/cabinetLighting';
-import type { CabinetBox, CabinetLighting, ProjectSettings } from '../cad/types';
+import type { ApplianceItem, CabinetBox, CabinetLighting, CabinetLightMode, ProjectSettings } from '../cad/types';
 import { SurfaceFinishControls } from './SurfaceFinishControls';
 
 interface SettingsModalProps {
   settings: ProjectSettings;
   cabinetLights: CabinetBox[];
-  onSave: (next: ProjectSettings, applyToExisting: boolean, lights: Record<string, CabinetLighting>) => void;
+  kitchenLightMode: CabinetLightMode;
+  ovens: ApplianceItem[];
+  onSave: (next: ProjectSettings, applyToExisting: boolean, lights: Record<string, CabinetLighting>, ovens: Record<string, boolean>) => void;
   onPreviewHdrRotation: (degrees: number) => void;
   onClose: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  settings, cabinetLights, onSave, onPreviewHdrRotation, onClose,
+  settings, cabinetLights, kitchenLightMode, ovens, onSave, onPreviewHdrRotation, onClose,
 }) => {
-  const [form, setForm] = useState(settings);
+  const [form, setForm] = useState({ ...settings, underCabinetLightMode: kitchenLightMode });
+  const [ovenLights, setOvenLights] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(ovens.map(app => [app.id, Boolean(app.ovenLightOn)])));
   const [lights, setLights] = useState<Record<string, CabinetLighting>>(() =>
     Object.fromEntries(cabinetLights.map(box => [box.id, getCabinetLighting(box)])));
-  const intensityControls: Array<{ key: 'hdrIntensity' | 'cameraLightIntensity' | 'linearLightIntensity' | 'halogenLightIntensity'; label: string; fallback: number }> = [
+  const intensityControls: Array<{ key: 'hdrIntensity' | 'cameraLightIntensity' | 'linearLightIntensity' | 'halogenLightIntensity' | 'facadeLightIntensity'; label: string; fallback: number }> = [
     { key: 'hdrIntensity', label: 'HDRI', fallback: 1 },
     { key: 'cameraLightIntensity', label: 'نور دوربین', fallback: 0.35 },
     { key: 'linearLightIntensity', label: 'نور خطی زیر کابینت', fallback: 10 },
-    { key: 'halogenLightIntensity', label: 'هالوژن کابینت', fallback: 1 },
+    { key: 'halogenLightIntensity', label: 'هالوژن بین‌کابینتی', fallback: 1 },
+    { key: 'facadeLightIntensity', label: 'هالوژن روی درهای هوایی', fallback: 1 },
   ];
   const [applyToExisting, setApplyToExisting] = useState(true);
   const degrees = Number.isFinite(form.hdrRotationDegrees) ? form.hdrRotationDegrees! : 0;
@@ -90,33 +95,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="mt-1 h-8 w-full rounded border border-slate-300 px-2" />
                 </label>
               ))}
-              {[0, 1, 2].map(index => (
-                <label key={index} className="block">
-                  نور سقف {index + 1}
-                  <input aria-label={'نور سقف ' + (index + 1)} type="number" dir="ltr" min={0} max={100} step={0.05}
-                    value={form.ceilingLightIntensities?.[index] ?? 0.7}
-                    onChange={e => setForm(prev => {
-                      const values = [...(prev.ceilingLightIntensities ?? [0.7, 0.7, 0.7])];
-                      values[index] = Math.max(0, Math.min(100, Number(e.target.value)));
-                      return { ...prev, ceilingLightIntensities: values };
-                    })}
-                    className="mt-1 h-8 w-full rounded border border-slate-300 px-2" />
-                </label>
-              ))}
+              <label className="block">
+                شدت مشترک سه نور مستطیلی سقف
+                <input aria-label="نور مستطیلی سقف" type="number" dir="ltr" min={0} max={100} step={0.05}
+                  value={form.ceilingAreaIntensity ?? form.ceilingLightIntensities?.[0] ?? 0.7}
+                  onChange={event => setForm(prev => ({ ...prev,
+                    ceilingAreaIntensity: Math.max(0, Math.min(100, Number(event.target.value))) }))}
+                  className="mt-1 h-8 w-full rounded border border-slate-300 px-2" />
+              </label>
             </div>
           </fieldset>
+          {ovens.length > 0 && (
+            <fieldset className="space-y-2 rounded border border-slate-200 p-2">
+              <legend className="px-1 font-bold">چراغ داخل فر</legend>
+              {ovens.map((app, index) => (
+                <label key={app.id} className="flex items-center gap-2">
+                  <input type="checkbox" checked={ovenLights[app.id]}
+                    onChange={event => setOvenLights(prev => ({ ...prev, [app.id]: event.target.checked }))} />
+                  {app.kind === 'microwave' ? 'مایکروویو' : 'فر'} {index + 1}
+                </label>
+              ))}
+            </fieldset>
+          )}
           {cabinetLights.length > 0 && (
             <fieldset className="space-y-2 rounded border border-slate-200 p-2">
-              <legend className="px-1 font-bold">نور هر کابینت هوایی</legend>
+              <legend className="px-1 font-bold">نور تمام کابینت‌های هوایی</legend>
+              <label className="flex items-center justify-between gap-2">
+                نوع نور بین‌کابینتی
+                <select aria-label="نوع نور تمام هوایی‌ها" value={form.underCabinetLightMode}
+                  onChange={event => setForm(prev => ({ ...prev, underCabinetLightMode: event.target.value as CabinetLightMode }))}
+                  className="h-8 rounded border border-slate-300 px-2">
+                  <option value="off">خاموش</option><option value="linear">خطی</option><option value="halogen">هالوژن</option>
+                </select>
+              </label>
               {cabinetLights.map((box, index) => (
                 <div key={box.id} className="grid grid-cols-[1fr_1fr_4rem] items-center gap-1">
-                  <label htmlFor={'light-' + box.id}>{box.name} ({index + 1})</label>
-                  <select id={'light-' + box.id} value={lights[box.id].mode}
-                    onChange={e => setLights(prev => ({ ...prev, [box.id]: { ...prev[box.id], mode: e.target.value as CabinetLighting['mode'] } }))}
-                    className="h-8 rounded border border-slate-300">
-                    <option value="off">خاموش</option><option value="linear">خطی</option><option value="halogen">هالوژن</option>
-                  </select>
-                  <input aria-label={'شدت نور ' + box.name + ' ' + (index + 1)} type="number" dir="ltr" min={0.1} max={1} step={0.1}
+                  <label htmlFor={'light-level-' + box.id}>{box.name} ({index + 1})</label>
+                  <span className="text-slate-500">شدت نسبی</span>
+                  <input id={'light-level-' + box.id} aria-label={'شدت نور ' + box.name + ' ' + (index + 1)} type="number" dir="ltr" min={0.1} max={1} step={0.1}
                     value={lights[box.id].intensity}
                     onChange={e => setLights(prev => ({ ...prev, [box.id]: { ...prev[box.id],
                       intensity: Math.max(0.1, Math.min(1, Number(e.target.value))) } }))}
@@ -147,7 +163,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               انصراف
             </button>
             <button type="button" onClick={() => onSave({ ...form,
-              wallHeightCm: Math.max(200, Math.min(400, Math.round(form.wallHeightCm || settings.wallHeightCm))) }, applyToExisting, lights)}
+              wallHeightCm: Math.max(200, Math.min(400, Math.round(form.wallHeightCm || settings.wallHeightCm))) }, applyToExisting, lights, ovenLights)}
               className="h-8 rounded bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700">
               ذخیره و اعمال
             </button>
