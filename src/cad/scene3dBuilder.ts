@@ -1172,7 +1172,7 @@ export function buildKitchen3DScene(
     const diningMaterials = createDiningMaterials(opts.onTextureReady);
     for (const item of diningSets) {
       const set = item.kind === 'tv' ? buildTelevisionSet3D(diningMaterials.wood, matHiddenTrim, matGlassCooktop)
-        : buildDining3D(item.seats, diningMaterials);
+        : buildDining3D(item.seats, diningMaterials, item.shape);
       set.position.set(item.xCm * CM, 0, item.yCm * CM);
       set.rotation.y = -item.rotation * Math.PI / 180;
       const hit: Scene3DHitData = { kind: 'dining', wallId: '', diningId: item.id };

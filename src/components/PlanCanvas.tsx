@@ -60,7 +60,7 @@ const emptyCabSweep = {
 const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'closet'];
 
 function DiningPlanSymbol({ item, scale, selected, ghost }: { item: FloorFurniture; scale: number; selected?: boolean; ghost?: boolean }) {
-  const design = item.kind === 'tv' ? null : diningLayout(item.seats);
+  const design = item.kind === 'tv' ? null : diningLayout(item.seats, item.shape);
   const line = ghost ? '#059669' : selected ? '#4338ca' : '#795d47';
   return (
     <g data-dining-id={ghost ? undefined : item.id} opacity={ghost ? 0.62 : 1}
@@ -93,6 +93,7 @@ interface PlanCanvasProps {
   diningSets: FloorFurniture[];
   selectedDiningId?: string | null;
   diningSeats: DiningSeats;
+  diningShape: 'round' | 'rect';
   onDiningSeatsChange: (seats:DiningSeats)=>void;
   furnitureKind: FloorFurnitureKind;
   diningRotation: number;
@@ -197,7 +198,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
   settings,
   walls,
   columns = [],
-  diningSets, selectedDiningId, diningSeats, diningRotation, furnitureKind, onDiningSeatsChange,
+  diningSets, selectedDiningId, diningSeats, diningRotation, furnitureKind, diningShape, onDiningSeatsChange,
   onPlaceDining, onMoveDining, onSelectDining, onDeleteDining,
   cornerOwners,
   activeWallId,
@@ -2355,7 +2356,7 @@ export const PlanCanvas: React.FC<PlanCanvasProps> = ({
         {tool === 'dining' && planHoverFloorCm && (!touchPointerMode.current || touchTarget) && (
           <DiningPlanSymbol ghost scale={s}
             item={{ id: '', xCm: planHoverFloorCm.x, yCm: planHoverFloorCm.y, rotation: diningRotation,
-                ...(furnitureKind === 'tv' ? { kind: 'tv' as const } : { seats: diningSeats }) }} />
+                ...(furnitureKind === 'tv' ? { kind: 'tv' as const } : { seats: diningSeats, shape: diningShape }) }} />
         )}
 
         {columns.map((col) => {

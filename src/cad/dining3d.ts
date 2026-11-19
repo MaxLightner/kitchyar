@@ -52,12 +52,12 @@ export function createDiningMaterials(onReady?: () => void) {
   return { wood, fabric };
 }
 
-export function buildDiningFootprint3D(seats: DiningSeats, kind: FloorFurnitureKind = 'dining') {
+export function buildDiningFootprint3D(seats: DiningSeats, kind: FloorFurnitureKind = 'dining', shape: 'round' | 'rect' = 'rect') {
   if (kind === 'tv') {
     const ghost = new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.48, depthWrite: false });
     return buildTelevisionSet3D(ghost, ghost, ghost);
   }
-  const layout = diningLayout(seats);
+  const layout = diningLayout(seats, shape);
   const group = new THREE.Group();
   const material = new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.5, depthWrite: false });
   const surface = new THREE.Mesh(layout.round
@@ -78,9 +78,10 @@ export function buildDiningFootprint3D(seats: DiningSeats, kind: FloorFurnitureK
 export function buildDining3D(
   seats: DiningSeats,
   materials: { wood: THREE.Material; fabric: THREE.Material },
+  shape: 'round' | 'rect' = 'rect',
 ) {
   const group = new THREE.Group();
-  const design = diningLayout(seats);
+  const design = diningLayout(seats, shape);
   const w = design.width / 100;
   const d = design.depth / 100;
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material, parent: THREE.Group, x: number, y: number, z: number) => {

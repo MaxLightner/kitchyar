@@ -430,6 +430,7 @@ export default function App() {
   const [sinkModel, setSinkModel] = useState<SinkModel>('steel-2');
   const [gasWidth, setGasWidth] = useState<number>(80);
   const [diningSeats, setDiningSeats] = useState<DiningSeats>(4);
+  const [diningShape, setDiningShape] = useState<'round' | 'rect'>('rect');
   const [furnitureKind, setFurnitureKind] = useState<FloorFurnitureKind>('dining');
   const [diningRotation, setDiningRotation] = useState(0);
   const [applianceKind, setApplianceKind] = useState<ApplianceKind>('dishwasher');
@@ -1062,10 +1063,10 @@ export default function App() {
 
   const placeDining = useCallback((x: number, y: number) => {
     const position = { id: uid(furnitureKind), ...snapDiningPosition(x, y), rotation: diningRotation };
-    const item: FloorFurniture = furnitureKind === 'tv' ? { ...position, kind: 'tv' } : { ...position, seats: diningSeats };
+    const item: FloorFurniture = furnitureKind === 'tv' ? { ...position, kind: 'tv' } : { ...position, seats: diningSeats, ...(diningSeats === 4 ? { shape: diningShape } : {}) };
     commitState(prev => ({ ...prev, selectedDiningId: null, diningSets: [...(prev.diningSets ?? []), item] }), true);
     showToast(furnitureKind === 'tv' ? 'ست تلویزیون درج شد' : `میز ناهارخوری ${diningSeats.toLocaleString('fa-IR')} نفره درج شد`);
-  }, [commitState, diningSeats, diningRotation, furnitureKind, showToast]);
+  }, [commitState, diningSeats, diningShape, diningRotation, furnitureKind, showToast]);
 
   const moveDining = useCallback((id: string, x: number, y: number, commit: boolean, angle?: number) => {
     const current = getProject();
@@ -3170,6 +3171,11 @@ export default function App() {
               activeTool={tool}
               diningSelected={Boolean(project.selectedDiningId)}
               selectedDiningSeats={selectedDiningSeats}
+              selectedDiningShape={selectedDiningItem?.kind === 'tv' ? undefined : selectedDiningItem?.shape}
+              onSetSelectedDiningShape={shape => commitState(prev => ({
+                ...prev, diningSets: prev.diningSets?.map(item =>
+                  item.id === prev.selectedDiningId && item.kind !== 'tv' ? { ...item, shape } : item),
+              }), true)}
               onSetDiningSeats={seats => commitState(prev => ({
                 ...prev, diningSets: prev.diningSets?.map(item =>
                   item.id === prev.selectedDiningId && item.kind !== 'tv' ? { ...item, seats } : item),
@@ -3334,6 +3340,7 @@ export default function App() {
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
                     onSetDiningSeats={setDiningSeats}
+              diningShape={diningShape}
                  hdrRotationDegrees={hdrRotationDegrees}
               offerSelection={offerSelection}
               onSelectSurface={selectSurface}
@@ -3594,6 +3601,7 @@ export default function App() {
               <div style={{ height: `${topHeightPct}%` }} className="min-h-[110px] shrink-0">
                 <PlanCanvas
                   onDiningSeatsChange={setDiningSeats}
+                  diningShape={diningShape}
                   offerSelection={offerSelection}
                   diningSets={project.diningSets ?? []} selectedDiningId={project.selectedDiningId}
                   diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}
@@ -4044,6 +4052,7 @@ export default function App() {
           activeTool={tool}
           diningSeats={diningSeats} diningRotation={diningRotation} furnitureKind={furnitureKind}
           onDiningSeats={setDiningSeats} onRotateDining={rotateDining}
+          diningShape={diningShape} onDiningShape={setDiningShape}
           onChooseFurniture={kind => {
             if (tool === 'dining' && furnitureKind === kind) setTool('select');
             else { setFurnitureKind(kind); setTool('dining'); }

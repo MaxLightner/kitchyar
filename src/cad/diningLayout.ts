@@ -7,7 +7,15 @@ export function nextDiningSeats(current:DiningSeats,direction:number):DiningSeat
   return DINING_SEATS[(index+(direction>0?1:DINING_SEATS.length-1))%DINING_SEATS.length];
 }
 
-export function diningLayout(seats: DiningSeats) {
+export function diningLayout(seats: DiningSeats, shape: 'round' | 'rect' = 'rect') {
+  const round = seats === 2 || (seats === 4 && shape === 'round');
+  if (seats === 4 && round) {
+    const radius = 56, seatOffset = 87;
+    return { width: radius * 2, depth: radius * 2, round: true, chairs: [
+      {x:0,z:-seatOffset,yaw:0},{x:0,z:seatOffset,yaw:Math.PI},
+      {x:-seatOffset,z:0,yaw:Math.PI/2},{x:seatOffset,z:0,yaw:-Math.PI/2},
+    ] };
+  }
   const [width, depth] = { 2: [86, 86], 4: [144, 88], 6: [184, 94], 8: [232, 102] }[seats];
   const across = seats === 2 ? 1 : seats === 8 ? 3 : 2;
   const chairs = [-1, 1].flatMap(side => Array.from({ length: across }, (_, index) => ({
@@ -19,7 +27,7 @@ export function diningLayout(seats: DiningSeats) {
     chairs.push({ x: -width / 2 - 22, z: 0, yaw: Math.PI / 2 });
     chairs.push({ x: width / 2 + 22, z: 0, yaw: -Math.PI / 2 });
   }
-  return { width, depth, round: seats === 2, chairs };
+  return { width, depth, round, chairs };
 }
 
 export function snapDiningPosition(xCm: number, yCm: number) {

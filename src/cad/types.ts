@@ -223,6 +223,7 @@ interface FloorFurniturePosition {
 export interface DiningSet extends FloorFurniturePosition {
   kind?: 'dining';
   seats: DiningSeats;
+  shape?: 'round' | 'rect';
 }
 
 export interface TelevisionSet extends FloorFurniturePosition {

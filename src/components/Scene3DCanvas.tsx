@@ -204,6 +204,7 @@ interface Scene3DCanvasProps {
   onFrontCutOrient: (orientation: Orientation) => void;
   onFrontCut: (wallId: string, boxId: string, x: number, y: number) => void;
   diningSeats: DiningSeats;
+  diningShape: 'round' | 'rect';
   onSetDiningSeats: (seats: DiningSeats) => void;
   furnitureKind: FloorFurnitureKind;
   diningRotation: number;
@@ -1013,10 +1014,10 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       if (curTool === 'dining') {
         const point = raycastFloorPointCm(clientX, clientY, false);
         if (!point) { clearGhost(); furnitureGhostKey = ''; return; }
-        const key = cur.furnitureKind + ':' + cur.diningSeats;
+        const key = cur.furnitureKind + ':' + cur.diningSeats + ':' + cur.diningShape;
         if (!ghostGroup.visible || furnitureGhostKey !== key) {
           disposeGhostChildren();
-          ghostGroup.add(buildDiningFootprint3D(cur.diningSeats, cur.furnitureKind));
+          ghostGroup.add(buildDiningFootprint3D(cur.diningSeats, cur.furnitureKind, cur.diningShape));
           furnitureGhostKey = key;
         }
         ghostGroup.position.set(point.xCm * CM, 0, point.yCm * CM);

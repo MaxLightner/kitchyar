@@ -98,6 +98,8 @@ import {
 interface SideInspectorProps {
   diningSelected?: boolean;
   selectedDiningSeats?: DiningSeats;
+  selectedDiningShape?: 'round' | 'rect';
+  onSetSelectedDiningShape?: (shape: 'round' | 'rect') => void;
   onSetDiningSeats?: (seats: DiningSeats) => void;
   kitchenLightMode?: CabinetLightMode;
   onSetOvenLight?: (enabled: boolean) => void;
@@ -2286,6 +2288,17 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
             {props.diningSelected && !toolSettings && (
               <div className="space-y-2 rounded-lg border border-slate-200 p-2">
+                {props.selectedDiningSeats === 4 && props.onSetSelectedDiningShape && (
+                  <label className="block text-xs font-bold">
+                    شکل میز چهار نفره
+                    <select data-testid="selected-dining-shape" className="mt-1 w-full h-9 rounded border border-slate-300"
+                      value={props.selectedDiningShape ?? 'rect'}
+                      onChange={event=>props.onSetSelectedDiningShape?.(event.target.value as 'rect'|'round')}>
+                      <option value="rect">مستطیلی</option>
+                      <option value="round">گرد</option>
+                    </select>
+                  </label>
+                )}
                 {props.selectedDiningSeats && props.onSetDiningSeats && (
                   <label className="block text-xs font-bold text-slate-700">
                     تعداد صندلی میز ناهارخوری

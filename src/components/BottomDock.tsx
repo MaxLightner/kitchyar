@@ -26,6 +26,8 @@ import { DiningSeats, FloorFurnitureKind, ToolId } from '../cad/types';
 interface BottomDockProps {
   activeTool: ToolId;
   diningSeats: DiningSeats;
+  diningShape: 'round' | 'rect';
+  onDiningShape: (shape: 'round' | 'rect') => void;
   diningRotation: number;
   furnitureKind: FloorFurnitureKind;
   onChooseFurniture: (kind: FloorFurnitureKind) => void;
@@ -43,7 +45,7 @@ interface BottomDockProps {
 
 export const BottomDock: React.FC<BottomDockProps> = ({
   activeTool,
-  diningSeats, diningRotation, furnitureKind, onChooseFurniture, onDiningSeats, onRotateDining,
+  diningSeats, diningRotation, furnitureKind, diningShape, onDiningShape, onChooseFurniture, onDiningSeats, onRotateDining,
   doorsHidden = false,
   onSelectTool,
   onToggleDoorsHidden,
@@ -151,6 +153,14 @@ export const BottomDock: React.FC<BottomDockProps> = ({
             <span>میز ناهارخوری</span>
           </button>
 
+          {activeTool === 'dining' && furnitureKind === 'dining' && diningSeats === 4 && (
+            <button type="button" data-testid="dock-dining-round-4"
+              aria-pressed={diningShape === 'round'}
+              onClick={() => onDiningShape(diningShape === 'round' ? 'rect' : 'round')}
+              className={btnCls(diningShape === 'round')}>
+              {diningShape === 'round' ? '۴ نفره گرد' : '۴ نفره مستطیل'}
+            </button>
+          )}
           <button type="button" data-testid="dock-tool-tv" onClick={() => onChooseFurniture('tv')}
             aria-pressed={activeTool === 'dining' && furnitureKind === 'tv'}
             className={btnCls(activeTool === 'dining' && furnitureKind === 'tv')}>
