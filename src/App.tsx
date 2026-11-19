@@ -61,7 +61,6 @@ import {
   placeFridgeOnWall,
   removeUnitDividerWithSync,
   resizeDrawerUnitWidthCm,
-  resizeWallCabinetsSynchronized,
   isCabinetCrown,
   setCabinetCrownHeight,
   stripInvalidColumnAndCornerDividers,
@@ -138,6 +137,7 @@ import { PlanCanvas } from './components/PlanCanvas';
 import { ProjectsScreen } from './components/ProjectsScreen';
 import { Scene3DCanvas } from './components/Scene3DCanvas';
 import { SettingsModal } from './components/SettingsModal';
+import type { SurfaceFinishPatch } from './components/SurfaceFinishControls';
 import { SideInspector } from './components/SideInspector';
 import { StyleGalleryModal } from './components/StyleGalleryModal';
 import { ToolGuideHost } from './components/CursorToolPreview';
@@ -380,6 +380,9 @@ export default function App() {
   const [initialXrSession, setInitialXrSession] = useState<Promise<XRSession> | null>(null);
   const [arSessionKillSignal, setArSessionKillSignal] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [previewHdrRotation, setPreviewHdrRotation] = useState<number | null>(null);
+  const savedHdrRotation = project.settings?.hdrRotationDegrees;
+  const hdrRotationDegrees = previewHdrRotation ?? (Number.isFinite(savedHdrRotation) ? savedHdrRotation! : 0);
 
   // Tool options live cleanly in state and are controlled from SideInspector
   const [drawBoxKind, setDrawBoxKind] = useState<BoxKind>('base');
@@ -2581,56 +2584,30 @@ export default function App() {
     viewMode,
   ]);
 
+  const closeSceneSettings = () => {
+    setPreviewHdrRotation(null);
+    setSettingsOpen(false);
+  };
+
   const handleSaveSettings = (nextSettings: ProjectSettings, applyToExisting: boolean) => {
     const next = cloneProject(project);
-    const resolvedHood = nextSettings.defaultHoodKind || 'chimney';
-    next.settings = { ...nextSettings, defaultHoodKind: resolvedHood };
-    setHoodKind(resolvedHood);
+    next.settings = nextSettings;
     const previous = project.settings ?? DEFAULT_PROJECT_SETTINGS;
-    const geometryChanged = (['wallHeightCm', 'baseHeightCm', 'plinthCm', 'countertopCm', 'wallCabElevCm',
-      'wallCabHeightCm', 'defaultHoodKind'] as const).some(key => next.settings?.[key] !== previous[key]);
-    if (applyToExisting && geometryChanged) {
-      next.walls.forEach((w) => {
-        w.height = nextSettings.wallHeightCm;
-        w.boxes.forEach((b) => {
-          if (b.type === 'base') {
-            b.height = nextSettings.baseHeightCm;
-            b.plinth = nextSettings.plinthCm;
-            b.countertopCm = nextSettings.countertopCm;
-          } else if (b.type === 'wall') {
-            b.elevY = nextSettings.wallCabElevCm;
-            b.height = nextSettings.wallCabHeightCm;
-          }
-        });
-        w.appliances.forEach((app) => {
-          if (app.kind === 'gas') {
-            clearHoodUnitForGas(w, app.offsetX, app.offsetX + app.width, app.id);
-            app.hoodKind = resolvedHood;
-            syncHoodUnitAboveGas(w, app);
-          }
-        });
-        (w.openings || []).forEach((op) => {
-          if (op.kind === 'column') op.height = nextSettings.wallHeightCm;
-          else updateOpeningGeometry(op, w, {});
+    const resizeWalls = applyToExisting && nextSettings.wallHeightCm !== previous.wallHeightCm;
+    if (resizeWalls) {
+      next.walls.forEach(wall => {
+        const cabinetTop = wall.boxes.reduce((top, box) => Math.max(top, box.elevY + box.height), 0);
+        wall.height = Math.max(cabinetTop, nextSettings.wallHeightCm);
+        (wall.openings || []).forEach(opening => {
+          if (opening.kind === 'column') opening.height = wall.height;
+          else updateOpeningGeometry(opening, wall, {});
         });
       });
-      const firstWallCab = next.walls
-        .flatMap((w) => w.boxes.map((b) => ({ wallId: w.id, box: b })))
-        .find((x) => x.box.type === 'wall');
-      if (firstWallCab) {
-        resizeWallCabinetsSynchronized(
-          next.walls,
-          firstWallCab.wallId,
-          firstWallCab.box.id,
-          nextSettings.wallCabElevCm,
-          nextSettings.wallCabHeightCm
-        );
-      }
     }
     commitState(next, true);
-    setSettingsOpen(false);
-    fitWallToView(next.walls.find((w) => w.id === next.activeWallId) || next.walls[0] || null);
-    showToast('تنظیمات استاندارد پروژه ذخیره شد');
+    closeSceneSettings();
+    if (resizeWalls) fitWallToView(next.walls.find(wall => wall.id === next.activeWallId) || next.walls[0] || null);
+    showToast('تنظیمات صحنه ذخیره شد');
   };
 
   const hintText = useMemo(() => {
@@ -2979,11 +2956,35 @@ export default function App() {
   }
 
   const dialogOpen = Boolean(measurement || confirmModal || hiddenHandleWarnModal || stylePromptModal?.open || settingsOpen || styleGalleryOpen);
-  const setBoxAppearance = (patch: { color?: string; texture?: CabinetTextureId }) => {
+  const setBoxAppearance = (patch: { color?: string; texture?: CabinetTextureId } & SurfaceFinishPatch) => {
     if (!activeBox || activeBox.type === 'fridge') return;
     mutateActiveWall(w => {
       const box = w.boxes.find(b => b.id === activeBox.id);
       if (box) Object.assign(box, patch);
+    }, true);
+  };
+  const setSelectedCabinetDimension = (field: 'height' | 'elevY' | 'plinth', value: number) => {
+    if (!activeWall || !activeBox || !Number.isFinite(value)) return;
+    if (field !== 'plinth') {
+      editCabinetDimension(activeWall.id, activeBox.id, field, value, true);
+      return;
+    }
+    if (activeBox.type !== 'base') return;
+    mutateActiveWall(wall => {
+      const box = wall.boxes.find(item => item.id === activeBox.id);
+      if (!box) return;
+      box.plinth = Math.max(0, Math.min(20, box.height - box.countertopCm - 25, value));
+      clampBoxInternalsAfterResize(box);
+    }, true);
+  };
+  const setSelectedSurfaceFinish = (surface: 'countertop' | 'backsplash', patch: SurfaceFinishPatch) => {
+    commitState(prev => {
+      const settings = { ...(prev.settings ?? DEFAULT_PROJECT_SETTINGS) };
+      const reflectionKey = surface === 'countertop' ? 'countertopReflection' : 'backsplashReflection';
+      const roughnessKey = surface === 'countertop' ? 'countertopRoughness' : 'backsplashRoughness';
+      if (patch.reflection !== undefined) settings[reflectionKey] = patch.reflection;
+      if (patch.roughness !== undefined) settings[roughnessKey] = patch.roughness;
+      return { ...prev, settings };
     }, true);
   };
   const setCabinetLighting = (patch: Partial<CabinetLighting>) => {
@@ -3101,6 +3102,9 @@ export default function App() {
               selectedFrame={selectedFrame}
               onSetBoxAppearance={setBoxAppearance}
               onSetCabinetLighting={setCabinetLighting}
+              onSetCabinetDimension={setSelectedCabinetDimension}
+              surfaceSettings={project.settings}
+              onSetSelectedSurfaceFinish={setSelectedSurfaceFinish}
               onSetFrameColor={setFrameColor}
               selectedUnitDivider={project.selectedUnitDivider}
               selectedUnit={project.selectedUnit ?? null}
@@ -3229,6 +3233,7 @@ export default function App() {
               {(viewMode === '3d' || floorScanActive) && (
                 <div data-testid="tracked-viewport" style={{ display: viewMode === '3d' ? undefined : 'none' }} className="relative flex-1 min-h-0 w-full overflow-hidden">
                 <Scene3DCanvas
+                 hdrRotationDegrees={hdrRotationDegrees}
               offerSelection={offerSelection}
               onSelectSurface={selectSurface}
                 onToggleLightBoxes={toggleLightBoxes}
@@ -3475,6 +3480,7 @@ export default function App() {
             />
                   {floorScanActive && (
                   <ARWorkspace
+                 hdrRotationDegrees={hdrRotationDegrees}
                 frontCutOrient={frontCutOrient}
                 onFrontCutOrient={setFrontCutOrient}
                 onFrontCut={cutFront}
@@ -4061,7 +4067,8 @@ export default function App() {
         <SettingsModal
           settings={project.settings || DEFAULT_PROJECT_SETTINGS}
           onSave={handleSaveSettings}
-          onClose={() => setSettingsOpen(false)}
+          onPreviewHdrRotation={setPreviewHdrRotation}
+           onClose={closeSceneSettings}
         />
       )}
 

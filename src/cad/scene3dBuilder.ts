@@ -992,7 +992,7 @@ export function buildKitchen3DScene(
           const origin = new THREE.Vector3(x, lightY, normalSign * (depth + 0.68));
           const distance = origin.distanceTo(aim);
           addKitchenSpot(wallGrp, origin, aim, {
-            color: 0xffe0b8, intensity: run.intensity, range: distance + 0.95,
+            color: 0xffe0b8, intensity: run.intensity, range: distance + 0.95, ceilingFixture: true,
             angle: THREE.MathUtils.clamp(Math.atan2(coverage / (2 * count), distance) + 0.12, 0.34, 0.72),
           });
         }
@@ -2320,7 +2320,8 @@ function buildDoor3D(ctx: {
   const dStyle: DoorStyle = door.doorStyle || 'flat';
   const isClosed = doorOpenProgress < 0.08;
   const doorFinish = door.finish ?? boxFinish;
-  const doorMat = matPack.getDoorMaterial(doorFinish, dStyle, isClosed, isSel, door.finish ? undefined : box);
+  const doorAppearance = door.finish ? { reflection: box.reflection, roughness: box.roughness } : box;
+  const doorMat = matPack.getDoorMaterial(doorFinish, dStyle, isClosed, isSel, doorAppearance);
   const doorEdgeMat = matPack.getDoorEdgeMaterial(doorFinish, isClosed, isSel);
   const doorBoxMats: THREE.Material[] = [doorEdgeMat, doorEdgeMat, doorEdgeMat, doorEdgeMat, doorMat, doorMat];
   const doorCncInnerMat = matPack.getDoorInnerCncMaterial(doorFinish, isSel);

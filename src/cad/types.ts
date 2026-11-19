@@ -165,6 +165,8 @@ export interface CabinetBox {
   texture?: CabinetTextureId;
   underCabinetLight?: boolean;
   lighting?: CabinetLighting;
+  reflection?: number;
+  roughness?: number;
   /** Links e.g. over-fridge upper cabinet to its parent fridge box */
   linkedToBoxId?: string;
   doors: DoorUnit[];
@@ -295,6 +297,7 @@ export interface ProjectSettings {
   countertopBottomEdge?: CountertopEdgeProfile;
   wallCabElevCm: number;
   wallCabHeightCm: number;
+  hdrRotationDegrees?: number;
   cabinetReflection?: number;
   cabinetRoughness?: number;
   countertopReflection?: number;

@@ -112,6 +112,7 @@ const CAB_DRAW_KIND_ORDER: BoxKind[] = ['base', 'wall', 'wall-deep', 'tall', 'cl
 const HANDLE_STYLE_ORDER = HANDLE_STYLES.map(style => style.id);
 
 interface Scene3DCanvasProps {
+  hdrRotationDegrees?: number;
   offerSelection: OfferSelection;
   onResizeCabinet: (wallId: string, boxId: string, side: 'left'|'right'|'top'|'bottom', dx: number, dy: number, commit: boolean) => void;
   onMoveShelf: (wallId: string, boxId: string, shelfId: string, dx: number, dy: number, commit: boolean) => void;
@@ -3004,6 +3005,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       camInitDoneRef.current = false;
     };
   }, [props.scanMode]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.environmentRotation.y = THREE.MathUtils.degToRad(props.hdrRotationDegrees ?? 0);
+    requestRenderRef.current();
+  }, [props.hdrRotationDegrees, props.scanMode]);
 
   useEffect(() => {
     if (!props.zoomSelectedSeq || props.scanMode) return;

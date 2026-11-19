@@ -379,7 +379,7 @@ function createCountertopTexture(finishId: CountertopFinishId): THREE.CanvasText
   return tex;
 }
 
-type CabinetAppearance = Pick<CabinetBox, 'color' | 'texture'>;
+type CabinetAppearance = Pick<CabinetBox, 'color' | 'texture' | 'reflection' | 'roughness'>;
 
 const WOOD_MAP: Partial<Record<CabinetTextureId, string>> = {
   oak: 'cabinet-oak.webp', walnut: 'cabinet-walnut.webp',
@@ -559,14 +559,14 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
 
   const getCabinetBodyMaterial = (finishId: CabinetFinishId, appearance?: CabinetAppearance) => {
     const surface = getSurface(finishId, appearance);
-    const key = `${finishId}|${surface.id}|${surface.color}`;
+    const key = `${finishId}|${surface.id}|${surface.color}|${appearance?.reflection ?? ""}|${appearance?.roughness ?? ""}`;
     const existing = bodyCache.get(key);
     if (existing) return existing;
     const cfg = CABINET_FINISHES[finishId] || defaultCabCfg;
     const mat = new THREE.MeshPhysicalMaterial({
       color: surface.color,
       map: surface.map,
-      ...readSurfaceFinish(settings, 0, Math.max(0.25, cfg.roughness * 0.78)),
+      ...readSurfaceFinish(settings, 0, Math.max(0.25, cfg.roughness * 0.78), appearance),
     });
     mat.userData.sceneReflection = true;
     bodyCache.set(key, mat);
@@ -581,7 +581,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     appearance?: CabinetAppearance
   ) => {
     const surface = getSurface(finishId, appearance);
-    const key = `${finishId}|${doorStyle}|${isClosed ? 1 : 0}|${isSelected ? 1 : 0}|${surface.id}|${surface.color}|${appearance?.color ?? ''}`;
+    const key = `${finishId}|${doorStyle}|${isClosed ? 1 : 0}|${isSelected ? 1 : 0}|${surface.id}|${surface.color}|${appearance?.color ?? ''}|${appearance?.reflection ?? ''}|${appearance?.roughness ?? ''}`;
     const existing = doorCache.get(key);
     if (existing) return existing;
 
@@ -599,7 +599,7 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
       color: surface.map ? surface.color : '#ffffff',
       normalMap: bevelNormal,
       normalScale: new THREE.Vector2(0.72, 0.72),
-      ...readSurfaceFinish(settings, 0, Math.max(0.20, cfg.roughness * 0.68 + (doorStyle === 'cnc' ? 0.06 : 0))),
+      ...readSurfaceFinish(settings, 0, Math.max(0.20, cfg.roughness * 0.68 + (doorStyle === 'cnc' ? 0.06 : 0)), appearance),
     });
     mat.userData.sceneReflection = true;
     doorCache.set(key, mat);

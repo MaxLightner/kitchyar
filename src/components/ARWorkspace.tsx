@@ -192,6 +192,7 @@ function isArDetailTool(t: ArToolId): boolean {
 }
 
 interface ARWorkspaceProps {
+  hdrRotationDegrees?: number;
   diningSeats: DiningSeats;
   furnitureKind: FloorFurnitureKind;
   frontCutOrient: Orientation;
@@ -539,6 +540,7 @@ function uid(prefix: string): string {
 }
 
 export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
+  hdrRotationDegrees = 0,
   active,
   overlayRootRef,
   project,
@@ -2342,6 +2344,13 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       renderer.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.environmentRotation.y = THREE.MathUtils.degToRad(hdrRotationDegrees);
+    renderOnceRef.current();
+  }, [hdrRotationDegrees]);
 
   // Keep CursorToolPreview updated immediately on tool or option switch (even without moving mouse)
   useEffect(() => {

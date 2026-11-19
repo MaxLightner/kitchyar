@@ -1,8 +1,9 @@
-import type { CabinetLighting } from '../cad/types';
+import type { CabinetLighting, ProjectSettings } from '../cad/types';
+import { SurfaceFinishControls, type SurfaceFinishPatch } from './SurfaceFinishControls';
 import { getCabinetLighting } from '../cad/cabinetLighting';
 import type { CabinetTextureId } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { SurfaceSelection } from './SelectionPicker';
 import {
   AppWindow,
@@ -111,7 +112,10 @@ interface SideInspectorProps {
   selectedShelfId?: string | null;
   selectedHandleId?: string | null;
   selectedFrame?: BoxFrameItem | null;
-  onSetBoxAppearance?: (patch: { color?: string; texture?: CabinetTextureId }) => void;
+  onSetBoxAppearance?: (patch: { color?: string; texture?: CabinetTextureId } & SurfaceFinishPatch) => void;
+  onSetCabinetDimension?: (field: 'height' | 'elevY' | 'plinth', value: number) => void;
+  surfaceSettings?: ProjectSettings;
+  onSetSelectedSurfaceFinish?: (surface: 'countertop' | 'backsplash', patch: SurfaceFinishPatch) => void;
   onSetFrameColor?: (color?: string) => void;
   onSetCabinetLighting?: (patch: Partial<CabinetLighting>) => void;
   selectedUnitDivider?: { boxId: string; seamCm: number } | null;
@@ -324,6 +328,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
   const toolSettings = activeTool !== 'select' && activeTool !== 'move';
   const objectSettings = !toolSettings && !props.selectedSurface && !props.diningSelected;
   const showFridge = objectSettings && !hasSubItem && activeBox?.type === 'fridge';
+  const contextId = objectSettings && !hasSubItem && cabinetLighting && !selectedDoor && !selectedUnit
+    ? activeBox?.id
+    : objectSettings && props.selectedAppliance?.kind === 'gas' && props.selectedAppliancePart !== 'gas'
+    ? props.selectedAppliance.id : undefined;
+  useEffect(() => {
+    if (contextId) setSettingsOpen(true);
+  }, [contextId]);
+
   const sharedEquipmentColor = showFridge || (objectSettings &&
     (props.selectedAppliance?.kind === 'washing' || props.selectedAppliance?.kind === 'dishwasher'));
 
@@ -1399,6 +1411,62 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       </span>
                     </div>
 
+                    {!selectedDoor && cabinetLighting && props.onSetCabinetLighting && (
+                      <fieldset className="space-y-2 border-t border-slate-100 pt-2">
+                        <legend className="text-xs font-bold">نور کابینت هوایی</legend>
+                        <div className="grid grid-cols-3 gap-1">
+                          {([['off', 'خاموش'], ['linear', 'خطی زیر کابینت'], ['halogen', 'هالوژن سقفی']] as const)
+                            .map(([mode, label]) => (
+                              <button key={mode} type="button" aria-pressed={cabinetLighting.mode === mode}
+                                data-testid={`cabinet-light-${mode}`}
+                                onClick={() => props.onSetCabinetLighting?.({ mode })}
+                                className="rounded border border-slate-300 px-1 py-1.5 text-[11px] font-bold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-800">
+                                {label}
+                              </button>
+                            ))}
+                        </div>
+                        {cabinetLighting.mode !== 'off' && (
+                          <label className="block text-xs font-semibold">
+                            شدت نور
+                            <select aria-label="شدت نور کابینت" className="mt-1 h-8 w-full rounded border border-slate-300 px-1"
+                              value={Math.round(cabinetLighting.intensity * 100)}
+                              onChange={event => props.onSetCabinetLighting?.({ intensity: Number(event.target.value) / 100 })}>
+                              {Array.from({ length: 10 }, (_, index) => (index + 1) * 10)
+                                .map(percent => <option key={percent} value={percent}>{percent.toLocaleString('fa-IR')}٪</option>)}
+                            </select>
+                          </label>
+                        )}
+                      </fieldset>
+                    )}
+
+                    {!selectedDoor && props.onSetCabinetDimension && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {([
+                          ['height', 'ارتفاع باکس', activeBox.height],
+                          ...(cabinetLighting ? [['elevY', 'ارتفاع نصب از کف', activeBox.elevY] as const] : []),
+                          ...(activeBox.type === 'base' ? [['plinth', 'ارتفاع پاخور', activeBox.plinth] as const] : []),
+                        ] as const).map(([field, label, value]) => (
+                          <label key={field} className="block text-xs font-semibold">
+                            {label} (cm)
+                            <input key={activeBox.id + ':' + value} type="number" dir="ltr" step={0.5} defaultValue={value}
+                              onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                              onBlur={event => {
+                                const next = event.currentTarget.valueAsNumber;
+                                if (Number.isFinite(next) && next !== value) props.onSetCabinetDimension?.(field, next);
+                                event.currentTarget.value = String(value);
+                              }}
+                              className="mt-1 h-8 w-full rounded border border-slate-300 px-2 tabular-nums" />
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    {!selectedDoor && props.onSetBoxAppearance && (
+                      <SurfaceFinishControls key={activeBox.id} index={0}
+                        reflection={activeBox.reflection ?? props.surfaceSettings?.cabinetReflection}
+                        roughness={activeBox.roughness ?? props.surfaceSettings?.cabinetRoughness}
+                        onChange={props.onSetBoxAppearance} />
+                    )}
+
                     {selectedDoor && selectedDoor.kind !== 'fridge' && (
                       <div className="space-y-1.5 pt-2 border-t border-slate-100">
                         <span className="text-[13px] font-bold text-slate-500 block">
@@ -1647,34 +1715,6 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           )}
                         </div>
                       </div>
-                    )}
-
-                    {!selectedDoor && cabinetLighting && props.onSetCabinetLighting && (
-                      <fieldset className="space-y-2 border-t border-slate-100 pt-2">
-                        <legend className="text-xs font-bold">نور کابینت هوایی</legend>
-                        <div className="grid grid-cols-3 gap-1">
-                          {([['off', 'خاموش'], ['linear', 'خطی زیر کابینت'], ['halogen', 'هالوژن سقفی']] as const)
-                            .map(([mode, label]) => (
-                              <button key={mode} type="button" aria-pressed={cabinetLighting.mode === mode}
-                                data-testid={`cabinet-light-${mode}`}
-                                onClick={() => props.onSetCabinetLighting?.({ mode })}
-                                className="rounded border border-slate-300 px-1 py-1.5 text-[11px] font-bold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-800">
-                                {label}
-                              </button>
-                            ))}
-                        </div>
-                        {cabinetLighting.mode !== 'off' && (
-                          <label className="block text-xs font-semibold">
-                            شدت نور
-                            <select aria-label="شدت نور کابینت" className="mt-1 h-8 w-full rounded border border-slate-300 px-1"
-                              value={Math.round(cabinetLighting.intensity * 100)}
-                              onChange={event => props.onSetCabinetLighting?.({ intensity: Number(event.target.value) / 100 })}>
-                              {Array.from({ length: 10 }, (_, index) => (index + 1) * 10)
-                                .map(percent => <option key={percent} value={percent}>{percent.toLocaleString('fa-IR')}٪</option>)}
-                            </select>
-                          </label>
-                        )}
-                      </fieldset>
                     )}
 
                     {!selectedDoor && props.onSetBoxAppearance && (
@@ -2029,6 +2069,11 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
             {!toolSettings && props.selectedSurface === 'backsplash' && (
               <div className="space-y-1.5 pt-2 border-t border-slate-100">
                 <span className="text-[13px] font-bold text-teal-700 block">متریال بین کابینتی</span>
+                {props.onSetSelectedSurfaceFinish && (
+                  <SurfaceFinishControls index={2} reflection={props.surfaceSettings?.backsplashReflection}
+                    roughness={props.surfaceSettings?.backsplashRoughness}
+                    onChange={patch => props.onSetSelectedSurfaceFinish?.('backsplash', patch)} />
+                )}
                 <div className="grid grid-cols-3 gap-1">
                   {BACKSPLASH_FINISH_ORDER.map((bid) => {
                     const cfg = BACKSPLASH_FINISHES[bid];
@@ -2070,7 +2115,12 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                 </span>
               </div>
 
-              {props.onUpdateCountertopSettings && (
+              {props.onSetSelectedSurfaceFinish && (
+                 <SurfaceFinishControls index={1} reflection={props.surfaceSettings?.countertopReflection}
+                   roughness={props.surfaceSettings?.countertopRoughness}
+                   onChange={patch => props.onSetSelectedSurfaceFinish?.('countertop', patch)} />
+               )}
+               {props.onUpdateCountertopSettings && (
                 <>
                   <div className="space-y-1.5">
                     <span className="text-[12px] font-bold text-slate-500 block">ضخامت صفحه (۲ تا ۸ cm)</span>

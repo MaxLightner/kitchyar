@@ -65,14 +65,27 @@ export function addKitchenSpot(
   parent: THREE.Group,
   origin: THREE.Vector3,
   target: THREE.Vector3,
-  { color, intensity, range, angle }: {
-    color: number; intensity: number; range: number; angle: number;
+  { color, intensity, range, angle, ceilingFixture = false }: {
+    color: number; intensity: number; range: number; angle: number; ceilingFixture?: boolean;
   },
 ) {
   const spot = new THREE.SpotLight(color, intensity, range, angle, 0.88, 2);
   spot.position.copy(origin);
   spot.target.position.copy(target);
   parent.add(spot, spot.target);
+
+  if (ceilingFixture) {
+    const fixture = new THREE.Group();
+    fixture.position.copy(origin);
+    fixture.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), target.clone().sub(origin).normalize());
+    const trim = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.058, 0.04, 16),
+      new THREE.MeshStandardMaterial({ color: 0x333436, roughness: 0.48, metalness: 0.25 }));
+    const diffuser = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.003, 16),
+      new THREE.MeshBasicMaterial({ color }));
+    diffuser.position.y = -0.022;
+    fixture.add(trim, diffuser);
+    parent.add(fixture);
+  }
 }
 
 export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number) {
@@ -106,6 +119,6 @@ export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[],
     const x = (alongX ? across : middle) * 0.01;
     const z = (alongX ? middle : across) * 0.01;
     addKitchenSpot(parent, new THREE.Vector3(x, heightM - 0.05, z), new THREE.Vector3(x, 0, z),
-      { color: 0xfff4e4, intensity: 0.35, range: 5, angle: 0.9 });
+      { color: 0xfff4e4, intensity: 0.7, range: 5, angle: 0.9, ceilingFixture: true });
   }
 }

@@ -7,10 +7,13 @@ export const SURFACES = [
   { label: 'کف', reflection: 'floorReflection', roughness: 'floorRoughness', strength: 0.28, spread: 0.36 },
 ] as const;
 
-export function readSurfaceFinish(settings: ProjectSettings | undefined, index: number, defaultSpread?: number) {
+export function readSurfaceFinish(
+  settings: ProjectSettings | undefined, index: number, defaultSpread?: number,
+  override?: { reflection?: number; roughness?: number },
+) {
   const cfg = SURFACES[index];
-  const value = settings?.[cfg.reflection];
-  const roughness = settings?.[cfg.roughness];
+  const value = override?.reflection ?? settings?.[cfg.reflection];
+  const roughness = override?.roughness ?? settings?.[cfg.roughness];
   const strength = Math.min(2, Math.max(0, typeof value === 'number' && Number.isFinite(value) ? value : cfg.strength));
   const spread = Math.min(0.9, Math.max(0.09, typeof roughness === 'number' && Number.isFinite(roughness) ? roughness : defaultSpread ?? cfg.spread));
   return {

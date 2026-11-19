@@ -1,275 +1,100 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import { SURFACES } from '../cad/surfaceFinish';
 import { DEFAULT_PROJECT_SETTINGS } from '../cad/constants';
-import { ProjectSettings } from '../cad/types';
+import type { ProjectSettings } from '../cad/types';
+import { SurfaceFinishControls } from './SurfaceFinishControls';
 
 interface SettingsModalProps {
   settings: ProjectSettings;
   onSave: (next: ProjectSettings, applyToExisting: boolean) => void;
+  onPreviewHdrRotation: (degrees: number) => void;
   onClose: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  settings,
-  onSave,
-  onClose,
+  settings, onSave, onPreviewHdrRotation, onClose,
 }) => {
-  const [form, setForm] = useState<ProjectSettings>({
-    ...DEFAULT_PROJECT_SETTINGS,
-    ...settings,
-    countertopTopEdge: settings.countertopTopEdge || 'square',
-    countertopBottomEdge: settings.countertopBottomEdge || 'square',
-    defaultHoodKind: settings.defaultHoodKind || 'chimney',
-  });
+  const [form, setForm] = useState(settings);
   const [applyToExisting, setApplyToExisting] = useState(true);
+  const degrees = Number.isFinite(form.hdrRotationDegrees) ? form.hdrRotationDegrees! : 0;
 
-  const updateNum = (field: keyof ProjectSettings, raw: string, allowHalf = false) => {
-    const v = Number(raw);
-    if (!Number.isNaN(v)) {
-      const rounded = allowHalf ? Math.round(v * 2) / 2 : Math.round(v);
-      setForm((prev) => ({ ...prev, [field]: Math.max(0, rounded) }));
-    }
+  const updateRotation = (hdrRotationDegrees: number) => {
+    const angle = Math.max(0, Math.min(360, hdrRotationDegrees));
+    setForm(prev => ({ ...prev, hdrRotationDegrees: angle }));
+    onPreviewHdrRotation(angle);
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-slate-900/45 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="تنظیمات استاندارد پروژه"
-    >
-      <div className="bg-white border border-slate-200 rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-          <h2 className="text-sm font-extrabold text-slate-900">تنظیمات ابعاد استاندارد کابینت</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="بستن تنظیمات"
-            className="h-8 w-8 rounded-lg hover:bg-slate-100 text-slate-500 inline-flex items-center justify-center"
-          >
-            <X className="w-4 h-4" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-2 sm:p-3"
+      role="dialog" aria-modal="true" aria-label="تنظیمات صحنه و رندر">
+      <div dir="rtl" className="flex max-h-[min(85dvh,36rem)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+        <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-3 py-1.5">
+          <h2 className="text-sm font-extrabold text-slate-900">تنظیمات صحنه و رندر</h2>
+          <button type="button" onClick={onClose} aria-label="بستن تنظیمات"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100">
+            <X className="size-4" />
           </button>
-        </div>
+        </header>
 
-        <div className="p-4 space-y-3 text-[13px]">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-slate-600 font-bold block mb-1">ارتفاع دیوار (cm)</span>
-              <input
-                type="number"
-                min={200}
-                max={400}
-                value={form.wallHeightCm}
-                onChange={(e) => updateNum('wallHeightCm', e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded-lg font-bold tabular-nums bg-slate-50"
-              />
+        <div className="min-h-0 space-y-2.5 overflow-y-auto overscroll-contain px-3 py-2.5 text-xs" data-testid="scene-settings-scroll">
+          <label className="flex items-center justify-between gap-2">
+            <span className="font-bold text-slate-700">ارتفاع دیوار (cm)</span>
+            <input type="number" min={200} max={400} value={form.wallHeightCm}
+              onChange={e => setForm(prev => ({ ...prev, wallHeightCm: Number(e.target.value) }))}
+              className="h-8 w-20 rounded border border-slate-300 px-2 tabular-nums" />
+          </label>
+          {form.wallHeightCm !== settings.wallHeightCm && (
+            <label className="flex items-center gap-2 text-slate-600">
+              <input type="checkbox" checked={applyToExisting} onChange={e => setApplyToExisting(e.target.checked)} />
+              اعمال ارتفاع روی دیوارهای فعلی
             </label>
+          )}
 
-            <label className="block">
-              <span className="text-slate-600 font-bold block mb-1">ارتفاع کل زمینی (cm)</span>
-              <input
-                type="number"
-                min={70}
-                max={105}
-                value={form.baseHeightCm}
-                onChange={(e) => updateNum('baseHeightCm', e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded-lg font-bold tabular-nums bg-slate-50"
-              />
-            </label>
+          <label className="block rounded-lg border border-slate-200 px-2.5 py-1.5">
+            <span className="flex items-center justify-between font-bold">
+              <span>چرخش HDRI</span>
+              <output dir="ltr" className="tabular-nums">{degrees}°</output>
+            </span>
+            <input type="range" dir="ltr" min={0} max={360} step={1} value={degrees}
+              aria-label="چرخش HDRI" data-testid="settings-hdr-rotation"
+              onChange={e => updateRotation(Number(e.target.value))}
+              className="mt-1 w-full accent-indigo-600" />
+          </label>
 
-            <label className="block">
-              <span className="text-slate-600 font-bold block mb-1">ارتفاع پاسنگ / پاخور (cm)</span>
-              <input
-                type="number"
-                min={0}
-                max={20}
-                value={form.plinthCm}
-                onChange={(e) => updateNum('plinthCm', e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded-lg font-bold tabular-nums bg-slate-50"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-slate-600 font-bold block mb-1">ضخامت صفحه تاپس (cm)</span>
-              <input
-                type="number"
-                min={2}
-                max={8}
-                step={0.5}
-                value={form.countertopCm}
-                onChange={(e) => updateNum('countertopCm', e.target.value, true)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded-lg font-bold tabular-nums bg-slate-50"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-slate-600 font-bold block mb-1">فاصله نصب هوایی از کف (cm)</span>
-              <input
-                type="number"
-                min={120}
-                max={180}
-                value={form.wallCabElevCm}
-                onChange={(e) => updateNum('wallCabElevCm', e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded-lg font-bold tabular-nums bg-slate-50"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-slate-600 font-bold block mb-1">ارتفاع استاندارد هوایی (cm)</span>
-              <input
-                type="number"
-                min={40}
-                max={120}
-                value={form.wallCabHeightCm}
-                onChange={(e) => updateNum('wallCabHeightCm', e.target.value)}
-                className="w-full h-9 px-2.5 border border-slate-300 rounded-lg font-bold tabular-nums bg-slate-50"
-              />
-            </label>
-          </div>
-
-          <div className="pt-1">
-            <span className="text-slate-600 font-bold block mb-1.5">نوع هود پیش‌فرض بالای گاز</span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setForm((prev) => ({ ...prev, defaultHoodKind: 'chimney' }))}
-                aria-pressed={(form.defaultHoodKind || 'chimney') === 'chimney'}
-                className={`h-9 rounded-lg border text-[13px] font-bold transition ${
-                  (form.defaultHoodKind || 'chimney') === 'chimney'
-                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                    : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                اکسپوز (شومینه‌ای)
-              </button>
-              <button
-                type="button"
-                onClick={() => setForm((prev) => ({ ...prev, defaultHoodKind: 'hidden' }))}
-                aria-pressed={form.defaultHoodKind === 'hidden'}
-                className={`h-9 rounded-lg border text-[13px] font-bold transition ${
-                  form.defaultHoodKind === 'hidden'
-                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                    : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                پوشیده (مخفی داخل کابینت)
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            <div>
-              <span className="text-slate-600 font-bold block mb-1.5">لبه بالایی صفحه</span>
-              <div className="grid grid-cols-2 gap-1.5">
-                {(['square', 'round'] as const).map((edge) => (
-                  <button
-                    key={edge}
-                    type="button"
-                    onClick={() => setForm((prev) => ({ ...prev, countertopTopEdge: edge }))}
-                    aria-pressed={(form.countertopTopEdge || 'square') === edge}
-                    className={`h-8 rounded-lg border text-[12px] font-bold transition ${
-                      (form.countertopTopEdge || 'square') === edge
-                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                        : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    {edge === 'square' ? 'مربعی' : 'گوشه گرد'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <span className="text-slate-600 font-bold block mb-1.5">لبه پایینی صفحه</span>
-              <div className="grid grid-cols-2 gap-1.5">
-                {(['square', 'round'] as const).map((edge) => (
-                  <button
-                    key={edge}
-                    type="button"
-                    onClick={() => setForm((prev) => ({ ...prev, countertopBottomEdge: edge }))}
-                    aria-pressed={(form.countertopBottomEdge || 'square') === edge}
-                    className={`h-8 rounded-lg border text-[12px] font-bold transition ${
-                      (form.countertopBottomEdge || 'square') === edge
-                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                        : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    {edge === 'square' ? 'مربعی' : 'گوشه گرد'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <label className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 font-bold text-slate-700">
+          <label className="flex items-center gap-2 py-0.5 font-bold text-slate-700">
             <input type="checkbox" className="size-4 accent-indigo-600" data-testid="settings-ambient-occlusion"
               checked={form.ambientOcclusion !== false}
               onChange={e => setForm(prev => ({ ...prev, ambientOcclusion: e.target.checked }))} />
             سایهٔ تماس کل صحنه (AO)
           </label>
 
-          <fieldset className="space-y-2">
-            <legend className="mb-1 font-extrabold text-slate-800">بازتاب سطوح</legend>
-            {SURFACES.map(surface => (
-              <div key={surface.reflection} className="rounded-lg border border-slate-200 p-2">
-                <div className="mb-1 font-bold">{surface.label}</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="space-y-1">
-                    <span>شدت {Math.round((form[surface.reflection] ?? surface.strength) * 100)}٪</span>
-                    <input type="range" aria-label={`شدت بازتاب ${surface.label}`} min={0} max={2} step={0.05}
-                      value={form[surface.reflection] ?? surface.strength}
-                      onChange={e => setForm(prev => ({ ...prev, [surface.reflection]: Number(e.target.value) }))}
-                      className="w-full accent-indigo-600" />
-                  </label>
-                  <label className="space-y-1">
-                    <span>{form[surface.roughness] === undefined ? 'مات یا براق · پیش‌فرض متریال' : `ماتی ${Math.round(form[surface.roughness]! * 100)}٪`}</span>
-                    <input type="range" aria-label={`ماتی ${surface.label}`} min={0.09} max={0.9} step={0.01}
-                      value={form[surface.roughness] ?? surface.spread}
-                      onChange={e => setForm(prev => ({ ...prev, [surface.roughness]: Number(e.target.value) }))}
-                      className="w-full accent-indigo-600" />
-                  </label>
-                </div>
-              </div>
-            ))}
-          </fieldset>
-          <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={applyToExisting}
-              onChange={(e) => setApplyToExisting(e.target.checked)}
-              className="rounded border-slate-300 text-indigo-600"
-            />
-            <span className="text-slate-700 font-semibold">
-              اعمال ارتفاع، هود و صفحه روی دیوارها و باکس‌های فعلی
-            </span>
-          </label>
+          <SurfaceFinishControls index={3} reflection={form.floorReflection} roughness={form.floorRoughness}
+            onChange={patch => setForm(prev => ({ ...prev,
+              floorReflection: patch.reflection ?? prev.floorReflection,
+              floorRoughness: patch.roughness ?? prev.floorRoughness,
+            }))} />
         </div>
 
-        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50 gap-2">
-          <button
-            type="button"
-            onClick={() => setForm({ ...DEFAULT_PROJECT_SETTINGS })}
-            className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-[13px] font-bold"
-          >
-            بازگردانی پیش‌فرض
+        <footer className="flex shrink-0 items-center justify-between gap-1.5 border-t border-slate-200 bg-slate-50 px-3 py-2">
+          <button type="button" onClick={() => {
+            setForm(prev => ({ ...prev, wallHeightCm: DEFAULT_PROJECT_SETTINGS.wallHeightCm,
+              hdrRotationDegrees: 0, floorReflection: undefined, floorRoughness: undefined,
+              ambientOcclusion: DEFAULT_PROJECT_SETTINGS.ambientOcclusion }));
+            onPreviewHdrRotation(0);
+          }} className="h-8 rounded border border-slate-300 bg-white px-2 text-xs font-bold text-slate-700">
+            پیش‌فرض
           </button>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-9 px-3 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-[13px] font-bold"
-            >
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={onClose} className="h-8 rounded border border-slate-300 bg-white px-2 text-xs font-bold">
               انصراف
             </button>
-            <button
-              type="button"
-              onClick={() => onSave(form, applyToExisting)}
-              className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold"
-            >
+            <button type="button" onClick={() => onSave({ ...form,
+              wallHeightCm: Math.max(200, Math.min(400, Math.round(form.wallHeightCm || settings.wallHeightCm))) }, applyToExisting)}
+              className="h-8 rounded bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700">
               ذخیره و اعمال
             </button>
           </div>
-        </div>
+        </footer>
       </div>
     </div>
   );
