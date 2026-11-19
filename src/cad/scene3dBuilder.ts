@@ -827,7 +827,7 @@ export function buildKitchen3DScene(
 
   const ceilingHeightM = (project.settings?.wallHeightCm ?? project.walls[0]?.height ?? 265) * CM;
   const ceilingIntensity = project.settings?.ceilingAreaIntensity ??
-    (project.settings?.ceilingLightIntensities?.[0] ?? 0.7);
+    (project.settings?.ceilingLightIntensities?.[0] ?? 10);
   addCeilingFillLights(root, vertices, ceilingHeightM, ceilingIntensity);
   const kitchenLightMode = getKitchenCabinetLightMode(project);
 
@@ -989,7 +989,7 @@ export function buildKitchen3DScene(
       interactables.push(strip);
       if (run.mode === 'linear') {
         const area = new THREE.RectAreaLight(0xffdfb6,
-          run.intensity * (project.settings?.linearLightIntensity ?? 10), length, 0.045);
+          run.intensity * (project.settings?.linearLightIntensity ?? 5), length, 0.045);
         area.position.set(x, y - 0.022, normalSign * 0.09);
         area.lookAt(x, y - 0.32, normalSign * 0.008);
         wallGrp.add(area);

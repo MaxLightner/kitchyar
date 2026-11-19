@@ -26,7 +26,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const intensityControls: Array<{ key: 'hdrIntensity' | 'cameraLightIntensity' | 'linearLightIntensity' | 'halogenLightIntensity' | 'facadeLightIntensity'; label: string; fallback: number }> = [
     { key: 'hdrIntensity', label: 'HDRI', fallback: 1 },
     { key: 'cameraLightIntensity', label: 'نور دوربین', fallback: 0.35 },
-    { key: 'linearLightIntensity', label: 'نور خطی زیر کابینت', fallback: 10 },
+    { key: 'linearLightIntensity', label: 'نور خطی زیر کابینت', fallback: 5 },
     { key: 'halogenLightIntensity', label: 'هالوژن بین‌کابینتی', fallback: 1 },
     { key: 'facadeLightIntensity', label: 'هالوژن روی درهای هوایی', fallback: 1 },
   ];
@@ -98,7 +98,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <label className="block">
                 شدت مشترک سه نور مستطیلی سقف
                 <input aria-label="نور مستطیلی سقف" type="number" dir="ltr" min={0} max={100} step={0.05}
-                  value={form.ceilingAreaIntensity ?? form.ceilingLightIntensities?.[0] ?? 0.7}
+                  value={form.ceilingAreaIntensity ?? form.ceilingLightIntensities?.[0] ?? 10}
                   onChange={event => setForm(prev => ({ ...prev,
                     ceilingAreaIntensity: Math.max(0, Math.min(100, Number(event.target.value))) }))}
                   className="mt-1 h-8 w-full rounded border border-slate-300 px-2" />

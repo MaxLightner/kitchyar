@@ -311,6 +311,8 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   countertopBottomEdge: 'square',
   wallCabElevCm: 145,
   wallCabHeightCm: 75,
+  linearLightIntensity: 5,
+  ceilingAreaIntensity: 10,
   defaultHoodKind: 'chimney',
   ambientOcclusion: true,
   equipmentFinish: 'silver',

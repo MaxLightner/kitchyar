@@ -24,6 +24,9 @@ export function addKitchenLighting(
     scene.environment = target.texture;
     requestRender();
   });
+  // Subtle baseline fill, independent of directional lighting and environment reflections.
+  const ambient = new THREE.AmbientLight(0xffffff, 0.06);
+  scene.add(ambient);
   const light = new THREE.DirectionalLight(0xffffff, 0.35);
   light.castShadow = true;
   light.shadow.mapSize.set(1024, 1024);
@@ -59,7 +62,7 @@ export function addKitchenLighting(
       followPose(cameraPosition, cameraOrientation);
     },
     dispose() {
-      scene.remove(light, light.target);
+      scene.remove(ambient, light, light.target);
       light.shadow.dispose();
       scene.environment = null;
       disposeEnvironment();
@@ -94,7 +97,7 @@ export function addKitchenSpot(
   }
 }
 
-export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number, intensity = 0.7) {
+export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number, intensity = 10) {
   RectAreaLightUniformsLib.init();
   const floor = outline.length >= 3 ? outline : [
     { x: -200, y: -200 }, { x: 200, y: -200 }, { x: 200, y: 200 }, { x: -200, y: 200 },
@@ -129,7 +132,8 @@ export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[],
     const shortSide = Math.max(0.20, Math.min(0.8, widest * 0.01 * 0.26));
     const light = new THREE.RectAreaLight(0xfff4e4, intensity,
       alongX ? longSide : shortSide, alongX ? shortSide : longSide);
-    light.position.set(x, heightM - 0.05, z);
+    // Position the ceiling fill a full meter above the project ceiling.
+    light.position.set(x, heightM + 1, z);
     light.lookAt(x, 0, z);
     const diffuser = new THREE.Mesh(new THREE.PlaneGeometry(light.width, light.height),
       new THREE.MeshBasicMaterial({ color: 0xfff4e4, side: THREE.DoubleSide }));
