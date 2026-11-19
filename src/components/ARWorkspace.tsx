@@ -1158,6 +1158,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       const ctrlChanged = controls.update();
       updateSurfaceCursorMarker(surfaceMarker,surfaceCursorRef.current);
       builtSceneRef.current?.syncOcclusion?.();
+      lighting.setIntensities(projectRef.current.settings);
       lighting.followCamera(camera);
       renderer.render(scene, camera);
       if (rafId === null && (doorsMoving || ctrlChanged)) {
@@ -3220,6 +3221,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       let lastXrFrameTime = 0;
       renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
         if (!frame || rendererRef.current !== renderer || !sceneRef.current || !cameraRef.current) return;
+        lightingRef.current?.setIntensities(projectRef.current.settings);
         builtSceneRef.current?.syncOcclusion?.();
         xrFrameCountRef.current += 1;
         xrLastFrameTimeRef.current = performance.now();

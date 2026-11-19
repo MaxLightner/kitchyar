@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { FloorPoint } from './floorPolygon';
+import type { ProjectSettings } from './types';
 import { loadKitchenEnvironment } from './kitchenEnvironment';
 
 export const KITCHEN_EXPOSURE = 0.96;
@@ -44,6 +45,10 @@ export function addKitchenLighting(
   };
 
   return {
+    setIntensities(settings?: ProjectSettings) {
+      scene.environmentIntensity = settings?.hdrIntensity ?? 1;
+      light.intensity = settings?.cameraLightIntensity ?? 0.35;
+    },
     followCamera(camera: THREE.Camera) {
       followPose(camera.getWorldPosition(cameraPosition), camera.getWorldQuaternion(cameraOrientation));
     },
@@ -88,7 +93,7 @@ export function addKitchenSpot(
   }
 }
 
-export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number) {
+export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[], heightM: number, intensities: number[] = [0.7, 0.7, 0.7]) {
   const floor = outline.length >= 3 ? outline : [
     { x: -200, y: -200 }, { x: 200, y: -200 }, { x: 200, y: 200 }, { x: -200, y: 200 },
   ];
@@ -99,7 +104,7 @@ export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[],
   const other = alongX ? zs : xs;
   const min = Math.min(...axis);
   const max = Math.max(...axis);
-  for (const fraction of [0.2, 0.5, 0.8]) {
+  for (const [index, fraction] of [0.2, 0.5, 0.8].entries()) {
     const across = min + (max - min) * fraction;
     const crossings: number[] = [];
     for (let i = 0; i < axis.length; i++) {
@@ -119,6 +124,6 @@ export function addCeilingFillLights(parent: THREE.Group, outline: FloorPoint[],
     const x = (alongX ? across : middle) * 0.01;
     const z = (alongX ? middle : across) * 0.01;
     addKitchenSpot(parent, new THREE.Vector3(x, heightM - 0.05, z), new THREE.Vector3(x, 0, z),
-      { color: 0xfff4e4, intensity: 0.7, range: 5, angle: 0.9, ceilingFixture: true });
+      { color: 0xfff4e4, intensity: intensities[index] ?? 0.7, range: 5, angle: 0.9, ceilingFixture: true });
   }
 }

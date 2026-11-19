@@ -1705,7 +1705,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                               data-testid="box-clear-shelves-btn"
                               onClick={props.onClearBoxShelves}
                               className={`h-8 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[12px] font-bold whitespace-nowrap shrink-0 ${
-                                props.onQuickAddMiddleShelfForUnit && selectedDoor && selectedDoor.kind !== 'drawer'
+                                props.onQuickAddMiddleShelfForUnit && selectedDoor
                                   ? ''
                                   : 'col-span-2'
                               }`}

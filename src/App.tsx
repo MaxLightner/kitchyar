@@ -2393,7 +2393,7 @@ export default function App() {
 
   const upperLightBoxes = project.walls.flatMap(w => w.boxes).filter(b => b.type === 'wall' || b.type === 'wall-deep');
   const selectedUppers = upperLightBoxes.filter(b => b.id === project.activeBoxId || project.multiSelection?.boxIds.includes(b.id));
-  const selectedLightBoxes = selectedUppers.length ? selectedUppers : upperLightBoxes;
+  const selectedLightBoxes = selectedUppers;
   const lightsOn = selectedLightBoxes.length > 0 && selectedLightBoxes.every(box => getCabinetLighting(box).mode === 'linear');
   const toggleLightBoxes = (boxIds: string[]) => {
     const ids = new Set(boxIds);
@@ -2589,9 +2589,15 @@ export default function App() {
     setSettingsOpen(false);
   };
 
-  const handleSaveSettings = (nextSettings: ProjectSettings, applyToExisting: boolean) => {
+  const handleSaveSettings = (nextSettings: ProjectSettings, applyToExisting: boolean, lights: Record<string, CabinetLighting>) => {
     const next = cloneProject(project);
     next.settings = nextSettings;
+    next.walls.forEach(wall => wall.boxes.forEach(box => {
+      if (lights[box.id]) {
+        box.lighting = { ...lights[box.id] };
+        box.underCabinetLight = box.lighting.mode === 'linear';
+      }
+    }));
     const previous = project.settings ?? DEFAULT_PROJECT_SETTINGS;
     const resizeWalls = applyToExisting && nextSettings.wallHeightCm !== previous.wallHeightCm;
     if (resizeWalls) {
@@ -4066,6 +4072,7 @@ export default function App() {
       {settingsOpen && !measurement && !confirmModal && !hiddenHandleWarnModal && !stylePromptModal?.open && (
         <SettingsModal
           settings={project.settings || DEFAULT_PROJECT_SETTINGS}
+          cabinetLights={upperLightBoxes}
           onSave={handleSaveSettings}
           onPreviewHdrRotation={setPreviewHdrRotation}
            onClose={closeSceneSettings}

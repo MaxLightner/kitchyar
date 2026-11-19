@@ -826,7 +826,7 @@ export function buildKitchen3DScene(
   }
 
   const ceilingHeightM = (project.settings?.wallHeightCm ?? project.walls[0]?.height ?? 265) * CM;
-  addCeilingFillLights(root, vertices, ceilingHeightM);
+  addCeilingFillLights(root, vertices, ceilingHeightM, project.settings?.ceilingLightIntensities);
 
   const stripMaterial = new THREE.MeshBasicMaterial({ color: 0xffdfb6 });
   for (const wall of project.walls) {
@@ -968,13 +968,7 @@ export function buildKitchen3DScene(
     }> = [];
     for (const box of uppers) {
       const { mode, intensity } = getCabinetLighting(box);
-      const previous = runs.at(-1);
-      if (previous && previous.mode === mode && previous.intensity === intensity &&
-          Math.abs(previous.elevation - box.elevY) < 1 && Math.abs(previous.depth - box.depth) < 1 &&
-          Math.abs(previous.height - box.height) < 1 && box.offsetX <= previous.end + 1) {
-        previous.end = Math.max(previous.end, box.offsetX + box.width);
-        previous.boxIds.push(box.id);
-      } else runs.push({
+      runs.push({
         start: box.offsetX, end: box.offsetX + box.width, elevation: box.elevY, height: box.height,
         depth: box.depth, mode, intensity, boxIds: [box.id],
       });
@@ -992,7 +986,7 @@ export function buildKitchen3DScene(
           const origin = new THREE.Vector3(x, lightY, normalSign * (depth + 0.68));
           const distance = origin.distanceTo(aim);
           addKitchenSpot(wallGrp, origin, aim, {
-            color: 0xffe0b8, intensity: run.intensity, range: distance + 0.95, ceilingFixture: true,
+            color: 0xffe0b8, intensity: run.intensity * (project.settings?.halogenLightIntensity ?? 1), range: distance + 0.95, ceilingFixture: true,
             angle: THREE.MathUtils.clamp(Math.atan2(coverage / (2 * count), distance) + 0.12, 0.34, 0.72),
           });
         }
@@ -1014,7 +1008,7 @@ export function buildKitchen3DScene(
         addKitchenSpot(wallGrp,
           new THREE.Vector3(ledX, y - 0.018, z),
           new THREE.Vector3(ledX, y - 0.48, normalSign * 0.025),
-          { color: 0xffdfb6, intensity: run.intensity, range: 1.6, angle: 0.94 });
+          { color: 0xffdfb6, intensity: run.intensity * (project.settings?.linearLightIntensity ?? 10), range: 1.6, angle: 0.94 });
       }
     }
 

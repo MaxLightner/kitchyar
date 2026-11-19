@@ -1,20 +1,30 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { DEFAULT_PROJECT_SETTINGS } from '../cad/constants';
-import type { ProjectSettings } from '../cad/types';
+import { getCabinetLighting } from '../cad/cabinetLighting';
+import type { CabinetBox, CabinetLighting, ProjectSettings } from '../cad/types';
 import { SurfaceFinishControls } from './SurfaceFinishControls';
 
 interface SettingsModalProps {
   settings: ProjectSettings;
-  onSave: (next: ProjectSettings, applyToExisting: boolean) => void;
+  cabinetLights: CabinetBox[];
+  onSave: (next: ProjectSettings, applyToExisting: boolean, lights: Record<string, CabinetLighting>) => void;
   onPreviewHdrRotation: (degrees: number) => void;
   onClose: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  settings, onSave, onPreviewHdrRotation, onClose,
+  settings, cabinetLights, onSave, onPreviewHdrRotation, onClose,
 }) => {
   const [form, setForm] = useState(settings);
+  const [lights, setLights] = useState<Record<string, CabinetLighting>>(() =>
+    Object.fromEntries(cabinetLights.map(box => [box.id, getCabinetLighting(box)])));
+  const intensityControls: Array<{ key: 'hdrIntensity' | 'cameraLightIntensity' | 'linearLightIntensity' | 'halogenLightIntensity'; label: string; fallback: number }> = [
+    { key: 'hdrIntensity', label: 'HDRI', fallback: 1 },
+    { key: 'cameraLightIntensity', label: 'نور دوربین', fallback: 0.35 },
+    { key: 'linearLightIntensity', label: 'نور خطی زیر کابینت', fallback: 10 },
+    { key: 'halogenLightIntensity', label: 'هالوژن کابینت', fallback: 1 },
+  ];
   const [applyToExisting, setApplyToExisting] = useState(true);
   const degrees = Number.isFinite(form.hdrRotationDegrees) ? form.hdrRotationDegrees! : 0;
 
@@ -68,6 +78,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             سایهٔ تماس کل صحنه (AO)
           </label>
 
+          <fieldset className="space-y-2 rounded border border-slate-200 p-2">
+            <legend className="px-1 font-bold">شدت نورهای صحنه</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {intensityControls.map(({ key, label, fallback }) => (
+                <label key={key} className="block">
+                  {label}
+                  <input aria-label={label} type="number" dir="ltr" min={0} max={100} step={0.05}
+                    value={form[key] ?? fallback}
+                    onChange={e => setForm(prev => ({ ...prev, [key]: Math.max(0, Math.min(100, Number(e.target.value))) }))}
+                    className="mt-1 h-8 w-full rounded border border-slate-300 px-2" />
+                </label>
+              ))}
+              {[0, 1, 2].map(index => (
+                <label key={index} className="block">
+                  نور سقف {index + 1}
+                  <input aria-label={'نور سقف ' + (index + 1)} type="number" dir="ltr" min={0} max={100} step={0.05}
+                    value={form.ceilingLightIntensities?.[index] ?? 0.7}
+                    onChange={e => setForm(prev => {
+                      const values = [...(prev.ceilingLightIntensities ?? [0.7, 0.7, 0.7])];
+                      values[index] = Math.max(0, Math.min(100, Number(e.target.value)));
+                      return { ...prev, ceilingLightIntensities: values };
+                    })}
+                    className="mt-1 h-8 w-full rounded border border-slate-300 px-2" />
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {cabinetLights.length > 0 && (
+            <fieldset className="space-y-2 rounded border border-slate-200 p-2">
+              <legend className="px-1 font-bold">نور هر کابینت هوایی</legend>
+              {cabinetLights.map((box, index) => (
+                <div key={box.id} className="grid grid-cols-[1fr_1fr_4rem] items-center gap-1">
+                  <label htmlFor={'light-' + box.id}>{box.name} ({index + 1})</label>
+                  <select id={'light-' + box.id} value={lights[box.id].mode}
+                    onChange={e => setLights(prev => ({ ...prev, [box.id]: { ...prev[box.id], mode: e.target.value as CabinetLighting['mode'] } }))}
+                    className="h-8 rounded border border-slate-300">
+                    <option value="off">خاموش</option><option value="linear">خطی</option><option value="halogen">هالوژن</option>
+                  </select>
+                  <input aria-label={'شدت نور ' + box.name + ' ' + (index + 1)} type="number" dir="ltr" min={0.1} max={1} step={0.1}
+                    value={lights[box.id].intensity}
+                    onChange={e => setLights(prev => ({ ...prev, [box.id]: { ...prev[box.id],
+                      intensity: Math.max(0.1, Math.min(1, Number(e.target.value))) } }))}
+                    className="h-8 w-full rounded border border-slate-300 px-1" />
+                </div>
+              ))}
+            </fieldset>
+          )}
+
           <SurfaceFinishControls index={3} reflection={form.floorReflection} roughness={form.floorRoughness}
             onChange={patch => setForm(prev => ({ ...prev,
               floorReflection: patch.reflection ?? prev.floorReflection,
@@ -89,7 +147,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               انصراف
             </button>
             <button type="button" onClick={() => onSave({ ...form,
-              wallHeightCm: Math.max(200, Math.min(400, Math.round(form.wallHeightCm || settings.wallHeightCm))) }, applyToExisting)}
+              wallHeightCm: Math.max(200, Math.min(400, Math.round(form.wallHeightCm || settings.wallHeightCm))) }, applyToExisting, lights)}
               className="h-8 rounded bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700">
               ذخیره و اعمال
             </button>

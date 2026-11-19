@@ -1,3 +1,4 @@
+import type { CabinetBox } from '../cad/types';
 import type { OfferSelection, PickCandidate } from './SelectionPicker';
 import { findFrontCut } from '../cad/frontCut';
 import type { FloorFurnitureKind } from '../cad/types';
@@ -684,6 +685,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         needsRender = false;
         updateSurfaceCursorMarker(surfaceMarker, surfaceCursorRef.current);
         built?.syncOcclusion?.();
+        lighting.setIntensities(propsRef.current.project.settings);
         lighting.followCamera(camera);
         renderer.render(scene, camera);
       }

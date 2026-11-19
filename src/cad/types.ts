@@ -298,6 +298,11 @@ export interface ProjectSettings {
   wallCabElevCm: number;
   wallCabHeightCm: number;
   hdrRotationDegrees?: number;
+  hdrIntensity?: number;
+  cameraLightIntensity?: number;
+  ceilingLightIntensities?: number[];
+  linearLightIntensity?: number;
+  halogenLightIntensity?: number;
   cabinetReflection?: number;
   cabinetRoughness?: number;
   countertopReflection?: number;
