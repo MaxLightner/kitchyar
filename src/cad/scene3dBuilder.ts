@@ -29,7 +29,7 @@ import {
 import { buildDining3D, buildTelevisionSet3D, createDiningMaterials } from './dining3d';
 import { readSurfaceFinish } from './surfaceFinish';
 import { bakeKitchenOcclusion } from './kitchenOcclusion';
-import { addCeilingFillLights, addKitchenSpot } from './kitchenLighting';
+import { addCeilingFillLights, addKitchenLightDecal } from './kitchenLighting';
 import { getCabinetLighting, getKitchenCabinetLightMode } from './cabinetLighting';
 import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
@@ -660,8 +660,8 @@ export function buildKitchen3DScene(
   const interactables: THREE.Object3D[] = [];
   const animatedDoors: AnimatedDoorHandle[] = [];
   const linearControls: Array<{ boxId: string; group: THREE.Group; strip: THREE.Mesh; area: THREE.RectAreaLight }> = [];
-  const halogenControls: Array<{ boxId: string; group: THREE.Group; spots: THREE.SpotLight[] }> = [];
-  const facadeControls: Array<{ group: THREE.Group; spots: THREE.SpotLight[] }> = [];
+  const halogenControls: Array<{ boxId: string; group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
+  const facadeControls: Array<{ group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
   const wallTransforms = new Map<
     string,
     {
@@ -1001,7 +1001,8 @@ export function buildKitchen3DScene(
       });
     }
     for (const run of runs) {
-      const length = Math.max(0.08, (run.end - run.start) * CM - 0.025);
+      // Exactly one continuous strip / area light per upper-cabinet box.
+      const length = Math.max(0.08, (run.end - run.start) * CM - 0.006);
       const y = run.elevation * CM - 0.009;
       const x = (run.start + run.end) * CM / 2;
       const z = normalSign * Math.min(0.055, run.depth * CM / 2);
@@ -1021,23 +1022,23 @@ export function buildKitchen3DScene(
       linearControls.push({ boxId: run.boxIds[0], group: linearGroup, strip, area });
 
       const halogenGroup = new THREE.Group();
-      const spots: THREE.SpotLight[] = [];
-      // Limit the number of actual light calculations; the fixtures are invisible.
+      const decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
+      // Render the same soft cones on backsplash tiles but without any
+      // per-fixture SpotLights. One controllable strip belongs to each box.
       const count = Math.min(6, Math.max(1, Math.ceil(length / 1)));
       for (let i = 0; i < count; i++) {
         const spotX = run.start * CM + length * (i + 0.5) / count;
-        spots.push(addKitchenSpot(halogenGroup,
-          new THREE.Vector3(spotX, y - 0.024, normalSign * Math.max(0.02, Math.min(0.22, run.depth * CM - 0.05))),
-          new THREE.Vector3(spotX, y - 0.48, normalSign * 0.012),
-          { color: 0xffdfb6, intensity: 0, range: 1.6, angle: 0.72 }));
+        decals.push(addKitchenLightDecal(halogenGroup,
+          spotX, y - 0.28, normalSign * 0.020,
+          Math.min(0.75, length / count + 0.22), 0.68, 0xffdfb6));
       }
       wallGrp.add(halogenGroup);
-      halogenControls.push({ boxId: run.boxIds[0], group: halogenGroup, spots });
+      halogenControls.push({ boxId: run.boxIds[0], group: halogenGroup, decals });
     }
 
-    // Independent crown lighting. Only the upper tier receives facade spotlights.
+    // Independent facade/crown projections are emissive decals, not SpotLights.
     const facadeGroup = new THREE.Group();
-    const facadeSpots: THREE.SpotLight[] = [];
+    const facadeDecals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
     const rows: Array<{ start: number; end: number; depth: number; elevation: number; height: number }> = [];
     for (const box of uppers) {
       const hasTierAbove = uppers.some(upper => upper.id !== box.id &&
@@ -1062,14 +1063,13 @@ export function buildKitchen3DScene(
       const depth = row.depth * CM;
       for (let i = 0; i < count; i++) {
         const x = row.start * CM + (i + 0.5) * spacing;
-        const origin = new THREE.Vector3(x, (row.elevation + row.height) * CM + 0.08, normalSign * (depth + 0.25));
-        const aim = new THREE.Vector3(x, targetY, normalSign * (depth + 0.015));
-        facadeSpots.push(addKitchenSpot(facadeGroup, origin, aim,
-          { color: 0xffe0b8, intensity: 0, range: origin.distanceTo(aim) + 0.8, angle: 0.68 }));
+        facadeDecals.push(addKitchenLightDecal(facadeGroup,
+          x, targetY, normalSign * (depth + 0.055),
+          Math.min(0.88, spacing + 0.24), Math.min(1.0, row.height * CM + 0.15), 0xffe0b8));
       }
     }
     wallGrp.add(facadeGroup);
-    facadeControls.push({ group: facadeGroup, spots: facadeSpots });
+    facadeControls.push({ group: facadeGroup, decals: facadeDecals });
 
     // Render all Cabinet Boxes on this wall
     for (const box of wall.boxes) {
@@ -1236,11 +1236,11 @@ export function buildKitchen3DScene(
     for (const item of halogenControls) {
       item.group.visible = stage >= 1 && mode === 'halogen';
       const intensity = (boxLevels.get(item.boxId) ?? 1) * (settings?.halogenLightIntensity ?? 1);
-      item.spots.forEach(spot => { spot.intensity = intensity; });
+      item.decals.forEach(decal => { decal.material.opacity = Math.min(0.78, Math.max(0, 0.35 * intensity)); });
     }
     for (const item of facadeControls) {
       item.group.visible = stage >= 2 && settings?.facadeLightEnabled !== false && (settings?.facadeLightIntensity ?? 1) > 0;
-      item.spots.forEach(spot => { spot.intensity = settings?.facadeLightIntensity ?? 1; });
+      item.decals.forEach(decal => { decal.material.opacity = Math.min(0.8, Math.max(0, 0.35 * (settings?.facadeLightIntensity ?? 1))); });
     }
     ceilingControls.forEach(light => { light.intensity = settings?.ceilingAreaIntensity ?? settings?.ceilingLightIntensities?.[0] ?? 12; });
     for (const wall of next.walls) for (const appliance of wall.appliances) {

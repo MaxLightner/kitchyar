@@ -72,6 +72,46 @@ export function addKitchenLighting(
   };
 }
 
+// Cache the 128px falloff alpha across scene rebuilds. The light is purely
+// emissive/additive and adds no dynamic lighting or shadow-map calculations.
+let kitchenLightAlphaTexture: THREE.CanvasTexture | null = null;
+function getKitchenLightAlphaTexture(): THREE.CanvasTexture {
+  if (kitchenLightAlphaTexture) return kitchenLightAlphaTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  const gradient = ctx.createRadialGradient(64, 64, 5, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
+  gradient.addColorStop(0.2, 'rgba(255,255,255,0.77)');
+  gradient.addColorStop(0.55, 'rgba(255,255,255,0.29)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 128, 128);
+  kitchenLightAlphaTexture = new THREE.CanvasTexture(canvas);
+  kitchenLightAlphaTexture.userData.sharedKitchenTexture = true;
+  return kitchenLightAlphaTexture;
+}
+
+/** A cheap alpha spotlight decal in an XY plane, never an actual GPU light. */
+export function addKitchenLightDecal(
+  parent: THREE.Group, x: number, y: number, z: number,
+  width: number, height: number, color = 0xffdfb6,
+): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
+  const material = new THREE.MeshBasicMaterial({
+    map: getKitchenLightAlphaTexture(),
+    color, transparent: true, opacity: 0,
+    depthTest: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, toneMapped: false,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  mesh.position.set(x, y, z);
+  mesh.frustumCulled = true;
+  mesh.renderOrder = 1;
+  parent.add(mesh);
+  return mesh;
+}
+
 export function addKitchenSpot(
   parent: THREE.Group,
   origin: THREE.Vector3,
