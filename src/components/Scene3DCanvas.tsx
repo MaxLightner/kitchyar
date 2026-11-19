@@ -1950,6 +1950,33 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     };
 
     const doorTap = new DoorTapSequence();
+    const hobTap = new DoorTapSequence();
+    /** A hob requires two deliberate taps for BOTH on and off. Single tap
+     * only selects it, and the state persists in the shared CAD project. */
+    const onHobTap = (e: PointerEvent): boolean => {
+      const built = builtRef.current;
+      const cur = propsRef.current;
+      if (!built || cur.selectionMode !== 'single') { hobTap.reset(); return false; }
+      built.root.updateWorldMatrix(true, true);
+      raycaster.setFromCamera(setNdc(e.clientX, e.clientY), camera);
+      const hit = raycaster.intersectObjects(built.interactables, false)[0];
+      const data = hit && resolveHitData(hit.object);
+      if (data?.kind !== 'appliance' || data.subPart !== 'gas' || !data.appId) {
+        hobTap.reset();
+        return false;
+      }
+      const wall = cur.project.walls.find(w => w.id === data.wallId);
+      const item = wall?.appliances.find(a => a.id === data.appId && a.kind === 'gas');
+      if (!item) { hobTap.reset(); return false; }
+      if (hobTap.next('hob:' + item.id, false, e.pointerType, e.timeStamp, e.clientX, e.clientY) !== 1) return false;
+      const nextLit = !Boolean(item.flameOn);
+      cur.onMutateWallById(data.wallId, w => {
+        const gas = w.appliances.find(a => a.id === item.id && a.kind === 'gas');
+        if (gas) gas.flameOn = nextLit;
+      }, true, nextLit ? 'گاز روشن شد' : 'گاز خاموش شد');
+      e.preventDefault();
+      return true;
+    };
     const onDoorTap = (e: PointerEvent) => {
       const built = builtRef.current;
       if (!built || propsRef.current.selectionMode !== 'single') return doorTap.reset();
@@ -2123,9 +2150,11 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       downClientRef.current = null;
       if (!dc || !isTap || !builtRef.current) { doorTap.reset(); return; }
       if (cur.tool === 'select' && cur.selectionMode === 'single') {
+        if (onHobTap(e)) return;
         if (!onDoorTap(e)) select3DAt(e);
         return;
       }
+      hobTap.reset();
       doorTap.reset();
 
       if (cur.tool === 'dining') {
