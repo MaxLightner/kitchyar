@@ -455,9 +455,18 @@ export const HOOD_MODELS: Record<HoodModel, { id: HoodModel; label: string; shor
   angled: { id: 'angled', label: 'هود مورب شیشه‌ای', shortLabel: 'مورب' },
   box: { id: 'box', label: 'هود باکس اکسپوز', shortLabel: 'اکسپوز' },
   cylinder: { id: 'cylinder', label: 'هود استوانه‌ای', shortLabel: 'استوانه‌ای' },
+  'curved-black': { id:'curved-black',label:'شومینه‌ای شیشه خم مشکی',shortLabel:'شیشه خم مشکی' },
+  'curved-steel': { id:'curved-steel',label:'شومینه‌ای شیشه خم استیل',shortLabel:'شیشه خم استیل' },
+  'tbox-steel': { id:'tbox-steel',label:'هود تی‌باکس استیل',shortLabel:'تی‌باکس استیل' },
+  'angled-dual-black': { id:'angled-dual-black',label:'هود مورب مشکی دوپله',shortLabel:'مورب مشکی' },
+  'pyramid-black': { id:'pyramid-black',label:'هود هرمی مشکی',shortLabel:'هرمی مشکی' },
+  'framed-rounded-black': { id:'framed-rounded-black',label:'هود مورب قاب‌دار گوشه‌گرد',shortLabel:'قاب‌دار مشکی' },
 };
 
-export const HOOD_MODEL_ORDER: HoodModel[] = ['chimney', 'angled', 'box', 'cylinder'];
+export const HOOD_MODEL_ORDER: HoodModel[] = [
+  'curved-black','curved-steel','tbox-steel','angled-dual-black',
+  'pyramid-black','framed-rounded-black',
+];
 
 export const WASHING_CAPACITIES: Record<WashingCapacityKg, { kg: WashingCapacityKg; width: number; label: string; shortLabel: string }> = {
   6: { kg: 6, width: 55, label: '۶ کیلویی (۵۵cm)', shortLabel: '۶ کیلویی' },

@@ -59,6 +59,7 @@ import {
   moveUnitInBoxWithDoorsSync,
   optimizeBoxUnitsSmart,
   optimizeBoxWithAppliances,
+  updateFridgeBoxModelAndSize,
   placeApplianceWithCabinetRules,
   placeFridgeOnWall,
   removeUnitDividerWithSync,
@@ -116,6 +117,8 @@ import {
   DoorSwing,
   EquipmentFinish,
   FridgeModel,
+  HoodModel,
+  CooktopModel,
   HandleStyle,
   HardwareKind,
   MultiSelection,
@@ -428,7 +431,7 @@ export default function App() {
   const [countertopBrush, setCountertopBrush] = useState<CountertopFinishId>('dark-quartz');
   const [handleStyle, setHandleStyle] = useState<HandleStyle>('simple');
   const [handleOrient, setHandleOrient] = useState<Orientation>('vertical');
-  const [fridgeModel, setFridgeModel] = useState<FridgeModel>('side-by-side');
+  const [fridgeModel, setFridgeModel] = useState<FridgeModel>('fridge-sbs-homebar');
   const [fridgeHasFrame, setFridgeHasFrame] = useState<boolean>(true);
   const [sinkModel, setSinkModel] = useState<SinkModel>('steel-2');
   const [gasWidth, setGasWidth] = useState<number>(80);
@@ -1424,6 +1427,39 @@ export default function App() {
     }
     if (added) commitState(next, true);
     showToast(added ? `${added} قطعه تاج و تخته زیر بدون تکرار افزوده شد` : 'تمام تاج‌ها و تخته‌های زیر موجودند');
+  };
+
+  const handleSetSelectedFridgeModel = (model: FridgeModel) => {
+    if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
+    const next = cloneProject(project);
+    const w = next.walls.find(wall => wall.id === activeWall.id);
+    if (!w) return;
+    const change = updateFridgeBoxModelAndSize(w, next.walls, next.cornerOwners ?? {},
+      activeBox.id, model);
+    if (!change.ok) return showToast(change.message);
+    commitState(next, true);
+    showToast('مدل یخچال انتخاب‌شده تغییر کرد');
+  };
+  const handleSetSelectedCooktopModel = (model: CooktopModel) => {
+    if (!selectedAppliance || selectedAppliance.kind !== 'gas') return;
+    mutateActiveWall(w => {
+      const app = w.appliances.find(a => a.id === selectedAppliance.id && a.kind === 'gas');
+      if (app) app.cooktopModel = model;
+    }, true);
+  };
+  const handleSetSelectedHoodModel = (model: HoodModel) => {
+    if (!selectedAppliance || selectedAppliance.kind !== 'gas') return;
+    mutateActiveWall(w => {
+      const app = w.appliances.find(a => a.id === selectedAppliance.id && a.kind === 'gas');
+      if (app) app.hoodModel = model;
+    }, true);
+  };
+  const handleSetSelectedFlame = (enabled: boolean) => {
+    if (!selectedAppliance || selectedAppliance.kind !== 'gas') return;
+    mutateActiveWall(w => {
+      const app = w.appliances.find(a => a.id === selectedAppliance.id && a.kind === 'gas');
+      if (app) app.flameOn = enabled;
+    }, true);
   };
 
   const handleChangeSelectedApplianceHood = (nextHood: 'hidden' | 'chimney') => {
@@ -3318,6 +3354,10 @@ export default function App() {
               }}
               onChangeSelectedApplianceSinkModel={handleChangeSelectedApplianceSinkModel}
               onChangeSelectedApplianceHood={handleChangeSelectedApplianceHood}
+              onSetSelectedCooktopModel={handleSetSelectedCooktopModel}
+              onSetSelectedHoodModel={handleSetSelectedHoodModel}
+              onSetSelectedFlame={handleSetSelectedFlame}
+              onChangeSelectedFridgeModel={handleSetSelectedFridgeModel}
               canSelectedGasUseChimney={
                 !(activeWall && selectedAppliance?.kind === 'gas' && requiresIntegratedHood(activeWall, selectedAppliance))
               }

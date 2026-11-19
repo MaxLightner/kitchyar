@@ -1,6 +1,7 @@
 import type { CabinetLighting, CabinetLightMode, ProjectSettings } from '../cad/types';
 import { SurfaceFinishControls, type SurfaceFinishPatch } from './SurfaceFinishControls';
 import { getCabinetLighting } from '../cad/cabinetLighting';
+import { APPLIANCE_CATALOG } from '../hoods/catalog';
 import type { CabinetTextureId } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useState } from 'react';
@@ -82,6 +83,8 @@ import {
   EquipmentFinish,
   DiningSeats,
   FridgeModel,
+  HoodModel,
+  CooktopModel,
   HandleStyle,
   HardwareKind,
   MultiSelection,
@@ -223,6 +226,10 @@ interface SideInspectorProps {
   onDeleteSelectedOpening: () => void;
   onChangeSelectedApplianceSinkModel?: (m: SinkModel) => void;
   onChangeSelectedApplianceHood?: (h: 'hidden' | 'chimney') => void;
+  onSetSelectedCooktopModel?: (model: CooktopModel) => void;
+  onSetSelectedHoodModel?: (model: HoodModel) => void;
+  onSetSelectedFlame?: (enabled: boolean) => void;
+  onChangeSelectedFridgeModel?: (model: FridgeModel) => void;
   onDeleteSelectedAppliance?: () => void;
   onDeleteSelectedShelf?: () => void;
   onQuickAddMiddleShelfForUnit?: () => void;
@@ -1807,6 +1814,38 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           ))}
                         </div>
                       )}
+                    {props.selectedAppliance.kind === 'gas' && props.selectedAppliancePart !== 'hood' &&
+                      props.onSetSelectedCooktopModel && (
+                      <div className="space-y-1">
+                        <label htmlFor="selected-cooktop-model" className="text-[12px] font-bold">مدل صفحه گاز</label>
+                        <select id="selected-cooktop-model" data-testid="selected-cooktop-model"
+                          className="w-full h-9 border rounded-lg px-2 text-xs"
+                          value={props.selectedAppliance.cooktopModel ?? 'hob-glass-5'}
+                          onChange={e=>props.onSetSelectedCooktopModel?.(e.target.value as CooktopModel)}>
+                          {APPLIANCE_CATALOG.filter(x=>x.category==='cooktop').map(x=><option key={x.id} value={x.id}>{x.titleFa}</option>)}
+                        </select>
+                        {props.onSetSelectedFlame && (
+                          <label className="flex items-center gap-2 text-[12px] font-bold">
+                            <input type="checkbox" data-testid="selected-gas-ignition"
+                              checked={Boolean(props.selectedAppliance.flameOn)}
+                              onChange={e=>props.onSetSelectedFlame?.(e.target.checked)} />
+                            {props.selectedAppliance.flameOn ? 'روشن — دوبار لمس برای خاموش‌کردن' : 'خاموش — دوبار لمس برای روشن‌کردن'}
+                          </label>
+                        )}
+                      </div>
+                    )}
+                    {props.selectedAppliance.kind === 'gas' && props.selectedAppliancePart !== 'gas' &&
+                      props.onSetSelectedHoodModel && (
+                      <div className="space-y-1">
+                        <label htmlFor="selected-hood-model" className="text-[12px] font-bold">مدل هود</label>
+                        <select id="selected-hood-model" data-testid="selected-hood-model"
+                          className="w-full h-9 border rounded-lg px-2 text-xs"
+                          value={props.selectedAppliance.hoodModel && APPLIANCE_CATALOG.some(x=>x.id===props.selectedAppliance?.hoodModel && x.category==='hood') ? props.selectedAppliance.hoodModel : 'curved-black'}
+                          onChange={e=>props.onSetSelectedHoodModel?.(e.target.value as HoodModel)}>
+                          {APPLIANCE_CATALOG.filter(x=>x.category==='hood').map(x=><option key={x.id} value={x.id}>{x.titleFa}</option>)}
+                        </select>
+                      </div>
+                    )}
                     {props.selectedAppliance.kind === 'gas' && props.selectedAppliancePart !== 'gas' &&
                       props.onChangeSelectedApplianceHood && (
                         <div className="space-y-1">
@@ -1856,9 +1895,17 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-indigo-700">تنظیمات یخچال انتخاب‌شده</span>
                       <span className="text-[12px] font-bold text-slate-500">
-                        {FRIDGE_MODELS[activeBox.fridgeModel || 'side-by-side'].shortLabel}
+                        {FRIDGE_MODELS[activeBox.fridgeModel || 'fridge-sbs-homebar'].shortLabel}
                       </span>
                     </div>
+                    {props.onChangeSelectedFridgeModel && (
+                      <select data-testid="selected-fridge-model" aria-label="مدل یخچال"
+                        value={FRIDGE_MODEL_ORDER.includes(activeBox.fridgeModel ?? 'fridge-sbs-homebar') ? activeBox.fridgeModel : 'fridge-sbs-homebar'}
+                        onChange={e=>props.onChangeSelectedFridgeModel?.(e.target.value as FridgeModel)}
+                        className="w-full h-9 rounded-lg border border-slate-300 px-2 text-xs">
+                        {FRIDGE_MODEL_ORDER.map(m=><option key={m} value={m}>{FRIDGE_MODELS[m].label}</option>)}
+                      </select>
+                    )}
                     {props.onToggleSelectedFridgeFrame && (
                       <label className="flex items-center gap-2 cursor-pointer select-none">
                         <input

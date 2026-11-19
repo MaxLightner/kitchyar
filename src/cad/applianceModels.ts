@@ -94,7 +94,7 @@ export function makeCooktop(model: CooktopModelId | undefined, mats = applianceM
  * The resulting group origin is the center at floor/front depending on align. */
 export function fitAppliance(
   model: THREE.Group, size: { w: number; h: number; d: number },
-  frontFacing: 1 | -1, align: 'floor' | 'center' = 'floor',
+  frontFacing: number, align: 'floor' | 'center' = 'floor',
 ): THREE.Group {
   model.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(model);
