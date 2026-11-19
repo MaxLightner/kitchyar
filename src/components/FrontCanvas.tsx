@@ -1,3 +1,4 @@
+import { getCabinetLighting } from '../cad/cabinetLighting';
 import { svgPickTargets, type OfferSelection, type PickCandidate } from './SelectionPicker';
 import { findFrontCut } from '../cad/frontCut';
 import { HANDLE_STYLES, fitHandleLengthCm } from '../cad/handleGeometry';
@@ -4008,7 +4009,7 @@ export const FrontCanvas: React.FC<FrontCanvasProps> = ({
                     stroke={isAct ? '#4f46e5' : box.type === 'wall-deep' ? '#0284c7' : '#64748b'}
                     strokeWidth={isAct ? 2.2 : 1.5}
                   />
-                  {box.underCabinetLight && (box.type === 'wall' || box.type === 'wall-deep') && (
+                  {(box.type === 'wall' || box.type === 'wall-deep') && getCabinetLighting(box).mode === 'linear' && (
                     <line x1={bx + 3} x2={bx + bw - 3} y1={by + bodyH + 2} y2={by + bodyH + 2}
                       stroke="#e7ac46" strokeWidth={3} strokeLinecap="round" pointerEvents="none" />
                   )}

@@ -22,7 +22,7 @@ export function addKitchenLighting(
     scene.environment = target.texture;
     requestRender();
   });
-  const light = new THREE.DirectionalLight(0xffffff, 1);
+  const light = new THREE.DirectionalLight(0xffffff, 0.35);
   light.castShadow = true;
   light.shadow.mapSize.set(1024, 1024);
   light.shadow.bias = -0.00035;

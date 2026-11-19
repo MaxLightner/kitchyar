@@ -1,3 +1,5 @@
+import { getCabinetLighting } from './cad/cabinetLighting';
+import type { CabinetLighting } from './cad/types';
 import { SelectionPicker, type OfferSelection, type PickCandidate, type SurfaceSelection } from './components/SelectionPicker';
 import { applyFrontCut, findFrontCut } from './cad/frontCut';
 import { hasWallSegment } from './cad/wallSnap';
@@ -2389,17 +2391,18 @@ export default function App() {
   const upperLightBoxes = project.walls.flatMap(w => w.boxes).filter(b => b.type === 'wall' || b.type === 'wall-deep');
   const selectedUppers = upperLightBoxes.filter(b => b.id === project.activeBoxId || project.multiSelection?.boxIds.includes(b.id));
   const selectedLightBoxes = selectedUppers.length ? selectedUppers : upperLightBoxes;
-  const lightsOn = selectedLightBoxes.length > 0 && selectedLightBoxes.every(b => b.underCabinetLight);
+  const lightsOn = selectedLightBoxes.length > 0 && selectedLightBoxes.every(box => getCabinetLighting(box).mode === 'linear');
   const toggleLightBoxes = (boxIds: string[]) => {
     const ids = new Set(boxIds);
     if (!ids.size) return;
     commitState(prev => {
       const targets = prev.walls.flatMap(w => w.boxes).filter(box => ids.has(box.id));
-      const enabled = !targets.every(box => box.underCabinetLight);
+      const mode = targets.every(box => getCabinetLighting(box).mode === 'linear') ? 'off' : 'linear';
       return {
         ...prev,
         walls: prev.walls.map(w => ({ ...w, boxes: w.boxes.map(box =>
-          ids.has(box.id) ? { ...box, underCabinetLight: enabled } : box) })),
+          ids.has(box.id) && (box.type === 'wall' || box.type === 'wall-deep')
+            ? { ...box, lighting: { ...getCabinetLighting(box), mode }, underCabinetLight: mode === 'linear' } : box) })),
       };
     }, true);
   };
@@ -2983,6 +2986,15 @@ export default function App() {
       if (box) Object.assign(box, patch);
     }, true);
   };
+  const setCabinetLighting = (patch: Partial<CabinetLighting>) => {
+    if (!activeBox || (activeBox.type !== 'wall' && activeBox.type !== 'wall-deep')) return;
+    mutateActiveWall(wall => {
+      const box = wall.boxes.find(item => item.id === activeBox.id);
+      if (!box) return;
+      box.lighting = { ...getCabinetLighting(box), ...patch };
+      box.underCabinetLight = box.lighting.mode === 'linear';
+    }, true);
+  };
   const setFrameColor = (color?: string) => {
     if (!selectedFrame || !activeBox) return;
     mutateActiveWall(w => {
@@ -3088,6 +3100,7 @@ export default function App() {
               selectedHandleId={project.selectedHandleId}
               selectedFrame={selectedFrame}
               onSetBoxAppearance={setBoxAppearance}
+              onSetCabinetLighting={setCabinetLighting}
               onSetFrameColor={setFrameColor}
               selectedUnitDivider={project.selectedUnitDivider}
               selectedUnit={project.selectedUnit ?? null}

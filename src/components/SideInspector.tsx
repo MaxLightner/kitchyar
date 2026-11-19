@@ -1,3 +1,5 @@
+import type { CabinetLighting } from '../cad/types';
+import { getCabinetLighting } from '../cad/cabinetLighting';
 import type { CabinetTextureId } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useState } from 'react';
@@ -111,6 +113,7 @@ interface SideInspectorProps {
   selectedFrame?: BoxFrameItem | null;
   onSetBoxAppearance?: (patch: { color?: string; texture?: CabinetTextureId }) => void;
   onSetFrameColor?: (color?: string) => void;
+  onSetCabinetLighting?: (patch: Partial<CabinetLighting>) => void;
   selectedUnitDivider?: { boxId: string; seamCm: number } | null;
   selectedUnit?: { boxId: string; startCm: number; endCm: number } | null;
   multiSelection?: MultiSelection;
@@ -316,6 +319,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
       props.selectedUnitDivider
   );
 
+  const cabinetLighting = activeBox && (activeBox.type === 'wall' || activeBox.type === 'wall-deep')
+    ? getCabinetLighting(activeBox) : null;
   const toolSettings = activeTool !== 'select' && activeTool !== 'move';
   const objectSettings = !toolSettings && !props.selectedSurface && !props.diningSelected;
   const showFridge = objectSettings && !hasSubItem && activeBox?.type === 'fridge';
@@ -1642,6 +1647,34 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                           )}
                         </div>
                       </div>
+                    )}
+
+                    {!selectedDoor && cabinetLighting && props.onSetCabinetLighting && (
+                      <fieldset className="space-y-2 border-t border-slate-100 pt-2">
+                        <legend className="text-xs font-bold">نور کابینت هوایی</legend>
+                        <div className="grid grid-cols-3 gap-1">
+                          {([['off', 'خاموش'], ['linear', 'خطی زیر کابینت'], ['halogen', 'هالوژن سقفی']] as const)
+                            .map(([mode, label]) => (
+                              <button key={mode} type="button" aria-pressed={cabinetLighting.mode === mode}
+                                data-testid={`cabinet-light-${mode}`}
+                                onClick={() => props.onSetCabinetLighting?.({ mode })}
+                                className="rounded border border-slate-300 px-1 py-1.5 text-[11px] font-bold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-800">
+                                {label}
+                              </button>
+                            ))}
+                        </div>
+                        {cabinetLighting.mode !== 'off' && (
+                          <label className="block text-xs font-semibold">
+                            شدت نور
+                            <select aria-label="شدت نور کابینت" className="mt-1 h-8 w-full rounded border border-slate-300 px-1"
+                              value={Math.round(cabinetLighting.intensity * 100)}
+                              onChange={event => props.onSetCabinetLighting?.({ intensity: Number(event.target.value) / 100 })}>
+                              {Array.from({ length: 10 }, (_, index) => (index + 1) * 10)
+                                .map(percent => <option key={percent} value={percent}>{percent.toLocaleString('fa-IR')}٪</option>)}
+                            </select>
+                          </label>
+                        )}
+                      </fieldset>
                     )}
 
                     {!selectedDoor && props.onSetBoxAppearance && (

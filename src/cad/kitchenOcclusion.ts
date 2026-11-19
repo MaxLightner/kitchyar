@@ -73,8 +73,11 @@ export function bakeKitchenOcclusion(
   root.userData.kitchenOcclusionTexture = volume;
   const invExtent = new THREE.Vector3(1 / (nx * cell), 1 / (ny * cell), 1 / (nz * cell));
   for (const material of materials) {
-    material.customProgramCacheKey = () => 'kitchen-occlusion-v1';
-    material.onBeforeCompile = shader => {
+    const configureMaterial = material.onBeforeCompile.bind(material);
+    const baseKey = material.customProgramCacheKey();
+    material.customProgramCacheKey = () => baseKey + ':kitchen-occlusion-v1';
+    material.onBeforeCompile = (shader, renderer) => {
+      configureMaterial(shader, renderer);
       shader.uniforms.uKitchenFromWorld = { value: toKitchen };
       shader.uniforms.uKitchenOcclusion = { value: volume };
       shader.uniforms.uKitchenOcclusionOrigin = { value: bounds.min };

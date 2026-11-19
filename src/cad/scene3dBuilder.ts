@@ -30,6 +30,8 @@ import { buildDining3D, buildTelevisionSet3D, createDiningMaterials } from './di
 import { readSurfaceFinish } from './surfaceFinish';
 import { bakeKitchenOcclusion } from './kitchenOcclusion';
 import { addCeilingFillLights, addKitchenSpot } from './kitchenLighting';
+import { getCabinetLighting } from './cabinetLighting';
+import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
 import {
@@ -960,49 +962,59 @@ export function buildKitchen3DScene(
 
     const uppers = wall.boxes.filter(b => b.type === 'wall' || b.type === 'wall-deep')
       .sort((a, b) => a.elevY - b.elevY || a.depth - b.depth || a.offsetX - b.offsetX);
-    if (uppers.length) {
-      const left = Math.min(...uppers.map(box => box.offsetX)) * CM;
-      const right = Math.max(...uppers.map(box => box.offsetX + box.width)) * CM;
-      const bottom = Math.min(...uppers.map(box => box.elevY)) * CM;
-      const top = Math.max(...uppers.map(box => box.elevY + box.height)) * CM;
-      const depth = Math.max(...uppers.map(box => box.depth)) * CM;
-      const center = (left + right) / 2;
-      const front = Math.min(depth + 0.65, depth + Math.max(0.32, (right - left) * 0.24));
-      const targetY = (top + bottom) / 2;
-      const lightY = Math.max(wallHM - 0.06, targetY + 0.15);
-      addKitchenSpot(wallGrp,
-        new THREE.Vector3(center, lightY, normalSign * front),
-        new THREE.Vector3(center, targetY, normalSign * depth),
-        { color: 0xffe0b8, intensity: 1, range: 3.8, angle: 0.74 });
-    }
-    const runs: Array<{ start: number; end: number; elevation: number; depth: number; lit: boolean; boxIds: string[] }> = [];
+    const runs: Array<{
+      start: number; end: number; elevation: number; height: number; depth: number;
+      mode: ReturnType<typeof getCabinetLighting>['mode']; intensity: number; boxIds: string[];
+    }> = [];
     for (const box of uppers) {
+      const { mode, intensity } = getCabinetLighting(box);
       const previous = runs.at(-1);
-      const lit = Boolean(box.underCabinetLight);
-      if (previous && previous.lit === lit && Math.abs(previous.elevation - box.elevY) < 1 &&
-          Math.abs(previous.depth - box.depth) < 1 && box.offsetX <= previous.end + 1) {
+      if (previous && previous.mode === mode && previous.intensity === intensity &&
+          Math.abs(previous.elevation - box.elevY) < 1 && Math.abs(previous.depth - box.depth) < 1 &&
+          Math.abs(previous.height - box.height) < 1 && box.offsetX <= previous.end + 1) {
         previous.end = Math.max(previous.end, box.offsetX + box.width);
         previous.boxIds.push(box.id);
-      } else runs.push({ start: box.offsetX, end: box.offsetX + box.width, elevation: box.elevY, depth: box.depth, lit, boxIds: [box.id] });
+      } else runs.push({
+        start: box.offsetX, end: box.offsetX + box.width, elevation: box.elevY, height: box.height,
+        depth: box.depth, mode, intensity, boxIds: [box.id],
+      });
     }
     for (const run of runs) {
+      if (run.mode === 'halogen') {
+        const coverage = (run.end - run.start) * CM;
+        const count = Math.max(1, Math.ceil(coverage / 1.8));
+        const depth = run.depth * CM;
+        const targetY = (run.elevation + run.height * 0.6) * CM;
+        const lightY = Math.max(wallHM - 0.06, targetY + 0.15);
+        for (let i = 0; i < count; i++) {
+          const x = run.start * CM + coverage * (i + 0.5) / count;
+          const aim = new THREE.Vector3(x, targetY, normalSign * (depth + 0.015));
+          const origin = new THREE.Vector3(x, lightY, normalSign * (depth + 0.68));
+          const distance = origin.distanceTo(aim);
+          addKitchenSpot(wallGrp, origin, aim, {
+            color: 0xffe0b8, intensity: run.intensity, range: distance + 0.95,
+            angle: THREE.MathUtils.clamp(Math.atan2(coverage / (2 * count), distance) + 0.12, 0.34, 0.72),
+          });
+        }
+        continue;
+      }
       const length = Math.max(0.08, (run.end - run.start) * CM - 0.025);
       const y = run.elevation * CM - 0.009;
       const x = (run.start + run.end) * CM / 2;
       const z = normalSign * Math.min(0.055, run.depth * CM / 2);
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(length, 0.015, 0.028), run.lit ? stripMaterial : matHiddenTrim);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(length, 0.015, 0.028), run.mode === 'linear' ? stripMaterial : matHiddenTrim);
       strip.position.set(x, y, z);
       strip.userData = { kind: 'under-cabinet-light', wallId: wall.id, lightBoxIds: run.boxIds } satisfies Scene3DHitData;
       wallGrp.add(strip);
       interactables.push(strip);
-      if (!run.lit) continue;
+      if (run.mode !== 'linear') continue;
       const count = Math.min(6, Math.max(1, Math.ceil(length / 0.55)));
       for (let i = 0; i < count; i++) {
         const ledX = x + length * ((i + 0.5) / count - 0.5);
         addKitchenSpot(wallGrp,
           new THREE.Vector3(ledX, y - 0.018, z),
           new THREE.Vector3(ledX, y - 0.48, normalSign * 0.025),
-          { color: 0xffdfb6, intensity: 1, range: 1.6, angle: 0.94 });
+          { color: 0xffdfb6, intensity: run.intensity, range: 1.6, angle: 0.94 });
       }
     }
 
@@ -1136,6 +1148,15 @@ export function buildKitchen3DScene(
     root.add(cornerInfills);
     bounds.expandByObject(cornerInfills);
   }
+
+  const sceneMaterials = new Set<THREE.MeshStandardMaterial>();
+  root.traverse(obj => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(obj.material) ? obj.material : [obj.material]) {
+      if (material instanceof THREE.MeshStandardMaterial) sceneMaterials.add(material);
+    }
+  });
+  sceneMaterials.forEach(limitKitchenHdrIrradiance);
 
   const syncOcclusion = project.settings?.ambientOcclusion !== false
     ? bakeKitchenOcclusion(root, bounds, new Set(animatedDoors.map(part => part.group)))

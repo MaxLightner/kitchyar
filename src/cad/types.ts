@@ -140,6 +140,12 @@ export interface HandleItem {
   lengthCm: number;
 }
 
+export type CabinetLightMode = 'off' | 'linear' | 'halogen';
+export interface CabinetLighting {
+  mode: CabinetLightMode;
+  intensity: number;
+}
+
 export interface CabinetBox {
   id: string;
   name: string;
@@ -158,6 +164,7 @@ export interface CabinetBox {
   color?: string;
   texture?: CabinetTextureId;
   underCabinetLight?: boolean;
+  lighting?: CabinetLighting;
   /** Links e.g. over-fridge upper cabinet to its parent fridge box */
   linkedToBoxId?: string;
   doors: DoorUnit[];
