@@ -1,7 +1,7 @@
 name: Unified 3D AR checks
 on:
   push:
-    branches: [fix/unified-3d-ar]
+    branches: [main, fix/unified-3d-ar]
   workflow_dispatch:
 permissions:
   contents: read

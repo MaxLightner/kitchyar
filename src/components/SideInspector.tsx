@@ -3,7 +3,7 @@ import { SurfaceFinishControls, type SurfaceFinishPatch } from './SurfaceFinishC
 import { getCabinetLighting } from '../cad/cabinetLighting';
 import type { CabinetTextureId } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import type { SurfaceSelection } from './SelectionPicker';
 import {
   AppWindow,
@@ -340,11 +340,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
   const toolSettings = activeTool !== 'select' && activeTool !== 'move';
   const objectSettings = !toolSettings && !props.selectedSurface && !props.diningSelected;
   const showFridge = objectSettings && !hasSubItem && activeBox?.type === 'fridge';
-  const contextId = objectSettings && !hasSubItem && cabinetLighting && !selectedDoor && !selectedUnit
-    ? activeBox?.id
-    : objectSettings && props.selectedAppliance?.kind === 'gas' && props.selectedAppliancePart !== 'gas'
-    ? props.selectedAppliance.id : undefined;
-  // Selection updates the context badge; only the user can open the inspector.
+  // Selection updates only the context badge; inspector visibility is manual.
 
   const sharedEquipmentColor = showFridge || (objectSettings &&
     (props.selectedAppliance?.kind === 'washing' || props.selectedAppliance?.kind === 'dishwasher'));
