@@ -1,0 +1,35 @@
+name: Diagnose application startup
+on:
+  push:
+    branches: [verify/startup-20261119]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+        continue-on-error: true
+      - run: npm install --prefix /tmp/kitchyar-browser playwright@1.56.1
+      - name: Run public application
+        run: |
+          cat > /tmp/startup.cjs <<'JS'
+          const { chromium } = require('/tmp/kitchyar-browser/node_modules/playwright');
+          (async () => {
+          const browser = await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+          const page = await browser.newPage();
+          page.on('pageerror',e=>console.log('PAGEERROR',e.stack));
+          page.on('console',m=>{if(m.type()==='error')console.log('CONSOLE',m.text().slice(0,1800));});
+          page.on('requestfailed',r=>console.log('REQUESTFAILED',r.url(),r.failure()?.errorText));
+          await page.goto('https://maxlightner.github.io/kitchyar/?v=94fea91',{waitUntil:'networkidle'});
+          console.log('WELCOME',await page.locator('body').innerText());
+          await page.goto('https://maxlightner.github.io/kitchyar/?v=94fea91&autostart=1',{waitUntil:'networkidle'});
+          console.log('EDITOR', (await page.locator('body').innerText()).slice(0,5000));
+          await browser.close();
+          })().catch(e=>{console.error(e);process.exitCode=1;});
+          JS
+          node /tmp/startup.cjs
