@@ -68,7 +68,7 @@ export function ARControls({state,session,onRetry,dialogOpen=false}: {
       </div>:<div className="w-9 h-9 rounded-full border-2 border-emerald-400 flex items-center justify-center shadow-md">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"/>
       </div>}
-    </div>
+    </div>}
     {state.floorLocked&&state.calibrating&&state.selectedPin&&!dialogOpen&&<button type="button"
       data-testid="ar-confirm-pin" onClick={()=>session?.confirmPinAtAim()}
       className="pointer-events-auto absolute bottom-12 left-1/2 -translate-x-1/2 h-11 px-5 rounded-xl bg-emerald-700 text-white font-bold">
