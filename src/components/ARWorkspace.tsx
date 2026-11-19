@@ -123,6 +123,7 @@ import {
   attachSelectedHandlePreviews,
   buildHandleMesh,
   buildKitchen3DScene,
+  kitchenGeometryKey,
   BuiltKitchenScene,
   CM,
   detectSoftwareWebGL,
@@ -928,6 +929,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const occlusionRef = useRef<NearRealOcclusion | null>(null);
   const builtSceneRef = useRef<BuiltKitchenScene | null>(null);
+  const arGeometryKeyRef = useRef<string | null>(null);
+  const arViewKeyRef = useRef<string | null>(null);
   const handleSpotsRef = useRef<HandleSpotOverlaySet | null>(null);
   const sweepGhostGroupRef = useRef<THREE.Group | null>(null);
   const doorStatesRef = useRef<Map<string, { cur: number; target: number }>>(new Map());
@@ -985,7 +988,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.04, 50);
     camera.position.set(2.4, 2.2, 3.6);
     cameraRef.current = camera;
-    const reflections = createKitchenReflections(renderer, scene, camera);
+    let reflections: ReturnType<typeof createKitchenReflections> | null = null;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -1164,7 +1167,10 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       lighting.setIntensities(projectRef.current.settings);
       lighting.followCamera(camera);
       if (projectRef.current.settings?.enableReflections === false) renderer.render(scene, camera);
-      else reflections.render();
+      else {
+        if (!reflections) reflections = createKitchenReflections(renderer, scene, camera);
+        reflections.render();
+      }
       if (rafId === null && (doorsMoving || ctrlChanged)) {
         rafId = requestAnimationFrame(renderPreview);
       }
@@ -2344,7 +2350,7 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       builtSceneRef.current = null;
       disposeObject3D(diningGhost);
       if (diningGhostRef.current === diningGhost) diningGhostRef.current = null;
-      reflections.dispose();
+      reflections?.dispose();
       lighting.dispose();
       if (lightingRef.current === lighting) lightingRef.current = null;
       renderer.dispose();
@@ -2395,17 +2401,28 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const floorGroup = floorGroupRef.current;
     if (!mount || !floorGroup) return;
 
+    // A light-only change is applied directly, with no geometry, shader or AO rebuild.
+    const geometryKey = kitchenGeometryKey(project) + '|' + (arTool === 'move' ? 'move' : 'select');
+    const viewKey = JSON.stringify([alignment, pointA, pointB, pendingWallStart,
+      xrActive, floorLocked, scaleConfirmed, active, reticleEnabled]);
+    if (builtSceneRef.current && geometryKey === arGeometryKeyRef.current && viewKey === arViewKeyRef.current) {
+      builtSceneRef.current.updateLighting(project, 3);
+      renderOnceRef.current();
+      return;
+    }
+
     let built: BuiltKitchenScene;
     try {
-      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72, onTextureReady: () => renderOnceRef.current(), tool: arTool === 'move' ? 'move' : 'select' });
+      built = buildKitchen3DScene(project, { doorOpenProgress: 0, hideFloor: false, floorOpacity: 0.72,
+        deferOcclusion: true, onTextureReady: () => renderOnceRef.current(),
+        tool: arTool === 'move' ? 'move' : 'select' });
+      built.updateLighting(project, 0);
     } catch (error) {
       logDiagnostic('ar-scene-build-failed', error);
       onToast('خطای نمایش ثبت شد؛ صحنه قبلی حفظ شد');
       return;
     }
-    while (mount.children.length > 0) {
-      const child = mount.children[0]; mount.remove(child); disposeObject3D(child);
-    }
+    const oldChildren = [...mount.children];
     if (floorLocked) built.root.traverse(obj => {
       if (obj.userData.kind !== 'floor' || !(obj instanceof THREE.Mesh)) return;
       const pos = obj.geometry.getAttribute('position'), uv = obj.geometry.getAttribute('uv');
@@ -2415,6 +2432,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
       uv.needsUpdate = true;
     });
     builtSceneRef.current = built;
+    arGeometryKeyRef.current = geometryKey;
+    arViewKeyRef.current = viewKey;
 
     const validIds = new Set(built.animatedDoors.map((d) => d.doorId));
     for (const k of Array.from(doorStatesRef.current.keys())) {
@@ -2432,6 +2451,8 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     }
 
     mount.add(built.root);
+    // Commit the new scene before releasing the previous one, avoiding a blank viewport.
+    for (const old of oldChildren) { mount.remove(old); disposeObject3D(old); }
     mount.position.set(alignment.x, 0, alignment.z);
     mount.rotation.y = alignment.yaw;
     mount.scale.setScalar(alignment.scale);
@@ -2499,6 +2520,26 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     if (placementGhostRef.current && (!active || (!floorLocked && xrActive))) placementGhostRef.current.visible = false;
 
     renderOnceRef.current();
+    // Stage computational work over separate frames, after the base kitchen is visible.
+    requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        if (builtSceneRef.current !== built) return;
+        built.updateLighting(projectRef.current, 1);
+        renderOnceRef.current();
+        requestAnimationFrame(() => {
+          window.setTimeout(() => {
+            if (builtSceneRef.current !== built) return;
+            built.updateLighting(projectRef.current, 3);
+            renderOnceRef.current();
+            requestAnimationFrame(() => window.setTimeout(() => {
+              if (builtSceneRef.current !== built || projectRef.current.settings?.ambientOcclusion === false) return;
+              built.activateOcclusion?.();
+              renderOnceRef.current();
+            }, 40));
+          }, 40);
+        });
+      }, 40);
+    });
   }, [project, alignment, pointA, pointB, pendingWallStart, xrActive, floorLocked, scaleConfirmed, active, reticleEnabled]);
 
   // Show the exact handle placement + interactive candidate spot markers on 3D doors in AR.
@@ -3504,7 +3545,16 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
             const scene = sceneRef.current;
             const xrEnvironment = scene.environment;
             scene.environment = trackedWideEnvironmentRef.current;
-            try { trackedWideReflectionsRef.current?.render(); }
+            try {
+              if (projectRef.current.settings?.enableReflections === false) {
+                wideRenderer.render(scene, wideCamera);
+              } else {
+                if (!trackedWideReflectionsRef.current) {
+                  trackedWideReflectionsRef.current = createKitchenReflections(wideRenderer, scene, wideCamera);
+                }
+                trackedWideReflectionsRef.current.render();
+              }
+            }
             finally { scene.environment = xrEnvironment; }
           } catch {
             // A tablet can lose its secondary WebGL context under memory pressure.
@@ -3574,15 +3624,14 @@ export const ARWorkspace: React.FC<ARWorkspaceProps> = ({
     const camera = new THREE.PerspectiveCamera(60, 1, 0.03, 80);
     trackedWideRendererRef.current = wideRenderer;
     trackedWideCameraRef.current = camera;
-    const wideReflections = createKitchenReflections(wideRenderer, sceneRef.current!, camera);
-    trackedWideReflectionsRef.current = wideReflections;
+    // Initialize SSR on demand only after the wide camera has rendered its first frame.
     return () => {
       if (trackedWideRendererRef.current === wideRenderer) {
         trackedWideRendererRef.current = null;
         trackedWideCameraRef.current = null;
       }
+      trackedWideReflectionsRef.current?.dispose();
       trackedWideReflectionsRef.current = null;
-      wideReflections.dispose();
       trackedWideEnvironmentRef.current = null;
       disposeEnvironment();
       wideRenderer.dispose();
