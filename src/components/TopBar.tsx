@@ -6,6 +6,7 @@ import {
   AlignRight,
   ArrowLeft,
   Box,
+  Bug,
   Camera,
   Columns3,
   Download,
@@ -58,6 +59,7 @@ interface TopBarProps {
   arViewActive?: boolean;
   onToggleFloorScan?: () => void;
   onOpenSettings: () => void;
+  onAuditKitchen?: () => void;
   onExportProject?: () => void;
   onImportProject?: (jsonText: string) => void;
   onEqualizeVertical?: () => void;
@@ -108,6 +110,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   arViewActive = false,
   onToggleFloorScan,
   onOpenSettings,
+  onAuditKitchen,
   onExportProject,
   onImportProject,
   onEqualizeVertical,
@@ -190,6 +193,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           </div>
 
           <button type="button" onClick={downloadDiagnostics} title="دریافت گزارش خطا" aria-label="دریافت گزارش خطا" className={iconBtn}><Download className="w-4 h-4" /></button>
+          {onAuditKitchen && (
+            <button type="button" data-testid="kitchen-audit-button" onClick={onAuditKitchen}
+              aria-label="بررسی خطاهای کابینت" title="بررسی خودکار هم‌پوشانی، فاصله، درب و دستگیره"
+              className={iconBtn}><Bug className="w-4 h-4"/></button>
+          )}
           {/* تاریخچه تغییرات */}
           <div className="flex items-center gap-1 shrink-0">
             <button

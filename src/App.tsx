@@ -1,4 +1,5 @@
 import { getCabinetLighting, getKitchenCabinetLightMode } from './cad/cabinetLighting';
+import { auditKitchen } from './cad/kitchenAudit';
 import type { CabinetLighting } from './cad/types';
 import { SelectionPicker, type OfferSelection, type PickCandidate, type SurfaceSelection } from './components/SelectionPicker';
 import { applyFrontCut, findFrontCut } from './cad/frontCut';
@@ -322,6 +323,7 @@ export default function App() {
     return 'welcome';
   });
   const [styleGalleryOpen, setStyleGalleryOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   const [cameraToolbarHost, setCameraToolbarHost] = useState<HTMLDivElement | null>(null);
   const [toolGuideHost, setToolGuideHost] = useState<HTMLDivElement | null>(null);
   const [measurement, setMeasurement] = useState<{
@@ -332,6 +334,7 @@ export default function App() {
   } | null>(null);
 
   const { project, setProject, history, historyIdx, commitState, resetHistory, travelHistory, getProject } = useProjectHistory(initialProject);
+  const auditIssues = useMemo(() => auditKitchen(project), [project]);
   const [storageFailure, setStorageFailure] = useState(getStorageFailure);
   useEffect(() => {
     const update = () => setStorageFailure(getStorageFailure());
@@ -3049,7 +3052,7 @@ export default function App() {
     );
   }
 
-  const dialogOpen = Boolean(measurement || confirmModal || hiddenHandleWarnModal || stylePromptModal?.open || settingsOpen || styleGalleryOpen);
+  const dialogOpen = Boolean(measurement || confirmModal || hiddenHandleWarnModal || stylePromptModal?.open || settingsOpen || styleGalleryOpen || auditOpen);
   const setBoxAppearance = (patch: { color?: string; texture?: CabinetTextureId } & SurfaceFinishPatch) => {
     if (!activeBox || activeBox.type === 'fridge') return;
     mutateActiveWall(w => {
@@ -3159,6 +3162,7 @@ export default function App() {
           beginTrackedFloorScan();
         }}
         onOpenSettings={() => setSettingsOpen(true)}
+        onAuditKitchen={() => setAuditOpen(true)}
         onExportProject={handleExportProject}
         onImportProject={handleImportProject}
         onEqualizeVertical={handleEqualizeVertical}
@@ -4084,6 +4088,38 @@ export default function App() {
           lightsOn={lightsOn}
           onToggleUnderLight={toggleUnderCabinetLight}
         />
+      )}
+
+      {auditOpen && (
+        <div role="dialog" aria-modal="true" aria-label="بررسی سلامت کابینت‌ها"
+          className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-3" dir="rtl">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[85dvh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between gap-3 p-4 border-b border-slate-200">
+              <div>
+                <h2 className="font-extrabold text-lg">گزارش بررسی آشپزخانه</h2>
+                <p className="text-sm text-slate-500">{auditIssues.length} مورد قابل بررسی — بدون اصلاح خودکار</p>
+              </div>
+              <button type="button" data-testid="audit-close" onClick={()=>setAuditOpen(false)}
+                className="border border-slate-300 rounded-lg px-3 h-9 font-bold">بستن</button>
+            </div>
+            <div className="overflow-y-auto p-3 space-y-2">
+              {!auditIssues.length && <p className="p-4 text-emerald-700 font-bold">در بررسی هندسه، درب‌ها و دستگیره‌ها مشکل مشخصی پیدا نشد.</p>}
+              {auditIssues.slice(0,100).map((issue,index)=> (
+                <button key={index} type="button" onClick={()=>{
+                  setAuditOpen(false);
+                  setProject(prev=>({...prev,activeWallId:issue.wallId,activeBoxId:issue.boxId??prev.activeBoxId}));
+                  setViewMode('3d');
+                }} className="w-full text-right p-3 rounded-lg border border-slate-200 hover:bg-slate-50">
+                  <span className={`font-extrabold text-xs ${issue.severity==='error'?'text-red-700':'text-amber-700'}`}>
+                    {issue.severity==='error'?'اشکال':'نیازمند بررسی'}
+                  </span>
+                  <p className="mt-1 text-sm text-slate-700">{issue.message}</p>
+                  <span className="text-[11px] text-slate-400">برای دیدن محل کلیک کنید</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {overlap && tool === 'select' && !dialogOpen && (
