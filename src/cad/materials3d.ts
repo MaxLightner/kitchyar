@@ -647,10 +647,17 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
           vec2 borderSlope = 0.21 * (1.0 - smoothstep(vec2(0.0), vec2(0.005), borderDistance));
           vec2 broadSlope = 0.15 * (vCabinetDoorUv * 2.0 - vec2(1.0));
           vec2 slope = broadSlope + sign(vCabinetDoorUv - vec2(0.5)) * borderSlope;
-          normal = normalize(normal + slope.x * vCabinetDoorAxisX + slope.y * vCabinetDoorAxisY);
+          vec3 slopeView = slope.x * vCabinetDoorAxisX + slope.y * vCabinetDoorAxisY;
+          // MeshPhysicalMaterial has TWO specular normals: the base normal
+          // and a separate CLEARCOAT normal. Before this fix the clearcoat
+          // reflection stayed flat and hid the 5mm/broad normal modulation.
+          normal = normalize(normal + slopeView);
+          #ifdef USE_CLEARCOAT
+          clearcoatNormal = normalize(clearcoatNormal + slopeView);
+          #endif
         }`);
     };
-    mat.customProgramCacheKey = () => 'door-fragment-normal-5mm-v1';
+    mat.customProgramCacheKey = () => 'door-fragment-normal-5mm-clearcoat-v2';
     mat.userData.sceneReflection = true;
     doorCache.set(key, mat);
     return mat;

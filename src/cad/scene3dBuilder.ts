@@ -2474,6 +2474,19 @@ function buildDoor3D(ctx: {
     doorId: door.id,
   };
 
+  // Flat door geometry is UNCHANGED. The sole extra vertex attribute tells
+  // the fragment shader the physical dimensions, so the specular edge response
+  // is 5mm on every panel; CNC bars and wooden lattice bars need it too.
+  const addDoorNormalDimensions = (geometry: THREE.BoxGeometry, pw: number, ph: number) => {
+    const attr = new Float32Array(geometry.getAttribute('position').count * 2);
+    for (let i = 0; i < attr.length; i += 2) {
+      attr[i] = pw;
+      attr[i + 1] = ph;
+    }
+    geometry.setAttribute('cabinetDoorSize', new THREE.BufferAttribute(attr, 2));
+    return geometry;
+  };
+
   const makePanelMesh = (pw: number, ph: number, cx: number, cy: number, targetParent: THREE.Group, row = 0) => {
     const profile = box.handles.find(h => h.doorId === door.id && (h.rowIndex ?? 0) === row && h.style === 'f-profile');
     if (profile) {
@@ -2500,7 +2513,7 @@ function buildDoor3D(ctx: {
       if (woodGrid) {
         // Physical glazing bars in the selected cabinet's wood/paint finish.
         const addBar = (w: number, h: number, x: number, y: number) => {
-          const bar = new THREE.Mesh(new THREE.BoxGeometry(w, h, doorThick), doorMat);
+          const bar = new THREE.Mesh(addDoorNormalDimensions(new THREE.BoxGeometry(w, h, doorThick), w, h), doorMat);
           bar.position.set(cx + x, cy + y, 0);
           bar.castShadow = true;
           bar.userData = doorHit;
@@ -2521,13 +2534,13 @@ function buildDoor3D(ctx: {
       const st = Math.min(0.055, pw * 0.16, ph / 4);
       const back = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, doorThick * 0.72), doorCncInnerMat);
       back.position.set(cx, cy, -normalSign * 0.002);
-      const topR = new THREE.Mesh(new THREE.BoxGeometry(pw, st, doorThick), doorBoxMats);
+      const topR = new THREE.Mesh(addDoorNormalDimensions(new THREE.BoxGeometry(pw, st, doorThick), pw, st), doorBoxMats);
       topR.position.set(cx, cy + ph / 2 - st / 2, 0);
-      const botR = new THREE.Mesh(new THREE.BoxGeometry(pw, st, doorThick), doorBoxMats);
+      const botR = new THREE.Mesh(addDoorNormalDimensions(new THREE.BoxGeometry(pw, st, doorThick), pw, st), doorBoxMats);
       botR.position.set(cx, cy - ph / 2 + st / 2, 0);
-      const lR = new THREE.Mesh(new THREE.BoxGeometry(st, ph - st * 2, doorThick), doorBoxMats);
+      const lR = new THREE.Mesh(addDoorNormalDimensions(new THREE.BoxGeometry(st, ph - st * 2, doorThick), st, ph - st * 2), doorBoxMats);
       lR.position.set(cx - pw / 2 + st / 2, cy, 0);
-      const rR = new THREE.Mesh(new THREE.BoxGeometry(st, ph - st * 2, doorThick), doorBoxMats);
+      const rR = new THREE.Mesh(addDoorNormalDimensions(new THREE.BoxGeometry(st, ph - st * 2, doorThick), st, ph - st * 2), doorBoxMats);
       rR.position.set(cx + pw / 2 - st / 2, cy, 0);
       targetParent.add(back, topR, botR, lR, rR);
       for (const m of [back, topR, botR, lR, rR]) {
@@ -2540,11 +2553,7 @@ function buildDoor3D(ctx: {
       const panelGeometry = new THREE.BoxGeometry(pw, ph, doorThick);
       // Only adds metadata for the shading program; no changed geometry,
       // positions, bevel or silhouette. Works at any door dimensions.
-      const normalSize = new Float32Array(panelGeometry.getAttribute('position').count * 2);
-      for (let i = 0; i < normalSize.length; i += 2) {
-        normalSize[i] = pw; normalSize[i + 1] = ph;
-      }
-      panelGeometry.setAttribute('cabinetDoorSize', new THREE.BufferAttribute(normalSize, 2));
+      addDoorNormalDimensions(panelGeometry, pw, ph);
       const panel = new THREE.Mesh(panelGeometry, doorBoxMats);
       panel.position.set(cx, cy, 0);
       panel.castShadow = true;
