@@ -3222,9 +3222,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     schedule(() => {
       if (!isCurrent()) return;
       let built: BuiltKitchenScene;
+      const replacingExistingScene = Boolean(builtRef.current);
       try {
         built = buildKitchen3DScene(project, {
-          doorOpenProgress: 0, tool, deferOcclusion: true, deferEquipment: true,
+          doorOpenProgress: 0, tool, deferOcclusion: true,
+          // Lightweight source models do not need to be queued on edits.
+          // Queue only the initial kitchen launch; replacements render in one pass.
+          deferEquipment: !replacingExistingScene,
           onTextureReady: () => requestRenderRef.current(),
         });
       } catch (error) {
@@ -3301,18 +3305,24 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       // The first launch can progressively paint equipment to get the room
       // onscreen quickly. All later rebuilds keep the complete OLD room visible
       // until EVERY model in the new room is ready, then swap once atomically.
-      if (!hadPrevious) commitReadyScene();
-      drainDeferredSceneJobs(
-        built.deferredEquipmentJobs ?? [],
-        schedule,
-        () => isCurrent() && (hadPrevious ? pending === built : builtRef.current === built),
-        () => {
-          if (hadPrevious) commitReadyScene();
-          activateReadyOcclusion();
-        },
-        (error) => logDiagnostic('equipment-build-failed', error),
-        () => { if (!hadPrevious) requestRenderRef.current(); },
-      );
+      if (hadPrevious && !built.deferredEquipmentJobs?.length) {
+        // Single-frame replacement with complete equipment. No staged blink.
+        commitReadyScene();
+        activateReadyOcclusion();
+      } else {
+        if (!hadPrevious) commitReadyScene();
+        drainDeferredSceneJobs(
+          built.deferredEquipmentJobs ?? [],
+          schedule,
+          () => isCurrent() && (hadPrevious ? pending === built : builtRef.current === built),
+          () => {
+            if (hadPrevious) commitReadyScene();
+            activateReadyOcclusion();
+          },
+          (error) => logDiagnostic('equipment-build-failed', error),
+          () => { if (!hadPrevious) requestRenderRef.current(); },
+        );
+      }
     }, 0);
 
     return () => {
