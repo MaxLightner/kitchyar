@@ -136,7 +136,7 @@ export function makeSink(model?: SinkModelId | string, mats = applianceMaterials
  * Tone only metallic meshes belonging to one generated appliance instance.
  * Do not mutate the shared material library or touch glass/induction surfaces.
  */
-export function toneApplianceMetal(root: THREE.Object3D, finish: ApplianceFinish): void {
+export function toneApplianceMetal(root: THREE.Object3D, finish: ApplianceFinish, includeNonMetal = false): void {
   const target = new THREE.Color(
     finish === 'black' ? 0x171b21 : finish === 'white' ? 0xdce0e3 : 0x969da6,
   );
@@ -152,7 +152,7 @@ export function toneApplianceMetal(root: THREE.Object3D, finish: ApplianceFinish
     if (!(material instanceof THREE.MeshStandardMaterial) ||
         protectedGlass.has(material) ||
         material.transparent || material.opacity < 0.96 ||
-        material.metalness < 0.25 || /glass|screen|display/i.test(material.name)) return material;
+        (!includeNonMetal && material.metalness < 0.25) || /glass|screen|display/i.test(material.name)) return material;
     const previous = copies.get(material);
     if (previous) return previous;
     const copy = material.clone();
