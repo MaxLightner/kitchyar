@@ -672,6 +672,28 @@ export function attachHandleCandidateSpots(
   return { overlays, spotInteractables, setHoveredSpot, dispose };
 }
 
+function applianceAppearanceKey(item: ApplianceItem, equipmentFinish: string): string {
+  return JSON.stringify([
+    item.sinkModel, item.sinkFinish, item.cooktopModel, item.hoodModel,
+    item.hoodFinish, item.hoodKind, item.finish, equipmentFinish,
+  ]);
+}
+
+/** Dispose per-model geometry without destroying room-wide material instances. */
+function disposeReplacedEquipment(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  root.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    geometries.add(node.geometry);
+    for (const mat of Array.isArray(node.material) ? node.material : [node.material]) {
+      if (mat.userData.applianceInstanceMaterial) materials.add(mat);
+    }
+  });
+  geometries.forEach(geo => geo.dispose());
+  materials.forEach(mat => mat.dispose());
+}
+
 export function buildKitchen3DScene(
   project: ProjectState,
   opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number; tool?: ToolId; onTextureReady?: () => void; deferOcclusion?: boolean; deferEquipment?: boolean } = {}
@@ -1090,7 +1112,13 @@ export function buildKitchen3DScene(
         box.id === project.activeBoxId ||
         Boolean(project.multiSelection?.boxIds.includes(box.id));
 
-      const boxGrp = buildBox3D({
+      const boxMats = {
+        matCarcass, matCabinetBack, matEquipment, matPlinth, matCountertop,
+        matDoorRevealDark, matDoorModern, matGlass, matFrostedGlass,
+        matFrame, matDivider, matShelf, matSteel, matDarkChrome,
+        matHiddenTrim, matHandleGizmo, matDrawerGizmo, matSeamGizmo,
+      };
+      let boxGrp = buildBox3D({
         wall,
         box,
         normalSign,
@@ -1104,67 +1132,85 @@ export function buildKitchen3DScene(
         interactables,
         matPack,
         deferEquipment: opts.deferEquipment ? job => deferredEquipmentJobs.push(job) : undefined,
-        mats: {
-          matCarcass,
-          matCabinetBack,
-          matEquipment,
-          matPlinth,
-          matCountertop,
-          matDoorRevealDark,
-          matDoorModern,
-          matGlass,
-          matFrostedGlass,
-          matFrame,
-          matDivider,
-          matShelf,
-          matSteel,
-          matDarkChrome,
-          matHiddenTrim,
-          matHandleGizmo,
-          matDrawerGizmo,
-          matSeamGizmo,
-        },
+        mats: boxMats,
       });
       wallGrp.add(boxGrp);
+      if (box.type === 'fridge') {
+        fridgeViews.set(wall.id + '/' + box.id, {
+          model: box.fridgeModel,
+          refresh(nextWall, nextBox, nextProject) {
+            // The room geometry key confirms that the fridge cabinet's size
+            // and its surrounding frame have not changed.
+            const oldGroup = boxGrp;
+            const oldNodes = new Set<THREE.Object3D>();
+            oldGroup.traverse(node => oldNodes.add(node));
+            for (let i = interactables.length - 1; i >= 0; i--) {
+              if (oldNodes.has(interactables[i])) interactables.splice(i, 1);
+            }
+            boxGrp = buildBox3D({
+              wall: nextWall, box: nextBox, normalSign, doorsHidden,
+              doorOpenProgress, isBoxSel, tool: opts.tool, project: nextProject,
+              blockedZones, animatedDoors, interactables, matPack,
+              mats: boxMats, // Build only this source model immediately
+            });
+            wallGrp.add(boxGrp);
+            wallGrp.remove(oldGroup);
+            disposeReplacedEquipment(oldGroup);
+          },
+        });
+      }
     }
 
     // Continuous counter / top slab segments? Each base box carries its countertop mesh flush to neighbors,
     // now render all Appliances (Sink + Faucet, Gas + Hood, Dishwasher, Washing Machine)
     for (const app of wall.appliances) {
-      const isAppSelected = app.id === project.selectedApplianceId;
       const appHolder = new THREE.Group();
       wallGrp.add(appHolder);
-      const installAppliance = () => {
-        const appGrp = buildAppliance3D(
-        wall,
-        app,
-        normalSign,
-        isAppSelected,
-        isAppSelected ? (project.selectedApplianceSubPart ?? null) : null,
-        project.settings?.equipmentFinish ?? 'silver',
-        matsForApps({
-          matSteel,
-          matDarkChrome,
-          matGlassCooktop,
-          matCarcass,
-          matDoorModern: matPorcelain,
-          matEquipment,
-          matGlass,
-        }),
-        cooktopControls
-      );
-        const appHitData = { kind: 'appliance', wallId: wall.id, appId: app.id } as Scene3DHitData;
-        appGrp.userData = appHitData;
-        appGrp.traverse((ch) => {
-        if ((ch as THREE.Mesh).isMesh) {
-          const existingSubPart = (ch.userData as Scene3DHitData | undefined)?.subPart;
-          ch.userData = existingSubPart ? { ...appHitData, subPart: existingSubPart } : appHitData;
-          interactables.push(ch);
+      const installAppliance = (
+        nextWall: Wall = wall,
+        nextApp: ApplianceItem = app,
+        nextProject: ProjectState = project,
+      ) => {
+        const oldGroups = [...appHolder.children];
+        const oldNodes = new Set<THREE.Object3D>();
+        for (const old of oldGroups) old.traverse(node => oldNodes.add(node));
+        for (let i = interactables.length - 1; i >= 0; i--) {
+          if (oldNodes.has(interactables[i])) interactables.splice(i, 1);
         }
-      });
+        for (let i = cooktopControls.length - 1; i >= 0; i--) {
+          if (cooktopControls[i].id === nextApp.id) cooktopControls.splice(i, 1);
+        }
+        const selected = nextApp.id === nextProject.selectedApplianceId;
+        const appGrp = buildAppliance3D(
+          nextWall, nextApp, normalSign, selected,
+          selected ? (nextProject.selectedApplianceSubPart ?? null) : null,
+          nextProject.settings?.equipmentFinish ?? 'silver',
+          matsForApps({
+            matSteel, matDarkChrome, matGlassCooktop, matCarcass,
+            matDoorModern: matPorcelain, matEquipment, matGlass,
+          }),
+          cooktopControls,
+        );
+        const appHitData = { kind: 'appliance', wallId: nextWall.id, appId: nextApp.id } as Scene3DHitData;
+        appGrp.userData = appHitData;
+        appGrp.traverse(ch => {
+          if (!(ch instanceof THREE.Mesh)) return;
+          const subPart = (ch.userData as Scene3DHitData | undefined)?.subPart;
+          ch.userData = subPart ? { ...appHitData, subPart } : appHitData;
+          interactables.push(ch);
+        });
         appHolder.add(appGrp);
+        for (const old of oldGroups) {
+          appHolder.remove(old);
+          disposeReplacedEquipment(old);
+        }
+        registerOvenParts(appGrp);
       };
-      if (opts.deferEquipment) deferredEquipmentJobs.push(installAppliance);
+      applianceViews.set(wall.id + '/' + app.id, {
+        signature: applianceAppearanceKey(app, project.settings?.equipmentFinish ?? 'silver'),
+        refresh: installAppliance,
+      });
+      if (opts.deferEquipment) deferredEquipmentJobs.push(() => installAppliance());
       else installAppliance();
     }
 
@@ -1235,15 +1281,18 @@ export function buildKitchen3DScene(
 
   // Cache direct references so changing a light never reconstructs cabinets or geometry.
   const ovenParts = new Map<string, { light?: THREE.PointLight; cavity?: THREE.MeshStandardMaterial; glass?: THREE.MeshPhysicalMaterial }>();
-  root.traverse(node => {
-    const id = node.userData.ovenControlId as string | undefined;
-    if (!id) return;
-    const part = ovenParts.get(id) ?? {};
-    if (node.userData.ovenControlPart === 'light' && node instanceof THREE.PointLight) part.light = node;
-    if (node.userData.ovenControlPart === 'cavity' && node instanceof THREE.Mesh) part.cavity = node.material as THREE.MeshStandardMaterial;
-    if (node.userData.ovenControlPart === 'glass' && node instanceof THREE.Mesh) part.glass = node.material as THREE.MeshPhysicalMaterial;
-    ovenParts.set(id, part);
-  });
+  registerOvenParts = group => {
+    group.traverse(node => {
+      const id = node.userData.ovenControlId as string | undefined;
+      if (!id) return;
+      const part = ovenParts.get(id) ?? {};
+      if (node.userData.ovenControlPart === 'light' && node instanceof THREE.PointLight) part.light = node;
+      if (node.userData.ovenControlPart === 'cavity' && node instanceof THREE.Mesh) part.cavity = node.material as THREE.MeshStandardMaterial;
+      if (node.userData.ovenControlPart === 'glass' && node instanceof THREE.Mesh) part.glass = node.material as THREE.MeshPhysicalMaterial;
+      ovenParts.set(id, part);
+    });
+  };
+  registerOvenParts(root);
   const updateLighting = (next: ProjectState, stage = 3) => {
     const settings = next.settings;
     const boxLights = new Map(next.walls.flatMap(wall => wall.boxes.map(box => [box.id, getCabinetLighting(box)] as const)));
@@ -1298,8 +1347,35 @@ export function buildKitchen3DScene(
   };
   updateLighting(project, opts.deferOcclusion ? 0 : 3);
   if (!opts.deferOcclusion) activateOcclusion();
+
+  const updateEquipment = (next: ProjectState): boolean => {
+    let changed = false;
+    for (const nextWall of next.walls) {
+      for (const item of nextWall.appliances) {
+        const view = applianceViews.get(nextWall.id + '/' + item.id);
+        if (!view) continue;
+        const signature = applianceAppearanceKey(item, next.settings?.equipmentFinish ?? 'silver');
+        if (view.signature !== signature) {
+          view.refresh(nextWall, item, next);
+          view.signature = signature;
+          changed = true;
+        }
+      }
+      for (const box of nextWall.boxes) {
+        if (box.type !== 'fridge') continue;
+        const view = fridgeViews.get(nextWall.id + '/' + box.id);
+        if (view && view.model !== box.fridgeModel) {
+          view.refresh(nextWall, box, next);
+          view.model = box.fridgeModel;
+          changed = true;
+        }
+      }
+    }
+    if (changed) updateLighting(next, 4);
+    return changed;
+  };
   return { root, interactables, animatedDoors, wallTransforms, bounds,
-    deferredEquipmentJobs,
+    deferredEquipmentJobs, updateEquipment,
     syncOcclusion: () => syncAo?.(), activateOcclusion, updateLighting };
 }
 
