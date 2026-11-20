@@ -2358,7 +2358,7 @@ export function placeApplianceWithCabinetRules(
   let maxX = targetBox.offsetX + targetBox.width - width;
   let cornerSide: 'left' | 'right' | undefined;
 
-  if (kind === 'sink' && sinkModel === 'corner-sink') {
+  if (kind === 'sink' && (sinkModel === 'corner-sink' || sinkModel?.startsWith('sink-corner-'))) {
     const junctions = detectCornerJunctions(allWalls, cornerOwners);
     const validCornerEnds: Array<'start' | 'end'> = [];
 

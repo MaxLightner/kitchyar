@@ -1,4 +1,4 @@
-import type { CooktopModelId, FridgeModelId, HoodModelId } from '../hoods/catalog';
+import type { CooktopModelId, FridgeModelId, HoodModelId, SinkModelId } from '../hoods/catalog';
 
 export type BoxKind = 'base' | 'wall' | 'wall-deep' | 'tall' | 'fridge' | 'closet';
 
@@ -56,7 +56,7 @@ export type ApplianceKind = 'sink' | 'gas' | 'dishwasher' | 'washing' | 'builtin
 export type HoodModel = HoodModelId | 'chimney' | 'angled' | 'box' | 'cylinder';
 export type CooktopModel = CooktopModelId;
 export type WashingCapacityKg = 6 | 8 | 9;
-export type SinkModel =
+export type SinkModel = SinkModelId
   | 'steel-1'
   | 'steel-2'
   | 'steel-tray-right'

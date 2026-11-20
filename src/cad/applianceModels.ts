@@ -1,4 +1,18 @@
 import * as THREE from 'three';
+import { buildSinkDoubleFlatChrome } from '../three/models/sinks/buildSinkDoubleFlatChrome';
+import { buildSinkSingleGraniteBlack } from '../three/models/sinks/buildSinkSingleGraniteBlack';
+import { buildSinkDoubleRibbedSteel } from '../three/models/sinks/buildSinkDoubleRibbedSteel';
+import { buildSinkSingleDeepSteel } from '../three/models/sinks/buildSinkSingleDeepSteel';
+import { buildSinkWorkstationDualTap } from '../three/models/sinks/buildSinkWorkstationDualTap';
+import { buildSinkWorkstationGunmetal } from '../three/models/sinks/buildSinkWorkstationGunmetal';
+import { buildSinkSingleFanSteel } from '../three/models/sinks/buildSinkSingleFanSteel';
+import { buildSinkDoubleGridSteel } from '../three/models/sinks/buildSinkDoubleGridSteel';
+import { buildSinkCornerVSteel } from '../three/models/sinks/buildSinkCornerVSteel';
+import { buildSinkCornerLSteel } from '../three/models/sinks/buildSinkCornerLSteel';
+import { buildSinkCornerGraniteBrown } from '../three/models/sinks/buildSinkCornerGraniteBrown';
+import { buildWashingMachine } from '../three/models/laundry/buildWashingMachine';
+import { buildDishwasher } from '../three/models/laundry/buildDishwasher';
+import type { ApplianceFinish } from '../three/models/laundry/buildWashingMachine';
 import { createHoodMaterialLibrary, type HoodMaterialLibrary } from '../three/materials';
 import { buildCurvedBlackHood } from '../three/models/buildCurvedBlackHood';
 import { buildCurvedSteelHood } from '../three/models/buildCurvedSteelHood';
@@ -19,7 +33,7 @@ import { buildHobSteel3 } from '../three/models/cooktops/buildHobSteel3';
 import { buildHobDomino2 } from '../three/models/cooktops/buildHobDomino2';
 import { buildHobCeramic4 } from '../three/models/cooktops/buildHobCeramic4';
 import { buildHobInduction4 } from '../three/models/cooktops/buildHobInduction4';
-import type { CooktopModelId, FridgeModelId, HoodModelId } from '../hoods/catalog';
+import type { CooktopModelId, FridgeModelId, HoodModelId, SinkModelId } from '../hoods/catalog';
 import type { FridgeModel, HoodModel } from './types';
 import type { LitApplianceResult } from '../three/cooktopHelpers';
 
@@ -89,6 +103,28 @@ export function makeCooktop(model: CooktopModelId | undefined, mats = applianceM
     default: return buildHobGlass5(mats);
   }
 }
+export function makeSink(model?: SinkModelId | string, mats = applianceMaterials()): THREE.Group {
+  switch (model) {
+    case 'sink-double-flat-chrome': return buildSinkDoubleFlatChrome(mats);
+    case 'sink-single-granite-black': return buildSinkSingleGraniteBlack(mats);
+    case 'sink-double-ribbed-steel': return buildSinkDoubleRibbedSteel(mats);
+    case 'sink-single-deep-steel': return buildSinkSingleDeepSteel(mats);
+    case 'sink-workstation-dual-tap': return buildSinkWorkstationDualTap(mats);
+    case 'sink-workstation-gunmetal': return buildSinkWorkstationGunmetal(mats);
+    case 'sink-single-fan-steel': return buildSinkSingleFanSteel(mats);
+    case 'sink-double-grid-steel': return buildSinkDoubleGridSteel(mats);
+    case 'sink-corner-v-steel': return buildSinkCornerVSteel(mats);
+    case 'sink-corner-l-steel': return buildSinkCornerLSteel(mats);
+    case 'sink-corner-granite-brown': return buildSinkCornerGraniteBrown(mats);
+    default: return buildSinkDoubleFlatChrome(mats);
+  }
+}
+export function makeWashingMachine(finish: ApplianceFinish = 'silver'): THREE.Group {
+  return buildWashingMachine(applianceMaterials(), finish).group;
+}
+export function makeDishwasher(finish: ApplianceFinish = 'silver'): THREE.Group {
+  return buildDishwasher(applianceMaterials(), finish).group;
+}
 /** Fit original CAD units to a physical width/height/depth, preserving the
  * source model's geometry/materials and orienting the front toward the room.
  * The resulting group origin is the center at floor/front depending on align. */
@@ -98,18 +134,19 @@ export function fitAppliance(
 ): THREE.Group {
   model.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(model);
-  const dimensions = bounds.getSize(new THREE.Vector3());
+  const dims = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
-  // A flat front and original mesh positions, no "replacement" primitives.
-  model.position.set(-center.x,
-    align === 'floor' ? -bounds.min.y : -center.y,
-    -bounds.max.z);
+  const xScale = size.w / Math.max(0.01, dims.x);
+  const yScale = size.h / Math.max(0.01, dims.y);
+  const zScale = size.d / Math.max(0.01, dims.z);
+  // Never distort the user's original models! One uniform scale preserves
+  // proportions of handles, burner circles and refrigerator details.
+  const scale = Math.min(xScale, yScale, zScale);
+  model.position.set(-center.x, align === 'floor' ? -bounds.min.y : -center.y, -center.z);
   const holder = new THREE.Group();
   holder.add(model);
-  holder.scale.set(
-    size.w / Math.max(0.01, dimensions.x),
-    size.h / Math.max(0.01, dimensions.y),
-    size.d / Math.max(0.01, dimensions.z));
-  if (frontFacing < 0) holder.rotation.y = Math.PI;
+  // Reflect along Z rather than rotating 180° around Y: the right-hand side
+  // of a refrigerator must stay on the user's chosen right side.
+  holder.scale.set(scale, scale, frontFacing >= 0 ? scale : -scale);
   return holder;
 }

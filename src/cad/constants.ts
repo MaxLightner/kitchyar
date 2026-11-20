@@ -395,6 +395,17 @@ export interface SinkModelConfig {
 }
 
 export const SINK_MODELS: Record<SinkModel, SinkModelConfig> = {
+  'sink-double-flat-chrome': { id: 'sink-double-flat-chrome', label: 'دولگن استیل با سینی صاف', shortLabel: 'دولگن استیل با سینی صاف', width: 110, depth: 56 },
+  'sink-single-granite-black': { id: 'sink-single-granite-black', label: 'تک‌لگن گرانیتی مشکی', shortLabel: 'تک‌لگن گرانیتی مشکی', width: 80, depth: 56 },
+  'sink-double-ribbed-steel': { id: 'sink-double-ribbed-steel', label: 'دولگن استیل آجدار', shortLabel: 'دولگن استیل آجدار', width: 110, depth: 56 },
+  'sink-single-deep-steel': { id: 'sink-single-deep-steel', label: 'تک‌لگن استیل عمیق', shortLabel: 'تک‌لگن استیل عمیق', width: 75, depth: 56 },
+  'sink-workstation-dual-tap': { id: 'sink-workstation-dual-tap', label: 'ورک‌استیشن دوشیر', shortLabel: 'ورک‌استیشن دوشیر', width: 105, depth: 56 },
+  'sink-workstation-gunmetal': { id: 'sink-workstation-gunmetal', label: 'ورک‌استیشن گان‌متال', shortLabel: 'ورک‌استیشن گان‌متال', width: 105, depth: 56 },
+  'sink-single-fan-steel': { id: 'sink-single-fan-steel', label: 'تک‌لگن سینی بادبزنی', shortLabel: 'تک‌لگن سینی بادبزنی', width: 95, depth: 58 },
+  'sink-double-grid-steel': { id: 'sink-double-grid-steel', label: 'دولگن استیل مشبک', shortLabel: 'دولگن استیل مشبک', width: 110, depth: 56 },
+  'sink-corner-v-steel': { id: 'sink-corner-v-steel', label: 'کنج V استیل دولگن', shortLabel: 'کنج V استیل دولگن', width: 100, depth: 60 },
+  'sink-corner-l-steel': { id: 'sink-corner-l-steel', label: 'کنج L استیل', shortLabel: 'کنج L استیل', width: 100, depth: 60 },
+  'sink-corner-granite-brown': { id: 'sink-corner-granite-brown', label: 'کنج گرانیتی قهوه‌ای', shortLabel: 'کنج گرانیتی قهوه‌ای', width: 100, depth: 60 },
   'steel-1': {
     id: 'steel-1',
     label: 'استیل تک‌لگن (۶۰cm)',
@@ -440,12 +451,17 @@ export const SINK_MODELS: Record<SinkModel, SinkModelConfig> = {
 };
 
 export const SINK_MODEL_ORDER: SinkModel[] = [
-  'steel-2',
-  'steel-1',
-  'steel-tray-right',
-  'steel-tray-left',
-  'ceramic-apron',
-  'corner-sink',
+  'sink-double-flat-chrome',
+  'sink-single-granite-black',
+  'sink-double-ribbed-steel',
+  'sink-single-deep-steel',
+  'sink-workstation-dual-tap',
+  'sink-workstation-gunmetal',
+  'sink-single-fan-steel',
+  'sink-double-grid-steel',
+  'sink-corner-v-steel',
+  'sink-corner-l-steel',
+  'sink-corner-granite-brown',
 ];
 
 export const GAS_WIDTH_OPTIONS = [30, 35, 60, 75, 80, 90] as const;
