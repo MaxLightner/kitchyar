@@ -3202,7 +3202,8 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       let built: BuiltKitchenScene;
       try {
         built = buildKitchen3DScene(project, { doorOpenProgress: 0, tool,
-          deferOcclusion: true, onTextureReady: () => requestRenderRef.current() });
+          deferOcclusion: true, deferEquipment: true,
+          onTextureReady: () => requestRenderRef.current() });
       } catch (error) {
         logDiagnostic('scene-build-failed', error);
         props.onToast('خطای نمایش ثبت شد؛ صحن قبلی حفظ شد');
@@ -3246,6 +3247,27 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         updateGhostAndHoverRef.current(hover.x, hover.y);
       }
     }
+
+      // 3D cabinet scene can paint immediately. Actual equipment meshes are
+      // constructed one at a time AFTER that first frame, never all at startup.
+      // This also defers the one-off ~30 CanvasTexture appliance material
+      // allocations until the geometry and controls are visible.
+      const scheduleNextEquipment = () => {
+        if (builtRef.current !== built || sceneRef.current !== scene ||
+            !built.deferredEquipmentJobs?.length) return;
+        const timer = window.setTimeout(() => {
+          if (builtRef.current !== built || sceneRef.current !== scene) return;
+          const job = built.deferredEquipmentJobs?.shift();
+          if (!job) return;
+          try { job(); } catch (error) { logDiagnostic('equipment-build-failed', error); }
+          requestRenderRef.current();
+          scheduleNextEquipment();
+        }, 40);
+        progressiveTimersRef.current.push(timer);
+      };
+      // requestAnimationFrame ensures the base kitchen is seen before models
+      // introduce texture creation / WebGL compilation work.
+      requestAnimationFrame(scheduleNextEquipment);
 
       // One effect per painted frame: cabinet lights, facades, AO, then SSR.
       // AO is cached by geometric shape only; texture changes reuse density.

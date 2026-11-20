@@ -190,6 +190,8 @@ export interface BuiltKitchenScene {
   bounds: THREE.Box3;
   syncOcclusion?: () => void;
   activateOcclusion?: () => void;
+  /** Costly source models are populated after the first scene frame. */
+  deferredEquipmentJobs?: Array<() => void>;
   updateLighting: (project: ProjectState, stage?: number) => void;
 }
 
@@ -655,11 +657,12 @@ export function attachHandleCandidateSpots(
 
 export function buildKitchen3DScene(
   project: ProjectState,
-  opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number; tool?: ToolId; onTextureReady?: () => void; deferOcclusion?: boolean } = {}
+  opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number; tool?: ToolId; onTextureReady?: () => void; deferOcclusion?: boolean; deferEquipment?: boolean } = {}
 ): BuiltKitchenScene {
   const root = new THREE.Group();
   const interactables: THREE.Object3D[] = [];
   const animatedDoors: AnimatedDoorHandle[] = [];
+  const deferredEquipmentJobs: Array<() => void> = [];
   const linearControls: Array<{ boxId: string; group: THREE.Group; strip: THREE.Mesh; area: THREE.RectAreaLight }> = [];
   const cooktopControls: Array<{ id: string; setLit: (lit: boolean) => void }> = [];
   const halogenControls: Array<{ boxId: string; group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
@@ -1080,6 +1083,7 @@ export function buildKitchen3DScene(
         animatedDoors,
         interactables,
         matPack,
+        deferEquipment: opts.deferEquipment ? job => deferredEquipmentJobs.push(job) : undefined,
         mats: {
           matCarcass,
           matCabinetBack,
@@ -1108,7 +1112,10 @@ export function buildKitchen3DScene(
     // now render all Appliances (Sink + Faucet, Gas + Hood, Dishwasher, Washing Machine)
     for (const app of wall.appliances) {
       const isAppSelected = app.id === project.selectedApplianceId;
-      const appGrp = buildAppliance3D(
+      const appHolder = new THREE.Group();
+      wallGrp.add(appHolder);
+      const installAppliance = () => {
+        const appGrp = buildAppliance3D(
         wall,
         app,
         normalSign,
@@ -1126,16 +1133,19 @@ export function buildKitchen3DScene(
         }),
         cooktopControls
       );
-      const appHitData = { kind: 'appliance', wallId: wall.id, appId: app.id } as Scene3DHitData;
-      appGrp.userData = appHitData;
-      appGrp.traverse((ch) => {
+        const appHitData = { kind: 'appliance', wallId: wall.id, appId: app.id } as Scene3DHitData;
+        appGrp.userData = appHitData;
+        appGrp.traverse((ch) => {
         if ((ch as THREE.Mesh).isMesh) {
           const existingSubPart = (ch.userData as Scene3DHitData | undefined)?.subPart;
           ch.userData = existingSubPart ? { ...appHitData, subPart: existingSubPart } : appHitData;
           interactables.push(ch);
         }
       });
-      wallGrp.add(appGrp);
+        appHolder.add(appGrp);
+      };
+      if (opts.deferEquipment) deferredEquipmentJobs.push(installAppliance);
+      else installAppliance();
     }
 
     root.add(wallGrp);
@@ -1269,6 +1279,7 @@ export function buildKitchen3DScene(
   updateLighting(project, opts.deferOcclusion ? 0 : 3);
   if (!opts.deferOcclusion) activateOcclusion();
   return { root, interactables, animatedDoors, wallTransforms, bounds,
+    deferredEquipmentJobs,
     syncOcclusion: () => syncAo?.(), activateOcclusion, updateLighting };
 }
 
@@ -1529,6 +1540,7 @@ function buildBox3D(ctx: {
   animatedDoors: AnimatedDoorHandle[];
   interactables: THREE.Object3D[];
   matPack: KitchenMaterialPack;
+  deferEquipment?: (job: () => void) => void;
   mats: {
     matCarcass: THREE.Material;
     matCabinetBack: THREE.Material;
@@ -1631,6 +1643,7 @@ function buildBox3D(ctx: {
     if (!box.fridgeConcealed) {
       // Install the ORIGINAL supplied fridge design. None of the former
       // primitive refrigerator bodies/doors are rendered for visible fridges.
+      const installFridge = () => {
       const realFridge = fitAppliance(makeFridge(box.fridgeModel), {
         w: fW, h: fH, d: Math.max(0.45, bd),
       }, normalSign);
@@ -1644,6 +1657,9 @@ function buildBox3D(ctx: {
         interactables.push(child);
       });
       grp.add(realFridge);
+      };
+      if (ctx.deferEquipment) ctx.deferEquipment(installFridge);
+      else installFridge();
       if (isBoxSel) {
         addOutlineHighlight(grp, bw, bh, bd, bx + bw / 2, by + bh / 2, normalSign * (bd / 2));
         addBox3DHandles(grp, wall.id, box, bodyBottomY, bh, bd, normalSign, mats.matHandleGizmo, interactables);
