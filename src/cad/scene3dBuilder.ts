@@ -3361,16 +3361,18 @@ function buildAppliance3D(
     chassis.receiveShadow = true;
     grp.add(chassis);
 
-    // Carcass-coloured narrow horizontal frames above and below fitted ovens.
+    // Full-depth support shelves above and below built-in ovens and microwaves.
     const applianceFrameRailH = 0.018;
+    const supportShelfD = Math.max(machD, boxDepthCm * CM - 0.02);
     for (const railY of [baseElevM - applianceFrameRailH / 2, baseElevM + machH + applianceFrameRailH / 2]) {
-      const rail = new THREE.Mesh(
-        new THREE.BoxGeometry(Math.max(0.08, machW + 0.015), applianceFrameRailH, 0.022),
+      const shelf = new THREE.Mesh(
+        new THREE.BoxGeometry(Math.max(0.08, machW + 0.015), applianceFrameRailH, supportShelfD),
         underBox ? mats.matCarcass : mats.matDoorModern
       );
-      rail.position.set(ax, railY, frontZ + normalSign * 0.012);
-      rail.castShadow = true;
-      grp.add(rail);
+      shelf.position.set(ax, railY, frontZ - normalSign * (supportShelfD / 2 - 0.006));
+      shelf.castShadow = true;
+      shelf.receiveShadow = true;
+      grp.add(shelf);
     }
 
     // Top control bezel strip with rotary dials / digital LED display

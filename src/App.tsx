@@ -1,5 +1,6 @@
 import { getCabinetLighting, getKitchenCabinetLightMode } from './cad/cabinetLighting';
 import { auditKitchen } from './cad/kitchenAudit';
+import { repairKitchenIssues } from './cad/kitchenRepair';
 import type { CabinetLighting } from './cad/types';
 import { SelectionPicker, type OfferSelection, type PickCandidate, type SurfaceSelection } from './components/SelectionPicker';
 import { applyFrontCut, findFrontCut } from './cad/frontCut';
@@ -4169,10 +4170,23 @@ export default function App() {
             <div className="flex items-center justify-between gap-3 p-4 border-b border-slate-200">
               <div>
                 <h2 className="font-extrabold text-lg">گزارش بررسی آشپزخانه</h2>
-                <p className="text-sm text-slate-500">{auditIssues.length} مورد قابل بررسی — بدون اصلاح خودکار</p>
+                <p className="text-sm text-slate-500">{auditIssues.length} مورد قابل بررسی — پیش از اصلاح خودکار پروژه را ذخیره کنید</p>
               </div>
-              <button type="button" data-testid="audit-close" onClick={()=>setAuditOpen(false)}
-                className="border border-slate-300 rounded-lg px-3 h-9 font-bold">بستن</button>
+              <div className="flex items-center gap-2">
+                {auditIssues.length > 0 && (
+                  <button type="button" data-testid="audit-auto-repair"
+                    onClick={() => {
+                      const res = repairKitchenIssues(project);
+                      if (res.changed) commitState(res.project, true);
+                      setAuditOpen(false);
+                    }}
+                    className="bg-emerald-600 text-white rounded-lg px-3 h-9 font-bold hover:bg-emerald-700">
+                    رفع خودکار ({auditIssues.length})
+                  </button>
+                )}
+                <button type="button" data-testid="audit-close" onClick={()=>setAuditOpen(false)}
+                  className="border border-slate-300 rounded-lg px-3 h-9 font-bold">بستن</button>
+              </div>
             </div>
             <div className="overflow-y-auto p-3 space-y-2">
               {!auditIssues.length && <p className="p-4 text-emerald-700 font-bold">در بررسی هندسه، درب‌ها و دستگیره‌ها مشکل مشخصی پیدا نشد.</p>}

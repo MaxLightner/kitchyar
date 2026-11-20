@@ -20,15 +20,26 @@ export const STORAGE_STATUS_EVENT = 'kitchyar-storage-status';
 let storageFailure: string | null = null;
 let unreadableProjects = false;
 const failedWrites = new Set<string>();
+
 export function getStorageFailure() { return storageFailure; }
+
+export function resetStorageFailure(): void {
+  unreadableProjects = false;
+  failedWrites.clear();
+  updateStorageStatus();
+}
+
 function updateStorageStatus() {
   const next = unreadableProjects
-    ? 'خواندن پروژه‌های ذخیره‌شده ممکن نشد. برای حفظ اطلاعات قبلی، ذخیره خودکار متوقف است؛ از کار فعلی فایل بگیرید.'
-    : failedWrites.size ? 'تغییرات ذخیره نشده‌اند. فضای ذخیره‌سازی مرورگر پر یا مسدود است؛ پیش از بستن صفحه، فایل پروژه را دریافت کنید.' : null;
+    ? 'خواندن لیست پروژه‌های ذخیره‌شده با خطا مواجه شد؛ برای جلوگیری از حذف داده‌ها ذخیره خودکار متوقف شده است.'
+    : failedWrites.size
+      ? 'ذخیره پروژه در حافظه مرورگر ناموفق بود (ممکن است حافظه پر شده باشد).'
+      : null;
   if (next === storageFailure) return;
   storageFailure = next;
   window.dispatchEvent(new Event(STORAGE_STATUS_EVENT));
 }
+
 function writeStorage(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, value);
@@ -49,15 +60,20 @@ function summarizeState(state: ProjectState) {
   return { wallCount, boxCount };
 }
 
+function safeTimestamp(ts: unknown): number {
+  return typeof ts === 'number' && Number.isFinite(ts) ? ts : 0;
+}
+
 export function loadProjectsList(): SavedProjectRecord[] {
   try {
     const raw = localStorage.getItem(PROJECTS_LIST_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw) as SavedProjectRecord[];
       if (!Array.isArray(parsed) || parsed.some(p => !p || !p.id || !p.state || !Array.isArray(p.state.walls))) {
         throw new Error('Invalid saved project list');
       }
-      if (parsed.length > 0) return parsed.sort((a, b) => b.updatedAt - a.updatedAt);
+      // Respect an explicitly emptied project list instead of resurrecting deleted/sample projects
+      return parsed.sort((a, b) => safeTimestamp(b.updatedAt) - safeTimestamp(a.updatedAt));
     }
   } catch (error) {
     unreadableProjects = true;
@@ -65,7 +81,7 @@ export function loadProjectsList(): SavedProjectRecord[] {
     updateStorageStatus();
   }
 
-  // Migrate single project from v2 key or seed one crisp L-shaped sample
+  // Migrate single project from v2 key or seed one crisp L-shaped sample on first-ever launch
   try {
     const legacyRaw = localStorage.getItem(LEGACY_SINGLE_KEY);
     if (legacyRaw) {
@@ -74,7 +90,7 @@ export function loadProjectsList(): SavedProjectRecord[] {
         const sum = summarizeState(parsed);
         const rec: SavedProjectRecord = {
           id: uid('proj'),
-          name: 'آشپزخانه من',
+          name: 'پروژه بازیابی‌شده',
           updatedAt: Date.now(),
           preferredMode: '2d',
           wallCount: sum.wallCount,
@@ -94,7 +110,7 @@ export function loadProjectsList(): SavedProjectRecord[] {
   const sum = summarizeState(starter);
   const initialRec: SavedProjectRecord = {
     id: uid('proj'),
-    name: 'نمونه آشپزخانه L-شکل',
+    name: 'L-نمونه آشپزخانه',
     updatedAt: Date.now(),
     preferredMode: '2d',
     wallCount: sum.wallCount,
@@ -123,18 +139,18 @@ export function setActiveProjectId(id: string): void {
   if (!unreadableProjects) writeStorage(ACTIVE_PROJECT_ID_KEY, id);
 }
 
-export function upsertProjectRecord(
+export function upsertProjectRecordResult(
   list: SavedProjectRecord[],
   id: string,
   name: string,
   state: ProjectState,
-  preferredMode?: '2d' | '3d' | 'ar'
-): SavedProjectRecord[] {
+  preferredMode?: '2d' | '3d' | 'ar',
+): { list: SavedProjectRecord[]; saved: boolean } {
   const sum = summarizeState(state);
   const existingIdx = list.findIndex((p) => p.id === id);
   const record: SavedProjectRecord = {
     id,
-    name: name.trim() || 'پروژه بدون عنوان',
+    name: name.trim() || 'پروژه بدون نام',
     updatedAt: Date.now(),
     preferredMode: preferredMode || (existingIdx >= 0 ? list[existingIdx].preferredMode : '2d'),
     wallCount: sum.wallCount,
@@ -145,17 +161,25 @@ export function upsertProjectRecord(
     existingIdx >= 0
       ? list.map((p, idx) => (idx === existingIdx ? record : p))
       : [record, ...list];
-  const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
-  // The list is authoritative; avoid duplicating the active project on every
-  // pointer frame or overwriting a recovery copy after a failed save.
-  saveProjectsList(sorted);
-  return sorted;
+  const sorted = [...next].sort((a, b) => safeTimestamp(b.updatedAt) - safeTimestamp(a.updatedAt));
+  const saved = saveProjectsList(sorted);
+  return { list: sorted, saved };
+}
+
+export function upsertProjectRecord(
+  list: SavedProjectRecord[],
+  id: string,
+  name: string,
+  state: ProjectState,
+  preferredMode?: '2d' | '3d' | 'ar',
+): SavedProjectRecord[] {
+  return upsertProjectRecordResult(list, id, name, state, preferredMode).list;
 }
 
 export function createProjectRecord(
   name: string,
   mode: '2d' | '3d' | 'ar',
-  preset?: PresetMode
+  preset?: PresetMode,
 ): SavedProjectRecord {
   const state: ProjectState = preset
     ? buildPresetProject(preset)
