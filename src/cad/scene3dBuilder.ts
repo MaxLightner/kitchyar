@@ -34,7 +34,7 @@ import { getCabinetLighting, getKitchenCabinetLightMode } from './cabinetLightin
 import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, getEquipmentEdgeNormalMap, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
-import { fitAppliance, makeFridge, makeHood, makeCooktop } from './applianceModels';
+import { fitAppliance, makeFridge, makeHood, makeCooktop, makeSink, makeWashingMachine, makeDishwasher } from './applianceModels';
 import {
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
@@ -3012,16 +3012,47 @@ function addPantryBaskets(parent: THREE.Group, width: number, height: number, de
   parent.add(parts);
 }
 
-function sinkFootprint(app: ApplianceItem, depth: number, sign: number) {
+/** The new ZIP's decks and bowl centers, in source-model local metres.
+ * These EXACT local bowl footprints drive both countertop cutting and visual
+ * placement. This prevents a model from sitting on a solid countertop.
+ * Corner contours require a dedicated cutout mask; the holes here use the
+ * bowl's safe bounding rectangle (rotated bowls expand by a few mm).
+ */
+const SINK_SOURCE_LAYOUTS: Record<string, {
+  w: number; d: number; holes: Array<{x:number;z:number;w:number;d:number}>;
+}> = {
+  'sink-double-flat-chrome': { w:1.32,d:.56,holes:[{x:-.42,z:-.015,w:.37,d:.42},{x:.02,z:-.015,w:.37,d:.42}] },
+  'sink-single-granite-black': { w:.88,d:.56,holes:[{x:0,z:.035,w:.76,d:.41}] },
+  'sink-double-ribbed-steel': { w:1.34,d:.56,holes:[{x:.03,z:0,w:.37,d:.41},{x:.45,z:0,w:.37,d:.41}] },
+  'sink-single-deep-steel': { w:.86,d:.56,holes:[{x:0,z:.025,w:.74,d:.42}] },
+  'sink-workstation-dual-tap': { w:1.14,d:.56,holes:[{x:0,z:.04,w:1.04,d:.39}] },
+  'sink-workstation-gunmetal': { w:1.14,d:.56,holes:[{x:0,z:.045,w:1.04,d:.39}] },
+  'sink-single-fan-steel': { w:1.06,d:.58,holes:[{x:-.21,z:0,w:.45,d:.42}] },
+  'sink-double-grid-steel': { w:1.34,d:.56,holes:[{x:-.44,z:0,w:.37,d:.41},{x:-.02,z:0,w:.37,d:.41}] },
+  'sink-corner-v-steel': { w:1.16,d:.86,holes:[{x:-.27,z:.05,w:.48,d:.48},{x:.27,z:.05,w:.48,d:.48}] },
+  'sink-corner-l-steel': { w:1.18,d:.88,holes:[{x:-.32,z:.08,w:.46,d:.46},{x:-.02,z:-.15,w:.46,d:.46}] },
+  'sink-corner-granite-brown': { w:1.16,d:.88,holes:[{x:-.27,z:.06,w:.37,d:.38},{x:.32,z:.05,w:.38,d:.36}] },
+};
+function sinkModelPlacement(app: ApplianceItem, depth: number, sign: number) {
+  const layout = SINK_SOURCE_LAYOUTS[app.sinkModel ?? ''] ??
+    SINK_SOURCE_LAYOUTS['sink-double-flat-chrome'];
+  const scale = Math.min(
+    (app.width * CM - .025) / layout.w,
+    Math.max(.1, depth - .05) / layout.d,
+  );
   const x = (app.offsetX + app.width / 2) * CM;
-  const z = sign * depth / 2;
-  const width = app.width * CM - 0.04;
-  const length = Math.min(0.48, depth - 0.08);
-  const tray = app.sinkModel === 'steel-tray-left' ? 1 : app.sinkModel === 'steel-tray-right' ? -1 : 0;
-  const bowls = app.sinkModel === 'steel-2'
-    ? [-1, 1].map(side => ({ x: x + side * width * 0.225, width: width * 0.41 }))
-    : [{ x: x + tray * width * 0.18, width: width * (tray ? 0.52 : 0.84) }];
-  return { x, z, width, length, bowls: bowls.map(bowl => ({ ...bowl, z, length: length * 0.78 })) };
+  const z = sign * (depth - .015 - layout.d * scale / 2);
+  return {layout, scale, x, z};
+}
+function sinkFootprint(app: ApplianceItem, depth: number, sign: number) {
+  const {layout, scale, x, z} = sinkModelPlacement(app,depth,sign);
+  const width = layout.w * scale, length = layout.d * scale;
+  const bowls = layout.holes.map(bowl => ({
+    x: x + bowl.x * scale, z: z + sign * bowl.z * scale,
+    width: bowl.w * scale, length: bowl.d * scale,
+  }));
+  // Legacy projects remain supported: they now use a new source model.
+  return {x,z,width,length,bowls};
 }
 
 type SinkBowl = ReturnType<typeof sinkFootprint>['bowls'][number];
@@ -3050,72 +3081,7 @@ function sinkSlabGeometry(x: number, z: number, width: number, length: number,
   return new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 8 }).rotateX(-Math.PI / 2);
 }
 
-function makeSinkDrainboardMaterial(steel: THREE.MeshStandardMaterial, geometry: THREE.BufferGeometry,
-  x: number, z: number, width: number, depth: number, bowl: SinkBowl) {
-  const size = 128;
-  const data = new Uint8Array(size * size * 4);
-  const uv = geometry.getAttribute('uv');
-  const positions = geometry.getAttribute('position');
-  for (let i = 0; i < positions.count; i++) {
-    uv.setXY(i, (positions.getX(i) - x) / width + 0.5, (positions.getZ(i) - z) / depth + 0.5);
-  }
-  const mask = (u: number, v: number) => {
-    const relativeX = (u - 0.5) * width + x - bowl.x;
-    const traySide = (bowl.x - x) * relativeX < 0 ? Math.abs(relativeX) : 0;
-    const margin = Math.min(u - 0.055, 0.945 - u, (traySide - bowl.width / 2 - 0.012) / width);
-    const ramp = Math.min(1, Math.max(0, Math.min(margin, v - 0.13, 0.87 - v) * 26));
-    return Math.pow(Math.max(0, Math.cos(u * Math.PI * 2 * 29)), 2) * ramp;
-  };
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const u = (x + 0.5) / size, v = (y + 0.5) / size;
-    const dx = mask(u - 1 / size, v) - mask(u + 1 / size, v);
-    const dy = mask(u, v - 1 / size) - mask(u, v + 1 / size);
-    const scale = 1 / Math.hypot(dx, dy, 1);
-    const index = (y * size + x) * 4;
-    data[index] = Math.round(127.5 * (dx * scale + 1));
-    data[index + 1] = Math.round(127.5 * (dy * scale + 1));
-    data[index + 2] = Math.round(127.5 * (scale + 1));
-    data[index + 3] = 255;
-  }
-  const map = new THREE.DataTexture(data, size, size);
-  map.generateMipmaps = true;
-  map.minFilter = THREE.LinearMipmapLinearFilter;
-  map.magFilter = THREE.LinearFilter;
-  map.needsUpdate = true;
-  const material = steel.clone();
-  material.normalMap = map;
-  material.normalScale.set(0.65, 0.65);
-  return material;
-}
-
-function buildSinkBowl(bowl: SinkBowl, topY: number, material: THREE.Material) {
-  const rings = [{ y: topY, inset: 0 }, { y: topY - 0.015, inset: 0.012 },
-    { y: topY - 0.14, inset: 0.028 }, { y: topY - 0.16, inset: 0.045 }];
-  const positions: number[] = [];
-  const count = 48;
-  for (const { y, inset } of rings) {
-    const path = sinkPath(bowl.x, bowl.z, bowl.width - inset * 2, bowl.length - inset * 2, 0.045);
-    for (const point of path.getSpacedPoints(count).slice(0, -1)) positions.push(point.x, y, -point.y);
-  }
-  const indices: number[] = [];
-  for (let row = 0; row < rings.length - 1; row++) {
-    for (let i = 0; i < count; i++) {
-      const a = row * count + i, b = row * count + (i + 1) % count;
-      indices.push(a, b, a + count, b, b + count, a + count);
-    }
-  }
-  const base = (rings.length - 1) * count;
-  const center = positions.length / 3;
-  positions.push(bowl.x, rings[rings.length - 1].y, bowl.z);
-  for (let i = 0; i < count; i++) indices.push(center, base + i, base + (i + 1) % count);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return new THREE.Mesh(geometry, material);
-}
-
-function buildAppliance3D(
+function buildAppliance3D(function buildAppliance3D(
   wall: Wall,
   app: ApplianceItem,
   normalSign: number,
@@ -3159,70 +3125,32 @@ function buildAppliance3D(
   const cz = normalSign * (boxDepthCm * CM * 0.5);
 
   if (app.kind === 'sink') {
-    const isApron = app.sinkModel === 'ceramic-apron';
-    const { x, z, width, length: rimD, bowls } = sinkFootprint(app, boxDepthCm * CM, normalSign);
-    const sinkFinish = app.sinkFinish ?? (isApron ? 'white' : 'silver');
-    const material =
-      sinkFinish === 'black'
-        ? new THREE.MeshPhysicalMaterial({ color: 0x1e242c, roughness: 0.34, clearcoat: 0.25, envMapIntensity: 1.25 })
-        : sinkFinish === 'white'
-        ? mats.matDoorModern
-        : mats.matSteel;
-    const rimThickness = isApron ? 0.022 : 0.008;
-    const rimGeometry = sinkSlabGeometry(x, z, width, rimD, rimThickness, bowls, 0.045);
-    const hasTray = app.sinkModel === 'steel-tray-left' || app.sinkModel === 'steel-tray-right';
-    const rimMaterial = hasTray
-      ? makeSinkDrainboardMaterial(material as THREE.MeshStandardMaterial, rimGeometry, x, z, width, rimD, bowls[0])
-      : material;
-    const rim = new THREE.Mesh(rimGeometry, rimMaterial);
-    rim.position.y = topY + 0.002;
-    rim.receiveShadow = true;
-    grp.add(rim);
-    for (const bowl of bowls) {
-      const inset = buildSinkBowl(bowl, topY + rimThickness + 0.002, material);
-      inset.receiveShadow = true;
-      const drain = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.002, 24), mats.matDarkChrome);
-      drain.position.set(bowl.x, topY + rimThickness - 0.156, bowl.z);
-      grp.add(inset, drain);
-    }
-
-    if (isApron) {
-      const apronH = APRON_SINK_DEPTH_CM * CM;
-      const apron = new THREE.Mesh(new THREE.BoxGeometry(aw - 0.02, apronH, 0.045), material);
-      apron.position.set(ax, topY - apronH / 2, normalSign * (boxDepthCm * CM + 0.022));
-      grp.add(apron);
-    }
-
-    const faucetMat = sinkFinish === 'black' ? mats.matDarkChrome : mats.matSteel;
-    const faucetX = bowls.length === 1 ? bowls[0].x : x;
-    const faucetZ = z - normalSign * rimD * 0.45;
-    const faucetY = topY + rimThickness;
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.026, 0.026, 24), faucetMat);
-    base.position.set(faucetX, faucetY + 0.013, faucetZ);
-    const reach = normalSign * 0.18;
-    const curve = new THREE.CurvePath<THREE.Vector3>();
-    const a = new THREE.Vector3(faucetX, faucetY + 0.018, faucetZ);
-    const b = a.clone().add(new THREE.Vector3(0, 0.20, 0));
-    const c = b.clone().add(new THREE.Vector3(0, 0.02, reach));
-    curve.add(new THREE.LineCurve3(a, b));
-    curve.add(new THREE.CubicBezierCurve3(b, b.clone().add(new THREE.Vector3(0, 0.15, 0)),
-      c.clone().add(new THREE.Vector3(0, 0.15, 0)), c));
-    const faucet = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.011, 12, false), faucetMat);
-    faucet.castShadow = true;
-    grp.add(base, faucet);
-    if (isSelected) addOutlineHighlight(grp, aw, 0.3, rimD, ax, topY + 0.14, cz);
+    const { layout, scale, x, z } = sinkModelPlacement(app, boxDepthCm * CM, normalSign);
+    const model = makeSink(app.sinkModel);
+    // The model's deck is made at local y=0 and the basins extend below it;
+    // align this exactly with the countertop's perforated top.
+    model.scale.set(scale, scale, normalSign * scale);
+    model.position.set(x, topY + .002, z);
+    model.traverse(child => {
+      if (child instanceof THREE.Mesh) child.castShadow = true;
+    });
+    grp.add(model);
+    if (isSelected) addOutlineHighlight(grp, layout.w * scale, .30, layout.d * scale,
+      x, topY - .08, z);
     return grp;
   }
 
-  if (app.kind === 'gas') {
+  if (app.kind === 'gas') {  if (app.kind === 'gas') {
     const hoodParts: THREE.Object3D[] = [];
     const cookW = Math.max(0.26, aw - 0.06);
     const cookD = Math.min(0.52, boxDepthCm * CM - 0.06);
     const hob = makeCooktop(app.cooktopModel);
     const cooktop = fitAppliance(hob.group, {
-      w: cookW, h: 0.085, d: Math.max(0.24, cookD),
-    }, normalSign, 'center');
-    cooktop.position.set(ax, topY + 0.034, cz);
+      w: cookW, h: 0.090, d: Math.max(0.24, cookD),
+    }, normalSign, 'floor');
+    // Hob sheet is seated into the countertop, not floating above it.
+    // Its front edge faces the room rather than being placed inside the wall.
+    cooktop.position.set(ax, topY - 0.012, normalSign * (boxDepthCm * CM - .028));
     hob.setLit(Boolean(app.flameOn));
     cooktopControls.push({ id: app.id, setLit: hob.setLit });
     cooktop.traverse(child => {
@@ -3238,7 +3166,12 @@ function buildAppliance3D(
       .map(frame => (box.elevY + box.height - frame.widthCm) * CM))
       .filter(height => height > topY + 0.67);
     const hoodTop = Math.min(wall.height * CM, ...frameAbove);
-    const hoodY = Math.min(hoodTop - 0.055, topY + 0.69);
+    const upperHoodBox = wall.boxes
+      .filter(b => (b.type === 'wall' || b.type === 'wall-deep') &&
+        b.offsetX < app.offsetX + app.width - 3 && b.offsetX + b.width > app.offsetX + 3)
+      .sort((a,b) => a.elevY - b.elevY)[0];
+    // Bottom of ALL exposed hoods is level with the nearby upper cabinet bottom.
+    const hoodY = upperHoodBox ? upperHoodBox.elevY * CM : Math.min(hoodTop - .055, topY + .69);
     const hoodMat = resolveMatForFinish(app.hoodFinish ?? defaultEquipmentFinish, mats.matSteel);
     const effKind = effectiveHoodKind(wall, app);
     const hModel = app.hoodModel ?? 'chimney';
@@ -3391,44 +3324,25 @@ function buildAppliance3D(
     return grp;
   }
 
-  // Dishwasher or Washing Machine (stands on floor beneath countertop)
-  const machH = Math.max(0.7, (topElevCm - counterCm) * CM);
-  const machW = aw - 0.01;
-  const machD = Math.max(0.5, boxDepthCm * CM - 0.01);
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(machW, machH, machD),
-    mats.matEquipment
-  );
-  body.position.set(ax, machH / 2, normalSign * (machD / 2));
-  body.castShadow = true;
-  body.receiveShadow = true;
-  grp.add(body);
-
-  const ctrl = new THREE.Mesh(new THREE.BoxGeometry(machW - 0.02, 0.09, 0.016), mats.matDarkChrome);
-  ctrl.position.set(ax, machH - 0.055, normalSign * (machD + 0.005));
-  grp.add(ctrl);
-
-  if (app.kind === 'washing') {
-    const kg = app.washingCapacityKg ?? 8;
-    const ringRadius = kg === 6 ? 0.145 : kg === 9 ? 0.18 : 0.165;
-    const drumRing = new THREE.Mesh(
-      new THREE.CylinderGeometry(ringRadius, ringRadius, 0.022, 24),
-      mats.matDarkChrome
-    );
-    drumRing.rotation.x = Math.PI / 2;
-    drumRing.position.set(ax, machH * 0.45, normalSign * (machD + 0.008));
-    const drumGlass = new THREE.Mesh(
-      new THREE.CylinderGeometry(ringRadius * 0.76, ringRadius * 0.76, 0.026, 20),
-      mats.matGlass
-    );
-    drumGlass.rotation.x = Math.PI / 2;
-    drumGlass.position.set(ax, machH * 0.45, normalSign * (machD + 0.01));
-    grp.add(drumRing, drumGlass);
-  }
-
-  if (isSelected) addOutlineHighlight(grp, machW, machH, machD, ax, machH / 2, normalSign * (machD / 2));
+  // Replacement source models: no primitive old washing machine/dishwasher.
+  const machH = Math.max(.65, (topElevCm - counterCm) * CM);
+  const machW = Math.max(.4, aw - .016);
+  const machD = Math.max(.45, boxDepthCm * CM - .014);
+  const finish = defaultEquipmentFinish;
+  const source = app.kind === 'washing' ? makeWashingMachine(finish) : makeDishwasher(finish);
+  const applianceMesh = fitAppliance(source, {w:machW,h:machH,d:machD},normalSign);
+  applianceMesh.position.set(ax,0,normalSign*(boxDepthCm * CM - .015));
+  applianceMesh.traverse(child => {
+    if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
+  });
+  grp.add(applianceMesh);
+  if (isSelected) addOutlineHighlight(grp,machW,machH,machD,
+    ax,machH / 2,normalSign*(machD / 2));
   return grp;
 }
+
+/**
+ * Computes the world-space bounding center}
 
 /**
  * Computes the world-space bounding center & size for the currently selected 3D entity
