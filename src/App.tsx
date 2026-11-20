@@ -135,6 +135,7 @@ import {
   Wall,
 } from './cad/types';
 import { isHandheldARDevice, requestChidoSession } from './ar/chidoSession';
+import { fridgeModelFinish, finishLabel, syncEquipmentFinishes, cooktopForFinish, hoodForFinish } from './cad/equipmentFinishSync';
 import { alignSelectedDoorsInBox, equalizeSelectedVerticalWidths, equalizeSelectedDrawerHeights } from './cad/selectionAlign';
 import { copySelection } from './cad/copySelection';
 import { BottomDock } from './components/BottomDock';
@@ -452,6 +453,7 @@ export default function App() {
   const [frontPan, setFrontPan] = useState({ x: 0, y: 0 });
   const [topHeightPct, setTopHeightPct] = useState(50);
   const [toast, setToast] = useState<string | null>(null);
+  const [finishSyncPrompt, setFinishSyncPrompt] = useState<{ finish: EquipmentFinish } | null>(null);
 
   const toastTimer = useRef<number | null>(null);
   const autoUnitTimerRef = useRef<number | null>(null);
@@ -1271,6 +1273,21 @@ export default function App() {
     showToast(`مدل سینک به ${SINK_MODELS[nextModel].shortLabel} تغییر یافت`);
   };
 
+  const handleSelectedApplianceFinish = (finish: EquipmentFinish) => {
+    if (!selectedAppliance) return;
+    mutateActiveWall(w => {
+      const item = w.appliances.find(a => a.id === selectedAppliance.id);
+      if (!item) return;
+      if (item.kind === 'sink') item.sinkFinish = finish;
+      else if (item.kind === 'gas' && selectedAppliancePart === 'hood') {
+        item.hoodFinish = finish;
+        item.hoodModel = hoodForFinish(item.hoodModel, finish);
+      } else {
+        item.finish = finish;
+        if (item.kind === 'gas') item.cooktopModel = cooktopForFinish(item.cooktopModel, finish);
+      }
+    }, true);
+  };
   const handleEquipmentFinish = (equipmentFinish: EquipmentFinish) => {
     commitState(prev => ({ ...prev, settings: { ...(prev.settings ?? DEFAULT_PROJECT_SETTINGS), equipmentFinish } }), true);
   };
@@ -1465,7 +1482,10 @@ export default function App() {
       const linked = w.boxes.find(box => box.linkedToBoxId === updated.id);
       if (linked) linked.depth = fridgeFrontDepth(updated);
     }
+    const beforeFinish = fridgeModelFinish(activeBox.fridgeModel);
+    const afterFinish = fridgeModelFinish(model);
     commitState(next, true);
+    setFinishSyncPrompt(beforeFinish !== afterFinish ? { finish: afterFinish } : null);
     showToast('مدل یخچال انتخاب‌شده تغییر کرد');
   };
   const handleSetSelectedCooktopModel = (model: CooktopModel) => {
@@ -3396,6 +3416,7 @@ export default function App() {
               onDeleteSelectedAppliance={handleDeleteSelectedAppliance}
               equipmentFinish={project.settings?.equipmentFinish ?? 'silver'}
               onSetEquipmentFinish={handleEquipmentFinish}
+              onSetSelectedApplianceFinish={handleSelectedApplianceFinish}
               onToggleSelectedFridgeFrame={handleToggleSelectedFridgeFrame}
               fridgeHasOverCabinet={Boolean(activeBox?.type === 'fridge' && activeWall?.boxes.some(box => box.linkedToBoxId === activeBox.id))}
               onSetFridgeOverCabinet={handleSetFridgeOverCabinet}
@@ -4405,6 +4426,29 @@ export default function App() {
         </div>
       )}
 
+      {finishSyncPrompt && screen === 'editor' && (
+        <div data-testid="equipment-sync-prompt" role="status" dir="rtl"
+          className="fixed bottom-20 left-3 z-[85] w-[min(340px,calc(100vw-24px))] rounded-xl border border-slate-200 bg-white p-3 shadow-2xl">
+          <p className="text-[13px] font-extrabold text-slate-900">
+            یخچال {finishLabel(finishSyncPrompt.finish)} شد
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            رنگ بقیه تجهیزات هم هماهنگ شود؟ بعداً می‌توانی هر تجهیز را جدا تغییر بدهی.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <button type="button" data-testid="equipment-sync-accept"
+              onClick={() => {
+                const choice = finishSyncPrompt.finish;
+                setFinishSyncPrompt(null);
+                commitState(prev => syncEquipmentFinishes(prev, choice), true);
+              }}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white">هماهنگ کن</button>
+            <button type="button" data-testid="equipment-sync-decline"
+              onClick={() => setFinishSyncPrompt(null)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">نه، جدا بمانند</button>
+          </div>
+        </div>
+      )}
       {storageFailure && (
         <div role="alert" className="fixed bottom-24 left-3 right-3 z-[100] mx-auto max-w-xl rounded-xl border border-red-400 bg-red-950 p-3 text-sm text-white shadow-lg" dir="rtl">
           <p>{storageFailure}</p>

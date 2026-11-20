@@ -34,7 +34,7 @@ import { getCabinetLighting, getKitchenCabinetLightMode } from './cabinetLightin
 import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, getEquipmentEdgeNormalMap, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
-import { fitAppliance, makeFridge, makeHood, makeCooktop, makeSink, makeWashingMachine, makeDishwasher } from './applianceModels';
+import { fitAppliance, makeFridge, makeHood, makeCooktop, makeSink, makeWashingMachine, makeDishwasher, toneApplianceMetal } from './applianceModels';
 import {
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
@@ -193,6 +193,8 @@ export interface BuiltKitchenScene {
   activateOcclusion?: () => void;
   /** Costly source models are populated after the first scene frame. */
   deferredEquipmentJobs?: Array<() => void>;
+  /** Replace only affected procedural equipment without rebuilding the room. */
+  updateEquipment?: (project: ProjectState) => boolean;
   updateLighting: (project: ProjectState, stage?: number) => void;
 }
 
@@ -207,6 +209,20 @@ export function kitchenGeometryKey(project: ProjectState): string {
   return JSON.stringify(project, (key, value) => LIGHTING_ONLY_KEYS.has(key) ? undefined : value);
 }
 
+
+/** Stable room geometry identity. Cosmetic appliance model/finish updates can be
+ * applied to their existing holders without reconstructing cabinets, camera,
+ * reflections, or other equipment. Structural size/position edits still rebuild. */
+export function kitchenStructuralKey(project: ProjectState): string {
+  return JSON.stringify(project, function (key, value) {
+    if (key === 'equipmentFinish' || key === 'fridgeModel' ||
+        key === 'sinkFinish' || key === 'hoodModel' || key === 'hoodFinish' ||
+        key === 'cooktopModel') return undefined;
+    if (key === 'finish' && this && typeof this === 'object' &&
+        'kind' in this && 'offsetX' in this) return undefined;
+    return LIGHTING_ONLY_KEYS.has(key) ? undefined : value;
+  });
+}
 
 export function detectSoftwareWebGL(gl: WebGLRenderingContext | WebGL2RenderingContext | null): boolean {
   if (!gl) return true;
@@ -656,6 +672,28 @@ export function attachHandleCandidateSpots(
   return { overlays, spotInteractables, setHoveredSpot, dispose };
 }
 
+function applianceAppearanceKey(item: ApplianceItem, equipmentFinish: string): string {
+  return JSON.stringify([
+    item.sinkModel, item.sinkFinish, item.cooktopModel, item.hoodModel,
+    item.hoodFinish, item.hoodKind, item.finish, equipmentFinish,
+  ]);
+}
+
+/** Dispose per-model geometry without destroying room-wide material instances. */
+function disposeReplacedEquipment(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  root.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    geometries.add(node.geometry);
+    for (const mat of Array.isArray(node.material) ? node.material : [node.material]) {
+      if (mat.userData.applianceInstanceMaterial) materials.add(mat);
+    }
+  });
+  geometries.forEach(geo => geo.dispose());
+  materials.forEach(mat => mat.dispose());
+}
+
 export function buildKitchen3DScene(
   project: ProjectState,
   opts: { doorOpenProgress?: number; hideFloor?: boolean; floorOpacity?: number; tool?: ToolId; onTextureReady?: () => void; deferOcclusion?: boolean; deferEquipment?: boolean } = {}
@@ -664,6 +702,9 @@ export function buildKitchen3DScene(
   const interactables: THREE.Object3D[] = [];
   const animatedDoors: AnimatedDoorHandle[] = [];
   const deferredEquipmentJobs: Array<() => void> = [];
+  const applianceViews = new Map<string, { signature: string; refresh: (wall: Wall, item: ApplianceItem, next: ProjectState) => void }>();
+  const fridgeViews = new Map<string, { model?: string; refresh: (wall: Wall, box: CabinetBox, next: ProjectState) => void }>();
+  let registerOvenParts = (_group: THREE.Object3D) => {};
   const linearControls: Array<{ boxId: string; group: THREE.Group; strip: THREE.Mesh; area: THREE.RectAreaLight }> = [];
   const cooktopControls: Array<{ id: string; setLit: (lit: boolean) => void }> = [];
   const halogenControls: Array<{ boxId: string; group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
@@ -748,22 +789,22 @@ export function buildKitchen3DScene(
   });
   const matShelf = matCarcass;
   const matSteel = new THREE.MeshStandardMaterial({
-    color: 0xd1d5db,
-    roughness: 0.22,
-    metalness: 0.88,
-    envMapIntensity: 1.85,
+    color: 0x969da6,
+    roughness: 0.38,
+    metalness: 0.84,
+    envMapIntensity: 1.18,
   });
   const equipmentFinish = project.settings?.equipmentFinish ?? 'silver';
-  const equipmentColor = equipmentFinish === 'white' ? 0xf4f5f6 : equipmentFinish === 'black' ? 0x262a31 : 0xc7d0db;
+  const equipmentColor = equipmentFinish === 'white' ? 0xe7e9ea : equipmentFinish === 'black' ? 0x111419 : 0x969da6;
   const matEquipment = new THREE.MeshPhysicalMaterial({
     color: equipmentColor,
-    roughness: equipmentFinish === 'silver' ? 0.32 : 0.36,
+    roughness: equipmentFinish === 'silver' ? 0.43 : 0.42,
     metalness: equipmentFinish === 'silver' ? 0.92 : 0.12,
     normalMap: getEquipmentEdgeNormalMap(),
     normalScale: new THREE.Vector2(equipmentFinish === 'silver' ? 1.9 : 1.35, equipmentFinish === 'silver' ? 1.9 : 1.35),
     clearcoat: equipmentFinish === 'silver' ? 0.24 : 0.38,
     clearcoatRoughness: 0.24,
-    envMapIntensity: equipmentFinish === 'silver' ? 2.25 : 1.55,
+    envMapIntensity: equipmentFinish === 'silver' ? 1.25 : 1.10,
   });
   const matPorcelain = new THREE.MeshPhysicalMaterial({
     color: 0xf5f2ec,
@@ -1071,7 +1112,13 @@ export function buildKitchen3DScene(
         box.id === project.activeBoxId ||
         Boolean(project.multiSelection?.boxIds.includes(box.id));
 
-      const boxGrp = buildBox3D({
+      const boxMats = {
+        matCarcass, matCabinetBack, matEquipment, matPlinth, matCountertop,
+        matDoorRevealDark, matDoorModern, matGlass, matFrostedGlass,
+        matFrame, matDivider, matShelf, matSteel, matDarkChrome,
+        matHiddenTrim, matHandleGizmo, matDrawerGizmo, matSeamGizmo,
+      };
+      let boxGrp = buildBox3D({
         wall,
         box,
         normalSign,
@@ -1085,67 +1132,85 @@ export function buildKitchen3DScene(
         interactables,
         matPack,
         deferEquipment: opts.deferEquipment ? job => deferredEquipmentJobs.push(job) : undefined,
-        mats: {
-          matCarcass,
-          matCabinetBack,
-          matEquipment,
-          matPlinth,
-          matCountertop,
-          matDoorRevealDark,
-          matDoorModern,
-          matGlass,
-          matFrostedGlass,
-          matFrame,
-          matDivider,
-          matShelf,
-          matSteel,
-          matDarkChrome,
-          matHiddenTrim,
-          matHandleGizmo,
-          matDrawerGizmo,
-          matSeamGizmo,
-        },
+        mats: boxMats,
       });
       wallGrp.add(boxGrp);
+      if (box.type === 'fridge') {
+        fridgeViews.set(wall.id + '/' + box.id, {
+          model: box.fridgeModel,
+          refresh(nextWall, nextBox, nextProject) {
+            // The room geometry key confirms that the fridge cabinet's size
+            // and its surrounding frame have not changed.
+            const oldGroup = boxGrp;
+            const oldNodes = new Set<THREE.Object3D>();
+            oldGroup.traverse(node => oldNodes.add(node));
+            for (let i = interactables.length - 1; i >= 0; i--) {
+              if (oldNodes.has(interactables[i])) interactables.splice(i, 1);
+            }
+            boxGrp = buildBox3D({
+              wall: nextWall, box: nextBox, normalSign, doorsHidden,
+              doorOpenProgress, isBoxSel, tool: opts.tool, project: nextProject,
+              blockedZones, animatedDoors, interactables, matPack,
+              mats: boxMats, // Build only this source model immediately
+            });
+            wallGrp.add(boxGrp);
+            wallGrp.remove(oldGroup);
+            disposeReplacedEquipment(oldGroup);
+          },
+        });
+      }
     }
 
     // Continuous counter / top slab segments? Each base box carries its countertop mesh flush to neighbors,
     // now render all Appliances (Sink + Faucet, Gas + Hood, Dishwasher, Washing Machine)
     for (const app of wall.appliances) {
-      const isAppSelected = app.id === project.selectedApplianceId;
       const appHolder = new THREE.Group();
       wallGrp.add(appHolder);
-      const installAppliance = () => {
-        const appGrp = buildAppliance3D(
-        wall,
-        app,
-        normalSign,
-        isAppSelected,
-        isAppSelected ? (project.selectedApplianceSubPart ?? null) : null,
-        project.settings?.equipmentFinish ?? 'silver',
-        matsForApps({
-          matSteel,
-          matDarkChrome,
-          matGlassCooktop,
-          matCarcass,
-          matDoorModern: matPorcelain,
-          matEquipment,
-          matGlass,
-        }),
-        cooktopControls
-      );
-        const appHitData = { kind: 'appliance', wallId: wall.id, appId: app.id } as Scene3DHitData;
-        appGrp.userData = appHitData;
-        appGrp.traverse((ch) => {
-        if ((ch as THREE.Mesh).isMesh) {
-          const existingSubPart = (ch.userData as Scene3DHitData | undefined)?.subPart;
-          ch.userData = existingSubPart ? { ...appHitData, subPart: existingSubPart } : appHitData;
-          interactables.push(ch);
+      const installAppliance = (
+        nextWall: Wall = wall,
+        nextApp: ApplianceItem = app,
+        nextProject: ProjectState = project,
+      ) => {
+        const oldGroups = [...appHolder.children];
+        const oldNodes = new Set<THREE.Object3D>();
+        for (const old of oldGroups) old.traverse(node => oldNodes.add(node));
+        for (let i = interactables.length - 1; i >= 0; i--) {
+          if (oldNodes.has(interactables[i])) interactables.splice(i, 1);
         }
-      });
+        for (let i = cooktopControls.length - 1; i >= 0; i--) {
+          if (cooktopControls[i].id === nextApp.id) cooktopControls.splice(i, 1);
+        }
+        const selected = nextApp.id === nextProject.selectedApplianceId;
+        const appGrp = buildAppliance3D(
+          nextWall, nextApp, normalSign, selected,
+          selected ? (nextProject.selectedApplianceSubPart ?? null) : null,
+          nextProject.settings?.equipmentFinish ?? 'silver',
+          matsForApps({
+            matSteel, matDarkChrome, matGlassCooktop, matCarcass,
+            matDoorModern: matPorcelain, matEquipment, matGlass,
+          }),
+          cooktopControls,
+        );
+        const appHitData = { kind: 'appliance', wallId: nextWall.id, appId: nextApp.id } as Scene3DHitData;
+        appGrp.userData = appHitData;
+        appGrp.traverse(ch => {
+          if (!(ch instanceof THREE.Mesh)) return;
+          const subPart = (ch.userData as Scene3DHitData | undefined)?.subPart;
+          ch.userData = subPart ? { ...appHitData, subPart } : appHitData;
+          interactables.push(ch);
+        });
         appHolder.add(appGrp);
+        for (const old of oldGroups) {
+          appHolder.remove(old);
+          disposeReplacedEquipment(old);
+        }
+        registerOvenParts(appGrp);
       };
-      if (opts.deferEquipment) deferredEquipmentJobs.push(installAppliance);
+      applianceViews.set(wall.id + '/' + app.id, {
+        signature: applianceAppearanceKey(app, project.settings?.equipmentFinish ?? 'silver'),
+        refresh: installAppliance,
+      });
+      if (opts.deferEquipment) deferredEquipmentJobs.push(() => installAppliance());
       else installAppliance();
     }
 
@@ -1216,15 +1281,18 @@ export function buildKitchen3DScene(
 
   // Cache direct references so changing a light never reconstructs cabinets or geometry.
   const ovenParts = new Map<string, { light?: THREE.PointLight; cavity?: THREE.MeshStandardMaterial; glass?: THREE.MeshPhysicalMaterial }>();
-  root.traverse(node => {
-    const id = node.userData.ovenControlId as string | undefined;
-    if (!id) return;
-    const part = ovenParts.get(id) ?? {};
-    if (node.userData.ovenControlPart === 'light' && node instanceof THREE.PointLight) part.light = node;
-    if (node.userData.ovenControlPart === 'cavity' && node instanceof THREE.Mesh) part.cavity = node.material as THREE.MeshStandardMaterial;
-    if (node.userData.ovenControlPart === 'glass' && node instanceof THREE.Mesh) part.glass = node.material as THREE.MeshPhysicalMaterial;
-    ovenParts.set(id, part);
-  });
+  registerOvenParts = group => {
+    group.traverse(node => {
+      const id = node.userData.ovenControlId as string | undefined;
+      if (!id) return;
+      const part = ovenParts.get(id) ?? {};
+      if (node.userData.ovenControlPart === 'light' && node instanceof THREE.PointLight) part.light = node;
+      if (node.userData.ovenControlPart === 'cavity' && node instanceof THREE.Mesh) part.cavity = node.material as THREE.MeshStandardMaterial;
+      if (node.userData.ovenControlPart === 'glass' && node instanceof THREE.Mesh) part.glass = node.material as THREE.MeshPhysicalMaterial;
+      ovenParts.set(id, part);
+    });
+  };
+  registerOvenParts(root);
   const updateLighting = (next: ProjectState, stage = 3) => {
     const settings = next.settings;
     const boxLights = new Map(next.walls.flatMap(wall => wall.boxes.map(box => [box.id, getCabinetLighting(box)] as const)));
@@ -1255,11 +1323,11 @@ export function buildKitchen3DScene(
       if (parts.light) parts.light.visible = stage >= 1 && on;
       if (parts.cavity) {
         parts.cavity.color.setHex(on ? 0xffd28a : 0x161920);
-        parts.cavity.emissiveIntensity = on ? 0.12 : 0;
+        parts.cavity.emissiveIntensity = on ? 0.012 : 0;
       }
       if (parts.glass) {
         parts.glass.color.setHex(on ? 0xfde68a : 0x090d16);
-        parts.glass.emissiveIntensity = on ? 0.045 : 0;
+        parts.glass.emissiveIntensity = on ? 0.0045 : 0;
         parts.glass.opacity = on ? 0.34 : 0.84;
         parts.glass.metalness = on ? 0.1 : 0.25;
       }
@@ -1279,8 +1347,35 @@ export function buildKitchen3DScene(
   };
   updateLighting(project, opts.deferOcclusion ? 0 : 3);
   if (!opts.deferOcclusion) activateOcclusion();
+
+  const updateEquipment = (next: ProjectState): boolean => {
+    let changed = false;
+    for (const nextWall of next.walls) {
+      for (const item of nextWall.appliances) {
+        const view = applianceViews.get(nextWall.id + '/' + item.id);
+        if (!view) continue;
+        const signature = applianceAppearanceKey(item, next.settings?.equipmentFinish ?? 'silver');
+        if (view.signature !== signature) {
+          view.refresh(nextWall, item, next);
+          view.signature = signature;
+          changed = true;
+        }
+      }
+      for (const box of nextWall.boxes) {
+        if (box.type !== 'fridge') continue;
+        const view = fridgeViews.get(nextWall.id + '/' + box.id);
+        if (view && view.model !== box.fridgeModel) {
+          view.refresh(nextWall, box, next);
+          view.model = box.fridgeModel;
+          changed = true;
+        }
+      }
+    }
+    if (changed) updateLighting(next, 4);
+    return changed;
+  };
   return { root, interactables, animatedDoors, wallTransforms, bounds,
-    deferredEquipmentJobs,
+    deferredEquipmentJobs, updateEquipment,
     syncOcclusion: () => syncAo?.(), activateOcclusion, updateLighting };
 }
 
@@ -3221,6 +3316,7 @@ function buildAppliance3D(
   if (app.kind === 'sink') {
     const { layout, scale, x, z } = sinkModelPlacement(app, boxDepthCm * CM, normalSign);
     const model = makeSink(app.sinkModel);
+    toneApplianceMetal(model, app.sinkFinish ?? defaultEquipmentFinish, true);
     // The model's deck is made at local y=0 and the basins extend below it;
     // align this exactly with the countertop's perforated top.
     model.scale.set(scale, scale, normalSign * scale);
@@ -3241,6 +3337,7 @@ function buildAppliance3D(
     const cookW = isFiveBurnerCooktop(app.cooktopModel) ? .90 : aw;
     const cookD = Math.min(0.55, Math.max(0.38, boxDepthCm * CM - 0.04));
     const hob = makeCooktop(app.cooktopModel);
+    toneApplianceMetal(hob.group, app.finish ?? defaultEquipmentFinish);
     const cooktop = fitAppliance(hob.group, {
       w: cookW, h: 100, d: 100, // width-led, never shrink X to satisfy a Y/Z cap
     }, normalSign, 'floor');
@@ -3292,7 +3389,9 @@ function buildAppliance3D(
       hoodOutlineH = 0.08;
       hoodOutlineZ = normalSign * 0.16;
     } else {
-      const model = fitAppliance(makeHood(app.hoodModel), {
+      const sourceHood = makeHood(app.hoodModel);
+      toneApplianceMetal(sourceHood, app.hoodFinish ?? defaultEquipmentFinish);
+      const model = fitAppliance(sourceHood, {
         w: Math.max(0.55, cookW, aw),
         h: 100, d: 100, // retain actual width, not the old 42cm depth scale cap
       }, normalSign);
@@ -3384,10 +3483,10 @@ function buildAppliance3D(
     const winY = baseElevM + 0.036 + winH / 2;
     const cavityMat = new THREE.MeshStandardMaterial({
       color: app.ovenLightOn ? 0xffd28a : 0x161920,
-      emissive: 0xffa340, emissiveIntensity: app.ovenLightOn ? 0.12 : 0,
+      emissive: 0xffa340, emissiveIntensity: app.ovenLightOn ? 0.012 : 0,
       roughness: 0.35,
     });
-    const ovenLight = new THREE.PointLight(0xffc477, 0.5, 0.4, 2);
+    const ovenLight = new THREE.PointLight(0xffc477, 0.05, 0.4, 2);
     ovenLight.castShadow = false;
     ovenLight.position.set(ax + winW * 0.32, winY + winH * 0.28, frontZ - normalSign * 0.04);
     ovenLight.userData.ovenControlId = app.id;
@@ -3409,7 +3508,7 @@ function buildAppliance3D(
     const glassMat = new THREE.MeshPhysicalMaterial({
       color: app.ovenLightOn ? 0xfde68a : 0x090d16,
       emissive: 0xd97706,
-      emissiveIntensity: app.ovenLightOn ? 0.045 : 0,
+      emissiveIntensity: app.ovenLightOn ? 0.0045 : 0,
       transparent: true,
       opacity: app.ovenLightOn ? 0.34 : 0.84,
       roughness: 0.08,
@@ -3438,8 +3537,9 @@ function buildAppliance3D(
   const machH = Math.max(.65, (topElevCm - counterCm) * CM);
   const machW = Math.max(.4, aw - .016);
   const machD = Math.max(.45, boxDepthCm * CM - .014);
-  const finish = defaultEquipmentFinish;
+  const finish = app.finish ?? defaultEquipmentFinish;
   const source = app.kind === 'washing' ? makeWashingMachine(finish) : makeDishwasher(finish);
+  toneApplianceMetal(source, finish);
   const applianceMesh = fitAppliance(source, {w:machW,h:machH,d:machD},normalSign);
   // The fitted model is centered in Z. Position its actual FRONT, not its
   // center, at/behind the countertop edge: never >1cm beyond the stone.
