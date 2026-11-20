@@ -35,6 +35,7 @@ import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, getEquipmentEdgeNormalMap, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
 import { fitAppliance, makeFridge, makeHood, makeCooktop, makeSink, makeWashingMachine, makeDishwasher, toneApplianceMetal } from './applianceModels';
+import { fridgeDepthCm, fridgeFrontCm } from './fridgePlacement';
 import {
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
@@ -1741,11 +1742,13 @@ function buildBox3D(ctx: {
       // primitive refrigerator bodies/doors are rendered for visible fridges.
       const installFridge = () => {
       const realFridge = fitAppliance(makeFridge(box.fridgeModel), {
-        w: fW, h: fH, d: Math.max(0.45, bd),
+        // Cabinet depth is not the fridge's physical body depth.
+        w: fW, h: fH, d: fridgeDepthCm(box.fridgeModel) * CM,
       }, normalSign);
       const visualDepth = new THREE.Box3().setFromObject(realFridge).getSize(new THREE.Vector3()).z;
+      const frontCm = fridgeFrontCm(box.fridgeModel, frameDepth / CM);
       realFridge.position.set(bx + bw / 2, by,
-        normalSign * (frameDepth + 0.15 - visualDepth / 2));
+        normalSign * (frontCm * CM - visualDepth / 2));
       const hitData = { kind: 'box', wallId: wall.id, boxId: box.id } as Scene3DHitData;
       realFridge.traverse(child => {
         if (!(child instanceof THREE.Mesh)) return;
@@ -3546,9 +3549,14 @@ function buildAppliance3D(
   // Preserve the exact white/silver geometry, materials and details from the
   // user's ZIP; no substitute primitives or material overrides here.
   const fittedDepth = new THREE.Box3().setFromObject(applianceMesh).getSize(new THREE.Vector3()).z;
-  const countertopFront = boxDepthCm * CM + .01; // stone overhang beyond carcass
+  // Stone actually extends 2cm beyond the carcass (slabD = bd + .02).
+  // The previous reference was 1.2cm behind the stone edge, exposing the
+  // toe-kick in front of the washer. Bring its visible front just 8mm beyond
+  // the stone, never more than the 1cm appliance overhang allowance.
+  const stoneFront = boxDepthCm * CM + 0.02;
+  const targetFront = stoneFront + (app.kind === 'washing' ? 0.008 : 0.001);
   applianceMesh.position.set(ax, 0,
-    normalSign * (countertopFront - .002 - fittedDepth / 2));
+    normalSign * (targetFront - fittedDepth / 2));
   applianceMesh.traverse(child => {
     if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
   });
