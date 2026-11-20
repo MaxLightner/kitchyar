@@ -435,7 +435,7 @@ export default function App() {
   const [fridgeModel, setFridgeModel] = useState<FridgeModel>('fridge-sbs-homebar');
   const [fridgeHasFrame, setFridgeHasFrame] = useState<boolean>(true);
   const [sinkModel, setSinkModel] = useState<SinkModel>('sink-double-flat-chrome');
-  const [gasWidth, setGasWidth] = useState<number>(80);
+  const [gasWidth, setGasWidth] = useState<number>(90);
   const [diningSeats, setDiningSeats] = useState<DiningSeats>(4);
   const [diningShape, setDiningShape] = useState<'round' | 'rect'>('rect');
   const [furnitureKind, setFurnitureKind] = useState<FloorFurnitureKind>('dining');
