@@ -1314,24 +1314,16 @@ export default function App() {
         b.height = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
 
         const targetW = cfg.width + (hasFrame ? FRIDGE_FRAME_CM * 2 + 2 : 0);
-        const delta = targetW - b.width;
-        const candidateOffsets = [
-          Math.max(0, Math.min(w.length - targetW, Math.round((b.offsetX - delta / 2) / 5) * 5)),
-          Math.max(0, Math.min(w.length - targetW, b.offsetX)),
-          Math.max(0, Math.min(w.length - targetW, b.offsetX - delta)),
-        ];
-        const collides = (offX: number, width: number) =>
-          w.boxes.some(
-            (other) =>
-              other.id !== b.id &&
-              other.linkedToBoxId !== b.id &&
-              offX < other.offsetX + other.width - 1 &&
-              offX + width > other.offsetX + 1
-          );
-        const validOffX = candidateOffsets.find((ox) => !collides(ox, targetW));
-        if (validOffX !== undefined) {
-          b.offsetX = validOffX;
-          b.width = targetW;
+        // Frame toggle must resize the surround unconditionally. A neighbor
+        // is not allowed to silently prevent the chosen frame from fitting.
+        const preferredOffset = b.offsetX + (b.width - targetW) / 2;
+        b.offsetX = Math.max(0, Math.round(
+          Math.min(Math.max(0, w.length - targetW), preferredOffset)
+        ));
+        b.width = targetW;
+        if (b.doors.length) {
+          b.doors[0].startCm = 0;
+          b.doors[0].widthCm = targetW;
         }
 
         const over = w.boxes.find((other) => other.linkedToBoxId === b.id);
