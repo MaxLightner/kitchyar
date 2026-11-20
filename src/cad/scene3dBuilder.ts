@@ -3036,7 +3036,8 @@ function addPantryBaskets(parent: THREE.Group, width: number, height: number, de
  * bowl's safe bounding rectangle (rotated bowls expand by a few mm).
  */
 const SINK_SOURCE_LAYOUTS: Record<string, {
-  w: number; d: number; holes: Array<{x:number;z:number;w:number;d:number}>;
+  w: number; d: number; holes: Array<{x:number;z:number;w:number;d:number;
+    rot?:number; outline?:Array<[number,number]>}>;
 }> = {
   'sink-double-flat-chrome': { w:1.32,d:.56,holes:[{x:-.42,z:-.015,w:.37,d:.42},{x:.02,z:-.015,w:.37,d:.42}] },
   'sink-single-granite-black': { w:.88,d:.56,holes:[{x:0,z:.035,w:.76,d:.41}] },
@@ -3046,9 +3047,20 @@ const SINK_SOURCE_LAYOUTS: Record<string, {
   'sink-workstation-gunmetal': { w:1.14,d:.56,holes:[{x:0,z:.045,w:1.04,d:.39}] },
   'sink-single-fan-steel': { w:1.06,d:.58,holes:[{x:-.21,z:0,w:.45,d:.42}] },
   'sink-double-grid-steel': { w:1.34,d:.56,holes:[{x:-.44,z:0,w:.37,d:.41},{x:-.02,z:0,w:.37,d:.41}] },
-  'sink-corner-v-steel': { w:1.16,d:.86,holes:[{x:-.27,z:.05,w:.48,d:.48},{x:.27,z:.05,w:.48,d:.48}] },
-  'sink-corner-l-steel': { w:1.18,d:.88,holes:[{x:-.32,z:.08,w:.46,d:.46},{x:-.02,z:-.15,w:.46,d:.46}] },
-  'sink-corner-granite-brown': { w:1.16,d:.88,holes:[{x:-.27,z:.06,w:.37,d:.38},{x:.32,z:.05,w:.38,d:.36}] },
+  'sink-corner-v-steel': { w:1.16,d:.86,holes:[
+    {x:-.27,z:.05,w:.34,d:.33,rot:-Math.PI/4},
+    {x:.27,z:.05,w:.34,d:.33,rot:Math.PI/4},
+  ] },
+  'sink-corner-l-steel': { w:1.18,d:.88,holes:[
+    {x:-.32,z:.08,w:.32,d:.32,rot:-Math.PI/4},
+    {x:-.02,z:-.15,w:.32,d:.32,rot:-Math.PI/4},
+  ] },
+  'sink-corner-granite-brown': { w:1.28,d:.88,holes:[
+    {x:-.15,z:-.06,w:.42,d:.44,outline:[
+      [-.36,.02],[-.14,.16],[.02,-.04],[.06,-.22],[-.18,-.28],[-.34,-.14]
+    ]},
+    {x:.32,z:.05,w:.38,d:.36},
+  ] },
 };
 function sinkModelPlacement(app: ApplianceItem, depth: number, sign: number) {
   const layout = SINK_SOURCE_LAYOUTS[app.sinkModel ?? ''] ??
@@ -3064,10 +3076,35 @@ function sinkModelPlacement(app: ApplianceItem, depth: number, sign: number) {
 function sinkFootprint(app: ApplianceItem, depth: number, sign: number) {
   const {layout, scale, x, z} = sinkModelPlacement(app,depth,sign);
   const width = layout.w * scale, length = layout.d * scale;
-  const bowls = layout.holes.map(bowl => ({
-    x: x + bowl.x * scale, z: z + sign * bowl.z * scale,
-    width: bowl.w * scale, length: bowl.d * scale,
-  }));
+  const bowls = layout.holes.map(bowl => {
+    let outline = bowl.outline;
+    if (bowl.rot !== undefined) {
+      // Copy the EXACT corner rotation / radius / arc subdivision used by
+      // addRotatedRoundedHole in src/three/sinkHelpers.ts.
+      const hw=bowl.w/2, hd=bowl.d/2, r=Math.min(.075,hw*.85,hd*.85);
+      const corners: Array<[number,number,number]> = [
+        [-hw+r,-hd+r,Math.PI],[hw-r,-hd+r,-Math.PI*.5],
+        [hw-r,hd-r,0],[-hw+r,hd-r,Math.PI*.5],
+      ];
+      const local: Array<[number,number]> = [];
+      for (const [cx,cz,start] of corners) for (let n=0;n<=4;n++){
+        const angle=start+(n/4)*(Math.PI/2);
+        const lx=cx+Math.cos(angle)*r, lz=cz+Math.sin(angle)*r;
+        local.push([
+          bowl.x+lx*Math.cos(bowl.rot)+lz*Math.sin(bowl.rot),
+          bowl.z-lx*Math.sin(bowl.rot)+lz*Math.cos(bowl.rot),
+        ]);
+      }
+      outline=local;
+    }
+    return {
+      x:x+bowl.x*scale,z:z+sign*bowl.z*scale,
+      width:bowl.w*scale,length:bowl.d*scale,
+      outline:outline?.map(([px,pz]):[number,number]=>[
+        x+px*scale,z+sign*pz*scale,
+      ]),
+    };
+  });
   // Legacy projects remain supported: they now use a new source model.
   return {x,z,width,length,bowls};
 }
@@ -3094,7 +3131,15 @@ function sinkPath(x: number, z: number, width: number, length: number, radius: n
 function sinkSlabGeometry(x: number, z: number, width: number, length: number,
   thickness: number, bowls: SinkBowl[], radius: number) {
   const shape = sinkPath(x, z, width, length, radius);
-  shape.holes.push(...bowls.map(bowl => sinkPath(bowl.x, bowl.z, bowl.width, bowl.length, 0.045)));
+  shape.holes.push(...bowls.map(bowl => {
+    if (!bowl.outline?.length) return sinkPath(bowl.x, bowl.z, bowl.width, bowl.length, .045);
+    const pts = bowl.outline.map(([px,pz]) => new THREE.Vector2(px,-pz));
+    if (!THREE.ShapeUtils.isClockWise(pts)) pts.reverse();
+    const path = new THREE.Path();
+    pts.forEach((pt,i) => i ? path.lineTo(pt.x,pt.y) : path.moveTo(pt.x,pt.y));
+    path.closePath();
+    return path;
+  }));
   return new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 8 }).rotateX(-Math.PI / 2);
 }
 

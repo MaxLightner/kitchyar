@@ -11,6 +11,8 @@ export interface CountertopBowlRect {
   z: number;
   width: number;
   length: number;
+  /** World-space X,Z polygon of the actual source basin cutout, if non-rectangular. */
+  outline?: Array<[number, number]>;
 }
 
 export interface CountertopSectionParams {
@@ -345,6 +347,16 @@ function makeRectPath(x: number, z: number, width: number, length: number, radiu
   return path;
 }
 
+function makePolygonHolePath(ptsXZ: Array<[number, number]>): THREE.Path {
+  // In ExtrudeGeometry XZ maps to (x,-z); hole winding must be clockwise.
+  const pts = ptsXZ.map(([x,z]) => new THREE.Vector2(x,-z));
+  if (!THREE.ShapeUtils.isClockWise(pts)) pts.reverse();
+  const hole = new THREE.Path();
+  pts.forEach((pt,index) => index ? hole.lineTo(pt.x,pt.y) : hole.moveTo(pt.x,pt.y));
+  hole.closePath();
+  return hole;
+}
+
 /**
  * Re-projects UVs on an extruded horizontal slab so texture density matches metric dimensions
  * consistently across rectangular slabs, sink slabs, and profiled front edges.
@@ -386,7 +398,9 @@ export function normalizeCountertopExtrudeUVs(geo: THREE.BufferGeometry, thickne
  */
 export function createSinkCountertopGeometry(params: SinkCountertopParams): THREE.BufferGeometry {
   const { startX, width, depth, thickness, normalSign, topEdge, bottomEdge, bowls, arcSegments } = params;
-  const maxBowlAbsZ = bowls.reduce((acc, b) => Math.max(acc, Math.abs(b.z) + b.length / 2), 0);
+  const maxBowlAbsZ = bowls.reduce((acc, b) => Math.max(acc,
+    b.outline?.length ? Math.max(...b.outline.map(([,z]) => Math.abs(z))) :
+      Math.abs(b.z) + b.length / 2), 0);
   const { topRadius, bottomRadius } = computeCountertopRadii(thickness, depth, topEdge, bottomEdge);
   const minFrontStrip = Math.max(0.018, Math.max(topRadius, bottomRadius) + 0.008);
   const splitZ = Math.max(0.05, Math.min(depth - minFrontStrip, maxBowlAbsZ + 0.006));
@@ -400,12 +414,20 @@ export function createSinkCountertopGeometry(params: SinkCountertopParams): THRE
     const bl = Math.min(b.length, Math.max(0.04, splitZ - 0.02));
     const halfL = bl / 2;
     const clampedAbsZ = Math.max(halfL + 0.008, Math.min(splitZ - halfL - 0.004, absCz));
-    return { x: cx, z: normalSign * clampedAbsZ, width: bw, length: bl };
+    // For diagonal corner basins preserve the exact rotated contour, not an
+    // oversized axis-aligned rectangle. Clamp only if the cabinet is too small.
+    const outline = b.outline?.map(([px,pz]): [number,number] => [
+      Math.max(startX + .007, Math.min(startX + width - .007, px)),
+      normalSign * Math.max(.007, Math.min(splitZ - .007, Math.abs(pz))),
+    ]);
+    return { x: cx, z: normalSign * clampedAbsZ, width: bw, length: bl, outline };
   });
 
   const rearShape = makeRectPath(startX + width / 2, normalSign * (splitZ / 2), width, splitZ, 0);
   for (const b of safeBowls) {
-    rearShape.holes.push(makeRectPath(b.x, b.z, b.width, b.length, 0.045));
+    rearShape.holes.push(b.outline?.length
+      ? makePolygonHolePath(b.outline)
+      : makeRectPath(b.x, b.z, b.width, b.length, 0.045));
   }
   const rearRaw = new THREE.ExtrudeGeometry(rearShape, {
     depth: thickness,
