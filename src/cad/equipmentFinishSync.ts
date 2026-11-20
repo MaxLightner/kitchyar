@@ -20,8 +20,10 @@ export function cooktopForFinish(current: CooktopModel | undefined, finish: Equi
   return current;
 }
 export function hoodForFinish(current: ApplianceItem['hoodModel'], finish: EquipmentFinish): ApplianceItem['hoodModel'] {
-  if (finish === 'black' && current === 'curved-steel') return 'curved-black';
-  if (finish !== 'black' && current === 'curved-black') return 'curved-steel';
+  if (finish === 'black' && (current === 'curved-steel' || current === 'chimney' || !current)) return 'curved-black';
+  if (finish !== 'black' && (!current || current === 'chimney' ||
+    current === 'curved-black' || current === 'angled-dual-black' ||
+    current === 'pyramid-black' || current === 'framed-rounded-black')) return 'curved-steel';
   return current;
 }
 
