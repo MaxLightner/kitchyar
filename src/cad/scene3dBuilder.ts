@@ -3081,7 +3081,7 @@ function sinkSlabGeometry(x: number, z: number, width: number, length: number,
   return new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 8 }).rotateX(-Math.PI / 2);
 }
 
-function buildAppliance3D(function buildAppliance3D(
+function buildAppliance3D(
   wall: Wall,
   app: ApplianceItem,
   normalSign: number,
@@ -3140,7 +3140,7 @@ function buildAppliance3D(function buildAppliance3D(
     return grp;
   }
 
-  if (app.kind === 'gas') {  if (app.kind === 'gas') {
+  if (app.kind === 'gas') {
     const hoodParts: THREE.Object3D[] = [];
     const cookW = Math.max(0.26, aw - 0.06);
     const cookD = Math.min(0.52, boxDepthCm * CM - 0.06);
@@ -3340,9 +3340,6 @@ function buildAppliance3D(function buildAppliance3D(
     ax,machH / 2,normalSign*(machD / 2));
   return grp;
 }
-
-/**
- * Computes the world-space bounding center}
 
 /**
  * Computes the world-space bounding center & size for the currently selected 3D entity
