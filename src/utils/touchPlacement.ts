@@ -7,12 +7,20 @@ export type CanvasAction = Pick<PointerEvent, 'button' | 'clientX' | 'clientY' |
 };
 
 export function placementAt(svg: SVGSVGElement | null, point: PlacementPoint): CanvasAction | null {
-  if (!svg) return null;
-  const target = document.elementsFromPoint(point.clientX, point.clientY).find(node => svg.contains(node));
-  if (!target) return null;
+  if (!svg || !Number.isFinite(point.clientX) || !Number.isFinite(point.clientY)) return null;
+  // Check the topmost element first so taps on open modals, menus, or toolbars
+  // never bleed through to the underlying SVG canvas.
+  const topEl = document.elementFromPoint(point.clientX, point.clientY);
+  if (!topEl || !svg.contains(topEl)) return null;
   return {
-    ...point, target, currentTarget: svg, button: 0, pointerId: -1,
-    pointerType: 'touch', shiftKey: false, preventDefault() {},
+    ...point,
+    target: topEl,
+    currentTarget: svg,
+    button: 0,
+    pointerId: 1,
+    pointerType: 'touch',
+    shiftKey: false,
+    preventDefault() {},
   };
 }
 

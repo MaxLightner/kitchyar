@@ -60,7 +60,7 @@ export function analyzeCornerJunction(
   const tanHalf = Math.max(0.15, Math.tan(phi / 2));
 
   if (nAintoB > 0.05 && nBintoA > 0.05) {
-    if (angleDeg >= 78 && angleDeg <= 102) {
+    if (angleDeg >= 86 && angleDeg <= 94) {
       return {
         kind: 'inside-90',
         angleDeg,
@@ -84,10 +84,10 @@ export function analyzeCornerJunction(
 
   if (nAintoB + nBintoA > 0.1) {
     return {
-      kind: angleDeg >= 78 && angleDeg <= 102 ? 'inside-90' : 'inside-angled',
+      kind: angleDeg >= 86 && angleDeg <= 94 ? 'inside-90' : 'inside-angled',
       angleDeg,
       getSetbackCm: (d) =>
-        angleDeg >= 78 && angleDeg <= 102
+        angleDeg >= 86 && angleDeg <= 94
           ? Math.round(d)
           : Math.max(0, Math.round(d / tanHalf)),
     };
@@ -453,7 +453,7 @@ export function isBoxIntervalBlocked(
       (boxTier === 'lower' && z.tier === 'lower') ||
       (boxTier === 'wall-lower' && z.tier === 'wall-lower') ||
       (boxTier === 'wall-upper' && z.tier === 'wall-upper') ||
-      ((box.type === 'tall' || box.type === 'closet') && z.tier === 'lower');
+      (box.type === 'tall' || box.type === 'closet');
     if (!tierMatches) continue;
     const overlap = Math.min(absEnd, z.endCm) - Math.max(absStart, z.startCm);
     if (overlap > 2) return z;
@@ -480,7 +480,7 @@ export function getPlanVisualSpanForBox(
     if (z.role !== 'side-profile') continue;
     const tierMatches =
       z.tier === tier ||
-      ((box.type === 'tall' || box.type === 'closet') && z.tier === 'lower');
+      (box.type === 'tall' || box.type === 'closet');
     if (!tierMatches) continue;
 
     if (z.startCm === 0 && startCm < z.endCm) {
@@ -1049,10 +1049,14 @@ export function moveSmartWallNode(
     const survivingBoxIds = new Set<string>();
     const boxDeltaMap = new Map<string, number>();
 
-    w.boxes = w.boxes.filter((b) => b.offsetX < w.length - 25);
+    w.boxes = w.boxes.filter((b) => b.offsetX + b.width > 25 && b.offsetX < w.length - 25);
     for (const b of w.boxes) {
       survivingBoxIds.add(b.id);
       const beforeX = b.offsetX;
+      if (b.offsetX < 0) {
+        b.width = Math.max(30, +(b.width + b.offsetX).toFixed(1));
+        b.offsetX = 0;
+      }
       if (b.offsetX + b.width > w.length) {
         b.width = Math.max(30, w.length - b.offsetX);
         if (b.offsetX + b.width > w.length) {
@@ -1061,7 +1065,7 @@ export function moveSmartWallNode(
         b.doors = b.doors.filter((d) => d.startCm < b.width - 20);
         for (const d of b.doors) {
           if (d.startCm + d.widthCm > b.width) {
-            d.widthCm = Math.max(30, +(b.width - d.startCm).toFixed(1));
+            d.widthCm = Math.max(19, +(b.width - d.startCm).toFixed(1));
           }
         }
         b.unitDividers = b.unitDividers.filter((u) => u > 2 && u < b.width - 2);

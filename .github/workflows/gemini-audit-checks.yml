@@ -1,0 +1,26 @@
+name: Gemini kitchen logic integration checks
+on:
+  push:
+    branches: [test/gemini-logic-audit-20261120]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Install JPEG material encoder
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: TypeScript
+        run: bun run lint
+      - name: Existing regression tests
+        run: bunx tsx --test src/cad/kitchenRepair.test.ts src/cad/countertopGeometry.test.ts src/cad/cabinetPlacement.test.ts src/utils/applianceInteractions.test.ts
+      - name: Build
+        run: bun run build
