@@ -135,6 +135,7 @@ import {
   Wall,
 } from './cad/types';
 import { isHandheldARDevice, requestChidoSession } from './ar/chidoSession';
+import { alignAboveFridge, fridgeFrontCm } from './cad/fridgePlacement';
 import { fridgeModelFinish, finishLabel, syncEquipmentFinishes, cooktopForFinish, hoodForFinish } from './cad/equipmentFinishSync';
 import { alignSelectedDoorsInBox, equalizeSelectedVerticalWidths, equalizeSelectedDrawerHeights } from './cad/selectionAlign';
 import { copySelection } from './cad/copySelection';
@@ -214,6 +215,11 @@ function normalizeProject(raw: ProjectState): ProjectState {
       appliances: [],
       openings: w.openings || [],
     };
+    // Repair legacy linked upper cabinets that float too high above the
+    // actual refrigerator without changing independent upper cabinet rows.
+    for (const fridge of boxes) {
+      if (fridge.type === 'fridge') alignAboveFridge(tempWall, fridge);
+    }
 
     const appliances = (w.appliances || []).map((a) => {
       const parent = findParentBoxForAppliance(tempWall, a);
@@ -350,6 +356,7 @@ export default function App() {
   }, []);
 
   const [tool, setTool] = useState<ToolId>('select');
+  const [selectionWheelEnabled, setSelectionWheelEnabled] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
   const [overlap, setOverlap] = useState<{ x: number; y: number; candidates: PickCandidate[] } | null>(null);
   const [selectedSurface, setSelectedSurface] = useState<SurfaceSelection | null>(null);
@@ -365,7 +372,14 @@ export default function App() {
   }, [closeOverlap, setProject]);
   const offerSelection: OfferSelection = useCallback((x, y, hits) => {
     const candidates = [...new Map(hits.map(hit => [hit.id, hit])).values()];
-    if (candidates.length > 1) setOverlap({ x, y, candidates });
+    if (candidates.length && !selectionWheelEnabled) {
+      // Direct selection never opens a radial overlay; successive pointer
+      // taps reach the same canvas and double-tap door/oven controls work.
+      const direct = candidates.find(candidate => candidate.icon === 'door')
+        ?? candidates.find(candidate => candidate.icon === 'handle')
+        ?? candidates[0];
+      chooseOverlap(direct);
+    } else if (candidates.length > 1) setOverlap({ x, y, candidates });
     else if (candidates.length === 1) chooseOverlap(candidates[0]);
     else {
       closeOverlap();
@@ -373,7 +387,7 @@ export default function App() {
       setSelectedAppliancePart(null);
     }
     return candidates.length > 0;
-  }, [chooseOverlap, closeOverlap]);
+  }, [chooseOverlap, closeOverlap, selectionWheelEnabled]);
   useEffect(() => {
     closeOverlap();
     setSelectedSurface(null);
@@ -1355,6 +1369,7 @@ export default function App() {
             over.doors[0].startCm = 0;
             over.doors[0].widthCm = over.width;
           }
+          alignAboveFridge(w, b);
         }
       },
       true,
@@ -1380,7 +1395,8 @@ export default function App() {
   };
 
   const fridgeFrontDepth = (fridge: CabinetBox) =>
-    fridge.fridgeConcealed ? fridge.depth : (fridge.fridgeFrameDepthCm === 80 ? 80 : 60) + 15;
+    fridge.fridgeConcealed ? fridge.depth
+      : fridgeFrontCm(fridge.fridgeModel, fridge.fridgeFrameDepthCm === 80 ? 80 : 60);
 
   const handleSetFridgeConcealed = (enabled: boolean) => {
     if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
@@ -1430,7 +1446,7 @@ export default function App() {
       if (!fridge) return;
       const existing = w.boxes.find(box => box.linkedToBoxId === fridge.id);
       if (!enabled) { w.boxes = w.boxes.filter(box => box.linkedToBoxId !== fridge.id); return; }
-      if (existing) return;
+      if (existing) { alignAboveFridge(w, fridge); return; }
       const top = Math.min(w.height, Math.max(fridge.height + 30,
         (project.settings?.wallCabElevCm ?? 145) + (project.settings?.wallCabHeightCm ?? 75)));
       const over = createEmptyBox('wall-deep', fridge.offsetX, fridge.width, { settings: project.settings });
@@ -1441,6 +1457,7 @@ export default function App() {
       over.linkedToBoxId = fridge.id;
       over.doors = [{ id: uid('door'), startCm: 0, widthCm: over.width, kind: 'lift', drawerRatios: [] }];
       w.boxes.push(over);
+      alignAboveFridge(w, fridge);
     }, true);
   };
 
@@ -1482,6 +1499,7 @@ export default function App() {
       const linked = w.boxes.find(box => box.linkedToBoxId === updated.id);
       if (linked) linked.depth = fridgeFrontDepth(updated);
     }
+    if (updated) alignAboveFridge(w, updated);
     const beforeFinish = fridgeModelFinish(activeBox.fridgeModel);
     const afterFinish = fridgeModelFinish(model);
     commitState(next, true);
@@ -3290,6 +3308,12 @@ export default function App() {
               }), true)}
               onRotateDining={rotateDining}
               onSelectTool={handleSelectTool}
+              selectionWheelEnabled={selectionWheelEnabled}
+              onToggleSelectionWheel={() => {
+                setSelectionWheelEnabled(v => !v);
+                closeOverlap();
+                setTool('select');
+              }}
               activeWall={activeWall}
               activeBox={activeBox}
               selectedDoor={selectedDoor}

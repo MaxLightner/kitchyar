@@ -4,6 +4,7 @@ import { getCabinetLighting } from '../cad/cabinetLighting';
 import { APPLIANCE_CATALOG } from '../hoods/catalog';
 import { SinkModelChooser } from './SinkModelChooser';
 import { FridgeModelChooser } from './FridgeModelChooser';
+import { CooktopModelChooser } from './CooktopModelChooser';
 import type { CabinetTextureId } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useState } from 'react';
@@ -22,6 +23,7 @@ import {
   Utensils,
   LayoutGrid,
   MousePointer2,
+  MousePointerClick,
   Move,
   Paintbrush,
   Palette,
@@ -115,6 +117,8 @@ interface SideInspectorProps {
   onToggleCollapse?: () => void;
   activeTool: ToolId;
   onSelectTool?: (t: ToolId) => void;
+  selectionWheelEnabled?: boolean;
+  onToggleSelectionWheel?: () => void;
   activeWall: Wall | null;
   activeBox: CabinetBox | null;
   selectedDoor: DoorUnit | null;
@@ -444,6 +448,17 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
           className={railBtnCls(activeTool === 'select')}
         >
           <MousePointer2 className="w-4 h-4" />
+        </button>
+      )}
+
+      {props.onToggleSelectionWheel && (
+        <button type="button" data-testid="rail-direct-selection"
+          onClick={props.onToggleSelectionWheel}
+          aria-pressed={props.selectionWheelEnabled === false}
+          aria-label="انتخاب مستقیم بدون دایره گزینه‌ها"
+          title={props.selectionWheelEnabled === false ? 'انتخاب مستقیم فعال؛ دابل‌کلیک برای باز کردن در' : 'انتخاب مستقیم؛ بدون نمایش دایره گزینه‌ها'}
+          className={railBtnCls(props.selectionWheelEnabled === false)}>
+          <MousePointerClick className="w-4 h-4" />
         </button>
       )}
 
@@ -1765,13 +1780,10 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                     {props.selectedAppliance.kind === 'gas' && props.selectedAppliancePart !== 'hood' &&
                       props.onSetSelectedCooktopModel && (
                       <div className="space-y-1">
-                        <label htmlFor="selected-cooktop-model" className="text-[12px] font-bold">مدل صفحه گاز</label>
-                        <select id="selected-cooktop-model" data-testid="selected-cooktop-model"
-                          className="w-full h-9 border rounded-lg px-2 text-xs"
+                        <span className="text-[12px] font-bold">مدل صفحه گاز</span>
+                        <CooktopModelChooser
                           value={props.selectedAppliance.cooktopModel ?? 'hob-glass-5'}
-                          onChange={e=>props.onSetSelectedCooktopModel?.(e.target.value as CooktopModel)}>
-                          {APPLIANCE_CATALOG.filter(x=>x.category==='cooktop').map(x=><option key={x.id} value={x.id}>{x.titleFa}</option>)}
-                        </select>
+                          onChange={props.onSetSelectedCooktopModel} />
                         {props.onSetSelectedFlame && (
                           <label className="flex items-center gap-2 text-[12px] font-bold">
                             <input type="checkbox" data-testid="selected-gas-ignition"
