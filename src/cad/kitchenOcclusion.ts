@@ -21,7 +21,7 @@ export function kitchenOcclusionGeometryKey(project: ProjectState): string {
     })),
     appliances:w.appliances.map(a=>({
       id:a.id,kind:a.kind,offsetX:a.offsetX,width:a.width,
-      elevY:a.elevY,sinkModel:a.sinkModel,gasWidth:a.gasWidth,
+      elevY:a.elevY,sinkModel:a.sinkModel,
       hoodModel:a.hoodModel,cooktopModel:a.cooktopModel,
     })),
   })));
