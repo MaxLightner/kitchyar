@@ -254,6 +254,7 @@ interface SideInspectorProps {
   // Unified project-level & equipment settings
   equipmentFinish?: EquipmentFinish;
   onSetEquipmentFinish?: (f: EquipmentFinish) => void;
+  onSetSelectedApplianceFinish?: (f: EquipmentFinish) => void;
   canSelectedGasUseChimney?: boolean;
   onToggleSelectedFridgeFrame?: (hasFrame: boolean) => void;
   fridgeHasOverCabinet?: boolean;
@@ -1731,6 +1732,27 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                          چراغ داخل فر
                        </label>
                      )}
+                    {(['sink', 'gas', 'washing', 'dishwasher'] as ApplianceKind[]).includes(props.selectedAppliance.kind) && props.onSetSelectedApplianceFinish && (
+                      <div className="space-y-1" data-testid="selected-appliance-finish">
+                        <span className="block text-xs font-bold text-slate-500">
+                          {props.selectedAppliance.kind === 'gas' && props.selectedAppliancePart === 'hood' ? 'رنگ هود' : 'رنگ همین تجهیز'}
+                        </span>
+                        <div className="grid grid-cols-3 gap-1">
+                          {([['silver', 'نقره‌ای'], ['white', 'سفید'], ['black', 'مشکی']] as const).map(([finish, label]) => {
+                            const current = props.selectedAppliance?.kind === 'sink'
+                              ? props.selectedAppliance.sinkFinish
+                              : props.selectedAppliance?.kind === 'gas' && props.selectedAppliancePart === 'hood'
+                                ? props.selectedAppliance.hoodFinish
+                                : props.selectedAppliance?.finish;
+                            return <button type="button" key={finish}
+                              data-testid={`selected-appliance-finish-${finish}`}
+                              onClick={() => props.onSetSelectedApplianceFinish?.(finish)}
+                              aria-pressed={(current ?? props.equipmentFinish ?? 'silver') === finish}
+                              className={`h-8 rounded border text-xs font-bold ${(current ?? props.equipmentFinish ?? 'silver') === finish ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-700'}`}>{label}</button>;
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {props.selectedAppliance.kind === 'sink' &&
                       props.onChangeSelectedApplianceSinkModel && (
                         <section className="space-y-1.5">
