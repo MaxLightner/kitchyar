@@ -1,0 +1,26 @@
+name: Shared appliance AO regression
+on:
+  push:
+    branches: [fix/shared-appliance-ao-20261120]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Install JPEG encoder
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Check TypeScript
+        run: bun run lint
+      - name: Regression tests
+        run: bunx tsx --test src/cad/kitchenOcclusion.test.ts src/cad/cooktopMount.test.ts src/cad/countertopGeometry.test.ts
+      - name: Build
+        run: bun run build
