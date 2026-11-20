@@ -6,7 +6,7 @@ import type { ProjectState } from './types';
  */
 export function kitchenOcclusionGeometryKey(project: ProjectState): string {
   return JSON.stringify(project.walls.map(w => ({
-    id:w.id, length:w.length, height:w.height, points:w.points, openings:w.openings,
+    id:w.id, x1:w.x1Cm, y1:w.y1Cm, x2:w.x2Cm, y2:w.y2Cm, flip:w.flipSide, length:w.length, height:w.height, openings:w.openings,
     boxes:w.boxes.map(box => ({
       id:box.id, type:box.type, offsetX:box.offsetX, elevY:box.elevY,
       width:box.width, height:box.height, depth:box.depth,
@@ -15,8 +15,8 @@ export function kitchenOcclusionGeometryKey(project: ProjectState): string {
         widthCm:door.widthCm,drawerRatios:door.drawerRatios,
         drawerBand:door.drawerBand,doorStyle:door.doorStyle})),
       unitDividers:box.unitDividers,
-      shelves:box.shelves.map(sh => ({id:sh.id,depth:sh.depth,height:sh.height,
-        orient:sh.orient,offset:sh.offset})),
+      shelves:box.shelves.map(sh => ({id:sh.id,start:sh.startCm,end:sh.endCm,
+        yRatio:sh.yRatio,orient:sh.orient,xRatio:sh.xRatio})),
       frames:box.frames?.map(frame=>({id:frame.id,side:frame.side,widthCm:frame.widthCm})),
     })),
     appliances:w.appliances.map(a=>({
