@@ -109,6 +109,7 @@ import {
   ApplianceKind,
   BacksplashFinishId,
   BoxKind,
+  CabinetBox,
   CabinetFinishId,
   CountertopEdgeProfile,
   CountertopFinishId,
