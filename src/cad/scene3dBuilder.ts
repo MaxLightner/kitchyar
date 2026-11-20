@@ -748,22 +748,22 @@ export function buildKitchen3DScene(
   });
   const matShelf = matCarcass;
   const matSteel = new THREE.MeshStandardMaterial({
-    color: 0xd1d5db,
-    roughness: 0.22,
-    metalness: 0.88,
-    envMapIntensity: 1.85,
+    color: 0x969da6,
+    roughness: 0.38,
+    metalness: 0.84,
+    envMapIntensity: 1.18,
   });
   const equipmentFinish = project.settings?.equipmentFinish ?? 'silver';
-  const equipmentColor = equipmentFinish === 'white' ? 0xf4f5f6 : equipmentFinish === 'black' ? 0x262a31 : 0xc7d0db;
+  const equipmentColor = equipmentFinish === 'white' ? 0xe7e9ea : equipmentFinish === 'black' ? 0x111419 : 0x969da6;
   const matEquipment = new THREE.MeshPhysicalMaterial({
     color: equipmentColor,
-    roughness: equipmentFinish === 'silver' ? 0.32 : 0.36,
+    roughness: equipmentFinish === 'silver' ? 0.43 : 0.42,
     metalness: equipmentFinish === 'silver' ? 0.92 : 0.12,
     normalMap: getEquipmentEdgeNormalMap(),
     normalScale: new THREE.Vector2(equipmentFinish === 'silver' ? 1.9 : 1.35, equipmentFinish === 'silver' ? 1.9 : 1.35),
     clearcoat: equipmentFinish === 'silver' ? 0.24 : 0.38,
     clearcoatRoughness: 0.24,
-    envMapIntensity: equipmentFinish === 'silver' ? 2.25 : 1.55,
+    envMapIntensity: equipmentFinish === 'silver' ? 1.25 : 1.10,
   });
   const matPorcelain = new THREE.MeshPhysicalMaterial({
     color: 0xf5f2ec,
@@ -1255,11 +1255,11 @@ export function buildKitchen3DScene(
       if (parts.light) parts.light.visible = stage >= 1 && on;
       if (parts.cavity) {
         parts.cavity.color.setHex(on ? 0xffd28a : 0x161920);
-        parts.cavity.emissiveIntensity = on ? 0.12 : 0;
+        parts.cavity.emissiveIntensity = on ? 0.012 : 0;
       }
       if (parts.glass) {
         parts.glass.color.setHex(on ? 0xfde68a : 0x090d16);
-        parts.glass.emissiveIntensity = on ? 0.045 : 0;
+        parts.glass.emissiveIntensity = on ? 0.0045 : 0;
         parts.glass.opacity = on ? 0.34 : 0.84;
         parts.glass.metalness = on ? 0.1 : 0.25;
       }
@@ -3384,10 +3384,10 @@ function buildAppliance3D(
     const winY = baseElevM + 0.036 + winH / 2;
     const cavityMat = new THREE.MeshStandardMaterial({
       color: app.ovenLightOn ? 0xffd28a : 0x161920,
-      emissive: 0xffa340, emissiveIntensity: app.ovenLightOn ? 0.12 : 0,
+      emissive: 0xffa340, emissiveIntensity: app.ovenLightOn ? 0.012 : 0,
       roughness: 0.35,
     });
-    const ovenLight = new THREE.PointLight(0xffc477, 0.5, 0.4, 2);
+    const ovenLight = new THREE.PointLight(0xffc477, 0.05, 0.4, 2);
     ovenLight.castShadow = false;
     ovenLight.position.set(ax + winW * 0.32, winY + winH * 0.28, frontZ - normalSign * 0.04);
     ovenLight.userData.ovenControlId = app.id;
@@ -3409,7 +3409,7 @@ function buildAppliance3D(
     const glassMat = new THREE.MeshPhysicalMaterial({
       color: app.ovenLightOn ? 0xfde68a : 0x090d16,
       emissive: 0xd97706,
-      emissiveIntensity: app.ovenLightOn ? 0.045 : 0,
+      emissiveIntensity: app.ovenLightOn ? 0.0045 : 0,
       transparent: true,
       opacity: app.ovenLightOn ? 0.34 : 0.84,
       roughness: 0.08,

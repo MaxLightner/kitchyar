@@ -196,6 +196,8 @@ export interface ApplianceItem {
   width: number;
   sinkModel?: SinkModel;
   sinkFinish?: EquipmentFinish;
+  /** Per-item body finish override; never changes unrelated appliances. */
+  finish?: EquipmentFinish;
   cornerSide?: 'left' | 'right';
   hoodKind?: 'hidden' | 'chimney';
   hoodModel?: HoodModel;
