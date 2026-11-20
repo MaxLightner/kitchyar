@@ -73,7 +73,13 @@ export function bakeKitchenOcclusion(
     if (!(node instanceof THREE.Mesh) || node instanceof THREE.InstancedMesh) return;
     const meshMaterials = (Array.isArray(node.material) ? node.material : [node.material])
       .filter((material): material is THREE.MeshStandardMaterial => material instanceof THREE.MeshStandardMaterial);
-    for (const material of meshMaterials) materials.add(material);
+    // Source appliance materials are cached and reused across scene rebuilds.
+    // Wrapping their onBeforeCompile on each AO activation stacks GLSL uniforms
+    // and varying declarations; an older disposed AO volume may also remain
+    // captured by the shared shader. Keep equipment shaders unmodified.
+    for (const material of meshMaterials) {
+      if (!material.userData.sharedApplianceMaterial) materials.add(material);
+    }
     if (reuse) return;
     const { kind } = node.userData;
     const floor = kind === 'floor';
