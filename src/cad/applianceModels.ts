@@ -141,8 +141,16 @@ export function toneApplianceMetal(root: THREE.Object3D, finish: ApplianceFinish
     finish === 'black' ? 0x171b21 : finish === 'white' ? 0xdce0e3 : 0x969da6,
   );
   const copies = new Map<THREE.Material, THREE.Material>();
+  // Original model glass is intentionally preserved, even when an opaque
+  // glass shader reports metallic reflectance and has no material.name.
+  const protectedGlass = new Set<THREE.Material>(
+    Object.entries(applianceMaterials())
+      .filter(([key]) => /glass|glaze|screen|display|ceramic/i.test(key))
+      .map(([, material]) => material as THREE.Material),
+  );
   const convert = (material: THREE.Material): THREE.Material => {
     if (!(material instanceof THREE.MeshStandardMaterial) ||
+        protectedGlass.has(material) ||
         material.transparent || material.opacity < 0.96 ||
         material.metalness < 0.25 || /glass|screen|display/i.test(material.name)) return material;
     const previous = copies.get(material);
