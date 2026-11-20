@@ -88,6 +88,7 @@ import {
   Scene3DHitData,
 } from '../cad/scene3dBuilder';
 import { kitchenOcclusionGeometryKey } from '../cad/kitchenOcclusion';
+import { drainDeferredSceneJobs } from '../utils/deferredSceneSwap';
 import {
   ApplianceKind,
   BacksplashFinishId,
@@ -3187,128 +3188,128 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const geometryKey = kitchenGeometryKey(project) + '|' + tool;
     const previous = builtRef.current;
     if (previous && geometryKeyRef.current === geometryKey) {
-      // Light and oven toggles, SSR and ambient settings update in place without rebuilding geometry.
+      // In-place light/oven/SSR changes must not reconstruct the scene.
       previous.updateLighting(project, lightingStageRef.current);
       requestRenderRef.current();
       if (lightingStageRef.current >= 4 && project.settings?.enableReflections !== false) initReflectionsRef.current();
       return;
     }
 
+    // Cancel obsolete builds without touching the currently displayed scene.
     for (const timer of progressiveTimersRef.current) window.clearTimeout(timer);
     progressiveTimersRef.current = [];
     let cancelled = false;
-    const buildTimer = window.setTimeout(() => {
-      if (cancelled || sceneRef.current !== scene) return;
+    let pending: BuiltKitchenScene | null = null;
+    const isCurrent = () => !cancelled && sceneRef.current === scene;
+    const schedule = (task: () => void, delayMs: number) => {
+      const timer = window.setTimeout(task, delayMs);
+      progressiveTimersRef.current.push(timer);
+    };
+    const releasePending = () => {
+      if (!pending) return;
+      disposeObject3D(pending.root);
+      pending = null;
+    };
+
+    schedule(() => {
+      if (!isCurrent()) return;
       let built: BuiltKitchenScene;
       try {
-        built = buildKitchen3DScene(project, { doorOpenProgress: 0, tool,
-          deferOcclusion: true, deferEquipment: true,
-          onTextureReady: () => requestRenderRef.current() });
+        built = buildKitchen3DScene(project, {
+          doorOpenProgress: 0, tool, deferOcclusion: true, deferEquipment: true,
+          onTextureReady: () => requestRenderRef.current(),
+        });
       } catch (error) {
         logDiagnostic('scene-build-failed', error);
         props.onToast('خطای نمایش ثبت شد؛ صحن قبلی حفظ شد');
         return;
       }
-      if (cancelled) { disposeObject3D(built.root); return; }
-      // Keep the old render visible until the replacement has finished constructing.
-      scene.add(built.root);
-      const prior = builtRef.current;
-      builtRef.current = built;
-      geometryKeyRef.current = geometryKey;
-      lightingStageRef.current = 0;
-      if (prior) { scene.remove(prior.root); disposeObject3D(prior.root); }
+      if (!isCurrent()) { disposeObject3D(built.root); return; }
+      pending = built;
+      const hadPrevious = Boolean(builtRef.current);
 
-    // Reapply current door open/close states smoothly without snapping
-    const states = doorStatesRef.current;
-    const activeParts = new Set(built.animatedDoors.map(part => part.doorId));
-    for (const id of states.keys()) if (!activeParts.has(id)) states.delete(id);
-    setDoorsOpen([...states.values()].some(part => part.target > 0.5));
-    for (const h of built.animatedDoors) {
-      let st = states.get(h.doorId);
-      if (!st) {
-        st = { cur: 0, target: 0 };
-        states.set(h.doorId, st);
-      }
-      if (st.cur > 0.001) {
-        applyAnimatedDoorProgress(h, st.cur);
-      }
-    }
+      const commitReadyScene = () => {
+        if (!isCurrent() || pending !== built) return;
+        const prior = builtRef.current;
 
-    if (!camInitDoneRef.current && !arSessionRef.current?.active) {
-      camInitDoneRef.current = true;
-      applyCameraPreset('iso', built.bounds);
-    } else {
-      requestRenderRef.current();
-    }
-    if (!arEditingBlocked && tool === 'cab-draw') {
-      const bounds = rendererRef.current?.domElement.getBoundingClientRect();
-      const hover = lastHoverCheckRef.current;
-      if (bounds && hover.x >= bounds.left && hover.x <= bounds.right && hover.y >= bounds.top && hover.y <= bounds.bottom) {
-        updateGhostAndHoverRef.current(hover.x, hover.y);
-      }
-    }
+        // Make the new scene fully lit BEFORE its first visible frame.
+        // Lighting previously restarted at stage 0, causing an obvious flash.
+        built.updateLighting(propsRef.current.project, 4);
+        scene.add(built.root);
+        builtRef.current = built;
+        geometryKeyRef.current = geometryKey;
+        lightingStageRef.current = 4;
+        pending = null;
+        if (prior) {
+          scene.remove(prior.root);
+          disposeObject3D(prior.root);
+        }
 
-      // 3D cabinet scene can paint immediately. Actual equipment meshes are
-      // constructed one at a time AFTER that first frame, never all at startup.
-      // This also defers the one-off ~30 CanvasTexture appliance material
-      // allocations until the geometry and controls are visible.
-      const scheduleNextEquipment = () => {
-        if (builtRef.current !== built || sceneRef.current !== scene ||
-            !built.deferredEquipmentJobs?.length) return;
-        const timer = window.setTimeout(() => {
-          if (builtRef.current !== built || sceneRef.current !== scene) return;
-          const job = built.deferredEquipmentJobs?.shift();
-          if (!job) return;
-          try { job(); } catch (error) { logDiagnostic('equipment-build-failed', error); }
+        const states = doorStatesRef.current;
+        const activeParts = new Set(built.animatedDoors.map(part => part.doorId));
+        for (const id of states.keys()) if (!activeParts.has(id)) states.delete(id);
+        setDoorsOpen([...states.values()].some(part => part.target > 0.5));
+        for (const h of built.animatedDoors) {
+          const st = states.get(h.doorId) ?? { cur: 0, target: 0 };
+          states.set(h.doorId, st);
+          if (st.cur > 0.001) applyAnimatedDoorProgress(h, st.cur);
+        }
+
+        if (!camInitDoneRef.current && !arSessionRef.current?.active) {
+          camInitDoneRef.current = true;
+          applyCameraPreset('iso', built.bounds);
+        }
+        if (!arEditingBlocked && tool === 'cab-draw') {
+          const bounds = rendererRef.current?.domElement.getBoundingClientRect();
+          const hover = lastHoverCheckRef.current;
+          if (bounds && hover.x >= bounds.left && hover.x <= bounds.right &&
+              hover.y >= bounds.top && hover.y <= bounds.bottom) {
+            updateGhostAndHoverRef.current(hover.x, hover.y);
+          }
+        }
+        if (propsRef.current.project.settings?.enableReflections !== false) initReflectionsRef.current();
+        requestRenderRef.current();
+      };
+
+      const activateReadyOcclusion = () => {
+        if (!isCurrent() || builtRef.current !== built) return;
+        if (propsRef.current.project.settings?.ambientOcclusion === false) return;
+        const aoGeometry = kitchenOcclusionGeometryKey(project);
+        if (lastAoGeometryRef.current === aoGeometry) {
+          built.activateOcclusion?.();
           requestRenderRef.current();
-          scheduleNextEquipment();
-        }, 40);
-        progressiveTimersRef.current.push(timer);
+        } else {
+          // Keep the existing 5s quiet period for actual geometry edits.
+          schedule(() => {
+            if (!isCurrent() || builtRef.current !== built) return;
+            built.activateOcclusion?.();
+            lastAoGeometryRef.current = aoGeometry;
+            requestRenderRef.current();
+          }, 5000);
+        }
       };
-      // requestAnimationFrame ensures the base kitchen is seen before models
-      // introduce texture creation / WebGL compilation work.
-      requestAnimationFrame(scheduleNextEquipment);
 
-      // One effect per painted frame: cabinet lights, facades, AO, then SSR.
-      // AO is cached by geometric shape only; texture changes reuse density.
-      // On actual layout edits it waits 5 seconds after the LAST rebuild.
-      const aoGeometry = kitchenOcclusionGeometryKey(project);
-      const aoUnchanged = lastAoGeometryRef.current === aoGeometry;
-      if (aoUnchanged && propsRef.current.project.settings?.ambientOcclusion !== false) {
-        built.activateOcclusion?.();
-      }
-      const stageNext = (stage: number) => {
-        const timer = window.setTimeout(() => {
-          if (builtRef.current !== built || sceneRef.current !== scene) return;
-          requestAnimationFrame(() => {
-            const delay = window.setTimeout(() => {
-              if (builtRef.current !== built || sceneRef.current !== scene) return;
-              lightingStageRef.current = stage;
-              built.updateLighting(propsRef.current.project, stage);
-              if (stage === 3 && !aoUnchanged &&
-                propsRef.current.project.settings?.ambientOcclusion !== false) {
-                const aoTimer = window.setTimeout(() => {
-                  if (builtRef.current !== built || sceneRef.current !== scene) return;
-                  built.activateOcclusion?.();
-                  lastAoGeometryRef.current = aoGeometry;
-                  requestRenderRef.current();
-                }, 5000);
-                progressiveTimersRef.current.push(aoTimer);
-              }
-              if (stage === 4 && propsRef.current.project.settings?.enableReflections !== false) initReflectionsRef.current();
-              requestRenderRef.current();
-              if (stage < 4) stageNext(stage + 1);
-            }, 32);
-            progressiveTimersRef.current.push(delay);
-          });
-        }, 0);
-        progressiveTimersRef.current.push(timer);
-      };
-      stageNext(1);
+      // The first launch can progressively paint equipment to get the room
+      // onscreen quickly. All later rebuilds keep the complete OLD room visible
+      // until EVERY model in the new room is ready, then swap once atomically.
+      if (!hadPrevious) commitReadyScene();
+      drainDeferredSceneJobs(
+        built.deferredEquipmentJobs ?? [],
+        schedule,
+        () => isCurrent() && (hadPrevious ? pending === built : builtRef.current === built),
+        () => {
+          if (hadPrevious) commitReadyScene();
+          activateReadyOcclusion();
+        },
+        (error) => logDiagnostic('equipment-build-failed', error),
+        () => { if (!hadPrevious) requestRenderRef.current(); },
+      );
     }, 0);
-    progressiveTimersRef.current.push(buildTimer);
-    // Previous scene is retained through React updates and only replaced after a successful build.
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      releasePending();
+    };
   }, [project, tool]);
 
   // Choosing a handle now previews it on EVERY selected door AND shows interactive
