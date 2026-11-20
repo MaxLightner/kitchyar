@@ -38,6 +38,7 @@ import { fitAppliance, makeFridge, makeHood, makeCooktop, makeSink, makeWashingM
 import {
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
+  expandBasinCutoutOutline,
   normalizeCountertopExtrudeUVs,
 } from './countertopGeometry';
 import { deriveFloorPolygon } from './floorPolygon';
@@ -3134,12 +3135,15 @@ function sinkFootprint(app: ApplianceItem, depth: number, sign: number) {
       }
       outline=local;
     }
+    const gap = .008; // 8 mm of stone clearance on EACH side of the bowl
+    const contour = outline?.map(([px,pz]): [number,number] => [
+      x + px * scale, z + sign * pz * scale,
+    ]);
     return {
-      x:x+bowl.x*scale,z:z+sign*bowl.z*scale,
-      width:bowl.w*scale,length:bowl.d*scale,
-      outline:outline?.map(([px,pz]):[number,number]=>[
-        x+px*scale,z+sign*pz*scale,
-      ]),
+      x: x + bowl.x * scale, z: z + sign * bowl.z * scale,
+      width: bowl.w * scale + gap * 2,
+      length: bowl.d * scale + gap * 2,
+      outline: contour ? expandBasinCutoutOutline(contour, gap) : undefined,
     };
   });
   // Legacy projects remain supported: they now use a new source model.
