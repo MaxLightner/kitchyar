@@ -6,6 +6,7 @@ import {
   computeUnderCabinetLightConfig,
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
+  expandBasinCutoutOutline,
   normalizeCountertopExtrudeUVs,
 } from './countertopGeometry';
 import type { CountertopEdgeProfile } from './types';
@@ -231,4 +232,35 @@ test('computeUnderCabinetLightConfig returns calibrated studio lighting without 
   assert.ok(shortCfg.spotIntensity >= 1.4 && shortCfg.spotIntensity <= 3.5);
   assert.ok(longCfg.spotIntensity >= 1.4 && longCfg.spotIntensity <= 3.5);
   assert.ok(shortCfg.stripRgb[0] < 1.6 && shortCfg.stripRgb[1] < 1.3 && shortCfg.stripRgb[2] < 1.0);
+});
+
+
+test('8mm basin cutout clearance expands rotated and concave outlines without invalid vertices', () => {
+  const rotated: Array<[number,number]> = [
+    [-.12, 0], [0, -.12], [.12, 0], [0, .12],
+  ];
+  const expanded = expandBasinCutoutOutline(rotated, .008);
+  assert.equal(expanded.length, rotated.length);
+  for (let i = 0; i < rotated.length; i++) {
+    const [x,z] = rotated[i];
+    const [ex,ez] = expanded[i];
+    assert.ok(Number.isFinite(ex) && Number.isFinite(ez));
+    assert.ok(Math.hypot(ex, ez) > Math.hypot(x, z));
+    assert.ok(Math.hypot(ex-x,ez-z) < .021);
+  }
+  for (const sign of [1,-1] as const) {
+    const bowl = expanded.map(([x,z]):[number,number] => [
+      0.5 + x, sign * (0.30 + z),
+    ]);
+    const geo = createSinkCountertopGeometry({
+      startX: 0, width: 1, depth: .60, thickness: .03,
+      normalSign: sign, topEdge: 'round', bottomEdge: 'square',
+      bowls: [{x:.5,z:sign*.3,width:.25,length:.25,outline:bowl}],
+    });
+    const position = geo.getAttribute('position');
+    for (let i = 0; i < position.count; i++) {
+      assert.ok(Number.isFinite(position.getX(i)) && Number.isFinite(position.getY(i)) && Number.isFinite(position.getZ(i)));
+    }
+    geo.dispose();
+  }
 });
