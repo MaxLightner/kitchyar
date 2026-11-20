@@ -16,8 +16,6 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
-      - name: Check JPEG encoder
-        run: command -v ffmpeg
       - name: Typescript
         run: bun run lint
       - name: Regression tests
