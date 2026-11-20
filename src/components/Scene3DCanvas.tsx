@@ -79,6 +79,7 @@ import {
   buildHandleMesh,
   buildKitchen3DScene,
   kitchenGeometryKey,
+  kitchenStructuralKey,
   BuiltKitchenScene,
   CM,
   computeSelectionFocusTarget3D,
@@ -415,6 +416,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const controlsRef = useRef<OrbitControls | null>(null);
   const builtRef = useRef<BuiltKitchenScene | null>(null);
   const geometryKeyRef = useRef<string | null>(null);
+  const structuralKeyRef = useRef<string | null>(null);
   const lightingStageRef = useRef(0);
   const progressiveTimersRef = useRef<number[]>([]);
   const lastAoGeometryRef = useRef<string | null>(null);
@@ -3113,6 +3115,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       progressiveTimersRef.current = [];
       initReflectionsRef.current = () => {};
       geometryKeyRef.current = null;
+      structuralKeyRef.current = null;
       lastAoGeometryRef.current = null;
       lightingStageRef.current = 0;
       reflections?.dispose();
@@ -3186,12 +3189,17 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     const scene = sceneRef.current;
     if (!scene) return;
     const geometryKey = kitchenGeometryKey(project) + '|' + tool;
+    const structuralKey = kitchenStructuralKey(project) + '|' + tool;
     const previous = builtRef.current;
-    if (previous && geometryKeyRef.current === geometryKey) {
-      // In-place light/oven/SSR changes must not reconstruct the scene.
+    if (previous && structuralKeyRef.current === structuralKey) {
+      // A model or metal finish change should only touch the corresponding
+      // procedural equipment holder. Do NOT reconstruct the kitchen scene.
+      if (geometryKeyRef.current !== geometryKey) {
+        previous.updateEquipment?.(project);
+        geometryKeyRef.current = geometryKey;
+      }
       previous.updateLighting(project, lightingStageRef.current);
       requestRenderRef.current();
-      if (lightingStageRef.current >= 4 && project.settings?.enableReflections !== false) initReflectionsRef.current();
       return;
     }
 
@@ -3238,6 +3246,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
         scene.add(built.root);
         builtRef.current = built;
         geometryKeyRef.current = geometryKey;
+        structuralKeyRef.current = structuralKey;
         lightingStageRef.current = 4;
         pending = null;
         if (prior) {
