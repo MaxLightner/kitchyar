@@ -28,7 +28,7 @@ import {
 } from './doorRules';
 import { buildDining3D, buildTelevisionSet3D, createDiningMaterials } from './dining3d';
 import { readSurfaceFinish } from './surfaceFinish';
-import { bakeKitchenOcclusion } from './kitchenOcclusion';
+import { bakeKitchenOcclusion, kitchenOcclusionGeometryKey } from './kitchenOcclusion';
 import { addCeilingFillLights, addKitchenLightDecal } from './kitchenLighting';
 import { getCabinetLighting, getKitchenCabinetLightMode } from './cabinetLighting';
 import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
@@ -1257,7 +1257,8 @@ export function buildKitchen3DScene(
   let syncAo: (() => void) | undefined;
   const activateOcclusion = () => {
     if (syncAo || project.settings?.ambientOcclusion === false) return;
-    syncAo = bakeKitchenOcclusion(root, bounds, new Set(animatedDoors.map(part => part.group)));
+    syncAo = bakeKitchenOcclusion(root, bounds,
+      new Set(animatedDoors.map(part => part.group)), kitchenOcclusionGeometryKey(project));
     if (syncAo) root.traverse(node => {
       if (!(node instanceof THREE.Mesh)) return;
       for (const mat of Array.isArray(node.material) ? node.material : [node.material]) {

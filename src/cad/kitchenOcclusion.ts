@@ -1,4 +1,34 @@
 import * as THREE from 'three';
+import type { ProjectState } from './types';
+
+/** Changes to colors, textures, handles and selection never invalidate AO.
+ * Only solid volumes, doors/shelves, placement and room openings do.
+ */
+export function kitchenOcclusionGeometryKey(project: ProjectState): string {
+  return JSON.stringify(project.walls.map(w => ({
+    id:w.id, length:w.length, height:w.height, points:w.points, openings:w.openings,
+    boxes:w.boxes.map(box => ({
+      id:box.id, type:box.type, offsetX:box.offsetX, elevY:box.elevY,
+      width:box.width, height:box.height, depth:box.depth,
+      plinth:box.plinth, countertopCm:box.countertopCm,
+      doors:box.doors.map(door => ({id:door.id,kind:door.kind,startCm:door.startCm,
+        widthCm:door.widthCm,drawerRatios:door.drawerRatios,
+        drawerBand:door.drawerBand,doorStyle:door.doorStyle})),
+      unitDividers:box.unitDividers,
+      shelves:box.shelves.map(sh => ({id:sh.id,depth:sh.depth,height:sh.height,
+        orient:sh.orient,offset:sh.offset})),
+      frames:box.frames?.map(frame=>({id:frame.id,side:frame.side,widthCm:frame.widthCm})),
+    })),
+    appliances:w.appliances.map(a=>({
+      id:a.id,kind:a.kind,offsetX:a.offsetX,width:a.width,
+      elevY:a.elevY,sinkModel:a.sinkModel,gasWidth:a.gasWidth,
+      hoodModel:a.hoodModel,cooktopModel:a.cooktopModel,
+    })),
+  })));
+}
+let lastAOField: { key:string; density:Uint8Array; nx:number; ny:number; nz:number;
+  bounds:THREE.Box3; cell:number } | null = null;
+
 
 const MAX_AXIS_CELLS = 80;
 const MIN_CELL_METERS = 0.055;
@@ -8,6 +38,7 @@ export function bakeKitchenOcclusion(
   root: THREE.Group,
   sceneBounds: THREE.Box3,
   movingParts: Set<THREE.Object3D>,
+  geometryKey?: string,
 ): (() => void) | undefined {
   if (sceneBounds.isEmpty()) return;
   const bounds = sceneBounds.clone().expandByScalar(0.45);
@@ -17,6 +48,13 @@ export function bakeKitchenOcclusion(
   const ny = Math.ceil(span.y / cell);
   const nz = Math.ceil(span.z / cell);
   const density = new Uint8Array(nx * ny * nz);
+  // Match dimensions as well as the geometry key; selection highlights and
+  // material-only changes cannot accidentally reuse a different room's AO.
+  const reuse = geometryKey && lastAOField?.key === geometryKey &&
+    lastAOField.nx === nx && lastAOField.ny === ny && lastAOField.nz === nz &&
+    lastAOField.bounds.min.distanceToSquared(bounds.min) < 1e-8 &&
+    lastAOField.bounds.max.distanceToSquared(bounds.max) < 1e-8;
+  if (reuse && lastAOField) density.set(lastAOField.density);
   const toKitchen = new THREE.Matrix4();
   const materials = new Set<THREE.MeshStandardMaterial>();
 
@@ -36,6 +74,7 @@ export function bakeKitchenOcclusion(
     const meshMaterials = (Array.isArray(node.material) ? node.material : [node.material])
       .filter((material): material is THREE.MeshStandardMaterial => material instanceof THREE.MeshStandardMaterial);
     for (const material of meshMaterials) materials.add(material);
+    if (reuse) return;
     const { kind } = node.userData;
     const floor = kind === 'floor';
     const solid = meshMaterials.some(material => !material.transparent && material.visible);
@@ -66,6 +105,9 @@ export function bakeKitchenOcclusion(
     }
   });
 
+  if (!reuse && geometryKey) lastAOField = {
+    key:geometryKey, density, nx, ny, nz, bounds:bounds.clone(), cell,
+  };
   const volume = new THREE.Data3DTexture(density, nx, ny, nz);
   volume.format = THREE.RedFormat;
   volume.minFilter = volume.magFilter = THREE.LinearFilter;

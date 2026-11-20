@@ -86,6 +86,7 @@ import {
   disposeObject3D,
   HandleSpotOverlaySet,
   Scene3DHitData,
+import { kitchenOcclusionGeometryKey } from '../cad/kitchenOcclusion';
 } from '../cad/scene3dBuilder';
 import {
   ApplianceKind,
@@ -415,6 +416,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
   const geometryKeyRef = useRef<string | null>(null);
   const lightingStageRef = useRef(0);
   const progressiveTimersRef = useRef<number[]>([]);
+  const lastAoGeometryRef = useRef<string | null>(null);
   const initReflectionsRef = useRef<() => void>(() => {});
   const handleSpotsRef = useRef<HandleSpotOverlaySet | null>(null);
   const ghostGroupRef = useRef<THREE.Group | null>(null);
@@ -3110,6 +3112,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
       progressiveTimersRef.current = [];
       initReflectionsRef.current = () => {};
       geometryKeyRef.current = null;
+      lastAoGeometryRef.current = null;
       lightingStageRef.current = 0;
       reflections?.dispose();
       lighting.dispose();
@@ -3245,6 +3248,13 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
     }
 
       // One effect per painted frame: cabinet lights, facades, AO, then SSR.
+      // AO is cached by geometric shape only; texture changes reuse density.
+      // On actual layout edits it waits 5 seconds after the LAST rebuild.
+      const aoGeometry = kitchenOcclusionGeometryKey(project);
+      const aoUnchanged = lastAoGeometryRef.current === aoGeometry;
+      if (aoUnchanged && propsRef.current.project.settings?.ambientOcclusion !== false) {
+        built.activateOcclusion?.();
+      }
       const stageNext = (stage: number) => {
         const timer = window.setTimeout(() => {
           if (builtRef.current !== built || sceneRef.current !== scene) return;
@@ -3253,7 +3263,16 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
               if (builtRef.current !== built || sceneRef.current !== scene) return;
               lightingStageRef.current = stage;
               built.updateLighting(propsRef.current.project, stage);
-              if (stage === 3 && propsRef.current.project.settings?.ambientOcclusion !== false) built.activateOcclusion?.();
+              if (stage === 3 && !aoUnchanged &&
+                propsRef.current.project.settings?.ambientOcclusion !== false) {
+                const aoTimer = window.setTimeout(() => {
+                  if (builtRef.current !== built || sceneRef.current !== scene) return;
+                  built.activateOcclusion?.();
+                  lastAoGeometryRef.current = aoGeometry;
+                  requestRenderRef.current();
+                }, 5000);
+                progressiveTimersRef.current.push(aoTimer);
+              }
               if (stage === 4 && propsRef.current.project.settings?.enableReflections !== false) initReflectionsRef.current();
               requestRenderRef.current();
               if (stage < 4) stageNext(stage + 1);
