@@ -4327,50 +4327,14 @@ export function updateFridgeBoxModelAndSize(
   const targetW = bodyW + (hasFrame ? FRIDGE_FRAME_CM * 2 + 2 : 0);
   const targetH = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
 
-  // Compute uninterrupted horizontal interval around current fridge
-  const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
-  let boundLeft = 0;
-  let boundRight = wall.length;
-
-  for (const z of blocked) {
-    if (z.tier !== 'lower') continue;
-    if (z.endCm <= fridge.offsetX + 1) boundLeft = Math.max(boundLeft, z.endCm);
-    if (z.startCm >= fridge.offsetX + fridge.width - 1) boundRight = Math.min(boundRight, z.startCm);
-  }
-  const fridgeCenter = fridge.offsetX + fridge.width / 2;
-  for (const other of wall.boxes) {
-    if (other.id === fridge.id || other.linkedToBoxId === fridge.id) continue;
-    const isLinkedOver =
-      other.type === 'wall-deep' &&
-      Math.abs(other.offsetX - fridge.offsetX) <= 2 &&
-      Math.abs(other.width - fridge.width) <= 2;
-    if (isLinkedOver) continue;
-    if (!tiersCollideForBoxMove(fridge, other)) continue;
-    const otherCenter = other.offsetX + other.width / 2;
-    if (otherCenter <= fridgeCenter) {
-      boundLeft = Math.max(boundLeft, other.offsetX + other.width);
-    } else {
-      boundRight = Math.min(boundRight, other.offsetX);
-    }
-  }
-  for (const op of wall.openings || []) {
-    if (!(0 < op.elevY + op.height - 1 && targetH > op.elevY + 1)) continue;
-    const opCenter = op.offsetX + op.width / 2;
-    if (opCenter <= fridgeCenter) boundLeft = Math.max(boundLeft, op.offsetX + op.width);
-    else boundRight = Math.min(boundRight, op.offsetX);
-  }
-
-  const maxAvail = +(boundRight - boundLeft).toFixed(1);
-  if (targetW > maxAvail + 0.5) {
-    return {
-      ok: false,
-      message: `فضای آزاد اطراف یخچال (${Math.floor(maxAvail)}cm) برای عرض ${targetW}cm کافی نیست`,
-    };
-  }
-
-  const nextOffsetX = Math.round(
-    Math.max(boundLeft, Math.min(boundRight - targetW, fridge.offsetX))
-  );
+  // Changing the fridge is a model-selection operation, not a placement
+  // rejection. Keep its visual center as stable as the wall allows, and
+  // always resize the frame even when adjacent cabinets occupy that space.
+  // Space optimization is a separate operation initiated by the designer.
+  const preferredOffset = fridge.offsetX + (fridge.width - targetW) / 2;
+  const nextOffsetX = Math.max(0, Math.round(
+    Math.min(Math.max(0, wall.length - targetW), preferredOffset)
+  ));
   const oldStart = fridge.offsetX;
   const oldW = fridge.width;
 
