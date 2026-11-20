@@ -1606,29 +1606,36 @@ function buildBox3D(ctx: {
     const cfg = FRIDGE_MODELS[model];
     const hasFridgeFrame = box.hasFridgeFrame ?? doesFridgeTouchCabinet(wall, box);
     const ff = hasFridgeFrame ? FRIDGE_FRAME_CM * CM : 0;
+    // Regular enclosures are 60 or 80cm deep. The fridge front ALWAYS
+    // protrudes at least 15cm in front of this surround. Concealed fronts
+    // are MDF-finished and flush with the extended surround instead.
+    const frameDepth = box.fridgeConcealed ? bd :
+      (box.fridgeFrameDepthCm === 80 ? 0.80 : 0.60);
 
     if (ff > 0) {
-      const fLeft = new THREE.Mesh(new THREE.BoxGeometry(ff, bh, bd), boxBodyMat);
-      fLeft.position.set(bx + ff / 2, by + bh / 2, normalSign * (bd / 2));
-      const fRight = new THREE.Mesh(new THREE.BoxGeometry(ff, bh, bd), boxBodyMat);
-      fRight.position.set(bx + bw - ff / 2, by + bh / 2, normalSign * (bd / 2));
-      const fTop = new THREE.Mesh(new THREE.BoxGeometry(bw, ff, bd), boxBodyMat);
-      fTop.position.set(bx + bw / 2, by + bh - ff / 2, normalSign * (bd / 2));
+      const fLeft = new THREE.Mesh(new THREE.BoxGeometry(ff, bh, frameDepth), boxBodyMat);
+      fLeft.position.set(bx + ff / 2, by + bh / 2, normalSign * (frameDepth / 2));
+      const fRight = new THREE.Mesh(new THREE.BoxGeometry(ff, bh, frameDepth), boxBodyMat);
+      fRight.position.set(bx + bw - ff / 2, by + bh / 2, normalSign * (frameDepth / 2));
+      const fTop = new THREE.Mesh(new THREE.BoxGeometry(bw, ff, frameDepth), boxBodyMat);
+      fTop.position.set(bx + bw / 2, by + bh - ff / 2, normalSign * (frameDepth / 2));
       fLeft.userData = fRight.userData = fTop.userData = { kind: 'box', wallId: wall.id, boxId: box.id } as Scene3DHitData;
       grp.add(fLeft, fRight, fTop);
       interactables.push(fLeft, fRight, fTop);
     }
 
-    const fW = Math.max(0.4, bw - ff * 2 - 0.016);
+    const fW = Math.max(0.4, bw - ff * 2 - (hasFridgeFrame ? .020 : 0));
     const fH = Math.max(1.2, cfg.height * CM);
     const fD = bd - 0.045;
     if (!box.fridgeConcealed) {
       // Install the ORIGINAL supplied fridge design. None of the former
       // primitive refrigerator bodies/doors are rendered for visible fridges.
       const realFridge = fitAppliance(makeFridge(box.fridgeModel), {
-        w: fW, h: fH, d: Math.max(0.45, fD),
+        w: fW, h: fH, d: Math.max(0.45, bd),
       }, normalSign);
-      realFridge.position.set(bx + bw / 2, by, normalSign * fD);
+      const visualDepth = new THREE.Box3().setFromObject(realFridge).getSize(new THREE.Vector3()).z;
+      realFridge.position.set(bx + bw / 2, by,
+        normalSign * (frameDepth + 0.15 - visualDepth / 2));
       const hitData = { kind: 'box', wallId: wall.id, boxId: box.id } as Scene3DHitData;
       realFridge.traverse(child => {
         if (!(child instanceof THREE.Mesh)) return;

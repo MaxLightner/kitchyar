@@ -2291,7 +2291,7 @@ export const Scene3DCanvas: React.FC<Scene3DCanvasProps> = (props) => {
 
       if (cur.tool === 'fridge') {
         const cfg = FRIDGE_MODELS[cur.fridgeModel];
-        cur.onPlaceFridge(wall.id, hitXCm - (cfg.width + 2 * FRIDGE_FRAME_CM) / 2);
+        cur.onPlaceFridge(wall.id, hitXCm - (cfg.width + 2 * FRIDGE_FRAME_CM + 2) / 2);
         return;
       }
 

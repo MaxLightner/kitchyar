@@ -3128,7 +3128,7 @@ export function placeFridgeOnWall(
   settings?: ProjectSettings
 ): { ok: boolean; fridgeId?: string; carved?: boolean; message: string } {
   const cfg = FRIDGE_MODELS[model];
-  const width = cfg.width + (hasFrame ? FRIDGE_FRAME_CM * 2 : 0);
+  const width = cfg.width + (hasFrame ? FRIDGE_FRAME_CM * 2 + 2 : 0);
   const fridgeTotalHeight = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
   const blocked = getCornerBlockedZonesForWall(wall, allWalls, cornerOwners);
 
@@ -4316,7 +4316,7 @@ export function updateFridgeBoxModelAndSize(
   const hasFrame = nextHasFrame ?? (fridge.hasFridgeFrame ?? true);
   const currentBodyW = Math.max(
     50,
-    fridge.width - (fridge.hasFridgeFrame ? FRIDGE_FRAME_CM * 2 : 0)
+    fridge.width - (fridge.hasFridgeFrame ? FRIDGE_FRAME_CM * 2 + 2 : 0)
   );
   const bodyW =
     nextBodyWidthCm !== undefined
@@ -4324,7 +4324,7 @@ export function updateFridgeBoxModelAndSize(
       : fridge.fridgeModel === nextModel
       ? currentBodyW
       : cfg.width;
-  const targetW = bodyW + (hasFrame ? FRIDGE_FRAME_CM * 2 : 0);
+  const targetW = bodyW + (hasFrame ? FRIDGE_FRAME_CM * 2 + 2 : 0);
   const targetH = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
 
   // Compute uninterrupted horizontal interval around current fridge

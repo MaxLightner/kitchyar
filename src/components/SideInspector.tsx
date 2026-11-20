@@ -258,6 +258,7 @@ interface SideInspectorProps {
   fridgeHasOverCabinet?: boolean;
   onSetFridgeOverCabinet?: (enabled: boolean) => void;
   onSetFridgeOverDepth?: (mode: '60' | 'flush') => void;
+  onSetFridgeFrameDepth?: (cm: 60 | 80) => void;
   onSetFridgeConcealed?: (enabled: boolean) => void;
   onAddUpperCrownAndUnderboard?: () => void;
   countertopCm?: number;
@@ -1900,6 +1901,20 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         <span className="text-slate-700 font-semibold text-[12px]">
                           باکس فریم ۵cm دور یخچال
                         </span>
+                      </label>
+                    )}
+                    {props.onSetFridgeFrameDepth && Boolean(activeBox.hasFridgeFrame) && (
+                      <label className="block text-xs font-semibold">
+                        عمق فریم دور یخچال
+                        <select value={activeBox.fridgeFrameDepthCm ?? 60}
+                          data-testid="fridge-frame-depth"
+                          disabled={Boolean(activeBox.fridgeConcealed)}
+                          onChange={event => props.onSetFridgeFrameDepth?.(Number(event.target.value) as 60|80)}
+                          className="mt-1 w-full h-9 rounded-lg border border-slate-300 px-2">
+                          <option value={60}>۶۰ سانتی‌متر — یخچال حداقل ۱۵cm جلوتر</option>
+                          <option value={80}>۸۰ سانتی‌متر — یخچال حداقل ۱۵cm جلوتر</option>
+                        </select>
+                        {activeBox.fridgeConcealed && <span className="block mt-1 text-slate-500">فریم یخچال مخفی با در MDF هم‌سطح می‌شود</span>}
                       </label>
                     )}
                     {props.onSetFridgeOverCabinet && (

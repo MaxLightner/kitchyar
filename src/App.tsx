@@ -1312,7 +1312,7 @@ export default function App() {
           }))];
         b.height = cfg.height + (hasFrame ? FRIDGE_FRAME_CM : 0);
 
-        const targetW = cfg.width + (hasFrame ? FRIDGE_FRAME_CM * 2 : 0);
+        const targetW = cfg.width + (hasFrame ? FRIDGE_FRAME_CM * 2 + 2 : 0);
         const delta = targetW - b.width;
         const candidateOffsets = [
           Math.max(0, Math.min(w.length - targetW, Math.round((b.offsetX - delta / 2) / 5) * 5)),
@@ -1376,6 +1376,13 @@ export default function App() {
     }, true);
   };
 
+  const handleSetFridgeFrameDepth = (cm: 60 | 80) => {
+    if (!activeBox || activeBox.type !== 'fridge') return;
+    mutateActiveWall(w => {
+      const fridge = w.boxes.find(b => b.id === activeBox.id && b.type === 'fridge');
+      if (fridge) fridge.fridgeFrameDepthCm = cm;
+    }, true);
+  };
   const handleSetFridgeOverDepth = (mode: '60' | 'flush') => {
     if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
     mutateActiveWall(w => {
@@ -3372,6 +3379,7 @@ export default function App() {
               fridgeHasOverCabinet={Boolean(activeBox?.type === 'fridge' && activeWall?.boxes.some(box => box.linkedToBoxId === activeBox.id))}
               onSetFridgeOverCabinet={handleSetFridgeOverCabinet}
               onSetFridgeOverDepth={handleSetFridgeOverDepth}
+              onSetFridgeFrameDepth={handleSetFridgeFrameDepth}
               onSetFridgeConcealed={handleSetFridgeConcealed}
               onAddUpperCrownAndUnderboard={handleAddUpperCrownAndUnderboard}
               countertopCm={project.settings?.countertopCm ?? 3}
