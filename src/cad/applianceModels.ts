@@ -132,6 +132,39 @@ export function makeSink(model?: SinkModelId | string, mats = applianceMaterials
     default: return buildSinkDoubleFlatChrome(mats);
   }
 }
+/**
+ * Tone only metallic meshes belonging to one generated appliance instance.
+ * Do not mutate the shared material library or touch glass/induction surfaces.
+ */
+export function toneApplianceMetal(root: THREE.Object3D, finish: ApplianceFinish): void {
+  const target = new THREE.Color(
+    finish === 'black' ? 0x171b21 : finish === 'white' ? 0xdce0e3 : 0x969da6,
+  );
+  const copies = new Map<THREE.Material, THREE.Material>();
+  const convert = (material: THREE.Material): THREE.Material => {
+    if (!(material instanceof THREE.MeshStandardMaterial) ||
+        material.transparent || material.opacity < 0.96 ||
+        material.metalness < 0.25 || /glass|screen|display/i.test(material.name)) return material;
+    const previous = copies.get(material);
+    if (previous) return previous;
+    const copy = material.clone();
+    const metalBlend = finish === 'black' ? 0.85 : 0.7;
+    copy.color.lerp(target, metalBlend);
+    copy.roughness = Math.max(copy.roughness, finish === 'black' ? 0.44 : 0.38);
+    copy.metalness = Math.max(0.35, Math.min(0.84, copy.metalness));
+    copy.envMapIntensity = Math.min(copy.envMapIntensity, 1.15);
+    copy.userData.applianceInstanceMaterial = true;
+    copies.set(material, copy);
+    return copy;
+  };
+  root.traverse(item => {
+    if (!(item instanceof THREE.Mesh)) return;
+    item.material = Array.isArray(item.material)
+      ? item.material.map(convert)
+      : convert(item.material);
+  });
+}
+
 export function makeWashingMachine(finish: ApplianceFinish = 'silver'): THREE.Group {
   return buildWashingMachine(applianceMaterials(), finish).group;
 }
