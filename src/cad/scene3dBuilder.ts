@@ -215,7 +215,7 @@ export function kitchenGeometryKey(project: ProjectState): string {
  * reflections, or other equipment. Structural size/position edits still rebuild. */
 export function kitchenStructuralKey(project: ProjectState): string {
   return JSON.stringify(project, function (key, value) {
-    if (key === 'equipmentFinish' || key === 'fridgeModel' || key === 'sinkModel' ||
+    if (key === 'equipmentFinish' || key === 'fridgeModel' ||
         key === 'sinkFinish' || key === 'hoodModel' || key === 'hoodFinish' ||
         key === 'cooktopModel') return undefined;
     if (key === 'finish' && this && typeof this === 'object' &&
