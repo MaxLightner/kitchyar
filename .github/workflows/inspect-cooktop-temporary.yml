@@ -1,0 +1,18 @@
+name: Inspect procedural cooktop source (temporary)
+on:
+  push:
+    branches: [fix/cooktop-on-stone-20261120]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node tools/unpack-appliances.mjs
+      - name: Inspect cooktop plate and underside geometry
+        run: |
+          for f in src/three/models/cooktops/*.ts; do
+            echo "===== $f ====="
+            grep -nE 'BoxGeometry|CylinderGeometry|position|group.add|return|base|plate|glass|frame|under|burner|surface' "$f" | head -150 || true
+          done
