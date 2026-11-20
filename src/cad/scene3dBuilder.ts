@@ -1894,6 +1894,7 @@ function buildBox3D(ctx: {
       z: normalSign * (bd / 2 + 0.015),
       width: Math.max(.12, app.width * CM - .095),
       length: Math.max(.16, Math.min(.41, bd - .14)),
+      outline: undefined,
     })) : [];
   const countertopCutouts = [...sinkBowls, ...hobCutouts];
 
