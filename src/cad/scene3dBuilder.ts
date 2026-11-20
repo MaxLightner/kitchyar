@@ -3316,7 +3316,7 @@ function buildAppliance3D(
   if (app.kind === 'sink') {
     const { layout, scale, x, z } = sinkModelPlacement(app, boxDepthCm * CM, normalSign);
     const model = makeSink(app.sinkModel);
-    toneApplianceMetal(model, app.sinkFinish ?? defaultEquipmentFinish);
+    toneApplianceMetal(model, app.sinkFinish ?? defaultEquipmentFinish, true);
     // The model's deck is made at local y=0 and the basins extend below it;
     // align this exactly with the countertop's perforated top.
     model.scale.set(scale, scale, normalSign * scale);
