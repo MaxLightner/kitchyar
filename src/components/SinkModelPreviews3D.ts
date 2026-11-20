@@ -28,7 +28,7 @@ function localWrite(id:SinkModel,jpeg:string) {
 function idlePause():Promise<void> {
   return new Promise(resolve => {
     if ('requestIdleCallback' in window) window.requestIdleCallback(() => resolve(), {timeout:400});
-    else window.setTimeout(resolve,24);
+    else setTimeout(resolve,24);
   });
 }
 async function generatePreviews() {
