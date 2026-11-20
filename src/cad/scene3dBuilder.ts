@@ -1887,15 +1887,19 @@ function buildBox3D(ctx: {
   // the stone surface and only the central installation cavity is cut away.
   // Do not remove the narrow stone support around the outer hob rim.
   const hobCutouts: SinkBowl[] = box.type === 'base' ? wall.appliances
-    .filter(app => app.kind === 'gas' && app.offsetX >= box.offsetX - 0.1 &&
-      app.offsetX + app.width <= box.offsetX + box.width + 0.1)
-    .map(app => ({
-      x: (app.offsetX + app.width / 2) * CM,
-      z: normalSign * (bd / 2 + 0.015),
-      width: Math.max(.12, app.width * CM - .095),
-      length: Math.max(.16, Math.min(.41, bd - .14)),
-      outline: undefined,
-    })) : [];
+    .filter(app => app.kind === 'gas' && app.offsetX + app.width > box.offsetX &&
+      app.offsetX < box.offsetX + box.width)
+    .map(app => {
+      const fiveBurners = isFiveBurnerCooktop(app.cooktopModel);
+      const mountedWidth = fiveBurners ? .90 : app.width * CM;
+      return {
+        x: (app.offsetX + app.width / 2) * CM,
+        z: normalSign * bd * .5,
+        width: Math.max(.12, mountedWidth - .095),
+        length: Math.max(.16, Math.min(.43, bd - .14)),
+        outline: undefined,
+      };
+    }) : [];
   const countertopCutouts = [...sinkBowls, ...hobCutouts];
 
   for (const sp of solidHorizSpans) {
@@ -3176,6 +3180,12 @@ function sinkSlabGeometry(x: number, z: number, width: number, length: number,
   return new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 8 }).rotateX(-Math.PI / 2);
 }
 
+/** Five-burner source models have a fixed physical 90cm cooking surface. */
+function isFiveBurnerCooktop(model?: string): boolean {
+  return !model || model === 'hob-glass-5' ||
+    model === 'hob-steel-5-right' || model === 'hob-steel-5-center';
+}
+
 function buildAppliance3D(
   wall: Wall,
   app: ApplianceItem,
@@ -3237,19 +3247,25 @@ function buildAppliance3D(
 
   if (app.kind === 'gas') {
     const hoodParts: THREE.Object3D[] = [];
-    const cookW = Math.max(0.26, aw - 0.06);
-    const cookD = Math.min(0.52, boxDepthCm * CM - 0.06);
+    // Use real source-model widths: 5 burners = 90cm. Previously the
+    // placement subtracted 6cm and a 9cm height cap reduced the entire model.
+    const cookW = isFiveBurnerCooktop(app.cooktopModel) ? .90 : aw;
+    const cookD = Math.min(0.55, Math.max(0.38, boxDepthCm * CM - 0.04));
     const hob = makeCooktop(app.cooktopModel);
     const cooktop = fitAppliance(hob.group, {
-      w: cookW, h: 0.090, d: Math.max(0.24, cookD),
+      w: cookW, h: 100, d: 100, // width-led, never shrink X to satisfy a Y/Z cap
     }, normalSign, 'floor');
+    const sourceHobDepth = new THREE.Box3().setFromObject(cooktop).getSize(new THREE.Vector3()).z;
+    cooktop.scale.z *= cookD / Math.max(.001, sourceHobDepth);
     // Hob sheet is seated into the countertop, not floating above it.
     // Its front edge faces the room rather than being placed inside the wall.
     const cooktopDepth = new THREE.Box3().setFromObject(cooktop).getSize(new THREE.Vector3()).z;
     // Model's CENTER is half its own visual depth away from the room-facing
     // countertop edge; never put the center at 57cm (20cm overhang).
-    const cooktopZ = normalSign * (boxDepthCm * CM - 0.015 - cooktopDepth / 2);
-    cooktop.position.set(ax, topY - 0.012, cooktopZ);
+    const cooktopZ = normalSign * (boxDepthCm * CM - 0.01 - cooktopDepth / 2);
+    // The glass/steel plate rests directly on the stone; its mounting cavity
+    // is cut out from the slab rather than leaving stone inside the burner.
+    cooktop.position.set(ax, topY + .001, cooktopZ);
     hob.setLit(Boolean(app.flameOn));
     cooktopControls.push({ id: app.id, setLit: hob.setLit });
     cooktop.traverse(child => {
@@ -3279,7 +3295,7 @@ function buildAppliance3D(
     let hoodOutlineZ = normalSign * (hoodD / 2);
 
     if (effKind !== 'chimney') {
-      const hiddenHood = new THREE.Mesh(new THREE.BoxGeometry(aw * 0.85, 0.04, 0.28), hoodMat);
+      const hiddenHood = new THREE.Mesh(new THREE.BoxGeometry(Math.max(aw, cookW), 0.04, 0.28), hoodMat);
       hiddenHood.position.set(ax, 1.48, normalSign * 0.16);
       hoodParts.push(hiddenHood);
       hoodOutlineCenterY = 1.48;
@@ -3287,9 +3303,8 @@ function buildAppliance3D(
       hoodOutlineZ = normalSign * 0.16;
     } else {
       const model = fitAppliance(makeHood(app.hoodModel), {
-        w: Math.max(0.55, aw),
-        h: Math.max(0.3, Math.min(0.8, hoodTop - hoodY + 0.06)),
-        d: hoodD,
+        w: Math.max(0.55, cookW, aw),
+        h: 100, d: 100, // retain actual width, not the old 42cm depth scale cap
       }, normalSign);
       // The wall-facing rear surface of every source hood must touch Z=0.
       // fitAppliance centers the source model, so placing its origin at the
