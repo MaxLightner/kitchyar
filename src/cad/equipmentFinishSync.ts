@@ -1,4 +1,5 @@
 import type { ApplianceItem, CooktopModel, EquipmentFinish, FridgeModel, ProjectState } from './types';
+import { DEFAULT_PROJECT_SETTINGS } from './constants';
 
 export function fridgeModelFinish(model?: FridgeModel): EquipmentFinish {
   if (model === 'fridge-instaview-black') return 'black';
@@ -28,7 +29,7 @@ export function hoodForFinish(current: ApplianceItem['hoodModel'], finish: Equip
 export function syncEquipmentFinishes(project: ProjectState, finish: EquipmentFinish): ProjectState {
   const next: ProjectState = structuredClone(project);
   const metallicFinish: EquipmentFinish = finish === 'white' ? 'silver' : finish;
-  next.settings = { ...next.settings, equipmentFinish: finish };
+  next.settings = { ...DEFAULT_PROJECT_SETTINGS, ...next.settings, equipmentFinish: finish };
   for (const wall of next.walls) for (const app of wall.appliances) {
     if (app.kind === 'washing' || app.kind === 'dishwasher') app.finish = finish;
     if (app.kind === 'sink') app.sinkFinish = metallicFinish;
