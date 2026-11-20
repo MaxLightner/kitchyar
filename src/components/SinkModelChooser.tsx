@@ -1,4 +1,4 @@
-import React, { useId } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { SINK_MODELS, SINK_MODEL_ORDER } from '../cad/constants';
 import type { SinkModel } from '../cad/types';
 
@@ -64,6 +64,21 @@ export function SinkModelThumb({ model }: {model: SinkModel}) {
 }
 
 export function SinkModelChooser({value,onChange}:{value:SinkModel;onChange:(id:SinkModel)=>void}) {
+  const [realJpegs, setRealJpegs] = useState<Record<string,string>>({});
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe = () => {};
+    // This module is loaded ONLY on opening the sink picker. Rendering 3D
+    // thumbnails one by one at idle prevents adding 11 absent sink models to
+    // the main 3D scene or starting a second 3D renderer at app startup.
+    void import('./SinkModelPreviews3D').then(mod => {
+      if (disposed) return;
+      unsubscribe = mod.subscribeSinkPreviews((model,jpeg) => {
+        if (!disposed) setRealJpegs(prev => ({ ...prev, [model]:jpeg }));
+      });
+    }).catch(() => { /* Keep deterministic SVG preview as WebGL fallback */ });
+    return () => { disposed = true; unsubscribe(); };
+  }, []);
   return (
     <div className="grid grid-cols-3 gap-2" data-testid="sink-model-chooser">
       {SINK_MODEL_ORDER.map(model => (
@@ -72,7 +87,12 @@ export function SinkModelChooser({value,onChange}:{value:SinkModel;onChange:(id:
           onClick={()=>onChange(model)} className="min-w-0 overflow-hidden rounded-lg border-2 border-slate-200 bg-white
             aria-pressed:border-teal-600 aria-pressed:ring-1 aria-pressed:ring-teal-400">
           <div className="aspect-square w-full overflow-hidden">
-            <SinkModelThumb model={model}/>
+            {realJpegs[model] ? (
+              <img src={realJpegs[model]} alt={SINK_MODELS[model].label}
+                width={250} height={250} decoding="async"
+                className="h-full w-full object-contain" />
+            ) : <SinkModelThumb model={model}/>}
+
           </div>
           <span className="block min-h-8 px-1 py-1 text-[10px] font-bold text-slate-700 leading-3">
             {SINK_MODELS[model].shortLabel}
