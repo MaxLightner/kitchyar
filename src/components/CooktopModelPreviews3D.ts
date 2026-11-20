@@ -17,7 +17,7 @@ const cacheKey = (id: CooktopModel) => 'kitchyar-cooktop-250-v1:' + id;
 function pauseUntilIdle(): Promise<void> {
   return new Promise(resolve => {
     if ('requestIdleCallback' in window) window.requestIdleCallback(() => resolve(), { timeout: 400 });
-    else window.setTimeout(resolve, 25);
+    else setTimeout(resolve, 25);
   });
 }
 function publish(id: CooktopModel, jpeg: string) {
