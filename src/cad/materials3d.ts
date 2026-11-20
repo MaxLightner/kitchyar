@@ -392,7 +392,7 @@ function createCountertopTexture(finishId: CountertopFinishId): THREE.CanvasText
 type CabinetAppearance = Pick<CabinetBox, 'color' | 'texture' | 'reflection' | 'roughness'>;
 
 const WOOD_MAP: Partial<Record<CabinetTextureId, string>> = {
-  oak: 'cabinet-oak.webp', walnut: 'cabinet-walnut.webp',
+  oak: 'cabinet-oak.jpg', walnut: 'cabinet-walnut.jpg',
 };
 
 function createSatinMap(): THREE.CanvasTexture {
