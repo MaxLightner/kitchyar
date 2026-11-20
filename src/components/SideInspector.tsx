@@ -2,6 +2,7 @@ import type { CabinetLighting, CabinetLightMode, ProjectSettings } from '../cad/
 import { SurfaceFinishControls, type SurfaceFinishPatch } from './SurfaceFinishControls';
 import { getCabinetLighting } from '../cad/cabinetLighting';
 import { APPLIANCE_CATALOG } from '../hoods/catalog';
+import { SinkModelChooser } from './SinkModelChooser';
 import type { CabinetTextureId } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useState } from 'react';
@@ -1012,25 +1013,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
 
                 {activeTool === 'sink' && (
                   <section className="space-y-1.5">
-                    <h3 className="text-[13px] font-extrabold text-teal-700">مدل سینک</h3>
-                    {SINK_MODEL_ORDER.map((m) => {
-                      const cfg = SINK_MODELS[m];
-                      return (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => props.onSetSinkModel(m)}
-                          className={`w-full h-9 px-2.5 rounded-lg border text-right text-[13px] font-bold flex items-center justify-between ${
-                            props.sinkModel === m
-                              ? 'bg-teal-50 border-teal-600 text-teal-800'
-                              : 'bg-white border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          <span>{cfg.shortLabel}</span>
-                          <span className="text-[13px] tabular-nums opacity-80">{cfg.width} cm</span>
-                        </button>
-                      );
-                    })}
+                    <h3 className="text-[13px] font-extrabold text-teal-700">انتخاب مدل سینک</h3>
+                    <SinkModelChooser value={props.sinkModel} onChange={props.onSetSinkModel} />
                   </section>
                 )}
 
@@ -1804,24 +1788,14 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                          چراغ داخل فر
                        </label>
                      )}
-                     {props.selectedAppliance.kind === 'sink' &&
+                    {props.selectedAppliance.kind === 'sink' &&
                       props.onChangeSelectedApplianceSinkModel && (
-                        <div className="grid grid-cols-2 gap-1">
-                          {SINK_MODEL_ORDER.map((m) => (
-                            <button
-                              key={m}
-                              type="button"
-                              onClick={() => props.onChangeSelectedApplianceSinkModel!(m)}
-                              className={`h-7 px-1.5 rounded border text-[13px] font-bold truncate ${
-                                (props.selectedAppliance?.sinkModel || 'steel-2') === m
-                                  ? 'bg-teal-50 border-teal-600 text-teal-800'
-                                  : 'bg-white border-slate-200 text-slate-700'
-                              }`}
-                            >
-                              {SINK_MODELS[m].shortLabel}
-                            </button>
-                          ))}
-                        </div>
+                        <section className="space-y-1.5">
+                          <h4 className="text-xs font-bold">تعویض مدل سینک انتخاب‌شده</h4>
+                          <SinkModelChooser
+                            value={props.selectedAppliance.sinkModel ?? 'sink-double-flat-chrome'}
+                            onChange={props.onChangeSelectedApplianceSinkModel} />
+                        </section>
                       )}
                     {props.selectedAppliance.kind === 'gas' && props.selectedAppliancePart !== 'hood' &&
                       props.onSetSelectedCooktopModel && (
