@@ -1639,7 +1639,7 @@ function buildBox3D(ctx: {
 
     const fW = Math.max(0.4, bw - ff * 2 - (hasFridgeFrame ? .020 : 0));
     const fH = Math.max(1.2, cfg.height * CM);
-    const fD = bd - 0.045;
+    const fD = box.fridgeConcealed ? frameDepth - 0.042 : bd - 0.045;
     if (!box.fridgeConcealed) {
       // Install the ORIGINAL supplied fridge design. None of the former
       // primitive refrigerator bodies/doors are rendered for visible fridges.
@@ -1668,7 +1668,8 @@ function buildBox3D(ctx: {
     }
     const doorThick = 0.036;
     const cx = bx + bw / 2;
-    const frontDoorZ = normalSign * (fD + doorThick / 2);
+    // Concealed MDF front must be flush with the full-depth surround.
+    const frontDoorZ = normalSign * (frameDepth - doorThick / 2);
 
     const matBrushedInox = box.fridgeConcealed
       ? matPack.getDoorMaterial(boxFinish, 'flat', true, false, box)
@@ -3228,7 +3229,11 @@ function buildAppliance3D(
     }, normalSign, 'floor');
     // Hob sheet is seated into the countertop, not floating above it.
     // Its front edge faces the room rather than being placed inside the wall.
-    cooktop.position.set(ax, topY - 0.012, normalSign * (boxDepthCm * CM - .028));
+    const cooktopDepth = new THREE.Box3().setFromObject(cooktop).getSize(new THREE.Vector3()).z;
+    // Model's CENTER is half its own visual depth away from the room-facing
+    // countertop edge; never put the center at 57cm (20cm overhang).
+    const cooktopZ = normalSign * (boxDepthCm * CM - 0.015 - cooktopDepth / 2);
+    cooktop.position.set(ax, topY - 0.012, cooktopZ);
     hob.setLit(Boolean(app.flameOn));
     cooktopControls.push({ id: app.id, setLit: hob.setLit });
     cooktop.traverse(child => {
@@ -3288,7 +3293,7 @@ function buildAppliance3D(
       if (selectedSubPart === 'hood') {
         addOutlineHighlight(grp, aw, hoodOutlineH, hoodD, ax, hoodOutlineCenterY, hoodOutlineZ);
       } else {
-        addOutlineHighlight(grp, aw, 0.15, cookD, ax, topY + 0.05, cz);
+        addOutlineHighlight(grp, aw, 0.15, cookD, ax, topY + 0.05, cooktopZ);
       }
     }
     return grp;

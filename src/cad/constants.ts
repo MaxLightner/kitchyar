@@ -377,7 +377,7 @@ export const FRIDGE_MODELS: Record<FridgeModel, FridgeModelConfig> = {
   'fridge-twin-steel': { id: 'fridge-twin-steel', label: 'یخچال فریزر دوقلو استیل', shortLabel: 'دوقلو استیل', width: 110, depth: 70, height: 185, sizeOptions: [110,115,120] },
   'fridge-combi-white': { id: 'fridge-combi-white', label: 'کمبی فریزر پایین سفید', shortLabel: 'کمبی سفید', width: 70, depth: 68, height: 185, sizeOptions: [65,70,75] },
   'fridge-instaview-black': { id: 'fridge-instaview-black', label: 'اینستاویو مشکی چهار در', shortLabel: 'اینستاویو', width: 95, depth: 74, height: 185, sizeOptions: [90,95,100] },
-  'fridge-topfreezer-steel': { id: 'fridge-topfreezer-steel', label: 'فریزر بالا استیل', shortLabel: 'فریزر بالا', width: 70, depth: 70, height: 185, sizeOptions: [65,70,75] },
+  'fridge-topfreezer-steel': { id: 'fridge-topfreezer-steel', label: 'فریزر بالا استیل', shortLabel: 'فریزر بالا', width: 85, depth: 70, height: 170, sizeOptions: [80,85,90] },
   'fridge-french-4drawer': { id: 'fridge-french-4drawer', label: 'فرنچ دور چهار تکه استیل', shortLabel: 'فرنچ چهاردر', width: 96, depth: 74, height: 185, sizeOptions: [90,96,100] },
 };
 

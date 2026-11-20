@@ -1372,7 +1372,12 @@ export default function App() {
     if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
     mutateActiveWall(w => {
       const fridge = w.boxes.find(box => box.id === activeBox.id && box.type === 'fridge');
-      if (fridge) fridge.fridgeConcealed = enabled;
+      if (fridge) {
+        const sideBySide = ['fridge-sbs-homebar', 'fridge-instaview-black',
+          'fridge-french-4drawer', 'side-by-side'].includes(fridge.fridgeModel ?? '');
+        // Only side-by-side models may use the MDF concealed surround.
+        fridge.fridgeConcealed = enabled && sideBySide;
+      }
     }, true);
   };
 
@@ -1444,6 +1449,11 @@ export default function App() {
     const change = updateFridgeBoxModelAndSize(w, next.walls, next.cornerOwners ?? {},
       activeBox.id, model);
     if (!change.ok) return showToast(change.message);
+    const updated = w.boxes.find(box => box.id === activeBox.id && box.type === 'fridge');
+    if (updated && !['fridge-sbs-homebar','fridge-instaview-black',
+        'fridge-french-4drawer','side-by-side'].includes(model)) {
+      updated.fridgeConcealed = false;
+    }
     commitState(next, true);
     showToast('مدل یخچال انتخاب‌شده تغییر کرد');
   };

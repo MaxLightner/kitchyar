@@ -1900,6 +1900,8 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                       <label className="flex items-center gap-2 cursor-pointer select-none">
                         <input type="checkbox" data-testid="fridge-concealed"
                           checked={Boolean(activeBox.fridgeConcealed)}
+                          disabled={!['fridge-sbs-homebar','fridge-instaview-black',
+                            'fridge-french-4drawer','side-by-side'].includes(activeBox.fridgeModel ?? '')}
                           onChange={event=>props.onSetFridgeConcealed?.(event.target.checked)} />
                         <span className="text-[12px] font-semibold">یخچال مخفی با درب همرنگ کابینت</span>
                       </label>
