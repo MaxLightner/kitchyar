@@ -3,6 +3,7 @@ import { SurfaceFinishControls, type SurfaceFinishPatch } from './SurfaceFinishC
 import { getCabinetLighting } from '../cad/cabinetLighting';
 import { APPLIANCE_CATALOG } from '../hoods/catalog';
 import { SinkModelChooser } from './SinkModelChooser';
+import { FridgeModelChooser } from './FridgeModelChooser';
 import type { CabinetTextureId } from '../cad/types';
 import { HANDLE_STYLES } from '../cad/handleGeometry';
 import React, { useState } from 'react';
@@ -940,26 +941,7 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                 {activeTool === 'fridge' && (
                   <section className="space-y-2">
                     <h3 className="text-[13px] font-extrabold text-slate-500">مدل یخچال</h3>
-                    {FRIDGE_MODEL_ORDER.map((m) => {
-                      const cfg = FRIDGE_MODELS[m];
-                      return (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => props.onSetFridgeModel(m)}
-                          className={`w-full h-9 px-2.5 rounded-lg border text-right text-[13px] font-bold flex items-center justify-between ${
-                            props.fridgeModel === m
-                              ? 'bg-indigo-50 border-indigo-600 text-indigo-700'
-                              : 'bg-white border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          <span>{cfg.shortLabel}</span>
-                          <span className="text-[13px] tabular-nums opacity-80">
-                            {cfg.width}×{cfg.depth}
-                          </span>
-                        </button>
-                      );
-                    })}
+                    <FridgeModelChooser value={props.fridgeModel} onChange={props.onSetFridgeModel} />
                     <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
                       <input
                         type="checkbox"
@@ -1849,6 +1831,11 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                         className="w-full h-9 rounded-lg border border-slate-300 px-2 text-xs">
                         {FRIDGE_MODEL_ORDER.map(m=><option key={m} value={m}>{FRIDGE_MODELS[m].label}</option>)}
                       </select>
+                    )}
+                    {props.onChangeSelectedFridgeModel && (
+                      <FridgeModelChooser
+                        value={activeBox.fridgeModel ?? 'fridge-sbs-homebar'}
+                        onChange={props.onChangeSelectedFridgeModel} />
                     )}
                     {props.onToggleSelectedFridgeFrame && (
                       <label className="flex items-center gap-2 cursor-pointer select-none">
