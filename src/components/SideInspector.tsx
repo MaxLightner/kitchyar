@@ -850,125 +850,85 @@ export const SideInspector: React.FC<SideInspectorProps> = (props) => {
                 )}
 
                 {activeTool === 'finish' && (
-                  <section className="space-y-3">
+                  <section className="space-y-3" data-testid="unified-finish-thumbnails">
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[13px] font-extrabold text-indigo-700">رنگ و روکش کابینت</span>
-                        <span className="text-[13px] font-bold text-slate-500">
-                          {CABINET_FINISHES[props.cabinetFinishBrush].shortLabel}
-                        </span>
-                      </div>
+                      <h3 className="mb-1 text-[13px] font-bold text-indigo-700">رنگ و روکش کابینت</h3>
                       <div className="grid grid-cols-4 gap-1.5">
-                        {CABINET_FINISH_ORDER.map((fid) => {
-                          const cfg = CABINET_FINISHES[fid];
-                          const active = props.cabinetFinishBrush === fid;
+                        {CABINET_FINISH_ORDER.map(fid => {
+                          const cfg=CABINET_FINISHES[fid];
+                          const active=props.cabinetFinishBrush===fid;
                           return (
-                            <button
-                              key={fid}
-                              type="button"
-                              onClick={() => props.onSetCabinetFinishBrush(fid)}
-                              title={cfg.label}
-                              aria-label={`رنگ ${cfg.label}`}
-                              aria-pressed={active}
-                              className={`h-8 rounded-lg border-2 flex items-center justify-center transition ${
-                                active ? 'border-indigo-600 ring-2 ring-indigo-200 scale-105' : 'border-slate-300'
-                              }`}
-                              style={{
-                                background: `linear-gradient(180deg, ${cfg.hex} 0%, ${cfg.hexDark} 100%)`,
-                              }}
-                            >
-                              {active && (
-                                <span className="w-2 h-2 rounded-full bg-indigo-600 ring-2 ring-white" />
-                              )}
+                            <button type="button" key={fid} title={cfg.label}
+                              aria-label={`رنگ ${cfg.label}`} aria-pressed={active}
+                              onClick={()=>props.onSetCabinetFinishBrush(fid)}
+                              className={`min-w-0 overflow-hidden rounded border-2 bg-white
+                                ${active?'border-indigo-600 ring-1 ring-indigo-200':'border-slate-200'}`}>
+                              <span className="block w-full aspect-square"
+                                style={{background:`linear-gradient(155deg,${cfg.hex},${cfg.hexDark})`}}/>
+                              <span className="flex h-8 items-center justify-center px-0.5 text-[10px] font-bold leading-3 text-slate-700">
+                                {cfg.shortLabel}
+                              </span>
                             </button>
                           );
                         })}
                       </div>
                       <div className="grid grid-cols-2 gap-1.5 mt-2">
-                        <button
-                          type="button"
-                          onClick={() => props.onApplyFinish('box', activeWall?.id, activeBox?.id)}
-                          disabled={!activeBox}
-                          className="h-8 rounded-lg border border-indigo-300 bg-indigo-50 disabled:opacity-40 text-indigo-800 text-[13px] font-bold"
-                        >
+                        <button type="button" disabled={!activeBox}
+                          onClick={()=>props.onApplyFinish('box',activeWall?.id,activeBox?.id)}
+                          className="h-8 rounded border border-indigo-300 bg-indigo-50 text-indigo-800 text-xs font-bold disabled:opacity-40">
                           رنگ باکس فعال
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => props.onApplyFinish('all-cabinets')}
-                          className="h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-bold"
-                        >
+                        <button type="button" onClick={()=>props.onApplyFinish('all-cabinets')}
+                          className="h-8 rounded bg-indigo-600 text-white text-xs font-bold">
                           کل آشپزخانه
                         </button>
                       </div>
                     </div>
-
-                    <div className="pt-2 border-t border-slate-100">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[13px] font-extrabold text-teal-700">کاشی بین کابینتی</span>
-                        <span className="text-[13px] font-bold text-slate-500">
-                          {BACKSPLASH_FINISHES[props.backsplashBrush].shortLabel}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1">
-                        {BACKSPLASH_FINISH_ORDER.map((bid) => {
-                          const cfg = BACKSPLASH_FINISHES[bid];
-                          const active = props.backsplashBrush === bid;
+                    <div className="border-t border-slate-100 pt-2">
+                      <h3 className="mb-1 text-[13px] font-bold text-teal-700">کاشی بین کابینتی</h3>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {BACKSPLASH_FINISH_ORDER.map(bid=>{
+                          const cfg=BACKSPLASH_FINISHES[bid];
+                          const active=props.backsplashBrush===bid;
                           return (
-                            <button
-                              key={bid}
-                              type="button"
-                              onClick={() => {
+                            <button type="button" key={bid} title={cfg.label}
+                              aria-label={`بین‌کابینتی ${cfg.label}`} aria-pressed={active}
+                              onClick={()=>{
                                 props.onSetBacksplashBrush(bid);
-                                props.onApplyFinish('backsplash', undefined, undefined, bid);
+                                props.onApplyFinish('backsplash',undefined,undefined,bid);
                               }}
-                              className={`h-8 px-1.5 rounded-lg border text-[13px] font-bold flex items-center gap-1 ${
-                                active
-                                  ? 'border-teal-600 bg-teal-50 text-teal-900'
-                                  : 'border-slate-200 bg-white text-slate-700'
-                              }`}
-                            >
-                              <span
-                                className="w-3.5 h-3.5 rounded border border-slate-400 shrink-0"
-                                style={{ backgroundColor: cfg.baseHex }}
-                              />
-                              <span className="truncate">{cfg.shortLabel}</span>
+                              className={`min-w-0 overflow-hidden rounded border-2 bg-white
+                                ${active?'border-teal-600 ring-1 ring-teal-200':'border-slate-200'}`}>
+                              <span className="block aspect-square w-full"
+                                style={{backgroundColor:cfg.baseHex}}/>
+                              <span className="flex h-8 items-center justify-center px-0.5 text-[10px] font-bold leading-3 text-slate-700">
+                                {cfg.shortLabel}
+                              </span>
                             </button>
                           );
                         })}
                       </div>
                     </div>
-
-                    <div className="pt-2 border-t border-slate-100">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[13px] font-extrabold text-slate-700">صفحه روی کابینت</span>
-                        <span className="text-[13px] font-bold text-slate-500">
-                          {COUNTERTOP_FINISHES[props.countertopBrush].shortLabel}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-1">
-                        {COUNTERTOP_FINISH_ORDER.map((cid) => {
-                          const cfg = COUNTERTOP_FINISHES[cid];
-                          const active = props.countertopBrush === cid;
+                    <div className="border-t border-slate-100 pt-2">
+                      <h3 className="mb-1 text-[13px] font-bold text-slate-700">صفحه روی کابینت</h3>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {COUNTERTOP_FINISH_ORDER.map(cid=>{
+                          const cfg=COUNTERTOP_FINISHES[cid];
+                          const active=props.countertopBrush===cid;
                           return (
-                            <button
-                              key={cid}
-                              type="button"
-                              onClick={() => {
+                            <button type="button" key={cid} title={cfg.label}
+                              aria-label={`صفحه ${cfg.label}`} aria-pressed={active}
+                              onClick={()=>{
                                 props.onSetCountertopBrush(cid);
-                                props.onApplyFinish('countertop', undefined, undefined, cid);
+                                props.onApplyFinish('countertop',undefined,undefined,cid);
                               }}
-                              className={`h-8 px-2 rounded-lg border text-[13px] font-bold flex items-center gap-1.5 ${
-                                active
-                                  ? 'border-indigo-600 bg-indigo-50 text-indigo-800'
-                                  : 'border-slate-200 bg-white text-slate-700'
-                              }`}
-                            >
-                              <span
-                                className="w-3.5 h-3.5 rounded border border-slate-400 shrink-0"
-                                style={{ backgroundColor: cfg.hex }}
-                              />
-                              <span className="truncate">{cfg.shortLabel}</span>
+                              className={`min-w-0 overflow-hidden rounded border-2 bg-white
+                                ${active?'border-indigo-600 ring-1 ring-indigo-200':'border-slate-200'}`}>
+                              <span className="block aspect-square w-full"
+                                style={{backgroundColor:cfg.hex}}/>
+                              <span className="flex h-8 items-center justify-center px-0.5 text-[10px] font-bold leading-3 text-slate-700">
+                                {cfg.shortLabel}
+                              </span>
                             </button>
                           );
                         })}
