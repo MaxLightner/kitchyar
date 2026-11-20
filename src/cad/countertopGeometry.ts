@@ -448,12 +448,31 @@ export function createSinkCountertopGeometry(params: SinkCountertopParams): THRE
     const bl = Math.min(b.length, Math.max(0.04, splitZ - 0.02));
     const halfL = bl / 2;
     const clampedAbsZ = Math.max(halfL + 0.008, Math.min(splitZ - halfL - 0.004, absCz));
-    // For diagonal corner basins preserve the exact rotated contour, not an
-    // oversized axis-aligned rectangle. Clamp only if the cabinet is too small.
-    const outline = b.outline?.map(([px,pz]): [number,number] => [
-      Math.max(startX + .007, Math.min(startX + width - .007, px)),
-      normalSign * Math.max(.007, Math.min(splitZ - .007, Math.abs(pz))),
-    ]);
+    // Preserve the topology of diagonal basin polygons. Clamping each vertex
+    // independently caused coincident points, broken triangulation and thin
+    // shredded triangles near the front strip. Translate and (only when
+    // needed) uniformly shrink the entire outline to fit the stone instead.
+    let outline: Array<[number, number]> | undefined;
+    if (b.outline?.length) {
+      const xs = b.outline.map(([x]) => x);
+      const zs = b.outline.map(([,z]) => Math.abs(z));
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+      const cx0 = (minX + maxX) / 2, cz0 = (minZ + maxZ) / 2;
+      const fit = Math.min(1,
+        Math.max(.001, width - .014) / Math.max(.001, maxX - minX),
+        Math.max(.001, splitZ - .014) / Math.max(.001, maxZ - minZ));
+      const halfW = (maxX - minX) * fit / 2;
+      const halfD = (maxZ - minZ) * fit / 2;
+      const cx = Math.max(startX + .007 + halfW,
+        Math.min(startX + width - .007 - halfW, cx0));
+      const cz = Math.max(.007 + halfD,
+        Math.min(splitZ - .007 - halfD, cz0));
+      outline = b.outline.map(([x,z]): [number,number] => [
+        cx + (x - cx0) * fit,
+        normalSign * (cz + (Math.abs(z) - cz0) * fit),
+      ]);
+    }
     return { x: cx, z: normalSign * clampedAbsZ, width: bw, length: bl, outline };
   });
 
