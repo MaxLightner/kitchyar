@@ -1368,6 +1368,9 @@ export default function App() {
     }, commit);
   };
 
+  const fridgeFrontDepth = (fridge: CabinetBox) =>
+    fridge.fridgeConcealed ? fridge.depth : (fridge.fridgeFrameDepthCm === 80 ? 80 : 60) + 15;
+
   const handleSetFridgeConcealed = (enabled: boolean) => {
     if (!activeWall || !activeBox || activeBox.type !== 'fridge') return;
     mutateActiveWall(w => {
@@ -1377,6 +1380,10 @@ export default function App() {
           'fridge-french-4drawer', 'side-by-side'].includes(fridge.fridgeModel ?? '');
         // Only side-by-side models may use the MDF concealed surround.
         fridge.fridgeConcealed = enabled && sideBySide;
+        if (fridge.overFridgeDepthMode === 'flush') {
+          const linked = w.boxes.find(b => b.linkedToBoxId === fridge.id);
+          if (linked) linked.depth = fridgeFrontDepth(fridge);
+        }
       }
     }, true);
   };
@@ -1385,7 +1392,13 @@ export default function App() {
     if (!activeBox || activeBox.type !== 'fridge') return;
     mutateActiveWall(w => {
       const fridge = w.boxes.find(b => b.id === activeBox.id && b.type === 'fridge');
-      if (fridge) fridge.fridgeFrameDepthCm = cm;
+      if (fridge) {
+        fridge.fridgeFrameDepthCm = cm;
+        if (fridge.overFridgeDepthMode === 'flush') {
+          const linked = w.boxes.find(b => b.linkedToBoxId === fridge.id);
+          if (linked) linked.depth = fridgeFrontDepth(fridge);
+        }
+      }
     }, true);
   };
   const handleSetFridgeOverDepth = (mode: '60' | 'flush') => {
@@ -1395,7 +1408,7 @@ export default function App() {
       if (!fridge) return;
       fridge.overFridgeDepthMode = mode;
       const above = w.boxes.find(box => box.linkedToBoxId === fridge.id);
-      if (above) above.depth = mode === '60' ? 60 : fridge.depth;
+      if (above) above.depth = mode === '60' ? 60 : fridgeFrontDepth(fridge);
     }, true);
   };
 
@@ -1413,7 +1426,7 @@ export default function App() {
       over.name = 'بالای یخچال';
       over.elevY = fridge.height;
       over.height = Math.max(30, top - fridge.height);
-      over.depth = fridge.overFridgeDepthMode === 'flush' ? fridge.depth : 60;
+      over.depth = fridge.overFridgeDepthMode === 'flush' ? fridgeFrontDepth(fridge) : 60;
       over.linkedToBoxId = fridge.id;
       over.doors = [{ id: uid('door'), startCm: 0, widthCm: over.width, kind: 'lift', drawerRatios: [] }];
       w.boxes.push(over);
@@ -1453,6 +1466,10 @@ export default function App() {
     if (updated && !['fridge-sbs-homebar','fridge-instaview-black',
         'fridge-french-4drawer','side-by-side'].includes(model)) {
       updated.fridgeConcealed = false;
+    }
+    if (updated?.overFridgeDepthMode === 'flush') {
+      const linked = w.boxes.find(box => box.linkedToBoxId === updated.id);
+      if (linked) linked.depth = fridgeFrontDepth(updated);
     }
     commitState(next, true);
     showToast('مدل یخچال انتخاب‌شده تغییر کرد');

@@ -3053,7 +3053,7 @@ function addPantryBaskets(parent: THREE.Group, width: number, height: number, de
  * bowl's safe bounding rectangle (rotated bowls expand by a few mm).
  */
 const SINK_SOURCE_LAYOUTS: Record<string, {
-  w: number; d: number; holes: Array<{x:number;z:number;w:number;d:number;
+  w: number; d: number; sourceCenterZ?:number; holes: Array<{x:number;z:number;w:number;d:number;
     rot?:number; outline?:Array<[number,number]>}>;
 }> = {
   'sink-double-flat-chrome': { w:1.32,d:.56,holes:[{x:-.42,z:-.015,w:.37,d:.42},{x:.02,z:-.015,w:.37,d:.42}] },
@@ -3064,15 +3064,15 @@ const SINK_SOURCE_LAYOUTS: Record<string, {
   'sink-workstation-gunmetal': { w:1.14,d:.56,holes:[{x:0,z:.045,w:1.04,d:.39}] },
   'sink-single-fan-steel': { w:1.06,d:.58,holes:[{x:-.21,z:0,w:.45,d:.42}] },
   'sink-double-grid-steel': { w:1.34,d:.56,holes:[{x:-.44,z:0,w:.37,d:.41},{x:-.02,z:0,w:.37,d:.41}] },
-  'sink-corner-v-steel': { w:1.16,d:.86,holes:[
+  'sink-corner-v-steel': { w:1.16,d:.86,sourceCenterZ:-.01,holes:[
     {x:-.27,z:.05,w:.34,d:.33,rot:-Math.PI/4},
     {x:.27,z:.05,w:.34,d:.33,rot:Math.PI/4},
   ] },
-  'sink-corner-l-steel': { w:1.18,d:.88,holes:[
+  'sink-corner-l-steel': { w:1.22,d:.90,sourceCenterZ:.03,holes:[
     {x:-.32,z:.08,w:.32,d:.32,rot:-Math.PI/4},
     {x:-.02,z:-.15,w:.32,d:.32,rot:-Math.PI/4},
   ] },
-  'sink-corner-granite-brown': { w:1.28,d:.88,holes:[
+  'sink-corner-granite-brown': { w:1.28,d:.88,sourceCenterZ:.08,holes:[
     {x:-.15,z:-.06,w:.42,d:.44,outline:[
       [-.36,.02],[-.14,.16],[.02,-.04],[.06,-.22],[-.18,-.28],[-.34,-.14]
     ]},
@@ -3087,7 +3087,8 @@ function sinkModelPlacement(app: ApplianceItem, depth: number, sign: number) {
     Math.max(.1, depth - .05) / layout.d,
   );
   const x = (app.offsetX + app.width / 2) * CM;
-  const z = sign * (depth - .015 - layout.d * scale / 2);
+  const z = sign * (depth - .015 - layout.d * scale / 2 -
+    (layout.sourceCenterZ ?? 0) * scale);
   return {layout, scale, x, z};
 }
 function sinkFootprint(app: ApplianceItem, depth: number, sign: number) {

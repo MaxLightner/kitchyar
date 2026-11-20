@@ -4409,6 +4409,10 @@ export function updateFridgeBoxModelAndSize(
     over.width = targetW;
     over.elevY = fridge.height;
     over.height = Math.max(30, topAlign - fridge.height);
+    over.depth = fridge.overFridgeDepthMode === 'flush'
+      ? (fridge.fridgeConcealed ? fridge.depth :
+        (fridge.fridgeFrameDepthCm === 80 ? 80 : 60) + 15)
+      : 60;
     if (over.doors.length > 0) {
       over.doors[0].startCm = 0;
       over.doors[0].widthCm = targetW;
