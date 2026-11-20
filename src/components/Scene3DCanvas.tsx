@@ -86,8 +86,8 @@ import {
   disposeObject3D,
   HandleSpotOverlaySet,
   Scene3DHitData,
-import { kitchenOcclusionGeometryKey } from '../cad/kitchenOcclusion';
 } from '../cad/scene3dBuilder';
+import { kitchenOcclusionGeometryKey } from '../cad/kitchenOcclusion';
 import {
   ApplianceKind,
   BacksplashFinishId,
