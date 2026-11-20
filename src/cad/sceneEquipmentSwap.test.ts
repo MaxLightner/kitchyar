@@ -16,7 +16,7 @@ const sample = () => ({
       { id: 'hob', kind: 'gas', offsetX: 200, width: 90, cooktopModel: 'hob-steel-5-center' },
     ],
   }],
-  settings: { equipmentFinish: 'silver' },
+  settings: { ...DEFAULT_PROJECT_SETTINGS, equipmentFinish: 'silver' },
 }) as unknown as ProjectState;
 
 test('color and procedural cooktop model changes leave kitchen structure intact', () => {
