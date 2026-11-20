@@ -39,6 +39,40 @@ export interface SinkCountertopParams {
   arcSegments?: number;
 }
 
+/**
+ * Expand a sink basin polygon outwards by a small physical installation gap.
+ * Mitered offsets maintain the wall clearance around diagonal corners instead
+ * of scaling polygon vertices from the center (which varies at each angle).
+ * A bounded join prevents skinny spikes / degenerate triangles in cutouts.
+ */
+export function expandBasinCutoutOutline(points: Array<[number, number]>, gapM = .008): Array<[number, number]> {
+  if (points.length < 3 || gapM <= 0) return points.map(([x, z]) => [x, z]);
+  let twiceArea = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x, z] = points[i];
+    const [nx, nz] = points[(i + 1) % points.length];
+    twiceArea += x * nz - nx * z;
+  }
+  const winding = twiceArea >= 0 ? 1 : -1;
+  const outward = (a: [number, number], b: [number, number]): [number, number] => {
+    const dx = b[0] - a[0], dz = b[1] - a[1];
+    const length = Math.max(1e-8, Math.hypot(dx, dz));
+    return winding > 0 ? [dz / length, -dx / length] : [-dz / length, dx / length];
+  };
+  return points.map((point, i) => {
+    const prev = points[(i - 1 + points.length) % points.length];
+    const next = points[(i + 1) % points.length];
+    const n1 = outward(prev, point);
+    const n2 = outward(point, next);
+    const bx = n1[0] + n2[0], bz = n1[1] + n2[1];
+    const d = bx * n2[0] + bz * n2[1];
+    if (Math.abs(d) < .15) return [point[0] + n2[0] * gapM, point[1] + n2[1] * gapM];
+    const amount = Math.min(gapM * 2.5, Math.abs(gapM / d) * Math.hypot(bx, bz));
+    const length = Math.max(1e-8, Math.hypot(bx, bz));
+    return [point[0] + bx * amount / length * Math.sign(d), point[1] + bz * amount / length * Math.sign(d)];
+  });
+}
+
 const COUNTERTOP_UV_U_SCALE = 1.8;
 const COUNTERTOP_UV_V_SCALE = 0.62;
 
