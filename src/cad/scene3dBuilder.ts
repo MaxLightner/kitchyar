@@ -34,7 +34,7 @@ import { getCabinetLighting, getKitchenCabinetLightMode } from './cabinetLightin
 import { limitKitchenHdrIrradiance } from './kitchenEnvironment';
 import { getWallColumnSpans } from './openingRules';
 import { createKitchenMaterialPack, getEquipmentEdgeNormalMap, KitchenMaterialPack, isSharedKitchenTexture } from './materials3d';
-import { fitAppliance, makeFridge, makeHood, makeCooktop, makeSink, makeWashingMachine, makeDishwasher } from './applianceModels';
+import { fitAppliance, makeFridge, makeHood, makeCooktop, makeSink, makeWashingMachine, makeDishwasher, toneApplianceMetal } from './applianceModels';
 import {
   createCountertopSectionGeometry,
   createSinkCountertopGeometry,
@@ -193,6 +193,8 @@ export interface BuiltKitchenScene {
   activateOcclusion?: () => void;
   /** Costly source models are populated after the first scene frame. */
   deferredEquipmentJobs?: Array<() => void>;
+  /** Replace only affected procedural equipment without rebuilding the room. */
+  updateEquipment?: (project: ProjectState) => boolean;
   updateLighting: (project: ProjectState, stage?: number) => void;
 }
 
@@ -207,6 +209,20 @@ export function kitchenGeometryKey(project: ProjectState): string {
   return JSON.stringify(project, (key, value) => LIGHTING_ONLY_KEYS.has(key) ? undefined : value);
 }
 
+
+/** Stable room geometry identity. Cosmetic appliance model/finish updates can be
+ * applied to their existing holders without reconstructing cabinets, camera,
+ * reflections, or other equipment. Structural size/position edits still rebuild. */
+export function kitchenStructuralKey(project: ProjectState): string {
+  return JSON.stringify(project, function (key, value) {
+    if (key === 'equipmentFinish' || key === 'fridgeModel' || key === 'sinkModel' ||
+        key === 'sinkFinish' || key === 'hoodModel' || key === 'hoodFinish' ||
+        key === 'cooktopModel') return undefined;
+    if (key === 'finish' && this && typeof this === 'object' &&
+        'kind' in this && 'offsetX' in this) return undefined;
+    return LIGHTING_ONLY_KEYS.has(key) ? undefined : value;
+  });
+}
 
 export function detectSoftwareWebGL(gl: WebGLRenderingContext | WebGL2RenderingContext | null): boolean {
   if (!gl) return true;
@@ -664,6 +680,9 @@ export function buildKitchen3DScene(
   const interactables: THREE.Object3D[] = [];
   const animatedDoors: AnimatedDoorHandle[] = [];
   const deferredEquipmentJobs: Array<() => void> = [];
+  const applianceViews = new Map<string, { signature: string; refresh: (wall: Wall, item: ApplianceItem, next: ProjectState) => void }>();
+  const fridgeViews = new Map<string, { model?: string; refresh: (wall: Wall, box: CabinetBox, next: ProjectState) => void }>();
+  let registerOvenParts = (_group: THREE.Object3D) => {};
   const linearControls: Array<{ boxId: string; group: THREE.Group; strip: THREE.Mesh; area: THREE.RectAreaLight }> = [];
   const cooktopControls: Array<{ id: string; setLit: (lit: boolean) => void }> = [];
   const halogenControls: Array<{ boxId: string; group: THREE.Group; decals: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] }> = [];
@@ -3221,6 +3240,7 @@ function buildAppliance3D(
   if (app.kind === 'sink') {
     const { layout, scale, x, z } = sinkModelPlacement(app, boxDepthCm * CM, normalSign);
     const model = makeSink(app.sinkModel);
+    toneApplianceMetal(model, app.sinkFinish ?? defaultEquipmentFinish);
     // The model's deck is made at local y=0 and the basins extend below it;
     // align this exactly with the countertop's perforated top.
     model.scale.set(scale, scale, normalSign * scale);
@@ -3241,6 +3261,7 @@ function buildAppliance3D(
     const cookW = isFiveBurnerCooktop(app.cooktopModel) ? .90 : aw;
     const cookD = Math.min(0.55, Math.max(0.38, boxDepthCm * CM - 0.04));
     const hob = makeCooktop(app.cooktopModel);
+    toneApplianceMetal(hob.group, app.finish ?? defaultEquipmentFinish);
     const cooktop = fitAppliance(hob.group, {
       w: cookW, h: 100, d: 100, // width-led, never shrink X to satisfy a Y/Z cap
     }, normalSign, 'floor');
@@ -3292,7 +3313,9 @@ function buildAppliance3D(
       hoodOutlineH = 0.08;
       hoodOutlineZ = normalSign * 0.16;
     } else {
-      const model = fitAppliance(makeHood(app.hoodModel), {
+      const sourceHood = makeHood(app.hoodModel);
+      toneApplianceMetal(sourceHood, app.hoodFinish ?? defaultEquipmentFinish);
+      const model = fitAppliance(sourceHood, {
         w: Math.max(0.55, cookW, aw),
         h: 100, d: 100, // retain actual width, not the old 42cm depth scale cap
       }, normalSign);
@@ -3438,8 +3461,9 @@ function buildAppliance3D(
   const machH = Math.max(.65, (topElevCm - counterCm) * CM);
   const machW = Math.max(.4, aw - .016);
   const machD = Math.max(.45, boxDepthCm * CM - .014);
-  const finish = defaultEquipmentFinish;
+  const finish = app.finish ?? defaultEquipmentFinish;
   const source = app.kind === 'washing' ? makeWashingMachine(finish) : makeDishwasher(finish);
+  toneApplianceMetal(source, finish);
   const applianceMesh = fitAppliance(source, {w:machW,h:machH,d:machD},normalSign);
   // The fitted model is centered in Z. Position its actual FRONT, not its
   // center, at/behind the countertop edge: never >1cm beyond the stone.
