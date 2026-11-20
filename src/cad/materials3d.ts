@@ -511,8 +511,15 @@ export function createKitchenMaterialPack(project: ProjectState, onTextureReady?
     let map = textures.get(id);
     if (!map) {
       const url = WOOD_MAP[id];
-      map = url ? new THREE.TextureLoader().load(import.meta.env.BASE_URL + 'assets/materials/' + url,
-        () => onTextureReady?.()) : createSatinMap();
+      const loader = new THREE.TextureLoader();
+      map = url ? loader.load(import.meta.env.BASE_URL + 'assets/materials/' + url,
+        () => onTextureReady?.(), undefined, () => {
+          // Windows / local dev without the offline JPEG encoder still display
+          // the original WebP rather than a missing/black cabinet texture.
+          if (!url.endsWith('.jpg') || !map) return;
+          loader.load(import.meta.env.BASE_URL + 'assets/materials/' + url.replace(/\.jpg$/, '.webp'),
+            fallback => { if (!map) return; map.image = fallback.image; map.needsUpdate = true; onTextureReady?.(); });
+        }) : createSatinMap();
       map.colorSpace = THREE.SRGBColorSpace;
       map.anisotropy = 4;
       textures.set(id, map);

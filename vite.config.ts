@@ -24,7 +24,9 @@ function prepareMaterialJpegs() {
         '-quality','82',output],{encoding:'utf8'});
     }
     if(result.status !== 0 || !fs.existsSync(output)) {
-      throw new Error('Cannot convert material to JPEG: '+name+'; install ffmpeg or ImageMagick');
+      // Developer machines without converters can continue using the original
+      // WebP via the TextureLoader fallback. CI has ffmpeg installed.
+      console.warn('Material JPEG conversion skipped (ffmpeg unavailable): '+name);
     }
   }
 }

@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      - name: Install JPEG material encoder
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: bun run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
