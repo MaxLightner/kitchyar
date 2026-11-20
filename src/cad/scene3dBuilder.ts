@@ -1883,6 +1883,20 @@ function buildBox3D(ctx: {
       app.offsetX + app.width <= box.offsetX + box.width + 0.1)
     .flatMap(app => sinkFootprint(app, bd, normalSign).bowls) : [];
 
+  // Remove the countertop beneath embedded hobs; their top plate rests at
+  // the stone surface and only the central installation cavity is cut away.
+  // Do not remove the narrow stone support around the outer hob rim.
+  const hobCutouts: SinkBowl[] = box.type === 'base' ? wall.appliances
+    .filter(app => app.kind === 'gas' && app.offsetX >= box.offsetX - 0.1 &&
+      app.offsetX + app.width <= box.offsetX + box.width + 0.1)
+    .map(app => ({
+      x: (app.offsetX + app.width / 2) * CM,
+      z: normalSign * (bd / 2 + 0.015),
+      width: Math.max(.12, app.width * CM - .095),
+      length: Math.max(.16, Math.min(.41, bd - .14)),
+    })) : [];
+  const countertopCutouts = [...sinkBowls, ...hobCutouts];
+
   for (const sp of solidHorizSpans) {
     const spanW = (sp.e - sp.s) * CM;
     if (spanW < 0.04) continue;
@@ -1944,7 +1958,7 @@ function buildBox3D(ctx: {
     const slabStartX = bx + trimLeftM;
     const slabW = Math.max(0.04, bw - trimLeftM - trimRightM);
     const slabSign: 1 | -1 = normalSign >= 0 ? 1 : -1;
-    const slabGeo = sinkBowls.length
+    const slabGeo = countertopCutouts.length
       ? createSinkCountertopGeometry({
           startX: slabStartX,
           width: slabW,
@@ -1953,7 +1967,7 @@ function buildBox3D(ctx: {
           normalSign: slabSign,
           topEdge: ctTopEdge,
           bottomEdge: ctBottomEdge,
-          bowls: sinkBowls,
+          bowls: countertopCutouts,
         })
       : createCountertopSectionGeometry({
           startX: slabStartX,
@@ -3276,7 +3290,11 @@ function buildAppliance3D(
         h: Math.max(0.3, Math.min(0.8, hoodTop - hoodY + 0.06)),
         d: hoodD,
       }, normalSign);
-      model.position.set(ax, hoodY, normalSign * (hoodD + 0.015));
+      // The wall-facing rear surface of every source hood must touch Z=0.
+      // fitAppliance centers the source model, so placing its origin at the
+      // entire hood depth pushed the rear ~20cm away from the wall.
+      const fittedHoodDepth = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).z;
+      model.position.set(ax, hoodY, normalSign * (fittedHoodDepth / 2 + 0.001));
       model.traverse(child => { if (child instanceof THREE.Mesh) child.userData.subPart = 'hood'; });
       hoodParts.push(model);
       hoodOutlineCenterY = hoodY + 0.24;
@@ -3415,7 +3433,14 @@ function buildAppliance3D(
   const finish = defaultEquipmentFinish;
   const source = app.kind === 'washing' ? makeWashingMachine(finish) : makeDishwasher(finish);
   const applianceMesh = fitAppliance(source, {w:machW,h:machH,d:machD},normalSign);
-  applianceMesh.position.set(ax,0,normalSign*(boxDepthCm * CM - .015));
+  // The fitted model is centered in Z. Position its actual FRONT, not its
+  // center, at/behind the countertop edge: never >1cm beyond the stone.
+  // Preserve the exact white/silver geometry, materials and details from the
+  // user's ZIP; no substitute primitives or material overrides here.
+  const fittedDepth = new THREE.Box3().setFromObject(applianceMesh).getSize(new THREE.Vector3()).z;
+  const countertopFront = boxDepthCm * CM + .01; // stone overhang beyond carcass
+  applianceMesh.position.set(ax, 0,
+    normalSign * (countertopFront - .002 - fittedDepth / 2));
   applianceMesh.traverse(child => {
     if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
   });
