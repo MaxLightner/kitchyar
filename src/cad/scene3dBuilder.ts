@@ -1884,24 +1884,9 @@ function buildBox3D(ctx: {
       app.offsetX + app.width <= box.offsetX + box.width + 0.1)
     .flatMap(app => sinkFootprint(app, bd, normalSign).bowls) : [];
 
-  // Remove the countertop beneath embedded hobs; their top plate rests at
-  // the stone surface and only the central installation cavity is cut away.
-  // Do not remove the narrow stone support around the outer hob rim.
-  const hobCutouts: SinkBowl[] = box.type === 'base' ? wall.appliances
-    .filter(app => app.kind === 'gas' && app.offsetX + app.width > box.offsetX &&
-      app.offsetX < box.offsetX + box.width)
-    .map(app => {
-      const fiveBurners = isFiveBurnerCooktop(app.cooktopModel);
-      const mountedWidth = fiveBurners ? .90 : app.width * CM;
-      return {
-        x: (app.offsetX + app.width / 2) * CM,
-        z: normalSign * bd * .5,
-        width: Math.max(.12, mountedWidth - .095),
-        length: Math.max(.16, Math.min(.43, bd - .14)),
-        outline: undefined,
-      };
-    }) : [];
-  const countertopCutouts = [...sinkBowls, ...hobCutouts];
+  // Cooktops are surface mounted: the black/steel plate rests on uninterrupted
+  // countertop stone. Only actual sinks cut through the slab.
+  const countertopCutouts = sinkBowls;
 
   for (const sp of solidHorizSpans) {
     const spanW = (sp.e - sp.s) * CM;
@@ -3267,8 +3252,9 @@ function buildAppliance3D(
     // Model's CENTER is half its own visual depth away from the room-facing
     // countertop edge; never put the center at 57cm (20cm overhang).
     const cooktopZ = normalSign * (boxDepthCm * CM - 0.01 - cooktopDepth / 2);
-    // The glass/steel plate rests directly on the stone; its mounting cavity
-    // is cut out from the slab rather than leaving stone inside the burner.
+    // After removing the model's underside chassis, fitAppliance's local
+    // Y=0 is the underside of the black/steel top sheet. Seat it 1mm above
+    // the stone to avoid z-fighting; do not recess or cut the countertop.
     cooktop.position.set(ax, topY + .001, cooktopZ);
     hob.setLit(Boolean(app.flameOn));
     cooktopControls.push({ id: app.id, setLit: hob.setLit });

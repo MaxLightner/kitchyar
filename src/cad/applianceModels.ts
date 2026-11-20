@@ -93,15 +93,28 @@ export function makeFridge(model: FridgeModel | undefined, mats = applianceMater
   }
 }
 export function makeCooktop(model: CooktopModelId | undefined, mats = applianceMaterials()): LitApplianceResult {
+  let hob: LitApplianceResult;
   switch (model) {
-    case 'hob-steel-5-right': return buildHobSteel5Right(mats);
-    case 'hob-steel-5-center': return buildHobSteel5Center(mats);
-    case 'hob-steel-3': return buildHobSteel3(mats);
-    case 'hob-domino-2': return buildHobDomino2(mats);
-    case 'hob-ceramic-4': return buildHobCeramic4(mats);
-    case 'hob-induction-4': return buildHobInduction4(mats);
-    default: return buildHobGlass5(mats);
+    case 'hob-steel-5-right': hob = buildHobSteel5Right(mats); break;
+    case 'hob-steel-5-center': hob = buildHobSteel5Center(mats); break;
+    case 'hob-steel-3': hob = buildHobSteel3(mats); break;
+    case 'hob-domino-2': hob = buildHobDomino2(mats); break;
+    case 'hob-ceramic-4': hob = buildHobCeramic4(mats); break;
+    case 'hob-induction-4': hob = buildHobInduction4(mats); break;
+    default: hob = buildHobGlass5(mats); break;
   }
+
+  // All seven procedural cooktops have a recessed dark chassis below their
+  // black/steel deck. These are surface-mounted appliances, so remove that
+  // underbody entirely. The deck, burner grates, knobs and flame toggles stay.
+  const underbodies: THREE.Mesh[] = [];
+  hob.group.traverse(part => {
+    if (part instanceof THREE.Mesh && part.material === mats.darkChassis && part.position.y < -0.01) {
+      underbodies.push(part);
+    }
+  });
+  for (const underbody of underbodies) underbody.removeFromParent();
+  return hob;
 }
 export function makeSink(model?: SinkModelId | string, mats = applianceMaterials()): THREE.Group {
   switch (model) {
