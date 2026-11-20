@@ -503,7 +503,7 @@ export const APPLIANCE_CONFIGS: Record<
   { label: string; shortLabel: string; width: number; depth: number; heightCm?: number }
 > = {
   sink: { label: 'سینک (۹۰cm)', shortLabel: 'سینک', width: 90, depth: 50 },
-  gas: { label: 'گاز صفحه‌ای (۸۰cm)', shortLabel: 'گاز', width: 80, depth: 52 },
+  gas: { label: 'گاز صفحه‌ای پنج‌شعله (۹۰cm)', shortLabel: 'گاز', width: 90, depth: 55 },
   dishwasher: { label: 'ماشین ظرفشویی (۶۰cm)', shortLabel: 'ظرفشویی', width: 60, depth: 58 },
   washing: { label: 'ماشین لباسشویی (۶۰cm)', shortLabel: 'لباسشویی', width: 60, depth: 58 },
   'builtin-oven': { label: 'فر توکار (۶۰cm)', shortLabel: 'فر توکار', width: 60, depth: 56, heightCm: 60 },
