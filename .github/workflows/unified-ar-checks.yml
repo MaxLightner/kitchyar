@@ -20,7 +20,7 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: bun run lint
       - name: Tracking, calibration, selection and gesture regression tests
-        run: bunx tsx --test src/ar/unifiedARSession.test.ts src/cad/selectionAlign.test.ts src/cad/chidoFloorTracking.test.ts src/cad/floorScanner.test.ts src/ar/centerAim.test.ts src/utils/chidoSession.test.ts src/utils/gesturePacing.test.ts src/utils/applianceInteractions.test.ts
+        run: bunx tsx --test src/ar/unifiedARSession.test.ts src/cad/selectionAlign.test.ts src/cad/chidoFloorTracking.test.ts src/cad/floorScanner.test.ts src/ar/centerAim.test.ts src/utils/chidoSession.test.ts src/utils/gesturePacing.test.ts src/utils/applianceInteractions.test.ts src/cad/countertopGeometry.test.ts
       - run: bun run build
       - run: bun add --no-save playwright
       - run: bunx playwright install --with-deps chromium
