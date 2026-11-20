@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { kitchenGeometryKey, kitchenStructuralKey } from './scene3dBuilder';
 import type { ProjectState } from './types';
+import { DEFAULT_PROJECT_SETTINGS } from './constants';
 
 const sample = () => ({
   walls: [{
@@ -23,7 +24,7 @@ test('color and procedural cooktop model changes leave kitchen structure intact'
   const after = structuredClone(original);
   after.walls[0].appliances[1].cooktopModel = 'hob-glass-5';
   after.walls[0].appliances[0].sinkFinish = 'black';
-  after.settings = { ...after.settings, equipmentFinish: 'black' };
+  after.settings = { ...DEFAULT_PROJECT_SETTINGS, ...after.settings, equipmentFinish: 'black' };
   assert.equal(kitchenStructuralKey(original), kitchenStructuralKey(after));
   assert.notEqual(kitchenGeometryKey(original), kitchenGeometryKey(after));
 });
